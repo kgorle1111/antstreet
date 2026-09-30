@@ -87,22 +87,31 @@ def test_rounds_keep_ledger_order_and_the_unlocked_flag():
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="report.py:build_report indexes e.data['check'] and e.data['status'] directly, so a "
-    "CHECK_RESULT whose data lacks them (the ledger does not constrain data) raises KeyError",
-)
 def test_a_check_result_missing_its_check_id_does_not_abort_the_whole_report():
     build_report([ev("gate", EventType.CHECK_RESULT, data={})])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="report.py:_workers indexes hired.data['worker'] directly, so a HIRED event without "
-    "it raises KeyError",
-)
 def test_a_hired_event_without_a_worker_name_does_not_abort_the_whole_report():
     build_report([ev("boss", EventType.HIRED, data={})])
+
+
+@pytest.mark.parametrize(
+    ("event", "data", "missing"),
+    [
+        (EventType.CHECK_RESULT, {}, "check, status"),
+        (EventType.CHECK_RESULT, {"check": "c01"}, "status"),
+        (EventType.HIRED, {}, "worker"),
+        (EventType.ROUND_CLOSED, {"passed": 1}, "total, unlocked"),
+        (EventType.DISPUTED, {}, "check"),
+    ],
+)
+def test_an_incomplete_event_is_shown_as_such_and_the_rest_of_the_report_survives(
+    event, data, missing
+):
+    report = build_report([check("c09", "passed"), ev("boss", event, data=data)])
+    assert [c.check for c in report.checks] == ["c09"]
+    assert f"is incomplete (missing {missing})" in report.notes[-1]
+    assert report.notes[-1] in render_report(report)
 
 
 # --- workers --------------------------------------------------------------------------------
