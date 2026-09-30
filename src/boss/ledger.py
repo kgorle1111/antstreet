@@ -15,11 +15,12 @@ from pathlib import Path
 from typing import IO, Any
 
 LEDGER_VERSION = 1
-_ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+)\Z")
+_ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+|role:[a-z][a-z_]*)\Z")
 
 
 class EventType(StrEnum):
     BOSS_CALL = "boss_call"  # the boss's own model spend, e.g. drafting the term sheet
+    ROLE_CALL = "role_call"  # a specialist role's model spend (actor `role:<name>`)
     STARTED = "started"  # the configuration a run was started with, so it can be resumed
     RESUMED = "resumed"  # the investor lifted an earlier stop; everything is verified again
     HIRED = "hired"
