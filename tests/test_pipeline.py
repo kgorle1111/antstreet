@@ -103,6 +103,9 @@ if argv[argv.index("--output-format") + 1] == "json":   # the boss or a role
     table = json.load(open(os.path.join(folder, "prompts.json")))
     who = table.get(hashlib.sha256(system.encode()).hexdigest(), "unknown")
     prompt = argv[-1]
+    if os.path.exists(os.path.join(folder, "interrupt_" + who)):
+        os.kill(os.getppid(), 2)  # Ctrl-C while this call is running
+        import time; time.sleep(30)
     scripted = answer(who)
     log(who, unscripted=scripted is None, model=argv[argv.index("--model") + 1],
         thinking=os.environ.get("MAX_THINKING_TOKENS", "unset"))
@@ -1477,7 +1480,10 @@ def test_a_second_review_cycle_on_resume_makes_a_new_demo_for_the_new_build(fx):
 # --- every role at once ------------------------------------------------------------------------
 
 
-def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
+def every_role(fx):
+    """Script every role so that `--roles all` reaches all of them: a disputed check (the
+    consultant), a verified finding the investor approves (the critic's fix round), a demo and both
+    judgements. Run it with `fx.fund("--roles", "all", answers={"Task": "d"})`."""
     script_stage_1(fx, stories=STORIES)
     fx.set("tester", ok(checks_out("S1.1", "S1.2", codes=(CHECK1, WRONG))))
     fx.set("judge", [ok(judge_out("stories")), ok(judge_out("usage", 5))])
@@ -1486,6 +1492,10 @@ def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
     fx.set("worker", [disputing, {"files": {"rev.py": GOOD}}])
     fx.set("critic", ok({"findings": [finding()]}))
     fx.set("demo_writer", ok(DEMO))
+
+
+def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
+    every_role(fx)
     out = fx.fund("--roles", "all", answers={"Task": "d"})
     assert out.code == EXIT_OK
     assert fx.calls() == [
@@ -1717,3 +1727,24 @@ def test_a_fix_round_after_an_early_finish_still_asks_to_fund_the_rounds_that_ne
     sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
     assert [r["n"] for r in sheet["rounds"]] == [1, 2, 3]
     assert sorted(e.data.get("round", 1) for e in approvals(fx)) == [1, 2, 3]
+
+
+# --- Ctrl-C before the sheet is approved ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("who", ["user_agent", "boss"])
+def test_ctrl_c_while_a_call_runs_before_approval_ends_the_run_cleanly(fx, who):
+    script_stage_1(fx)
+    (fx.folder / f"interrupt_{who}").write_text("")
+    roles = "product_manager,user_agent" if who == "user_agent" else "product_manager"
+    out = fx.fund("--roles", roles)
+    assert out.code == EXIT_INTERRUPTED
+    assert "Interrupted before the term sheet was approved. Nothing was funded" in out.text
+    assert "Start again with `boss fund`." in out.text and "Traceback" not in out.text
+    events = fx.events()
+    assert [e.actor for e in events if e.event is EventType.ROLE_CALL] == ["role:product_manager"]
+    assert (events[-1].actor, events[-1].event) == ("investor", EventType.STOPPED)
+    assert events[-1].data == {"reason": "interrupted before approval"}
+    assert fx.events(EventType.APPROVED) == [] and not (fx.run_dir / "workspaces").exists()
+    again = fx.run("resume")
+    assert again.code == EXIT_FAILED and "it cannot be resumed" in again.text  # no sheet yet

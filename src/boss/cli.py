@@ -311,13 +311,22 @@ def _fund(
             Setup(roles, args.boss_model, args.boss_thinking),
             project, paths, ledger, run_id, env, executable, ask, say,
         )  # fmt: skip
-        plan = pipe.plan(
-            args.idea,
-            args.budget,
-            max_tasks=args.max_tasks,
-            n_rounds=args.rounds,
-            draft_boss=draft_boss,
-        )
+        try:
+            plan = pipe.plan(
+                args.idea,
+                args.budget,
+                max_tasks=args.max_tasks,
+                n_rounds=args.rounds,
+                draft_boss=draft_boss,
+            )
+        except KeyboardInterrupt:  # no term sheet is approved yet, so there is nothing to resume
+            record("investor", EventType.STOPPED, data={"reason": "interrupted before approval"})
+            say(
+                "Interrupted before the term sheet was approved. Nothing was funded; what the "
+                f"calls so far cost is on the ledger ({paths.ledger}). "
+                "Start again with `boss fund`."
+            )
+            return EXIT_INTERRUPTED
         if plan is None:
             return EXIT_FAILED
         sheet = review_term_sheet(
