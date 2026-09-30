@@ -105,8 +105,8 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   check no longer matches your approval.
 - A ledger whose last line was cut by a hard kill is repaired first: the cut line is removed and
   `resume` prints it. A ledger damaged anywhere else is refused.
-- If another `boss` process is still writing the run's ledger, `resume` ends with a Python
-  traceback (`LedgerLockedError`), not a message. Nothing is changed. Not fixed yet.
+- If another `boss` process is still writing the run's ledger, `resume` says so and exits 1.
+  Nothing is changed, not even a cut-off last line.
 - Exit codes are those of `boss fund`.
 
 ## `boss report`

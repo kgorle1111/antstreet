@@ -13,7 +13,7 @@ from boss.cli import (
     EXIT_USAGE,
     main,
 )
-from boss.ledger import EventType, read_events, total
+from boss.ledger import EventType, LedgerWriter, read_events, total
 
 CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 DRAFT = {
@@ -334,6 +334,21 @@ def test_resume_repairs_a_ledger_whose_last_line_was_cut_off_and_says_so(boss):
     assert "last line was cut off by a hard stop and has been removed" in output
     assert code == EXIT_INCOMPLETE
     assert len(read_events(ledger)) >= whole  # readable again, nothing else lost
+
+
+def test_resume_while_another_process_writes_the_run_is_refused_and_changes_nothing(boss):
+    wrong_product(boss)
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--max-slices", "1")
+    ledger = boss.runs()[0] / "ledger.jsonl"
+    with ledger.open("a") as fh:
+        fh.write('{"actor": "boss", "event": "hir')  # a torn tail the repair would cut
+    before = ledger.read_bytes()
+    with LedgerWriter(ledger):  # the other process, still running
+        code, output = boss("resume")
+    assert code == EXIT_FAILED
+    assert "still being written by another `boss` process" in output
+    assert "Traceback" not in output and "cut off" not in output
+    assert ledger.read_bytes() == before
 
 
 def test_a_ledger_damaged_in_the_middle_is_reported_not_repaired(boss):

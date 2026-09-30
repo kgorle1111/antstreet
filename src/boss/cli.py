@@ -39,6 +39,7 @@ from boss.firm import (
 from boss.ledger import (
     EventType,
     LedgerCorruptError,
+    LedgerLockedError,
     LedgerWriter,
     read_events,
     repair_torn_tail,
@@ -333,6 +334,17 @@ def _resume(
     run = _find_run(args, project, say)
     if run is None:
         return EXIT_FAILED
+    try:
+        return _resume_run(run, project, environ, ask, say)
+    except LedgerLockedError:  # the repair and the writer take the lock before writing anything
+        say(
+            f"Run {run} is still being written by another `boss` process. Nothing was changed; "
+            "let it finish or stop it, then resume."
+        )
+        return EXIT_FAILED
+
+
+def _resume_run(run: str, project: Path, environ: Mapping[str, str], ask: Ask, say: Say) -> int:
     paths = RunPaths(project / RUNS_DIR / run)
     torn = repair_torn_tail(paths.ledger)
     if torn is not None:
