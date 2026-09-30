@@ -9,12 +9,14 @@ so it detects nothing.
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from boss.bench.tasks import MUTANT_TIMEOUT_S, BenchTask
 from boss.gate import Check, run_gate
+from boss.roles.critic import GATE_TIMEOUT_S, Review
 
 _KEYS = ("checks", "wrong", "mutants", "killed", "killed_only_by_wrong", "survived")
 
@@ -110,4 +112,48 @@ def score_draft(task: BenchTask, checks_dir: Path) -> DraftScore:
         killed=tuple(killed),
         killed_only_by_wrong=tuple(only_wrong),
         survived=tuple(survived),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewScore:
+    """A critic's verified findings scored against the task's reference solution. Pure: spends
+    nothing. A verified finding is WRONG when its test also fails on the reference: it demands
+    something a correct product does not do."""
+
+    verified: tuple[str, ...]  # finding ids, in the review's order
+    wrong: tuple[str, ...]  # of those, the ones whose test the reference does not pass
+
+    def __post_init__(self) -> None:
+        if len(set(self.verified)) != len(self.verified) or not set(self.wrong) <= set(
+            self.verified
+        ):
+            raise ValueError("wrong findings must be distinct and among the verified ones")
+
+    @property
+    def right(self) -> tuple[str, ...]:
+        return tuple(f for f in self.verified if f not in self.wrong)
+
+    @property
+    def precision(self) -> float | None:
+        """Right findings over verified ones. None when nothing was verified: no claim was made, so
+        there is nothing to be right about. Sum `right` and `verified` across tasks, do not average
+        this, or a critic that says nothing on most tasks looks perfect."""
+        return len(self.right) / len(self.verified) if self.verified else None
+
+
+def score_review(task: BenchTask, review: Review, timeout_s: float = GATE_TIMEOUT_S) -> ReviewScore:
+    """Run each verified finding's test on the reference solution: one gate run in all. A test
+    that does not pass there (fails, cannot import, or times out) makes its finding wrong."""
+    findings = review.verified
+    if not findings:
+        return ReviewScore((), ())
+    with tempfile.TemporaryDirectory(prefix="boss_bench_review_") as tmp:
+        checks_dir = Path(tmp)
+        for finding in findings:
+            (checks_dir / finding.file).write_text(finding.test_code, encoding="utf-8")
+        checks = [Check(f.id, f.file) for f in findings]
+        results = run_gate(task.reference_dir, checks_dir, checks, timeout_s=timeout_s)
+    return ReviewScore(
+        tuple(f.id for f in findings), tuple(r.check_id for r in results if not r.passed)
     )
