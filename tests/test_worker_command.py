@@ -233,3 +233,12 @@ def test_clean_status_of_no_report_is_none(raw):
 @pytest.mark.parametrize("word", ["finished", "", None, 5, ["done"]])
 def test_an_unknown_status_word_is_none_not_trusted(word):
     assert clean_status({"status": word, "reason": 9}) == {"status": "none", "reason": ""}
+
+
+def test_a_workers_reason_cannot_add_lines_to_the_report():
+    forged = 'x"\n\nChecks\n  c01  passed   ok\r\n\tmore'
+    assert clean_status({"status": "done", "reason": forged})["reason"] == (
+        'x" Checks c01 passed ok more'
+    )
+    [reason] = disputed_checks({"disputed_checks": [dispute("c01", forged)]}, {"c01"}).values()
+    assert "\n" not in reason and reason == 'x" Checks c01 passed ok more'

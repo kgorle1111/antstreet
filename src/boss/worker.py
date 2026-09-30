@@ -137,8 +137,14 @@ def disputed_checks(status: Mapping[str, Any] | None, allowed: Collection[str]) 
         if not isinstance(check, str) or check not in allowed or check in found:
             continue
         if isinstance(reason, str) and reason.strip():
-            found[check] = safe_text(reason.strip(), limit=MAX_DISPUTE_REASON_CHARS)
+            found[check] = _one_line(reason, MAX_DISPUTE_REASON_CHARS)
     return found
+
+
+def _one_line(text: str, limit: int) -> str:
+    """Model text for a one-line slot in the ledger and the report: newlines in it could forge
+    lines of the report a person reads."""
+    return safe_text(" ".join(text.split()), limit=limit)
 
 
 def clean_status(status: object) -> dict[str, str] | None:
@@ -150,7 +156,7 @@ def clean_status(status: object) -> dict[str, str] | None:
     word, reason = status.get("status"), status.get("reason")
     return {
         "status": word if isinstance(word, str) and word in _STATUSES else "none",
-        "reason": safe_text(reason, limit=MAX_REASON_CHARS) if isinstance(reason, str) else "",
+        "reason": _one_line(reason, MAX_REASON_CHARS) if isinstance(reason, str) else "",
     }
 
 

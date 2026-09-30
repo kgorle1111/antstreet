@@ -1,8 +1,10 @@
 """Redaction edge cases: overlapping secrets, repeated passes, and shapes the patterns miss."""
 
+import time
+
 import pytest
 
-from boss.redact import MASK, redact
+from boss.redact import MASK, redact, safe_text
 
 KEY = "sk-ant-api03-" + "A1b2C3d4E5f6G7h8I9j0" * 2
 
@@ -108,3 +110,74 @@ def test_private_key_block_whose_begin_line_was_cut_off_is_masked():
 def test_a_complete_key_block_is_masked_once_and_the_text_around_it_kept():
     block = "-----BEGIN PRIVATE KEY-----\nQUJD\n-----END PRIVATE KEY-----"
     assert redact(f"a\n{block}\nb\n{block}\nc") == f"a\n{MASK}\nb\n{MASK}\nc"
+
+
+# Found by review: the first version of the headless-key rule was a regex with a repeated line
+# group. 1 MB of key-like lines with no END line took 70 seconds, and a worker's status text
+# reaches this code, so a worker could stall the loop.
+@pytest.mark.parametrize(
+    "text",
+    [
+        ("A" * 64 + "\n") * 16_000,  # about 1 MB of key-like lines, no END line
+        "AB\n" * 33_000,
+        ("A" * 64 + "\n") * 8_000 + "not key material\n" + ("B" * 64 + "\n") * 8_000,
+        "-----BEGIN PRIVATE KEY-----\n" * 5_000,
+        "-----END PRIVATE KEY-----\n" * 5_000,
+        "sk-" * 100_000,
+        "password=" * 50_000,
+        "'" * 200_000,
+    ],
+    ids=[
+        "key-lines",
+        "short-lines",
+        "two-runs",
+        "many-begins",
+        "many-ends",
+        "sk",
+        "assign",
+        "quotes",
+    ],
+)
+def test_redaction_is_fast_on_adversarial_input(text):
+    started = time.perf_counter()
+    redact(text)
+    assert time.perf_counter() - started < 2.0
+
+
+def test_every_headless_block_is_masked_and_the_text_between_them_kept():
+    text = "QUJD\n-----END PRIVATE KEY-----\nkeep me\nREVG\nR0hJ\n-----END RSA PRIVATE KEY-----\n"
+    assert redact(text) == f"{MASK}\nkeep me\n{MASK}\n"
+
+
+def test_a_headless_block_at_the_very_start_and_crlf_lines_are_masked():
+    assert redact("-----END PRIVATE KEY-----") == MASK
+    assert redact("QUJD\r\nREVG\r\n-----END PRIVATE KEY-----") == MASK
+
+
+def test_key_material_lines_stop_at_the_first_line_that_is_not_key_material():
+    text = "QUJD\n\nREVG\n-----END PRIVATE KEY-----"  # a blank line ends the block
+    assert redact(text) == f"QUJD\n\n{MASK}"
+
+
+def test_safe_text_with_a_limit_does_not_read_a_huge_input_to_the_end():
+    huge = "ok " + ("A" * 64 + "\n") * 200_000  # 13 MB
+    started = time.perf_counter()
+    assert safe_text(huge, limit=50).startswith("ok AAAA")
+    assert time.perf_counter() - started < 1.0
+
+
+def test_a_secret_beyond_the_limit_never_appears_and_one_across_it_is_not_half_shown():
+    secret = "sk-ant-" + "z" * 40
+    assert secret[:20] not in safe_text("x" * 40 + secret, limit=50)
+    assert "zzz" not in safe_text("x" * 5_000 + secret, limit=50)
+
+
+@pytest.mark.parametrize("char", ["\u202e", "\u200b", "\u2066", "\ufeff", "\u200f"])
+def test_invisible_format_characters_are_made_visible(char):
+    shown = safe_text(f"safe{char}text")
+    assert char not in shown and f"\\u{ord(char):04x}" in shown
+
+
+def test_key_material_glued_to_the_end_of_an_earlier_block_is_masked_with_the_next():
+    text = "-----END PRIVATE KEY-----QUJD\n-----END PRIVATE KEY-----"
+    assert redact(text) == MASK + MASK
