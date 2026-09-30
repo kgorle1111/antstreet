@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from boss.gate import Check, CheckStatus, GateError, run_gate
+from boss.sandbox import SandboxMode
 
 CHECK = """
 from rev import reverse
@@ -27,9 +28,11 @@ def dirs(tmp_path):
     return ws, checks
 
 
-def gate(dirs, timeout_s=30.0):
+def gate(dirs, timeout_s=30.0, sandbox=None):
     ws, checks = dirs
-    [result] = run_gate(ws, checks, [Check("c01", "test_c01.py")], timeout_s=timeout_s)
+    [result] = run_gate(
+        ws, checks, [Check("c01", "test_c01.py")], timeout_s=timeout_s, sandbox=sandbox
+    )
     return result
 
 
@@ -128,7 +131,7 @@ def test_hanging_check_times_out_and_its_children_die(dirs, tmp_path):
         "time.sleep(60)\n",
     )
     start = time.monotonic()
-    result = gate(dirs, timeout_s=2.0)
+    result = gate(dirs, timeout_s=2.0, sandbox=SandboxMode.OFF)  # the pid file is outside the gate
     assert result.status is CheckStatus.TIMEOUT
     assert time.monotonic() - start < 15
     child = int(pid_file.read_text())

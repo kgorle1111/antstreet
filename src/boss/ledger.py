@@ -7,6 +7,7 @@ import json
 import os
 import re
 from collections.abc import Callable, Hashable, Iterable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -14,16 +15,20 @@ from pathlib import Path
 from typing import IO, Any
 
 LEDGER_VERSION = 1
-_ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+)\Z")
+_ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+|role:[a-z][a-z_]*)\Z")
 
 
 class EventType(StrEnum):
     BOSS_CALL = "boss_call"  # the boss's own model spend, e.g. drafting the term sheet
+    ROLE_CALL = "role_call"  # a specialist role's model spend (actor `role:<name>`)
+    STARTED = "started"  # the configuration a run was started with, so it can be resumed
+    RESUMED = "resumed"  # the investor lifted an earlier stop; everything is verified again
     HIRED = "hired"
     SLICE_START = "slice_start"
     SLICE_END = "slice_end"
     CHECK_RESULT = "check_result"
     BLOCKED = "blocked"
+    RULED = "ruled"  # the investor's ruling on a disputed check or a blocked task
     DISPUTED = "disputed"  # a worker says a check contradicts the idea; the investor rules on it
     FIRED = "fired"
     ABANDONED = "abandoned"  # a task nobody will work on further in this run
@@ -113,7 +118,9 @@ class Event:
             raw = json.loads(line)
         except RecursionError:  # a deeply nested line is corrupt, not a crash
             raise ValueError("line nested too deeply") from None
-        if not isinstance(raw, dict) or raw.pop("v", None) != LEDGER_VERSION:
+        version = raw.pop("v", None) if isinstance(raw, dict) else None
+        # exact int: True == 1 and 1.0 == 1 must not pass as a version.
+        if type(version) is not int or version != LEDGER_VERSION:
             raise ValueError(f"not a v{LEDGER_VERSION} ledger event")
         expected = {f.name for f in fields(cls)}
         if set(raw) != expected:
@@ -154,10 +161,46 @@ class LedgerWriter:
         os.fsync(self._fh.fileno())  # money records must survive a crash right after append
 
 
+def repair_torn_tail(path: Path) -> str | None:
+    """Cut an incomplete final line left by a hard kill and return the removed text.
+
+    Acts only when the file does not end with a newline (`LedgerWriter.append` always writes
+    one), every line before the last is a valid event, and the last is not. Anything else is
+    left untouched for `read_events` to reject. Takes the writer's lock, so it is refused while
+    a writer is open.
+    """
+    with suppress(FileNotFoundError), Path(path).open("r+b") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise LedgerLockedError(f"{path} is held by another writer") from None
+        data = fh.read()
+        if not data or data.endswith(b"\n"):
+            return None
+        start = data.rfind(b"\n") + 1
+        try:
+            for line in data[:start].split(b"\n")[:-1]:
+                Event.from_json(line.decode("utf-8"))
+        except (ValueError, TypeError):
+            return None
+        try:
+            Event.from_json(data[start:].decode("utf-8"))
+        except (ValueError, TypeError):
+            pass
+        else:
+            return None
+        fh.truncate(start)
+        fh.flush()
+        os.fsync(fh.fileno())
+        return data[start:].decode("utf-8", errors="replace")
+    return None
+
+
 def read_events(path: Path) -> list[Event]:
-    """Parse every line; any invalid line raises with its line number."""
-    # kn: a torn final line after a hard kill also raises;
-    # tolerant tail handling arrives with run resume (plan step 2.15).
+    """Parse every line; any invalid line raises with its line number.
+
+    A torn final line raises too (fail closed); `repair_torn_tail` is the one way past it.
+    """
     events: list[Event] = []
     with Path(path).open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, start=1):

@@ -8,6 +8,7 @@ import pytest
 from boss.bench import tasks as bench_tasks
 from boss.bench.tasks import (
     MIN_HIDDEN_CHECKS,
+    MIN_MUTANTS,
     BenchTask,
     TaskError,
     gate_problems,
@@ -31,6 +32,7 @@ def make_task(
     idea: str | None = "Create demo.py with f().",
     hidden: int = MIN_HIDDEN_CHECKS,
     reference: str | None = "def f():\n    return 1\n",
+    mutants: int = MIN_MUTANTS,
 ) -> Path:
     folder = root / task_id
     folder.mkdir(parents=True)
@@ -45,11 +47,21 @@ def make_task(
     if reference is not None:
         (folder / "reference").mkdir()
         (folder / "reference" / "demo.py").write_text(reference)
+    for n in range(mutants):
+        (folder / "mutants" / f"wrong_{n}").mkdir(parents=True)
+        (folder / "mutants" / f"wrong_{n}" / "demo.py").write_text(
+            f"def f():\n    return {n + 2}\n"
+        )
     return folder
 
 
 def structural(folder: Path) -> list[str]:
     return structural_problems(load_task(folder))
+
+
+def reference_problems(folder: Path) -> list[str]:
+    """Only the problems about reference/: the mutants' own rules are tested elsewhere."""
+    return [p for p in structural(folder) if p.startswith("reference/")]
 
 
 def test_an_id_with_a_trailing_newline_is_refused(tmp_path):
@@ -223,14 +235,14 @@ def test_a_missing_reference_is_reported(tmp_path, reference):
 
 def test_a_reference_with_a_syntax_error_is_reported_with_its_line(tmp_path):
     folder = make_task(tmp_path, reference="def f():\n    return 1\n\ndef g(:\n")
-    assert structural(folder) == ["reference/demo.py has a syntax error on line 4"]
+    assert reference_problems(folder) == ["reference/demo.py has a syntax error on line 4"]
 
 
 def test_a_syntax_error_in_one_reference_file_does_not_hide_problems_in_another(tmp_path):
     folder = make_task(tmp_path)
     (folder / "reference" / "a_broken.py").write_text("def (\n")
     (folder / "reference" / "z_deps.py").write_text("import numpy\n")
-    assert structural(folder) == [
+    assert reference_problems(folder) == [
         "reference/a_broken.py has a syntax error on line 1",
         "reference/z_deps.py imports 'numpy', which is not stdlib",
     ]
@@ -251,7 +263,7 @@ def test_stdlib_relative_and_sibling_imports_are_allowed(tmp_path, source):
     folder = make_task(tmp_path)
     (folder / "reference" / "demo_helper.py").write_text("X = 1\n")
     (folder / "reference" / "demo.py").write_text(source + "def f():\n    return 1\n")
-    assert structural(folder) == []
+    assert reference_problems(folder) == []
 
 
 @pytest.mark.parametrize(
@@ -267,12 +279,14 @@ def test_stdlib_relative_and_sibling_imports_are_allowed(tmp_path, source):
 )
 def test_third_party_imports_are_found_wherever_they_hide(tmp_path, source, module):
     folder = make_task(tmp_path, reference=source)
-    assert structural(folder) == [f"reference/demo.py imports {module!r}, which is not stdlib"]
+    assert reference_problems(folder) == [
+        f"reference/demo.py imports {module!r}, which is not stdlib"
+    ]
 
 
 def test_each_third_party_module_is_reported_once_per_file_in_sorted_order(tmp_path):
     folder = make_task(tmp_path, reference="import zlib_ng\nimport aiofiles\nimport zlib_ng\n")
-    assert structural(folder) == [
+    assert reference_problems(folder) == [
         "reference/demo.py imports 'aiofiles', which is not stdlib",
         "reference/demo.py imports 'zlib_ng', which is not stdlib",
     ]
@@ -282,7 +296,7 @@ def test_only_top_level_reference_files_are_examined(tmp_path):
     folder = make_task(tmp_path)
     (folder / "reference" / "pkg").mkdir()
     (folder / "reference" / "pkg" / "mod.py").write_text("import numpy\n")
-    assert structural(folder) == []
+    assert reference_problems(folder) == []
 
 
 # --- validate_task and the gate mapping -------------------------------------------------------
@@ -323,7 +337,7 @@ def test_gate_problems_report_free_passes_and_timeouts_on_the_empty_workspace(
 
 
 def test_gate_problems_report_reference_failures_with_the_gates_detail(tmp_path, monkeypatch):
-    folder = make_task(tmp_path)
+    folder = make_task(tmp_path, mutants=0)
     calls = fake_gate(
         monkeypatch,
         on_empty=[result("c0", CheckStatus.FAILED)],
@@ -342,7 +356,7 @@ def test_gate_problems_report_reference_failures_with_the_gates_detail(tmp_path,
 def test_the_empty_run_uses_an_empty_directory_and_the_reference_run_the_reference(
     tmp_path, monkeypatch
 ):
-    folder = make_task(tmp_path)
+    folder = make_task(tmp_path, mutants=0)
     seen = []
 
     def fake(workspace, checks_dir, checks, timeout_s):
@@ -377,7 +391,7 @@ def test_a_valid_task_passes_through_both_stages(tmp_path, monkeypatch):
         on_reference=[result(c, CheckStatus.PASSED) for c in checks],
     )
     validate_task(load_task(folder))
-    assert len(calls) == 2
+    assert len(calls) == 2 + MIN_MUTANTS  # empty workspace, reference, then each mutant
 
 
 def test_task_error_message_names_the_task_and_joins_the_problems():

@@ -7,21 +7,39 @@ spawned until `require_approval` finds an investor approval matching the term sh
 
 from __future__ import annotations
 
+import dataclasses
+import shutil
+import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from typing import Any
 
-from boss import budget, handoff, limits, retry
+from boss import budget, handoff, limits, retry, rulings
 from boss.approval import NotApprovedError, require_approval
 from boss.boss import load_prompt
-from boss.briefs import continuation_prompt, reassignment_brief, task_prompt
+from boss.briefs import (
+    added_checks_note,
+    continuation_prompt,
+    reassignment_brief,
+    task_prompt,
+)
 from boss.errors import INFRASTRUCTURE
 from boss.gate import Check, CheckResult, run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.rule import Decision, FiringPolicy, decide
-from boss.rundir import Recorder, RunPaths, assemble_product, slice_end_fields
+from boss.redact import safe_text
+from boss.roles.builders import builder_system_prompt
+from boss.rule import Decision, FiringPolicy, Verdict, decide
+from boss.rundir import (
+    Recorder,
+    RunPaths,
+    WorkspaceTooBig,
+    assemble_product,
+    slice_end_fields,
+    workspace_bytes,
+)
 from boss.runner import SliceRun, run_slice
 from boss.state import RunState, run_state, slice_history
 from boss.termsheet import Round, Task, TermSheet
@@ -29,7 +47,6 @@ from boss.worker import (
     IsolationError,
     SliceSpec,
     billing_mode,
-    clean_status,
     disputed_checks,
     usd,
 )
@@ -42,7 +59,10 @@ SLICE_SHARE = 0.8  # the single-agent benchmark arm caps its one slice at this s
 
 SliceRunner = Callable[..., SliceRun]
 Gate = Callable[..., list[CheckResult]]
+# (check id, the worker's reason) -> a line to show the investor, or None. Advice binds nothing.
+Advise = Callable[[str, str], str | None]
 Ask = Callable[[str], str]
+_CANNOT_GATE = (NotApprovedError, WorkspaceTooBig)
 Say = Callable[[str], None]
 
 
@@ -54,6 +74,37 @@ class FirmConfig:
     policy: FiringPolicy = field(default_factory=FiringPolicy)
     firing: bool = True  # False: a stalled worker keeps being funded (the benchmark's control arm)
     limits: limits.RunLimits = field(default_factory=limits.RunLimits)
+    parallel: int = 1  # tasks worked on at once; each task still has one worker at a time
+    # A worker profile (roles.builders): skills appended to the builder prompt. None is the
+    # bare prompt, the default until a profile is measured to be worth its tokens.
+    profile: str | None = None
+    # Pause the run once a slice reports a plan window this full (a fraction), instead of running
+    # into the limit mid-slice and losing that slice. None turns the pause off.
+    plan_pause_at: float | None = 0.95
+
+
+def config_data(config: FirmConfig) -> dict[str, Any]:
+    """A FirmConfig as ledger data, so a run can be resumed with what it was started with."""
+    return dataclasses.asdict(config)
+
+
+def config_from_data(data: Mapping[str, Any]) -> FirmConfig:
+    fields = dict(data)
+    return FirmConfig(
+        **fields
+        | {
+            "policy": FiringPolicy(**fields.get("policy", {})),
+            "limits": limits.RunLimits(**fields.get("limits", {})),
+        }
+    )
+
+
+def started_config(events: Sequence[Event]) -> FirmConfig | None:
+    """The configuration recorded when the run first started, if it has started."""
+    for e in events:
+        if e.event is EventType.STARTED:
+            return config_from_data(e.data["config"])
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +116,18 @@ class FirmReport:
     @property
     def all_passed(self) -> bool:
         return self.total > 0 and self.passed == self.total
+
+
+@dataclass(frozen=True, slots=True)
+class _Pending:
+    """A slice that is planned and about to run."""
+
+    task: Task
+    worker: str
+    number: int
+    spec: SliceSpec
+    start: dict[str, Any]  # the slice_start event's data
+    previous_total: int  # the session's running total before this slice
 
 
 @dataclass(slots=True)
@@ -82,6 +145,8 @@ class _Firm:
     sleep: Callable[[float], None]
     clock: Callable[[], float]
     started: float
+    cancel: threading.Event  # set on Ctrl-C so slices running in other threads stop
+    advise: Advise | None  # an opinion to show the investor before a dispute is ruled on
 
     def events(self) -> list[Event]:
         return read_events(self.paths.ledger)
@@ -90,50 +155,124 @@ class _Firm:
         return run_state(self.events(), [t.id for t in self.sheet.tasks])
 
     def checks_of(self, task: Task) -> list[Check]:
-        return [Check(c.id, c.file) for c in self.sheet.checks if c.task == task.id]
+        """The task's checks that still count: one the investor dropped is no longer run."""
+        dropped = rulings.ruled(self.events(), rulings.DROPPED)
+        return [
+            Check(c.id, c.file)
+            for c in self.sheet.checks
+            if c.task == task.id and c.id not in dropped
+        ]
+
+    def required(self) -> int:
+        return len(self.sheet.checks) - len(self.state().dropped)
 
     def run_gate(self, task: Task, worker: str) -> list[CheckResult]:
         # Check files are read from disk on every gate run, so the approval is verified on
         # every gate run: a check edited mid-run never produces a recorded result.
         require_approval(self.events(), self.sheet, self.paths.checks)
+        limit = self.config.limits.max_workspace_bytes
+        size = workspace_bytes(self.paths.workspace(worker), limit)
+        if size > limit:
+            raise WorkspaceTooBig(worker, size, limit)
         return self.gate(self.paths.workspace(worker), self.paths.checks, self.checks_of(task))
 
     def run(self) -> FirmReport:
         stopped: str | None = None
-        total = len(self.sheet.checks)
         for round_ in self.sheet.rounds:
             state = self.state()
             if state.stopped:
                 stopped = "stopped earlier"
                 break
+            if round_.n in state.locked_rounds:  # also on resume: a locked round stays locked
+                stopped = f"round {round_.n} closed below its unlock threshold"
+                break
             if round_.n in state.closed_rounds:
                 continue
+            unopened = round_.n not in state.approved_rounds
+            if unopened and self._next_task(state) is None and state.workers:
+                break  # nothing is left to do: no further round is opened or paid for
             record = Recorder(self.ledger, self.run_id, round_.n)
             if round_.n not in state.approved_rounds and not self._approve(round_, record):
                 stopped = "investor declined the round"
                 break
             stopped = self._run_round(round_, record)
-            passed = self.state().passing_total()
-            unlocked = budget.unlocked(self.sheet, round_.n, passed)
+            if stopped:  # paused or stopped mid-round: it stays open, so a resume continues it
+                break
+            passed, total = self.state().passing_total(), self.required()
+            unlocked = budget.unlocked(self.sheet, round_.n, passed, total)
             data = {"passed": passed, "total": total, "unlocked": unlocked}
             record("boss", EventType.ROUND_CLOSED, data=data)
-            if stopped or passed == total:
+            if passed == total:
                 break
             if not unlocked:
                 stopped = f"round {round_.n} closed below its unlock threshold"
                 break
-        assemble_product(self.paths, self.sheet, self.state())
-        return FirmReport(self.state().passing_total(), total, stopped)
+        for path in assemble_product(self.paths, self.sheet, self.state()):
+            self.say(f"Not in the product: {path} (its name collides with another task's file).")
+        passed = self._gate_product()
+        return FirmReport(passed, self.required(), stopped)
+
+    def _gate_product(self) -> int:
+        """Run every required check on the assembled product and return how many pass.
+
+        Each task was gated in its own worker's folder; what the investor receives is product/,
+        where several tasks' files meet. This is the verdict on what is delivered. It is
+        recorded once per product: running a finished run again adds nothing.
+        """
+        events = self.events()
+        workspace_passes = self.state().passing_total()
+        last_slice = max(
+            (i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1
+        )
+        if last_slice < 0:
+            return workspace_passes  # nothing was built
+        verdicts = {
+            e.data["check"]: e.data.get("status") == "passed"
+            for e in events[last_slice:]
+            if e.event is EventType.CHECK_RESULT and e.data.get("scope") == "product"
+        }
+        dropped = self.state().dropped
+        required = [Check(c.id, c.file) for c in self.sheet.checks if c.id not in dropped]
+        # A run killed between two product results leaves the verdict on some checks only:
+        # the ones still missing are gated now.
+        missing = [c for c in required if c.id not in verdicts]
+        limit = self.config.limits.max_workspace_bytes
+        if missing and workspace_bytes(self.paths.product, limit) > limit:
+            self.say("The product is over the folder size limit, so it was not gated.")
+            return workspace_passes
+        if missing:
+            tasks = {c.id: c.task for c in self.sheet.checks}
+            try:
+                require_approval(events, self.sheet, self.paths.checks)
+                results = self.gate(self.paths.product, self.paths.checks, missing)
+            except NotApprovedError:
+                return workspace_passes  # the checks changed: only earlier results can be trusted
+            record = Recorder(self.ledger, self.run_id, events[last_slice].round)
+            for r in results:
+                data = {"check": r.check_id, "task": tasks[r.check_id], "status": str(r.status)}
+                record(
+                    "gate",
+                    EventType.CHECK_RESULT,
+                    data=data | {"detail": r.detail, "scope": "product"},
+                )
+                verdicts[r.check_id] = r.passed
+        passed = sum(verdicts.get(c.id, False) for c in required)
+        if passed != workspace_passes:
+            self.say(
+                f"The assembled product passes {passed} checks; the workers' own folders "
+                f"passed {workspace_passes}. The product's figure is the one reported."
+            )
+        return passed
 
     def _approve(self, round_: Round, record: Recorder) -> bool:
         passed = self.state().passing_total()
         question = (
-            f"Round {round_.n}: {passed}/{len(self.sheet.checks)} checks pass. "
+            f"Round {round_.n}: {passed}/{self.required()} checks pass. "
             f"Fund ${usd(round_.budget_micros)} more? [y]es / [n]o "
         )
         try:
             answer = self.ask(question).strip().lower()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:  # nobody is there to fund it; Ctrl-C is an interruption, not a no
             answer = "n"
         if answer in ("y", "yes", "a", "approve"):
             record("investor", EventType.APPROVED, data={"round": round_.n})
@@ -142,60 +281,190 @@ class _Firm:
         return False
 
     def _run_round(self, round_: Round, record: Recorder) -> str | None:
-        """Fund slices until every task is done or abandoned, or the round runs out of money."""
+        """Fund slices, up to `config.parallel` tasks at a time, until every task is done or set
+        aside, or the round runs out of money. Only this thread writes the ledger."""
         while True:
+            plans, outcome = self._plan_wave(round_, record)
+            if plans is None:
+                return outcome
+            if not plans:
+                continue  # something was recorded (a recovery, an abandonment): look again
+            try:
+                wave = [self._prepare(task, worker, cap) for task, worker, cap in plans]
+            except _CANNOT_GATE as exc:
+                return self._halt(record, exc)
+            for pending in wave:
+                record(f"worker:{pending.worker}", EventType.SLICE_START, data=pending.start)
+            stop = self._finish_wave(wave, self._run_wave(wave), record)
+            if stop:
+                return stop
+
+    def _plan_wave(
+        self, round_: Round, record: Recorder
+    ) -> tuple[list[tuple[Task, str, int]] | None, str | None]:
+        """Which tasks get a slice now, with which worker and cap. `None` plans end the round,
+        with the reason if the run must stop; empty plans mean the ledger changed and the state
+        must be read again."""
+        state = self.state()
+        open_tasks = self._open_tasks(state)
+        if not open_tasks:
+            return None, None
+        before = len(self.events())
+        for task in open_tasks:  # after an interruption a slice may not be gated or acted on
+            current = state.tasks[task.id].current
+            if current is not None and not state.workers[current].fired:
+                try:
+                    self._gate_slice(task, current, record)
+                except _CANNOT_GATE as exc:
+                    return None, self._halt(record, exc)
+                self._act(task, current, record, None)
+        if len(self.events()) != before:
+            return [], None
+        plans: list[tuple[Task, str, int]] = []
+        left = budget.remaining(self.sheet, self.events(), round_.n)
+        for task in open_tasks[: max(1, self.config.parallel)]:
             state = self.state()
-            task = self._next_task(state)
-            if task is None:
-                return None
-            breached = self._breach(task, state)
+            breached = self._breach(task, state, round_, len(plans))
             if breached:
+                if plans:
+                    break  # run what is planned; the limit stops the run on the next pass
                 record("rule", EventType.STOPPED, data={"reason": breached})
-                return f"stopped: {breached}"
-            left = budget.remaining(self.sheet, self.events(), round_.n)
+                return None, f"stopped: {breached}"
+            # Slices of one wave run at once, so each later one leaves room for the overshoot
+            # of every earlier one as well as its own.
             cap = budget.next_slice_cap(
-                left,
+                left - sum(c for _, _, c in plans),
                 slice_micros=self.config.slice_micros,
-                reserve_micros=self.config.reserve_micros,
+                reserve_micros=self.config.reserve_micros * (len(plans) + 1),
             )
             if cap is None:  # checked before hiring, so nobody is hired into an empty round
+                if plans:
+                    break
                 reserve = usd(self.config.reserve_micros)
                 self.say(
                     f"Round {round_.n} cannot fund another slice: ${usd(max(left, 0))} left, "
                     f"${reserve} of it reserved for one response running past its cap."
                 )
-                return None
+                return None, None
             worker = self._current_worker(task, state, record)
-            if worker is None:
-                continue  # the task was just abandoned; pick the next one
-            try:
-                stop = self._slice(task, worker, cap, record)
-            except NotApprovedError:
-                reason = "the term sheet or a check changed after the investor approved it"
-                record("rule", EventType.STOPPED, data={"reason": reason})
-                return f"stopped: {reason}"
-            if stop:
-                return stop
+            if worker is not None:
+                plans.append((task, worker, cap))
+        return plans, None
 
-    def _breach(self, task: Task, state: RunState) -> str | None:
+    def _run_wave(self, wave: list[_Pending]) -> list[SliceRun | BaseException]:
+        """Run the wave's slices, at once if there are several. Returns each slice's run, or
+        what it raised, in the wave's order."""
+
+        def run(pending: _Pending) -> SliceRun:
+            return self.slice_runner(
+                pending.spec,
+                self.paths.workspace(pending.worker),
+                self.paths.log(pending.worker),
+                env=self.env,
+            )
+
+        if len(wave) == 1:
+            try:
+                return [run(wave[0])]
+            except IsolationError as exc:
+                return [exc]
+        with ThreadPoolExecutor(max_workers=len(wave)) as pool:
+            futures = [pool.submit(run, pending) for pending in wave]
+            try:
+                wait(futures)
+            except KeyboardInterrupt:
+                self.cancel.set()  # the slice runners stop their processes and return
+                wait(futures)
+                raise
+        results: list[SliceRun | BaseException] = []
+        for future in futures:
+            error = future.exception()
+            if isinstance(error, KeyboardInterrupt):
+                raise error
+            results.append(error if error is not None else future.result())
+        return results
+
+    def _finish_wave(
+        self, wave: list[_Pending], results: list[SliceRun | BaseException], record: Recorder
+    ) -> str | None:
+        """Book every slice first, so no known cost is lost, then gate and judge each."""
+        failure: BaseException | None = None
+        finished: list[tuple[_Pending, SliceRun]] = []
+        for pending, result in zip(wave, results, strict=True):
+            actor = f"worker:{pending.worker}"
+            if isinstance(result, IsolationError):
+                record(actor, EventType.ERROR, cost_micros=None, data={"isolation": str(result)})
+                failure = failure or result
+            elif isinstance(result, BaseException):
+                failure = failure or result
+            else:
+                fields = slice_end_fields(
+                    result, pending.number, pending.task.id, pending.previous_total
+                )
+                record(actor, EventType.SLICE_END, billing=billing_mode(self.env), **fields)
+                finished.append((pending, result))
+        if isinstance(failure, IsolationError):
+            record("boss", EventType.STOPPED, data={"reason": "worker did not start isolated"})
+        if failure is not None:
+            raise failure
+        stop: str | None = None
+        for pending, run in finished:
+            try:
+                self._gate_slice(pending.task, pending.worker, record, run.status)
+            except _CANNOT_GATE as exc:
+                return self._halt(record, exc)
+            self._status_line(pending.task, pending.worker, pending.number, record.round)
+            stop = self._act(pending.task, pending.worker, record, run) or stop
+        return stop or self._plan_pressure([run for _, run in finished], record)
+
+    def _plan_pressure(self, runs: Sequence[SliceRun], record: Recorder) -> str | None:
+        """Pause while there is still work and the plan is nearly used up."""
+        if self.config.plan_pause_at is None or self._next_task(self.state()) is None:
+            return None
+        for run in runs:
+            pause = retry.plan_pressure(run.rate_limit, threshold=self.config.plan_pause_at)
+            if pause is not None:
+                data = {"reason": pause.reason, "until_epoch": pause.until_epoch}
+                record("boss", EventType.PAUSED, data=data)
+                return f"paused: {pause.reason}"
+        return None
+
+    def _halt(self, record: Recorder, why: Exception) -> str:
+        """Stop the run because the gate must not run: the checks changed, or a folder is too
+        big to copy."""
+        reason = str(why)
+        if isinstance(why, NotApprovedError):
+            reason = "the term sheet or a check changed after the investor approved it"
+        record("rule", EventType.STOPPED, data={"reason": reason})
+        return f"stopped: {reason}"
+
+    def _breach(self, task: Task, state: RunState, round_: Round, planned: int = 0) -> str | None:
         """Why the run must stop before its next slice, if a hard limit is reached."""
         events, ts = self.events(), state.tasks[task.id]
         replaceable = ts.current is None or state.workers[ts.current].fired
-        budgets = [budget.round_budget(self.sheet, events, r.n) for r in self.sheet.rounds]
+        # Only rounds the investor has funded so far count toward the ceiling.
+        funded = [r.n for r in self.sheet.rounds if r.n <= round_.n]
+        budgets = [budget.round_budget(self.sheet, events, n) for n in funded]
         return limits.breach(
             events,
             self.config.limits,
             ceiling_micros=limits.spend_ceiling(budgets, self.config.reserve_micros),
             elapsed_s=self.clock() - self.started,
             hiring=replaceable and len(ts.workers) < MAX_WORKERS_PER_TASK,
+            planned_slices=planned,
         )
 
+    def _open_tasks(self, state: RunState) -> list[Task]:
+        """Tasks that still have a required check failing and were not set aside, in order."""
+        return [
+            task
+            for task in self.sheet.tasks
+            if not state.tasks[task.id].abandoned
+            and not {c.id for c in self.checks_of(task)} <= state.tasks[task.id].passing
+        ]
+
     def _next_task(self, state: RunState) -> Task | None:
-        for task in self.sheet.tasks:
-            ts = state.tasks[task.id]
-            if not ts.abandoned and not {c.id for c in self.checks_of(task)} <= ts.passing:
-                return task
-        return None
+        return next(iter(self._open_tasks(state)), None)
 
     def _current_worker(self, task: Task, state: RunState, record: Recorder) -> str | None:
         ts = state.tasks[task.id]
@@ -207,14 +476,17 @@ class _Firm:
             record("boss", EventType.ABANDONED, data=data)
             return None
         name = f"w{len(state.workers) + 1}"
+        # No hire is on the ledger under this name, so a folder of that name is what an
+        # interrupted hire left behind. It is inside this run's own folder.
+        shutil.rmtree(self.paths.workspace(name), ignore_errors=True)
         if current is None:
             self.paths.workspace(name).mkdir(parents=True, exist_ok=True)
         else:
             handoff.prepare_workspace(self.paths.workspace(current), self.paths.workspace(name))
             data = {"task": task.id, "from": current, "to": name}
             record("boss", EventType.REASSIGNED, data=data)
-        hired = {"worker": name, "task": task.id, "session": str(uuid.uuid4())}
-        hired |= {"model": self.config.model, "prompt": BUILDER_PROMPT}
+        hired = {"worker": name, "task": task.id, "model": self.config.model}
+        hired |= {"prompt": BUILDER_PROMPT, "profile": self.config.profile}
         record("boss", EventType.HIRED, data=hired)
         return name
 
@@ -232,81 +504,193 @@ class _Firm:
             kept=self.paths.workspace(worker) / handoff.PREVIOUS_DIR,
         )
 
-    def _slice(self, task: Task, worker: str, cap: int, record: Recorder) -> str | None:
+    def _builder_prompt(self) -> str:
+        if self.config.profile is None:
+            return load_prompt(BUILDER_PROMPT)
+        return builder_system_prompt(self.config.profile, BUILDER_PROMPT)
+
+    def _prepare(self, task: Task, worker: str, cap: int) -> _Pending:
+        """Everything a slice needs, decided before its start is recorded. Writes nothing."""
         state = self.state()
         ws = state.workers[worker]
-        actor, number = f"worker:{worker}", ws.slices + 1
         history = slice_history(self.events()).get(worker, [])
-        # kn: a session exists once any slice got past infrastructure; resuming a session that was
-        # never created would fail, so until then every attempt starts the session again.
-        started = any(r.outcome not in INFRASTRUCTURE for r in history)
         require_approval(self.events(), self.sheet, self.paths.checks)  # before any spend
         disputed = frozenset().union(*(r.disputed for r in history))
-        if started:
+        # A session is resumed only once the ledger proves it exists (state._live_session). Any
+        # other attempt gets a new id: the CLI refuses one that is already in use (probe, CLI
+        # 2.1.285), and an interrupted attempt leaves no record of whether it created its session.
+        resume = ws.session is not None
+        session = ws.session or str(uuid.uuid4())
+        events = self.events()
+        since = _after_last_slice(events, worker)
+        notes = rulings.notes_since(events, task.id, since)
+        mine = {c.id for c in self.checks_of(task)}
+        added = mine & {
+            str(check)
+            for e in events[since:]
+            if e.event is EventType.APPROVED and e.actor == "investor"
+            for check in e.data.get("added_checks", ())
+        }
+        if added and history:  # a worker that has not worked yet gets them in its first brief
+            notes.append(added_checks_note(self.sheet, added, self.paths.checks))
+        if resume:
             prompt = continuation_prompt(
-                self.run_gate(task, worker), disputed, history[-1].denied_tools, task.paths[0]
+                self.run_gate(task, worker),
+                disputed,
+                history[-1].denied_tools,
+                task.paths[0],
+                notes,
             )
         else:
-            prompt = self._first_prompt(task, worker, state)
+            # A new session starts from the first brief; what the investor ruled still applies.
+            prompt = "\n\n".join([self._first_prompt(task, worker, state), *notes])
         spec = SliceSpec(
-            session_id=uuid.UUID(ws.session),
-            resume=started,
+            session_id=uuid.UUID(session),
+            resume=resume,
             prompt=prompt,
             model=self.config.model,
             cap_micros=cap,
-            append_system_prompt=load_prompt(BUILDER_PROMPT),
+            append_system_prompt=self._builder_prompt(),
         )
-        start = {"slice": number, "task": task.id, "cap_micros": cap}
-        record(actor, EventType.SLICE_START, data=start)
-        try:
-            run = self.slice_runner(
-                spec, self.paths.workspace(worker), self.paths.log(worker), env=self.env
-            )
-        except IsolationError as exc:
-            record(actor, EventType.ERROR, cost_micros=None, data={"isolation": str(exc)})
-            record("boss", EventType.STOPPED, data={"reason": "worker did not start isolated"})
-            raise
-        fields = slice_end_fields(run, number, task.id, ws.session_total_micros)
-        record(actor, EventType.SLICE_END, billing=billing_mode(self.env), **fields)
-        if run.outcome not in INFRASTRUCTURE:
-            results = self.run_gate(task, worker)
-            for r in results:
-                data = {"check": r.check_id, "task": task.id, "status": str(r.status)}
-                data |= {"detail": r.detail, "worker": worker, "slice": number}
-                record("gate", EventType.CHECK_RESULT, data=data)
-            # Only a check of this task that fails right now can be disputed, and only once.
-            open_to_dispute = {r.check_id for r in results if not r.passed} - disputed
-            for check, reason in disputed_checks(run.status, open_to_dispute).items():
-                data = {"task": task.id, "check": check, "reason": reason}
-                record(actor, EventType.DISPUTED, data=data | {"worker": worker, "slice": number})
-        return self._act(task, worker, run, record)
+        number = ws.slices + 1
+        start = {"slice": number, "task": task.id, "cap_micros": cap, "session": session}
+        return _Pending(task, worker, number, spec, start, ws.session_total_micros)
 
-    def _act(self, task: Task, worker: str, run: SliceRun, record: Recorder) -> str | None:
-        history = slice_history(self.events())[worker]
+    def _status_line(self, task: Task, worker: str, number: int, round_n: int) -> None:
+        events = self.events()
+        passing = slice_history(events)[worker][-1].passing
+        spent = budget.round_spend(events, round_n).cost_micros
+        of = budget.round_budget(self.sheet, events, round_n)
+        self.say(
+            f"{worker} slice {number} on {task.id}: {len(passing)}/{len(self.checks_of(task))} "
+            f"checks pass; round {round_n} has spent ${usd(spent)} of ${usd(of)}"
+        )
+
+    def _gate_slice(self, task: Task, worker: str, record: Recorder, status: object = None) -> None:
+        """Gate the worker's last slice and record what it disputes, unless that is already on
+        the ledger. `status` is the worker's raw report; after an interruption it is gone, so
+        only the gate's results are recovered and the worker may raise its disputes again."""
+        events = self.events()
+        history = slice_history(events).get(worker, [])
+        if not history or history[-1].outcome in INFRASTRUCTURE:
+            return
+        number = history[-1].slice
+        graded = {e.data.get("check") for e in events if _gated(e, worker, number)}
+        if {c.id for c in self.checks_of(task)} <= graded:
+            return
+        # A run killed between two results leaves the slice half graded: grade the rest.
+        results = [r for r in self.run_gate(task, worker) if r.check_id not in graded]
+        for r in results:
+            data = {"check": r.check_id, "task": task.id, "status": str(r.status)}
+            data |= {"detail": r.detail, "worker": worker, "slice": number}
+            record("gate", EventType.CHECK_RESULT, data=data)
+        # Only a check of this task that fails right now can be disputed, once, and never one
+        # the investor has ruled on.
+        raised = frozenset().union(*(r.disputed for r in history))
+        settled = rulings.ruled(events, rulings.KEPT)
+        failing = {r.check_id for r in results if not r.passed}
+        open_to_dispute = failing - raised - settled
+        if isinstance(status, dict):
+            for check, reason in disputed_checks(status, open_to_dispute).items():
+                data = {"task": task.id, "check": check, "reason": reason}
+                data |= {"worker": worker, "slice": number}
+                record(f"worker:{worker}", EventType.DISPUTED, data=data)
+
+    def _act(self, task: Task, worker: str, record: Recorder, run: SliceRun | None) -> str | None:
+        """Apply the rule to the worker's history. `run` is the slice that just finished; None
+        when recovering after an interruption, where only a firing or an escalation can still be
+        owed. Safe to call again: it records nothing that is already on the ledger."""
+        events = self.events()
+        history = slice_history(events).get(worker, [])
         needed = frozenset(c.id for c in self.checks_of(task))
+        if not history or not needed:
+            return None
+        since = _after_last_slice(events, worker)
+        open_disputes = sorted(needed & frozenset().union(*(r.disputed for r in history)))
+        if open_disputes and any(_rules_on_a_check(e, task.id) for e in events[since:]):
+            # The investor was part way through this worker's disputes when the run stopped.
+            # The rest are asked before anything else is decided: a kept check no longer makes
+            # the rule escalate, so the rule alone would leave them unasked.
+            self._ask_disputes(task, worker, open_disputes, events, record)
+            return None
         verdict = decide(needed, history, self.config.policy)
-        last_reason = (clean_status(run.status) or {}).get("reason")
         if verdict.decision is Decision.RETRY:
-            return self._infrastructure(run, history, record)
+            return self._infrastructure(run, history, record) if run else None
         if verdict.decision is Decision.ESCALATE:
-            if verdict.reason == "disputed":
-                checks = ", ".join(verdict.evidence["disputed"])
-                self.say(
-                    f"Task {task.id} is set aside: its worker disputes {checks}. See the report."
-                )
-            else:
-                blocked = {"task": task.id, "reason": last_reason}
-                record(f"worker:{worker}", EventType.BLOCKED, data=blocked)
-            # kn: an escalated task is set aside for this run; asking the investor to rule on it
-            # (drop the check, keep it, unblock) comes with the interactive round prompt.
-            record("boss", EventType.ABANDONED, data={"task": task.id, "reason": verdict.reason})
+            # A dispute is asked about for as long as the verdict still lists it: each ruling
+            # removes one, so an escalation interrupted half way is finished on the next pass.
+            # A block is settled by one answer.
+            if verdict.reason == "disputed" or not any(
+                _unblocks(e, task.id) for e in events[since:]
+            ):
+                self._escalate(task, worker, verdict, events, since, record)
         elif verdict.decision is Decision.FIRE and (
             self.config.firing or verdict.reason == "slice limit"
         ):
             data = {"worker": worker, "task": task.id, "reason": verdict.reason}
-            data |= {"evidence": verdict.evidence, "last_reason": last_reason}
+            data |= {"evidence": verdict.evidence, "last_reason": _last_reason(events, worker)}
             record("rule", EventType.FIRED, data=data)
         return None
+
+    def _escalate(
+        self,
+        task: Task,
+        worker: str,
+        verdict: Verdict,
+        events: Sequence[Event],
+        since: int,
+        record: Recorder,
+    ) -> None:
+        """Put to the investor what the worker could not settle. No clear ruling sets the task
+        aside; nothing is ever decided for the investor."""
+        if verdict.reason == "disputed":
+            self._ask_disputes(task, worker, verdict.evidence["disputed"], events, record)
+            return
+        reason = _last_reason(events, worker) or verdict.reason
+        if not any(e.event is EventType.BLOCKED for e in events[since:]):
+            blocked = {"task": task.id, "reason": _last_reason(events, worker)}
+            record(f"worker:{worker}", EventType.BLOCKED, data=blocked)
+        note = rulings.ask_block(self.ask, task=task.id, worker=worker, reason=reason)
+        if note is None:
+            record("boss", EventType.ABANDONED, data={"task": task.id, "reason": verdict.reason})
+            return
+        ruled = {"task": task.id, "worker": worker, "ruling": rulings.UNBLOCKED, "note": note}
+        record("investor", EventType.RULED, data=ruled)
+
+    def _ask_disputes(
+        self,
+        task: Task,
+        worker: str,
+        checks: Sequence[str],
+        events: Sequence[Event],
+        record: Recorder,
+    ) -> None:
+        """Ask the investor to rule on each disputed check. The first one left unruled sets the
+        task aside."""
+        described = {c.id: c.description for c in self.sheet.checks}
+        reasons = {
+            e.data.get("check"): str(e.data.get("reason", ""))
+            for e in events
+            if e.event is EventType.DISPUTED and e.data.get("worker") == worker
+        }
+        for check in checks:
+            advice = self.advise(check, reasons.get(check, "")) if self.advise else None
+            if advice:
+                self.say(advice)
+            ruling = rulings.ask_dispute(
+                self.ask,
+                task=task.id,
+                worker=worker,
+                check=check,
+                description=safe_text(" ".join(described.get(check, "").split()), limit=200),
+                reason=reasons.get(check, ""),
+            )
+            if ruling is None:
+                self.say(f"Task {task.id} is set aside: {worker} disputes {check}.")
+                record("boss", EventType.ABANDONED, data={"task": task.id, "reason": "disputed"})
+                return
+            ruled = {"task": task.id, "worker": worker, "check": check, "ruling": ruling}
+            record("investor", EventType.RULED, data=ruled)
 
     def _infrastructure(self, run: SliceRun, history: list[Any], record: Recorder) -> str | None:
         attempt = 0
@@ -327,6 +711,42 @@ class _Firm:
         return f"stopped: {action.reason}"
 
 
+def _after_last_slice(events: Sequence[Event], worker: str) -> int:
+    """Index just past the worker's last finished slice (0 if it has none)."""
+    actor = f"worker:{worker}"
+    ends = [i for i, e in enumerate(events) if e.event is EventType.SLICE_END and e.actor == actor]
+    return ends[-1] + 1 if ends else 0
+
+
+def _last_reason(events: Sequence[Event], worker: str) -> str | None:
+    """The reason the worker gave at its last slice, as cleaned for the ledger."""
+    since = _after_last_slice(events, worker)
+    status = events[since - 1].data.get("status") if since else None
+    return (status or {}).get("reason") or None
+
+
+def _gated(event: Event, worker: str, number: int) -> bool:
+    data = event.data
+    found = event.event is EventType.CHECK_RESULT
+    return found and data.get("worker") == worker and data.get("slice") == number
+
+
+def _rules_on_a_check(event: Event, task: str) -> bool:
+    """Whether this is the investor's ruling on a disputed check of the task."""
+    ruling = event.event is EventType.RULED and event.actor == "investor"
+    return ruling and event.data.get("task") == task and "check" in event.data
+
+
+def _unblocks(event: Event, task: str) -> bool:
+    """Whether the investor has already answered this task's block."""
+    return (
+        event.event is EventType.RULED
+        and event.actor == "investor"
+        and event.data.get("ruling") == rulings.UNBLOCKED
+        and event.data.get("task") == task
+    )
+
+
 def _fired(event: Event, worker: str) -> bool:
     return event.event is EventType.FIRED and event.data.get("worker") == worker
 
@@ -345,10 +765,30 @@ def run_firm(
     gate: Gate = run_gate,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    cancel: threading.Event | None = None,
+    advise: Advise | None = None,
 ) -> FirmReport:
-    require_approval(read_events(paths.ledger), sheet, paths.checks)
-    cfg = config or FirmConfig()
+    events = read_events(paths.ledger)
+    require_approval(events, sheet, paths.checks)
+    cfg = config or started_config(events) or FirmConfig()
+    if started_config(events) is None:
+        start = Event(run=run_id, round=0, actor="boss", event=EventType.STARTED)
+        ledger.append(dataclasses.replace(start, data={"config": config_data(cfg)}))
     firm = _Firm(
-        sheet, paths, ledger, run_id, env, cfg, ask, say, slice_runner, gate, sleep, clock, clock()
+        sheet,
+        paths,
+        ledger,
+        run_id,
+        env,
+        cfg,
+        ask,
+        say,
+        slice_runner,
+        gate,
+        sleep,
+        clock,
+        clock(),
+        cancel or threading.Event(),
+        advise,
     )
     return firm.run()

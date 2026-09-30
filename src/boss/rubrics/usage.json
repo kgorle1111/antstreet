@@ -1,0 +1,43 @@
+{
+  "id": "usage",
+  "version": 1,
+  "title": "Usage note for a piece of code",
+  "criteria": [
+    {
+      "id": "accurate",
+      "question": "Does everything the note says about names, arguments and behaviour match the code shown?",
+      "anchors": {
+        "1": "The note names functions, arguments or outputs that do not exist in the code, or describes behaviour the code does not have.",
+        "3": "Names and signatures match, but at least one described behaviour (a default, a return value, an error) differs from the code.",
+        "5": "Every name, argument, default, return value and error the note mentions can be found in the code as described."
+      }
+    },
+    {
+      "id": "sufficient",
+      "question": "Could a reader use the code correctly the first time from the note alone?",
+      "anchors": {
+        "1": "No runnable example; the reader must read the source to learn how to call anything.",
+        "3": "One runnable example, but the reader must guess an argument's type, the setup, or what the result looks like.",
+        "5": "Setup, a runnable example and its expected output are all present, and each public entry point is covered."
+      }
+    },
+    {
+      "id": "honest",
+      "question": "Does the note state what the code does not handle, rather than implying it handles everything?",
+      "anchors": {
+        "1": "Claims behaviour beyond the code, or hides an obvious limit such as an unhandled input.",
+        "3": "Mentions some limits but omits one the code makes visible, such as an exception it raises.",
+        "5": "Every limit and error visible in the code is stated, and nothing is promised that the code does not do."
+      }
+    },
+    {
+      "id": "readable",
+      "question": "Is it short and organised so a reader finds what they need without reading all of it?",
+      "anchors": {
+        "1": "One undifferentiated block, or padded with text that says nothing about this code.",
+        "3": "Sensible order, but padded in places or with the key example buried.",
+        "5": "The example comes first, sections are in the order a reader needs them, and no sentence could be cut without losing information."
+      }
+    }
+  ]
+}

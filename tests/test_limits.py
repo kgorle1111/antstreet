@@ -197,3 +197,12 @@ def test_a_hire_that_would_exceed_the_worker_limit_is_stopped_before_it_happens(
         "2 workers hired; the run limit is 2"
     )
     assert breach(hired[:1], two, ceiling_micros=10**9, elapsed_s=0.0, hiring=True) is None
+
+
+def test_slices_planned_for_the_same_wave_count_toward_the_slice_limit() -> None:
+    started = [Event(run="r", round=1, actor="worker:a", event=EventType.SLICE_START)] * 2
+    three = RunLimits(max_slices=3)
+    assert breach(started, three, ceiling_micros=10**9, elapsed_s=0.0) is None
+    assert breach(started, three, ceiling_micros=10**9, elapsed_s=0.0, planned_slices=1) == (
+        "3 slices started; the run limit is 3"
+    )

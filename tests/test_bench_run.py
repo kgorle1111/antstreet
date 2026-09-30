@@ -9,6 +9,7 @@ import pytest
 from boss.bench.results import CellResult, cell_dir, load_results
 from boss.bench.run import main, run_cell
 from boss.bench.tasks import load_task, load_tasks, task_set_hash
+from boss.ledger import EventType, read_events
 
 TASK = load_task(Path(__file__).parent.parent / "bench" / "tasks" / "slugify")
 REFERENCE = (TASK.reference_dir / "slugify.py").read_text()
@@ -52,7 +53,7 @@ else:
     say({INIT!r})
     open("slugify.py", "w").write(open(os.path.join(home, "product.py")).read())
     say(result | {{"total_cost_usd": 0.006,
-                  "structured_output": {{"status": "done", "reason": "wrote it"}}}})
+                  "structured_output": {{"status": "done", "reason": "wrote it", "junk": "x"}}}})
 """
 
 
@@ -146,6 +147,16 @@ def test_hidden_checks_and_reference_never_reach_a_prompt_or_a_workspace(bench):
         assert path.read_text().strip() not in prompts
         assert path.name not in prompts
     assert "hidden_checks" not in prompts and "reference" not in prompts
+    # Mutants, the known-wrong solutions used to score boss drafts, are just as private.
+    mutants = TASK.mutants()
+    assert mutants
+    assert "mutants" not in prompts
+    for mutant in mutants:
+        assert mutant.name not in prompts
+        for source in mutant.glob("*.py"):
+            assert source.read_text().strip() not in prompts
+            assert source.read_text().splitlines()[0] not in prompts
+    assert not [p for p in bench.results.rglob("*") if "mutants" in p.parts]
     workspace_files = {
         p.name
         for p in bench.results.rglob("*")
@@ -219,3 +230,27 @@ def test_unknown_task_selection_fails(bench, capsys):
     argv = ["--tasks", str(TASK.root.parent), "--out", str(bench.results), "--budget", "0.40"]
     assert main([*argv, "--only", "nope"], environ=bench.environ) == 1
     assert "no matching tasks" in capsys.readouterr().err
+
+
+def test_the_single_arm_cleans_the_workers_words_like_the_firm_arm(bench):
+    bench("single")
+    ledger = cell_dir(bench.results, "slugify", "single", 1) / "ledger.jsonl"
+    events = read_events(ledger)
+    [start] = [e for e in events if e.event is EventType.SLICE_START]
+    [end] = [e for e in events if e.event is EventType.SLICE_END]
+    assert start.data["slice"] == 1 and len(start.data["session"]) == 36
+    assert end.data["slice"] == 1
+    assert end.data["status"] == {"status": "done", "reason": "wrote it"}  # only the two keys
+
+
+def test_a_run_paused_for_the_plan_limit_is_an_infrastructure_outcome():
+    from boss.bench.run import _outcome
+    from boss.ledger import Event
+
+    def ev(kind, actor="worker:w1", **data):
+        return Event(run="r", round=1, actor=actor, event=kind, data=data)
+
+    finished = [ev(EventType.SLICE_END, outcome="completed")]
+    assert _outcome(finished) == "completed"
+    paused = [*finished, ev(EventType.PAUSED, actor="boss", reason="five_hour window at 96%")]
+    assert _outcome(paused) == "usage_limit"

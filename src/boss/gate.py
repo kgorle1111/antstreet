@@ -3,6 +3,7 @@
 Each check runs in its own pytest process against a fresh copy of the workspace. The worker's
 files can execute during a check, so the gate never trusts the exit code alone: a check passes
 only when pytest exits 0 *and* its JUnit report shows at least one test, all of them passing.
+Where the platform has one, the process runs inside an OS sandbox (`boss.sandbox`).
 """
 
 from __future__ import annotations
@@ -16,16 +17,20 @@ import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from boss.sandbox import Sandbox, SandboxMode, SandboxUnavailable, python_readable, select
+
 DEFAULT_TIMEOUT_S = 60.0
+SANDBOX_ENV = "BOSS_GATE_SANDBOX"
 OUTPUT_TAIL_CHARS = 4000
 _COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", ".git")
-# kn: in-process verdicts are forgeable by deliberately adversarial code; the benchmark's hidden
-# checks measure that gap. Container isolation is parked until untrusted ideas are supported.
+# kn: in-process verdicts are forgeable by deliberately adversarial code, sandboxed or not (the
+# report sits in the one folder the check may write); the benchmark's hidden checks measure that
+# gap. Reading the report from outside a container is parked until untrusted ideas are supported.
 _INI = "[pytest]\npythonpath = ws\n"
 
 
@@ -53,10 +58,23 @@ class CheckResult:
     detail: str
     output_tail: str
     duration_s: float
+    sandboxed: bool = False  # ran inside an OS sandbox; False also means the sandbox was off
 
     @property
     def passed(self) -> bool:
         return self.status is CheckStatus.PASSED
+
+
+def sandbox_mode(environ: Mapping[str, str]) -> SandboxMode:
+    """The mode `BOSS_GATE_SANDBOX` asks for; AUTO when it is unset."""
+    raw = environ.get(SANDBOX_ENV)
+    if raw is None:
+        return SandboxMode.AUTO
+    try:
+        return SandboxMode(raw.strip().lower())
+    except ValueError:
+        allowed = "|".join(m.value for m in SandboxMode)
+        raise GateError(f"{SANDBOX_ENV}={raw!r} is not one of {allowed}") from None
 
 
 def run_gate(
@@ -64,15 +82,25 @@ def run_gate(
     checks_dir: Path,
     checks: Sequence[Check],
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    sandbox: SandboxMode | None = None,
 ) -> list[CheckResult]:
-    """Run every check against a fresh copy of `workspace`. The original is never modified."""
+    """Run every check against a fresh copy of `workspace`. The original is never modified.
+
+    `sandbox=None` defers to `BOSS_GATE_SANDBOX`, then to AUTO: the one place the variable is read.
+    """
+    mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
         raise GateError("pytest is not installed in the environment running boss")
     workspace, checks_dir = Path(workspace).resolve(), Path(checks_dir).resolve()
     if not workspace.is_dir():
         raise GateError(f"workspace {workspace} does not exist")
     sources = [_check_source(checks_dir, c) for c in checks]
-    return [_run_one(workspace, c, src, timeout_s) for c, src in zip(checks, sources, strict=True)]
+    try:
+        tool = select(mode) if checks else None
+    except SandboxUnavailable as exc:
+        raise GateError(str(exc)) from exc
+    runs = zip(checks, sources, strict=True)
+    return [_run_one(workspace, c, src, timeout_s, tool) for c, src in runs]
 
 
 def _check_source(checks_dir: Path, check: Check) -> Path:
@@ -84,7 +112,9 @@ def _check_source(checks_dir: Path, check: Check) -> Path:
     return src
 
 
-def _run_one(workspace: Path, check: Check, src: Path, timeout_s: float) -> CheckResult:
+def _run_one(
+    workspace: Path, check: Check, src: Path, timeout_s: float, tool: Sandbox | None
+) -> CheckResult:
     with tempfile.TemporaryDirectory(prefix="boss_gate_") as tmp_name:
         tmp = Path(tmp_name)
         shutil.copytree(workspace, tmp / "ws", symlinks=True, ignore=_COPY_IGNORE)
@@ -99,17 +129,21 @@ def _run_one(workspace: Path, check: Check, src: Path, timeout_s: float) -> Chec
             "-c", str(tmp / "pytest.ini"), "--rootdir", str(tmp), "-p", "no:cacheprovider",
             f"--junitxml={report}", "-q", "--no-header",
         ]  # fmt: skip
+        if tool is not None:
+            cmd = tool.wrap(cmd, writable=tmp.resolve(), readable=python_readable())
         start = time.monotonic()
         exit_code, output, timed_out = _run_bounded(cmd, tmp / "ws", _env(tmp), timeout_s)
         duration = time.monotonic() - start
         tail = output[-OUTPUT_TAIL_CHARS:]
+        sandboxed = tool is not None
         if timed_out:
+            detail = f"exceeded {timeout_s}s"
             return CheckResult(
-                check.id, CheckStatus.TIMEOUT, None, f"exceeded {timeout_s}s", tail, duration
+                check.id, CheckStatus.TIMEOUT, None, detail, tail, duration, sandboxed
             )
         ok, detail = _verdict(exit_code, report)
         status = CheckStatus.PASSED if ok else CheckStatus.FAILED
-        return CheckResult(check.id, status, exit_code, detail, tail, duration)
+        return CheckResult(check.id, status, exit_code, detail, tail, duration, sandboxed)
 
 
 def _env(tmp: Path) -> dict[str, str]:

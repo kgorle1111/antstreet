@@ -36,6 +36,8 @@ class GiveUp:
 
 Action = Wait | Pause | GiveUp
 
+_MAX_DOUBLINGS = 1000  # 2.0 ** 1024 overflows; every sane cap_s is reached long before this
+
 
 def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
@@ -94,14 +96,18 @@ def infra_action(
             else "check the provider status page, then try again"
         )
         return GiveUp(f"{outcome.value} on all {max_attempts} attempts", fix)
-    delay = min(cap_s, base_s * 2 ** (attempt - 1))
+    delay = min(cap_s, base_s * 2.0 ** min(attempt - 1, _MAX_DOUBLINGS))
     seconds = delay / 2 + (delay / 2) * jitter()
     return Wait(seconds, f"{outcome.value}, attempt {attempt} of {max_attempts}")
 
 
 def plan_pressure(rate_limit: Mapping[str, Any] | None, *, threshold: float = 0.9) -> Pause | None:
-    """Pause before a plan window runs out; the window that resets latest decides."""
-    over = [w for w in _windows(rate_limit) if w[1] >= threshold]
+    """Pause before a plan window runs out; the window that resets latest decides.
+
+    `utilization` is a fraction (recorded CLI 2.1.285: 0.08, 0.11). A value outside 0..1 means the
+    scale is not what we assume, so that window is unknown: neither pressure nor zero.
+    """
+    over = [w for w in _windows(rate_limit) if max(0.0, threshold) <= w[1] <= 1]
     if not over:
         return None
     name, utilization, resets_at = max(over, key=lambda w: w[2])

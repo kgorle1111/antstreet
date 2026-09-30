@@ -274,9 +274,27 @@ def test_a_worker_whose_only_failing_check_is_disputed_is_escalated_not_fired() 
 
 
 def test_a_dispute_never_makes_a_check_pass_or_a_task_done() -> None:
-    v = run(rec(1, disputed={"a", "b", "c"}))
+    v = run(rec(1, {"a", "b"}, disputed={"c"}))
     assert v.decision is Decision.ESCALATE
-    assert v.evidence["passing"] == [] and v.evidence["missing"] == ["a", "b", "c"]
+    assert v.evidence["passing"] == ["a", "b"] and v.evidence["missing"] == ["c"]
+
+
+def test_disputing_more_than_half_of_a_tasks_checks_protects_nothing() -> None:
+    # Found by review: a stalled or lazy worker could dispute every failing check and be set
+    # aside instead of fired and replaced.
+    lazy = run(rec(1, disputed={"a", "b", "c"}), rec(2, disputed={"a", "b", "c"}))
+    assert (lazy.decision, lazy.reason) == (Decision.FIRE, "no progress")
+    assert lazy.evidence["disputed"] == ["a", "b", "c"]  # still on record for the investor
+    two_of_three = run(rec(1, {"a"}, disputed={"b", "c"}), rec(2, {"a"}), rec(3, {"a"}))
+    assert (two_of_three.decision, two_of_three.reason) == (Decision.FIRE, "no progress")
+
+
+def test_exactly_half_of_a_tasks_checks_can_be_disputed() -> None:
+    four = frozenset({"a", "b", "c", "d"})
+    half = decide(four, [rec(1, {"a", "b"}, disputed={"c", "d"})], POLICY)
+    assert (half.decision, half.reason) == (Decision.ESCALATE, "disputed")
+    one_check = decide(frozenset({"a"}), [rec(1, disputed={"a"})], POLICY)
+    assert one_check.decision is Decision.CONTINUE  # a one-check task cannot be disputed away
 
 
 def test_a_dispute_does_not_excuse_the_other_failing_checks() -> None:
@@ -326,3 +344,11 @@ def test_blocked_after_a_refused_tool_call_is_not_escalated() -> None:
         Decision.FIRE,
         "no progress",
     )
+
+
+@pytest.mark.parametrize("bad", [True, 2.0, "2", None])
+def test_firing_policy_counts_must_be_whole_numbers(bad) -> None:
+    with pytest.raises(ValueError, match="whole number"):
+        FiringPolicy(stall_slices=bad)
+    with pytest.raises(ValueError, match="whole number"):
+        FiringPolicy(max_slices=bad)

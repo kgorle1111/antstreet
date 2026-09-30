@@ -10,12 +10,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from boss.ledger import Event, EventType, Totals, total, totals_by
+from boss.redact import safe_text
 
+MAX_DETAIL_CHARS = 300
 _NOTABLE = (
     EventType.FIRED,
     EventType.REASSIGNED,
     EventType.ABANDONED,
     EventType.BLOCKED,
+    EventType.RULED,
+    EventType.RESUMED,
     EventType.PAUSED,
     EventType.ERROR,
     EventType.STOPPED,
@@ -171,7 +175,9 @@ def render_report(report: Report) -> str:
         out.append("No round has closed.")
 
     out += ["", "Checks"]
-    out += [f"  {c.check}  {c.status:<8} {c.detail}" for c in report.checks] or ["  none run"]
+    out += [f"  {c.check}  {c.status:<8} {_detail(c.detail)}" for c in report.checks] or [
+        "  none run"
+    ]
 
     out += ["", "Spend (estimated by the CLI, not a bill)"]
     for actor in sorted(report.by_actor):
@@ -195,6 +201,11 @@ def render_report(report: Report) -> str:
     if report.notes:
         out += ["", "Notes"] + [f"  {n}" for n in report.notes]
     return "\n".join(out) + "\n"
+
+
+def _detail(text: str) -> str:
+    """Gate detail comes from a subprocess (a parse error quotes its input): one line, masked."""
+    return safe_text(" ".join(str(text).split()), limit=MAX_DETAIL_CHARS)
 
 
 def _money(t: Totals) -> str:

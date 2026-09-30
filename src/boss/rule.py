@@ -44,8 +44,10 @@ class FiringPolicy:
     max_slices: int = 6  # fire once a worker has used this many counted slices
 
     def __post_init__(self) -> None:
-        if self.stall_slices < 1 or self.max_slices < 1:
-            raise ValueError("stall_slices and max_slices must be at least 1")
+        for name in ("stall_slices", "max_slices"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:  # True and 2.0 are not counts
+                raise ValueError(f"{name} must be at least 1, as a whole number; got {value!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +110,11 @@ def decide(
         return verdict(Decision.ESCALATE, "blocked")
     if latest.outcome is Outcome.REFUSAL:
         return verdict(Decision.ESCALATE, "refusal")
-    if disputed and task_checks - latest.passing <= disputed:
+    # Disputing costs a worker nothing, so it protects only a credible claim: every other check
+    # passes, and no more than half of the task's checks are called wrong (the boss's drafts had
+    # at most 3 wrong checks in 8). Otherwise the worker is judged as if it had disputed nothing.
+    credible = 0 < 2 * len(disputed) <= len(task_checks)
+    if credible and task_checks - latest.passing <= disputed:
         return verdict(Decision.ESCALATE, "disputed")
     if counted >= policy.max_slices:
         return verdict(Decision.FIRE, "slice limit")

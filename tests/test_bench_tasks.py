@@ -1,5 +1,6 @@
 import json
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -23,11 +24,30 @@ def problems(task_dir) -> list[str]:
     return info.value.problems
 
 
+# What the benchmark arms are scored against: the idea, hidden checks and reference of all 17
+# tasks. It must not move when mutants are added: results recorded under it stay comparable.
+SHIPPED_SET_HASH = "c130282a6eec5fe8"
+
+
 def test_every_shipped_task_is_valid():
     tasks = load_tasks(TASKS)
-    assert tasks, "no benchmark tasks found"
-    for task in tasks:
-        validate_task(task)
+    assert len(tasks) == 17, "benchmark tasks are missing"
+    # Each validation is many short pytest processes; running four tasks at once keeps it quick.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(validate_task, tasks))
+
+
+def test_the_shipped_task_set_hash_is_pinned():
+    assert task_set_hash(load_tasks(TASKS)) == SHIPPED_SET_HASH
+
+
+def test_mutants_are_left_out_of_the_set_hash(task_dir):
+    before = task_set_hash([load_task(task_dir)])
+    shutil.copytree(task_dir / "mutants" / "pilot_single", task_dir / "mutants" / "one_more")
+    (task_dir / "mutants" / "pilot_single" / "slugify.py").write_text("# edited\n")
+    assert task_set_hash([load_task(task_dir)]) == before
+    shutil.rmtree(task_dir / "mutants")
+    assert task_set_hash([load_task(task_dir)]) == before
 
 
 def test_too_few_hidden_checks(task_dir):

@@ -319,10 +319,10 @@ def test_a_single_byte_change_in_a_check_changes_only_that_checks_hash(checks):
     assert after["test_c02.py"] != before["test_c02.py"]
 
 
-def test_a_deleted_check_file_surfaces_as_an_os_error_not_as_a_silent_pass(checks):
+def test_a_deleted_check_file_voids_the_approval_and_is_never_a_silent_pass(checks):
     approved = approval(SHEET, checks)
     (checks / "test_c01.py").unlink()
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(NotApprovedError, match="cannot be read"):
         require_approval([approved], SHEET, checks)
 
 

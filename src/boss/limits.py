@@ -15,9 +15,10 @@ class RunLimits:
     max_slices: int = 60  # slices started in the whole run, infrastructure retries included
     max_workers: int = 16  # workers hired in the whole run
     max_seconds: float | None = None  # wall clock of this invocation; None = no limit
+    max_workspace_bytes: int = 200 * 2**20  # a worker's folder; the gate copies it per check
 
     def __post_init__(self) -> None:
-        for name in ("max_slices", "max_workers"):
+        for name in ("max_slices", "max_workers", "max_workspace_bytes"):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
                 raise ValueError(f"{name} must be an int >= 1, got {value!r}")
@@ -43,6 +44,7 @@ def breach(
     ceiling_micros: int,
     elapsed_s: float,
     hiring: bool = False,
+    planned_slices: int = 0,
 ) -> str | None:
     """None while the run is inside every limit; otherwise one sentence naming the limit, the
     figure reached and the figure allowed.
@@ -59,6 +61,7 @@ def breach(
     if spent > ceiling_micros:
         return f"spend ${usd(spent)} is over the run ceiling of ${usd(ceiling_micros)}"
     slices = sum(e.event is EventType.SLICE_START for e in events)
+    slices += planned_slices  # slices of the same wave that are planned and not yet started
     if slices >= limits.max_slices:
         return f"{slices} slices started; the run limit is {limits.max_slices}"
     workers = sum(e.event is EventType.HIRED for e in events)

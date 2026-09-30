@@ -6,9 +6,13 @@ A task is a folder:
     <id>/meta.json          {"id", "title", "difficulty"}
     <id>/hidden_checks/     pytest files used only for scoring; never shown to either arm
     <id>/reference/         a solution proving the hidden checks can all pass; never shown either
+    <id>/mutants/<name>/    known-wrong solutions, one folder each, laid out like reference/; used
+                            only to score how well a boss's checks catch wrong code
 
-Validation runs the gate twice: every hidden check must fail on an empty workspace and pass on
-the reference. A benchmark whose checks cannot pass, or pass for free, measures nothing.
+Validation runs the gate on an empty workspace, the reference and every mutant: every hidden check
+must fail on the empty one and pass on the reference, and every mutant must import and fail at
+least one hidden check. A benchmark whose checks cannot pass, or pass for free, measures nothing;
+a mutant that passes every hidden check is not wrong.
 """
 
 from __future__ import annotations
@@ -17,8 +21,10 @@ import ast
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,8 +32,12 @@ from boss.gate import Check, run_gate
 from boss.termsheet import CheckSpec, check_file_problems
 
 MIN_HIDDEN_CHECKS = 5
+MIN_MUTANTS = 3
+MUTANT_TIMEOUT_S = 10.0  # per check; a wrong solution that hangs a check has failed it
+MUTANTS_DIR = "mutants"
 DIFFICULTIES = ("easy", "medium", "hard")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}\Z")
+_MUTANT_RE = re.compile(r"^[a-z0-9][a-z0-9_]{1,60}\Z")
 _META_KEYS = {"id", "title", "difficulty"}
 
 
@@ -55,6 +65,18 @@ class BenchTask:
     @property
     def reference_dir(self) -> Path:
         return self.root / "reference"
+
+    @property
+    def mutants_dir(self) -> Path:
+        return self.root / MUTANTS_DIR
+
+    def mutants(self) -> list[Path]:
+        """Each mutant's folder: a workspace holding a wrong solution, like `reference/`."""
+        if not self.mutants_dir.is_dir():
+            return []
+        return sorted(
+            p for p in self.mutants_dir.iterdir() if p.is_dir() and p.name != "__pycache__"
+        )
 
     def hidden_checks(self) -> list[Check]:
         files = sorted(p.name for p in self.hidden_dir.glob("test_*.py"))
@@ -104,6 +126,7 @@ def structural_problems(task: BenchTask) -> list[str]:
     for check in checks:
         p += check_file_problems(CheckSpec(check.id, "", check.file, "bench"), task.hidden_dir)
     p += _reference_problems(task)
+    p += _mutant_problems(task)
     return p
 
 
@@ -111,17 +134,46 @@ def _reference_problems(task: BenchTask) -> list[str]:
     sources = sorted(task.reference_dir.glob("*.py")) if task.reference_dir.is_dir() else []
     if not sources:
         return ["reference/ must contain the reference solution"]
+    return _source_problems("reference/", sources)
+
+
+def _source_problems(label: str, sources: list[Path]) -> list[str]:
     local = {s.stem for s in sources}
     problems = []
     for source in sources:
         try:
             tree = ast.parse(source.read_text(encoding="utf-8"))
         except SyntaxError as exc:
-            problems.append(f"reference/{source.name} has a syntax error on line {exc.lineno}")
+            problems.append(f"{label}{source.name} has a syntax error on line {exc.lineno}")
+            continue
+        except UnicodeDecodeError:
+            problems.append(f"{label}{source.name} is not valid UTF-8")
             continue
         for module in sorted(_imported_modules(tree) - local - sys.stdlib_module_names):
-            problems.append(f"reference/{source.name} imports {module!r}, which is not stdlib")
+            problems.append(f"{label}{source.name} imports {module!r}, which is not stdlib")
     return problems
+
+
+def _mutant_problems(task: BenchTask) -> list[str]:
+    """Static checks on the wrong solutions. Whether they import and really fail comes later."""
+    mutants = task.mutants()
+    p = []
+    if len(mutants) < MIN_MUTANTS:
+        p.append(f"needs at least {MIN_MUTANTS} mutants, has {len(mutants)}")
+    strays = [x.name for x in task.mutants_dir.glob("*") if x.is_file()]
+    if strays:
+        p.append(f"mutants/ must hold only folders, found {sorted(strays)}")
+    modules = {s.name for s in task.reference_dir.glob("*.py")}
+    for mutant in mutants:
+        if not _MUTANT_RE.match(mutant.name):
+            p.append(f"mutant name {mutant.name!r} must be lowercase letters, digits, underscores")
+        sources = sorted(mutant.glob("*.py"))
+        p += [
+            f"mutants/{mutant.name}/ is missing {name}"
+            for name in sorted(modules - {s.name for s in sources})
+        ]
+        p += _source_problems(f"mutants/{mutant.name}/", sources)
+    return p
 
 
 def _imported_modules(tree: ast.Module) -> set[str]:
@@ -149,15 +201,65 @@ def gate_problems(task: BenchTask) -> list[str]:
         for r in on_reference
         if not r.passed
     ]
-    return problems
+    return problems + _mutant_gate_problems(task, checks)
+
+
+def _mutant_gate_problems(task: BenchTask, checks: list[Check]) -> list[str]:
+    mutants = task.mutants()
+    if not mutants:
+        return []
+
+    modules = sorted(s.stem for s in task.reference_dir.glob("*.py"))
+
+    def check(mutant: Path) -> str | None:
+        if broken := _import_problem(mutant, modules):
+            return f"mutant {mutant.name} does not import cleanly ({broken})"
+        results = run_gate(mutant, task.hidden_dir, checks, timeout_s=MUTANT_TIMEOUT_S)
+        if all(r.passed for r in results):
+            return f"mutant {mutant.name} passes every hidden check, so it is not a wrong solution"
+        return None
+
+    # Each gate run is its own pytest processes, so threads only wait; this keeps validation quick.
+    with ThreadPoolExecutor(max_workers=min(8, len(mutants))) as pool:
+        return [problem for problem in pool.map(check, mutants) if problem]
+
+
+def _import_problem(mutant: Path, modules: list[str]) -> str | None:
+    """Why the mutant's modules cannot be imported, or None. Runs in its own interpreter."""
+    code = "import importlib, sys\nsys.path.insert(0, sys.argv[1])\n" + (
+        "for name in sys.argv[2:]:\n    importlib.import_module(name)\n"
+    )
+    with tempfile.TemporaryDirectory(prefix="boss_bench_import_") as cwd:
+        try:
+            done = subprocess.run(
+                [sys.executable, "-I", "-B", "-c", code, str(mutant.resolve()), *modules],
+                cwd=cwd,
+                env={"PATH": "/usr/bin:/bin"},
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=30.0,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return "import took more than 30s"
+    if done.returncode == 0:
+        return None
+    return (done.stderr.strip().splitlines() or [f"exit {done.returncode}"])[-1]
 
 
 def task_set_hash(tasks: list[BenchTask]) -> str:
-    """One hash for the whole task set, recorded in every result so results name what they ran."""
+    """One hash for the whole task set, recorded in every result so results name what they ran.
+
+    Covers what an arm is scored against: the idea, hidden checks and reference. Mutants are left
+    out on purpose: no arm ever sees or is scored on them, so adding one must not make old and new
+    results look like they ran against different tasks.
+    """
     digest = hashlib.sha256()
     for task in sorted(tasks, key=lambda t: t.id):
         for path in sorted(task.root.rglob("*")):
-            if path.is_file() and "__pycache__" not in path.parts:
+            skipped = "__pycache__" in path.parts or path.is_relative_to(task.mutants_dir)
+            if path.is_file() and not skipped:
                 # Length-prefixed, so where a name ends and its content begins is unambiguous.
                 for part in (str(path.relative_to(task.root.parent)).encode(), path.read_bytes()):
                     digest.update(len(part).to_bytes(8, "big") + part)

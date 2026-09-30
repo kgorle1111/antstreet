@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -53,8 +54,34 @@ class Recorder:
         )
 
 
-def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None:
-    """Copy each task's files from its best worker's workspace into product/.
+class WorkspaceTooBig(Exception):
+    """A worker's folder is over the size limit; the gate would copy it once per check."""
+
+    def __init__(self, worker: str, size: int, limit: int) -> None:
+        super().__init__(
+            f"the folder of {worker} holds more than {limit // 2**20} MB "
+            f"({size // 2**20} MB counted before stopping); the gate copies it for every check"
+        )
+
+
+def workspace_bytes(workspace: Path, stop_at: int) -> int:
+    """Bytes of the files under `workspace`, counting a symlink as itself and never following
+    one. Stops counting once the total passes `stop_at`: the caller only needs to know that."""
+    total = 0
+    for root, _dirs, files in os.walk(workspace):  # followlinks=False
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                continue  # removed while counting
+            if total > stop_at:
+                return total
+    return total
+
+
+def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> list[str]:
+    """Copy each task's files from its best worker's workspace into product/. Returns the
+    relative paths that could not be placed.
 
     A file inside a task's paths always comes from that task's worker. A file no task owns (a
     helper a worker added) comes from the first task that has it. So a worker can never replace
@@ -68,6 +95,7 @@ def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None
     def owner(relative: PurePosixPath) -> str | None:
         return next((t for t, p in owned if p == relative or p in relative.parents), None)
 
+    skipped: list[str] = []
     for task in sheet.tasks:
         worker = state.tasks[task.id].best
         if worker is None:
@@ -79,10 +107,16 @@ def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None
                 continue
             target = paths.product / relative
             belongs_to = owner(relative)
-            if belongs_to not in (None, task.id) or (belongs_to is None and target.exists()):
+            if belongs_to not in (None, task.id) or (belongs_to is None and target.is_file()):
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
+            try:  # one task's file `x` and another's `x/y.py` cannot both be placed
+                if target.is_dir():  # copy2 would put the file inside the folder
+                    raise IsADirectoryError(target)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)
+            except OSError:
+                skipped.append(relative.as_posix())
+    return skipped
 
 
 def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int) -> dict[str, Any]:

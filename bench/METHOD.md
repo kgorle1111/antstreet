@@ -10,7 +10,8 @@ than a single agent given the idea directly?
 
 ## Tasks
 
-- Each task is a folder under `bench/tasks/`: `idea.md`, `meta.json`, `hidden_checks/`, `reference/`.
+- Each task is a folder under `bench/tasks/`: `idea.md`, `meta.json`, `hidden_checks/`, `reference/`,
+  and `mutants/` (known-wrong solutions; used only by the draft evaluation below).
 - `idea.md` states the module and function names exactly, and every behaviour the hidden checks
   test. There are no hidden requirements.
 - Products are standard-library-only Python modules.
@@ -20,6 +21,8 @@ than a single agent given the idea directly?
   The hash encoding was made unambiguous on 2026-09-30: the same 17 task files were
   `7a212cdcc5f4f466` before and are `c130282a6eec5fe8` after. Results recorded under the old
   value ran against identical files.
+- `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
+  make old and new results look like they ran against different tasks. A test pins the hash.
 
 ## Arms
 
@@ -33,16 +36,21 @@ than a single agent given the idea directly?
 | Extra spend | none | the boss's drafting call (capped separately) |
 
 - Neither arm can run code. Neither ever sees the hidden checks or the reference.
-- The firm arm is `boss fund` with the term sheet **approved automatically**. This is the only
-  automated investor decision; a real run has a human there, who is also the filter for a wrong
-  boss check.
+- The firm arm is `boss fund` with the term sheet **approved automatically**: every question the
+  run asks is answered `a`. That approves the term sheet and funds a later round. It is not a
+  ruling, so a disputed or blocked task is set aside, as it was before the investor could rule
+  (`boss resume` is not used). A real run has a human there, who is also the filter for a wrong
+  boss check and the one who rules on a dispute.
 - Extra `boss fund` options given with `--firm-args` are recorded in every result.
 - The single arm gets one slice. The firm may use several within the same budget: the gate's
   feedback between slices is part of what is being measured.
 
 ## Scoring
 
-- The gate runs the task's hidden checks on the arm's workspace.
+- The gate runs the task's hidden checks on the arm's workspace. Under the default
+  `BOSS_GATE_SANDBOX=auto` that is inside the OS sandbox where the platform has one, the boss's
+  checks in the firm arm included. Results recorded before the sandbox existed ran unsandboxed.
+  Whether the sandbox changed any recorded outcome was not measured.
 - A cell **passes** only if every hidden check passes.
 - The per-check pass fraction is reported as a secondary number.
 - For the firm, a cell that passed all of its own visible checks but failed a hidden check is
@@ -78,6 +86,43 @@ start as `unlabelled` and are classified by hand, with the evidence kept in the 
   the firm's visible checks were satisfied while hidden checks failed.
 - Model output varies between runs. Each task is run several times per arm and all runs are kept.
 
+## Draft evaluation
+
+The arms above are scored on products. The boss's checks are the weak point (some are wrong; some
+do not cover the idea), and a full worker run is too costly to iterate a prompt against. So the
+checks are scored alone, as a classifier of implementations, with `python -m boss.bench.drafts`.
+Only the boss's drafting call costs money; no worker runs.
+
+- **Precision**: the task's reference is a correct implementation, so it must pass every check.
+  A check it fails is **wrong**. Reported as wrong checks over checks, and drafts with any.
+- **Recall**: each task has known-wrong implementations, its **mutants**. A draft kills a mutant when
+  a *sound* check (one the reference passes) fails on it. A mutant that fails only wrong checks is
+  not killed: a wrong check rejects everything, so it detects nothing. Reported as mutants killed
+  over mutants, and drafts that kill every mutant.
+- Layout: `bench/tasks/<id>/mutants/<name>/<module>.py`, one folder per mutant laid out like
+  `reference/`. Hand-made mutants are named for their bug and start with a comment saying what is
+  wrong; harvested ones are named `<run>_<arm>` and start with a comment saying where they came from.
+- Validation refuses a task with fewer than 3 mutants, and a mutant that is not standard-library
+  only, does not import, or passes every hidden check (then it is not wrong).
+- Mutants never reach a prompt or a workspace; only the scorer reads them.
+- Sources: 23 harvested, the rest hand-made (one plausible bug in a copy of the reference).
+  Harvested are the products of the `pilot` and `rerun1` runs that failed a hidden check (Haiku
+  workers, rep 1, single and firm arms; empty products skipped).
+- Rates over drafts carry Wilson 95% intervals. Drafts that are invalid, capped or fail to log in
+  are listed and excluded from every rate, never counted as zero.
+- Baseline, `--score-existing` on the boss drafts of past runs (17 drafts each, no spend):
+  `pilot` 10 of 134 checks wrong, 38 of 65 mutants killed; `rerun1` 4 of 134 wrong, 39 of 65 killed.
+  That is precision 93% and 97% of checks, recall 58% and 60% of mutants.
+- **Limits**: a small hand-picked corpus. With 3 to 6 mutants a task, one mutant is 17 to 33 points
+  of that task's recall, so recall is a coarse figure and a task-level difference is not a claim.
+  Harvested mutants come from Haiku runs and lean toward the mistakes Haiku makes; hand-made ones
+  are the bugs their author thought of. Several harvested mutants of a task share one bug. A mutant
+  is only as wrong as the hidden checks say: a wrong hidden check would make a right product a
+  mutant. Killing every mutant does not show the checks cover the idea. In `--score-existing`,
+  16 of the 23 harvested mutants are firm-arm products built against those very drafts, and 11 of
+  them passed every check of their own draft: they survive it by construction, so the baseline
+  recall is biased down. Fresh drafts (`--out`) do not have that bias.
+
 ## Reproducing
 
 ```bash
@@ -86,3 +131,11 @@ uv run python -m boss.bench.table bench/results/raw/<label>
 ```
 
 Both commands make real model calls or read their results; the first one costs money.
+
+```bash
+uv run python -m boss.bench.drafts --out bench/results/raw/<label> --reps 3 [--prompt NAME]
+uv run python -m boss.bench.drafts --score-existing bench/results/raw/<run>
+```
+
+The first drafts with the boss (about $0.09 a draft, capped at $0.25); the second spends nothing.
+Compare prompts in separate `--out` folders: a folder refuses drafts made with other settings.

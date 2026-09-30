@@ -20,15 +20,24 @@ from pathlib import Path
 
 from boss import cli
 from boss.bench.results import ARMS, CellResult, cell_dir
+from boss.bench.score import count_wrong_checks
 from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
-from boss.errors import INFRASTRUCTURE
+from boss.errors import INFRASTRUCTURE, Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
-from boss.gate import Check, run_gate
+from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
-from boss.worker import CLI, IsolationError, SliceSpec, billing_mode, usd, worker_env
+from boss.worker import (
+    CLI,
+    IsolationError,
+    SliceSpec,
+    billing_mode,
+    clean_status,
+    usd,
+    worker_env,
+)
 
 SOLO_PROMPT = "solo_v1.md"
 _INFRA_OUTCOMES = {str(o) for o in INFRASTRUCTURE} | {"isolation"}
@@ -60,7 +69,7 @@ def run_cell(
         workspace, events = _run_firm(
             task, out, environ, model, boss_model, budget_micros, firm_args
         )
-        wrong_checks = _wrong_checks(task, workspace.parent / "checks")
+        wrong_checks = count_wrong_checks(task, workspace.parent / "checks")
 
     hidden = _score(task, workspace)
     passed = all(status == "passed" for status in hidden.values())
@@ -111,7 +120,8 @@ def _run_single(
     ledger_path = out / "ledger.jsonl"
     with LedgerWriter(ledger_path) as ledger:
         record = Recorder(ledger, f"bench-{task.id}", round=1)
-        record("worker:solo", EventType.SLICE_START, data={"cap_micros": spec.cap_micros})
+        start = {"slice": 1, "cap_micros": spec.cap_micros, "session": str(spec.session_id)}
+        record("worker:solo", EventType.SLICE_START, data=start)
         try:
             run = run_slice(
                 spec,
@@ -131,7 +141,8 @@ def _run_single(
                 tokens_out=run.usage.tokens_out,
                 tokens_cached=run.usage.tokens_cached,
                 billing=billing_mode(env),
-                data={"outcome": str(run.outcome), "status": run.status},
+                # The same cleaning as the firm arm: a worker's words are model output.
+                data={"slice": 1, "outcome": str(run.outcome), "status": clean_status(run.status)},
             )
     return workspace, read_events(ledger_path)
 
@@ -161,20 +172,11 @@ def _score(task: BenchTask, workspace: Path) -> dict[str, str]:
     return {r.check_id: str(r.status) for r in run_gate(workspace, task.hidden_dir, checks)}
 
 
-def _wrong_checks(task: BenchTask, checks_dir: Path) -> int | None:
-    """How many of the boss's checks the reference solution fails. None if no draft was written.
-
-    Scoring only: the reference is copied by the gate into a temp folder, as for hidden checks.
-    """
-    files = sorted(p.name for p in checks_dir.glob("test_*.py")) if checks_dir.is_dir() else []
-    if not files:
-        return None
-    checks = [Check(name.removesuffix(".py").removeprefix("test_"), name) for name in files]
-    return sum(not r.passed for r in run_gate(task.reference_dir, checks_dir, checks))
-
-
 def _outcome(events: Sequence[Event]) -> str:
-    """The worker's outcome, or why no worker finished a slice."""
+    """The worker's outcome, or why no worker finished a slice. A run that paused for the plan
+    limit says nothing about either arm, so it is an infrastructure outcome."""
+    if any(event.event is EventType.PAUSED for event in events):
+        return str(Outcome.USAGE_LIMIT)
     for event in reversed(events):
         if event.event is EventType.SLICE_END:
             return str(event.data.get("outcome", "unknown"))

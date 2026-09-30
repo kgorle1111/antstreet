@@ -2,8 +2,10 @@
 
 Each worker's recorded history is walked one slice at a time through the rule; the first FIRE
 verdict is the firing point and every later recorded slice is spend the policy would have saved.
-The walk stops without a firing at the first ESCALATE (blocked, refusal): live, that task is set
-aside for the investor and the worker is never funded again, so nothing after it is a saving.
+The walk stops without a firing at the first DONE (every check passes: live, the task is finished
+and the worker is never funded again) and at the first ESCALATE (blocked, refusal: live, the task
+is set aside for the investor and the worker is never funded again), so nothing after either is a
+saving.
 RETRY (an infrastructure slice) is uncounted and the walk goes on, as the live worker does.
 Unknown slice costs count as 0 on both sides of the saving, so saved and total are lower bounds.
 A false firing needs a later slice that passes a check no slice up to the firing point had passed.
@@ -72,7 +74,7 @@ def replay_worker(
 ) -> WorkerReplay:
     for n in range(1, len(history) + 1):
         decision = decide(checks, history[:n], policy).decision
-        if decision is Decision.ESCALATE:
+        if decision in (Decision.DONE, Decision.ESCALATE):
             break
         if decision is not Decision.FIRE:
             continue
