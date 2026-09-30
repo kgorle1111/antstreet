@@ -259,6 +259,9 @@ def check_file_problems(check: CheckSpec, checks_dir: Path) -> list[str]:
     path = checks_dir / check.file
     if not path.is_file():
         return [f"check {check.id} file {check.file} does not exist"]
+    # The gate resolves symlinks and refuses any that leave the directory; say so here, early.
+    if not path.resolve().is_relative_to(checks_dir.resolve()):
+        return [f"check {check.id} file {check.file} points outside the checks directory"]
     try:
         # utf-8-sig: a BOM is legal for python and pytest, so it must not reach the parser as text.
         tree = ast.parse(path.read_bytes().decode("utf-8-sig"), filename=check.file)

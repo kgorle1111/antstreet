@@ -319,11 +319,6 @@ def test_a_check_file_with_a_utf8_bom_is_accepted(checks_dir):
     assert spec_problems(checks_dir, source=b"\xef\xbb\xbfdef test_x():\n    pass\n") == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="termsheet.py:validate: gate.run_gate raises GateError for a check symlinked outside "
-    "the checks dir, and validate only converts structural problems into TermSheetError",
-)
 def test_a_check_symlinked_outside_the_checks_dir_is_a_problem_not_a_gate_crash(
     checks_dir, tmp_path
 ):
