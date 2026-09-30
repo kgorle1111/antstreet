@@ -120,13 +120,34 @@ def test_hidden_checks_and_reference_never_reach_a_prompt_or_a_workspace(bench):
     assert workspace_files == {"slugify.py"}
 
 
-def test_both_arms_get_the_same_idea_model_and_tools(bench):
+def test_both_arms_get_the_same_idea_model_tools_and_total_budget(bench):
     bench("single")
     bench("firm")
     solo, _draft, worker = bench.calls()
-    for flag in ("--model", "--tools", "--allowedTools", "--permission-mode", "--max-budget-usd"):
+    for flag in ("--model", "--tools", "--allowedTools", "--permission-mode"):
         assert solo[solo.index(flag) + 1] == worker[worker.index(flag) + 1], flag
     assert TASK.idea in solo[-1]
+    # Same $0.40 cell budget: the single agent gets one slice at 80% of it; a firm worker is
+    # funded in smaller slices that together can never exceed the round's budget.
+    assert solo[solo.index("--max-budget-usd") + 1] == "0.32"
+    assert worker[worker.index("--max-budget-usd") + 1] == "0.1"
+
+
+def test_firm_options_are_passed_through_and_recorded(bench):
+    (bench.home / "product.py").write_text(REFERENCE)
+    result = run_cell(
+        TASK,
+        "firm",
+        1,
+        bench.results,
+        environ=bench.environ,
+        set_hash="abc123",
+        budget_micros=400_000,
+        firm_args=["--slice", "0.05", "--no-firing"],
+    )
+    assert result.firm_args == "--slice 0.05 --no-firing"
+    worker = bench.calls()[-1]
+    assert worker[worker.index("--max-budget-usd") + 1] == "0.05"
 
 
 def test_a_finished_cell_is_not_run_again(bench):

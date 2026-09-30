@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, fields
+from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
 
 ARMS = ("single", "firm")
@@ -29,6 +29,7 @@ class CellResult:
     outcome: str  # the worker's outcome, or why no worker ran
     failure_class: str | None  # None when every hidden check passed
     duration_s: float
+    firm_args: str = ""  # extra `boss fund` options the firm arm ran with, e.g. "--rounds 3"
 
     def __post_init__(self) -> None:
         if self.arm not in ARMS:
@@ -58,8 +59,9 @@ class CellResult:
     @classmethod
     def load(cls, path: Path) -> CellResult:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        expected = {f.name for f in fields(cls)}
-        if not isinstance(raw, dict) or set(raw) != expected:
+        known = {f.name for f in fields(cls)}
+        required = {f.name for f in fields(cls) if f.default is MISSING}
+        if not isinstance(raw, dict) or not required <= set(raw) <= known:
             raise ValueError(f"{path}: fields differ from the result schema")
         return cls(**raw)
 

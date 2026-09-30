@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import sys
 import time
 import uuid
@@ -22,9 +23,10 @@ from boss.bench.results import ARMS, CellResult, cell_dir
 from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
 from boss.errors import INFRASTRUCTURE
-from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE, Recorder
+from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
+from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
 from boss.worker import CLI, IsolationError, SliceSpec, billing_mode, usd, worker_env
 
@@ -43,6 +45,7 @@ def run_cell(
     model: str = DEFAULT_WORKER_MODEL,
     boss_model: str = DEFAULT_MODEL,
     budget_micros: int,
+    firm_args: Sequence[str] = (),
 ) -> CellResult:
     """Run one cell, or return its saved result if it already ran."""
     out = cell_dir(results_dir, task.id, arm, rep)
@@ -53,7 +56,9 @@ def run_cell(
     if arm == "single":
         workspace, events = _run_single(task, out, environ, model, budget_micros)
     else:
-        workspace, events = _run_firm(task, out, environ, model, boss_model, budget_micros)
+        workspace, events = _run_firm(
+            task, out, environ, model, boss_model, budget_micros, firm_args
+        )
 
     hidden = _score(task, workspace)
     passed = all(status == "passed" for status in hidden.values())
@@ -80,6 +85,7 @@ def run_cell(
         outcome=outcome,
         failure_class=failure,
         duration_s=round(time.monotonic() - start, 1),
+        firm_args=" ".join(firm_args) if arm == "firm" else "",
     )
     result.save(out)
     return result
@@ -134,14 +140,15 @@ def _run_firm(
     model: str,
     boss_model: str,
     budget_micros: int,
+    firm_args: Sequence[str],
 ) -> tuple[Path, list[Event]]:
     transcript: list[str] = []
     argv = ["fund", task.idea, "--budget", usd(budget_micros), "--model", model]
-    argv += ["--boss-model", boss_model, "--dir", str(out)]
+    argv += ["--boss-model", boss_model, "--dir", str(out), *firm_args]
     cli.main(argv, ask=lambda prompt: "a", say=transcript.append, environ=environ)
     (out / "transcript.txt").write_text("\n".join(transcript), encoding="utf-8")
     [run_dir] = sorted((out / cli.RUNS_DIR).iterdir())
-    return run_dir / "workspaces" / "w1", read_events(run_dir / "ledger.jsonl")
+    return RunPaths(run_dir).product, read_events(run_dir / "ledger.jsonl")
 
 
 def _score(task: BenchTask, workspace: Path) -> dict[str, str]:
@@ -174,6 +181,9 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     parser.add_argument("--model", default=DEFAULT_WORKER_MODEL)
     parser.add_argument("--boss-model", default=DEFAULT_MODEL)
     parser.add_argument("--only", nargs="+", help="task ids to run (default: all)")
+    parser.add_argument(
+        "--firm-args", default="", help="extra `boss fund` options for the firm arm, quoted"
+    )
     parser.add_argument("--jobs", type=int, default=2, help="cells to run at once")
     parser.add_argument("--dry-run", action="store_true", help="list the cells and exit")
     args = parser.parse_args(argv)
@@ -207,6 +217,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
             model=args.model,
             boss_model=args.boss_model,
             budget_micros=args.budget,
+            firm_args=shlex.split(args.firm_args),
         )
         verdict = "PASS" if result.passed else f"fail ({result.failure_class})"
         score = f"{result.hidden_passed}/{result.hidden_total} hidden"
