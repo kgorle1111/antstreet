@@ -19,6 +19,7 @@ from boss.gate import Check, CheckStatus, run_gate
 
 _CHECK_FILE_RE = re.compile(r"^test_[A-Za-z0-9_]+\.py\Z")
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}\Z")
+_CRITERION_ID_RE = re.compile(r"S[1-9]\d?\.[1-9]\d*\Z")  # as roles.stories numbers them: S2.1
 
 
 class TermSheetError(Exception):
@@ -51,9 +52,15 @@ class CheckSpec:
     description: str
     file: str  # a file name inside the run's checks directory
     task: str
+    criteria: tuple[str, ...] = ()  # acceptance criteria it verifies; left out of the JSON if empty
 
     def __post_init__(self) -> None:
-        _types(self, id=str, description=str, file=str, task=str)
+        _types(self, id=str, description=str, file=str, task=str, criteria=tuple)
+        for criterion in self.criteria:
+            if not isinstance(criterion, str) or not _CRITERION_ID_RE.match(criterion):
+                raise ValueError(f"CheckSpec.criteria: {criterion!r} is not a criterion id")
+        if len(set(self.criteria)) != len(self.criteria):
+            raise ValueError(f"CheckSpec.criteria repeats an id: {self.criteria!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +99,11 @@ class TermSheet:
         return [Check(c.id, c.file) for c in self.checks]
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), indent=2)
+        data = asdict(self)
+        for check in data["checks"]:
+            if not check["criteria"]:
+                del check["criteria"]  # older sheets keep the JSON their approval hashes cover
+        return json.dumps(data, indent=2)
 
     @classmethod
     def from_json(cls, text: str) -> TermSheet:
@@ -101,7 +112,7 @@ class TermSheet:
             return cls(
                 **_fields(raw, cls, nested=("rounds", "checks", "tasks")),
                 rounds=tuple(Round(**_fields(r, Round)) for r in raw["rounds"]),
-                checks=tuple(CheckSpec(**_fields(c, CheckSpec)) for c in raw["checks"]),
+                checks=tuple(_check_from(c) for c in raw["checks"]),
                 tasks=tuple(
                     Task(**_fields(t, Task) | {"paths": tuple(as_list(t["paths"]))})
                     for t in raw["tasks"]
@@ -111,6 +122,11 @@ class TermSheet:
             raise TermSheetError([f"not a valid term sheet: {exc}"]) from exc
 
 
+def _check_from(raw: Any) -> CheckSpec:
+    data = _fields(raw, CheckSpec, optional=("criteria",))
+    return CheckSpec(**data | {"criteria": tuple(as_list(data.get("criteria", [])))})
+
+
 def as_list(value: object) -> list[Any]:
     # tuple("rev.py") would silently become ("r", "e", "v", ...); insist on a JSON array.
     if not isinstance(value, list):
@@ -118,10 +134,12 @@ def as_list(value: object) -> list[Any]:
     return value
 
 
-def _fields(raw: Any, cls: type, nested: tuple[str, ...] = ()) -> dict[str, Any]:
+def _fields(
+    raw: Any, cls: type, nested: tuple[str, ...] = (), optional: tuple[str, ...] = ()
+) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise TypeError(f"{cls.__name__} must be an object")
-    expected = {f.name for f in fields(cls)}
+    expected = {f.name for f in fields(cls)} - (set(optional) - set(raw))
     if set(raw) != expected:
         raise ValueError(f"{cls.__name__} fields differ: {sorted(set(raw) ^ expected)}")
     return {k: v for k, v in raw.items() if k not in nested}
