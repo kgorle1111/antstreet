@@ -37,7 +37,12 @@ def spend_ceiling(round_budgets_micros: Sequence[int], reserve_micros: int) -> i
 
 
 def breach(
-    events: Sequence[Event], limits: RunLimits, *, ceiling_micros: int, elapsed_s: float
+    events: Sequence[Event],
+    limits: RunLimits,
+    *,
+    ceiling_micros: int,
+    elapsed_s: float,
+    hiring: bool = False,
 ) -> str | None:
     """None while the run is inside every limit; otherwise one sentence naming the limit, the
     figure reached and the figure allowed.
@@ -46,7 +51,8 @@ def breach(
     spend    breached when known spend in rounds >= 1 is > ceiling_micros (round 0 is the boss's
              drafting call and has its own cap; unknown costs add nothing);
     slices   breached when slice_start events are >= max_slices (the next slice would exceed it);
-    workers  breached when hired events are > max_workers (the hiring has already happened);
+    workers  breached when hired events, plus one if the next slice needs a new hire (`hiring`),
+             are > max_workers: a run never hires more than max_workers;
     clock    breached when elapsed_s is >= max_seconds, if set.
     """
     spent = sum(e.cost_micros or 0 for e in events if e.round >= 1)
@@ -56,7 +62,7 @@ def breach(
     if slices >= limits.max_slices:
         return f"{slices} slices started; the run limit is {limits.max_slices}"
     workers = sum(e.event is EventType.HIRED for e in events)
-    if workers > limits.max_workers:
+    if workers + hiring > limits.max_workers:
         return f"{workers} workers hired; the run limit is {limits.max_workers}"
     if limits.max_seconds is not None and elapsed_s >= limits.max_seconds:
         return f"{elapsed_s:.0f}s of wall clock elapsed; the run limit is {limits.max_seconds:g}s"

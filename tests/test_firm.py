@@ -1,5 +1,7 @@
 """The round loop end to end, with a scripted worker and the real gate. No model calls."""
 
+import time
+
 import pytest
 
 from boss.approval import NotApprovedError, content_hashes
@@ -8,6 +10,7 @@ from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total
+from boss.limits import RunLimits
 from boss.report import build_report
 from boss.rule import FiringPolicy
 from boss.rundir import RunPaths
@@ -93,7 +96,16 @@ def paths(tmp_path):
 
 
 def run(
-    paths, worker, s=None, *, approved=True, answers=(), config=None, sleeps=None, gate=run_gate
+    paths,
+    worker,
+    s=None,
+    *,
+    approved=True,
+    answers=(),
+    config=None,
+    sleeps=None,
+    gate=run_gate,
+    clock=time.monotonic,
 ):
     s = s or sheet()
     replies = iter(answers)
@@ -120,6 +132,7 @@ def run(
             say=said.append,
             slice_runner=worker,
             gate=gate,
+            clock=clock,
             sleep=(sleeps if sleeps is not None else []).append,
         )
     return report, said
@@ -529,6 +542,75 @@ def test_a_resumed_run_stays_stopped_after_tampering_even_if_the_check_is_restor
     worker = Script(step(HALF), step(GOOD, "done"))
     run(paths, Tampering(worker, paths.checks / "test_c01.py"))
     (paths.checks / "test_c01.py").write_text(original)
+    resumed = Script(step(GOOD, "done"))
+    report, _ = run(paths, resumed)
+    assert report.stopped == "stopped earlier" and resumed.specs == []
+
+
+# Hard limits: a second layer behind the round budget and the firing rule. One test trips each.
+PATIENT = FiringPolicy(stall_slices=50, max_slices=50)
+
+
+def rule_stops(paths):
+    return [e.data["reason"] for e in events_of(paths, EventType.STOPPED) if e.actor == "rule"]
+
+
+def test_the_slice_limit_stops_a_run_the_firing_rule_would_let_continue(paths):
+    config = FirmConfig(policy=PATIENT, limits=RunLimits(max_slices=3))
+    worker = Script(*[step(BAD, cost=1_000)] * 10)
+    report, _ = run(paths, worker, config=config)
+    assert len(worker.specs) == 3
+    assert report.stopped == "stopped: 3 slices started; the run limit is 3"
+    assert rule_stops(paths) == ["3 slices started; the run limit is 3"]
+    assert events_of(paths, EventType.FIRED) == []
+
+
+def test_the_worker_limit_stops_a_run_before_the_hire_that_would_exceed_it(paths):
+    config = FirmConfig(limits=RunLimits(max_workers=1))
+    worker = Script(step(BAD), step(BAD), step(GOOD, "done"))
+    report, _ = run(paths, worker, config=config)
+    assert len(events_of(paths, EventType.FIRED)) == 1
+    assert len(events_of(paths, EventType.HIRED)) == 1 and len(worker.specs) == 2
+    assert rule_stops(paths) == ["1 workers hired; the run limit is 1"]
+    assert events_of(paths, EventType.REASSIGNED) == []
+
+
+def test_the_worker_limit_is_not_tripped_by_a_task_that_will_be_abandoned_anyway(paths):
+    config = FirmConfig(limits=RunLimits(max_workers=2))
+    report, _ = run(paths, Script(step(BAD), step(BAD), step(BAD), step(BAD)), config=config)
+    assert rule_stops(paths) == []
+    assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "already reassigned once"
+
+
+def test_the_wall_clock_limit_stops_the_run_before_its_next_slice(paths):
+    ticks = iter([0.0, 10.0, 61.0, 999.0])  # run start, before slice 1, before slice 2
+    config = FirmConfig(policy=PATIENT, limits=RunLimits(max_seconds=60))
+    worker = Script(*[step(BAD)] * 5)
+    report, _ = run(paths, worker, config=config, clock=lambda: next(ticks))
+    assert len(worker.specs) == 1
+    assert rule_stops(paths) == ["61s of wall clock elapsed; the run limit is 60s"]
+
+
+def test_the_spend_ceiling_stops_a_run_whose_slice_ran_far_past_its_cap(paths):
+    # Two rounds of 150,000 and 300,000 with a 100,000 reserve each: the ceiling is 650,000.
+    # One slice spends 700,000. The investor funds round 2, and the run still stops.
+    s = sheet(rounds=(Round(1, 150_000, 1), Round(2, 300_000, 2)))
+    worker = Script(step(HALF, cost=700_000), step(GOOD, "done"))
+    report, _ = run(paths, worker, s, answers=["y"])
+    assert len(worker.specs) == 1
+    assert rule_stops(paths) == ["spend $0.7 is over the run ceiling of $0.65"]
+    assert report.stopped.startswith("stopped: spend $0.7")
+
+
+def test_a_run_inside_every_limit_is_not_stopped_by_them(paths):
+    config = FirmConfig(limits=RunLimits(max_slices=2, max_workers=1, max_seconds=60))
+    report, _ = run(paths, Script(step(HALF), step(GOOD, "done")), config=config)
+    assert report.all_passed and rule_stops(paths) == []
+
+
+def test_a_run_stopped_by_a_limit_stays_stopped_when_resumed(paths):
+    config = FirmConfig(policy=PATIENT, limits=RunLimits(max_slices=1))
+    run(paths, Script(step(BAD), step(GOOD, "done")), config=config)
     resumed = Script(step(GOOD, "done"))
     report, _ = run(paths, resumed)
     assert report.stopped == "stopped earlier" and resumed.specs == []

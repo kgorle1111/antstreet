@@ -182,6 +182,22 @@ def test_bad_boss_thinking_is_a_usage_error(boss, bad, capsys):
     assert "whole number of tokens" in capsys.readouterr().err
 
 
+def test_max_minutes_stops_the_run_and_the_report_says_why(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9")
+    assert code == EXIT_INCOMPLETE
+    assert "Ended early: stopped:" in output and "wall clock elapsed; the run limit is" in output
+    events = read_events(boss.runs()[0] / "ledger.jsonl")
+    assert [e for e in events if e.event == "slice_start"] == []  # stopped before any spend
+
+
+@pytest.mark.parametrize("bad", ["0", "-5", "soon", "inf", "nan"])
+def test_bad_max_minutes_is_a_usage_error(boss, bad, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "x", "--budget", "0.50", "--max-minutes", bad)
+    assert info.value.code == 2
+    assert "positive number of minutes" in capsys.readouterr().err
+
+
 def test_help_lists_every_command(capsys):
     with pytest.raises(SystemExit) as info:
         main(["--help"])

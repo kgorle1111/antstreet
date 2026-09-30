@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from boss import budget, handoff, retry
+from boss import budget, handoff, limits, retry
 from boss.approval import NotApprovedError, require_approval
 from boss.boss import load_prompt
 from boss.briefs import continuation_prompt, reassignment_brief, task_prompt
@@ -46,6 +46,7 @@ class FirmConfig:
     reserve_micros: int = budget.RESERVE_MICROS  # held back from every cap: one model response
     policy: FiringPolicy = field(default_factory=FiringPolicy)
     firing: bool = True  # False: a stalled worker keeps being funded (the benchmark's control arm)
+    limits: limits.RunLimits = field(default_factory=limits.RunLimits)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +73,8 @@ class _Firm:
     slice_runner: SliceRunner
     gate: Gate
     sleep: Callable[[float], None]
+    clock: Callable[[], float]
+    started: float
 
     def events(self) -> list[Event]:
         return read_events(self.paths.ledger)
@@ -138,6 +141,10 @@ class _Firm:
             task = self._next_task(state)
             if task is None:
                 return None
+            breached = self._breach(task, state)
+            if breached:
+                record("rule", EventType.STOPPED, data={"reason": breached})
+                return f"stopped: {breached}"
             left = budget.remaining(self.sheet, self.events(), round_.n)
             cap = budget.next_slice_cap(
                 left,
@@ -162,6 +169,19 @@ class _Firm:
                 return f"stopped: {reason}"
             if stop:
                 return stop
+
+    def _breach(self, task: Task, state: RunState) -> str | None:
+        """Why the run must stop before its next slice, if a hard limit is reached."""
+        events, ts = self.events(), state.tasks[task.id]
+        replaceable = ts.current is None or state.workers[ts.current].fired
+        budgets = [budget.round_budget(self.sheet, events, r.n) for r in self.sheet.rounds]
+        return limits.breach(
+            events,
+            self.config.limits,
+            ceiling_micros=limits.spend_ceiling(budgets, self.config.reserve_micros),
+            elapsed_s=self.clock() - self.started,
+            hiring=replaceable and len(ts.workers) < MAX_WORKERS_PER_TASK,
+        )
 
     def _next_task(self, state: RunState) -> Task | None:
         for task in self.sheet.tasks:
@@ -315,8 +335,11 @@ def run_firm(
     slice_runner: SliceRunner = run_slice,
     gate: Gate = run_gate,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FirmReport:
     require_approval(read_events(paths.ledger), sheet, paths.checks)
     cfg = config or FirmConfig()
-    firm = _Firm(sheet, paths, ledger, run_id, env, cfg, ask, say, slice_runner, gate, sleep)
+    firm = _Firm(
+        sheet, paths, ledger, run_id, env, cfg, ask, say, slice_runner, gate, sleep, clock, clock()
+    )
     return firm.run()

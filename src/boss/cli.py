@@ -24,6 +24,7 @@ from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sh
 from boss.budget import MIN_SLICE_MICROS, RESERVE_MICROS, min_round_budget, plan_rounds
 from boss.firm import DEFAULT_SLICE_MICROS, DEFAULT_WORKER_MODEL, FirmConfig, run_firm
 from boss.ledger import EventType, LedgerWriter, read_events
+from boss.limits import RunLimits
 from boss.report import build_report, dollars, render_report
 from boss.rule import FiringPolicy
 from boss.rundir import Recorder, RunPaths
@@ -88,6 +89,9 @@ def _parser() -> argparse.ArgumentParser:
     fund.add_argument("--max-tasks", type=int, default=1, help="most tasks the boss may split into")
     fund.add_argument("--max-slices", type=int, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=int, default=FiringPolicy().stall_slices)
+    fund.add_argument(
+        "--max-minutes", type=_minutes_arg, help="stop the run after this much wall-clock time"
+    )
     fund.add_argument("--no-firing", action="store_true", help="keep funding stalled workers")
     fund.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
     fund.add_argument(
@@ -115,6 +119,16 @@ def usd_arg(text: str) -> int:
     if micros <= 0 or micros != micros.to_integral_value():
         raise argparse.ArgumentTypeError("budget must be positive, with at most 6 decimal places")
     return int(micros)
+
+
+def _minutes_arg(text: str) -> float:
+    try:
+        minutes = float(text)
+    except ValueError:
+        minutes = 0.0
+    if not 0 < minutes < float("inf"):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a positive number of minutes")
+    return minutes
 
 
 def _tokens_arg(text: str) -> int:
@@ -195,6 +209,7 @@ def _fund(
             reserve_micros=args.reserve,
             policy=FiringPolicy(stall_slices=args.stall_slices, max_slices=args.max_slices),
             firing=not args.no_firing,
+            limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
         )
         try:
             outcome = run_firm(

@@ -187,3 +187,13 @@ def test_property_breach_is_none_exactly_when_all_four_conditions_hold() -> None
 
         result = check(events, limits, ceiling, elapsed)
         assert (result is None) == (spend_ok and slices_ok and workers_ok and clock_ok)
+
+
+def test_a_hire_that_would_exceed_the_worker_limit_is_stopped_before_it_happens() -> None:
+    hired = [Event(run="r", round=1, actor="boss", event=EventType.HIRED) for _ in range(2)]
+    two = RunLimits(max_workers=2)
+    assert breach(hired, two, ceiling_micros=10**9, elapsed_s=0.0) is None
+    assert breach(hired, two, ceiling_micros=10**9, elapsed_s=0.0, hiring=True) == (
+        "2 workers hired; the run limit is 2"
+    )
+    assert breach(hired[:1], two, ceiling_micros=10**9, elapsed_s=0.0, hiring=True) is None
