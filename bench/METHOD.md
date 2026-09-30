@@ -25,14 +25,17 @@ than a single agent given the idea directly?
 | Input | `idea.md` text | `idea.md` text |
 | Model | same | same (boss and worker) |
 | Tools | Read, Write, Edit in its own folder; no shell | the same for the worker; the boss has none |
-| Slice cap | 80% of the cell budget | 80% of the cell budget |
-| Sees checks | none | the boss-written term-sheet checks, in the prompt |
+| Slice cap | 80% of the cell budget, one slice | `boss fund` defaults, or `--firm-args` |
+| Sees checks | none | the idea word for word, then the boss-written checks |
 | Extra spend | none | the boss's drafting call (capped separately) |
 
 - Neither arm can run code. Neither ever sees the hidden checks or the reference.
 - The firm arm is `boss fund` with the term sheet **approved automatically**. This is the only
-  automated investor decision; a real run has a human there.
-- One round, one worker, one slice. Funding rounds and firing are not part of this benchmark yet.
+  automated investor decision; a real run has a human there, who is also the filter for a wrong
+  boss check.
+- Extra `boss fund` options given with `--firm-args` are recorded in every result.
+- The single arm gets one slice. The firm may use several within the same budget: the gate's
+  feedback between slices is part of what is being measured.
 
 ## Scoring
 
@@ -41,6 +44,8 @@ than a single agent given the idea directly?
 - The per-check pass fraction is reported as a secondary number.
 - For the firm, a cell that passed all of its own visible checks but failed a hidden check is
   counted as **gamed**: the boss's checks were satisfied without the idea being met.
+- A boss check that the task's reference solution fails is a **wrong check**: it demands
+  something the idea does not. Counted per draft, outside the pass rate.
 
 ## Cost
 
