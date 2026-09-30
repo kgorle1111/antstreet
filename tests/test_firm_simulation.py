@@ -80,8 +80,10 @@ exactly that (`crash_kind` names each class):
     owed after an infrastructure failure may also be skipped by a resume in a wave.
   * a resume reports "stopped earlier" where the call that made the stop said why.
   * a crash between the starts of a wave leaves the earlier ones as orphans.
-Where the loop is still wrong, the sequence is pinned by a strict xfail and its class is excluded
-from the randomized tests by name (`EXCLUDED`).
+Every class of crash is compared: what the loop once got wrong (a slice half graded, an
+escalation half asked, a round close or a product verdict cut short) it finishes on the next call,
+and the tests that pin those sequences are plain tests. A product verdict cut short may be
+finished by the next call, so its results can be spread over two.
 """
 
 from __future__ import annotations
@@ -1085,6 +1087,17 @@ def product_blocks(events: list[Event]) -> list[Block]:
     return blocks
 
 
+def product_epochs(events: list[Event]) -> dict[int, list[Block]]:
+    """The blocks of product results grouped by the last slice_end before them (-1: none). A
+    verdict cut short by a crash is completed by a later call, so one group can hold several."""
+    ends = [i for i, e in enumerate(events) if e.event is SLICE_END]
+    groups: dict[int, list[Block]] = {}
+    for b in product_blocks(events):
+        before = [i for i in ends if i < b.start]
+        groups.setdefault(before[-1] if before else -1, []).append(b)
+    return groups
+
+
 def waves_of(events: list[Event], bounds: set[int]) -> list[list[int]]:
     """The ledger indices of each wave's slice_starts: written back to back by one run_firm call,
     with nothing between them."""
@@ -1390,9 +1403,13 @@ def check_passes(res: Result, *, semantic: bool = True) -> None:
         return
     ev, sheet = res.events, res.scn.sheet
     last_end = max((i for i, e in enumerate(ev) if e.event is SLICE_END), default=-1)
-    final = next((b for b in product_blocks(ev) if b.start > last_end), None)
+    final: dict[str, bool] = {}
+    for b in product_epochs(ev).get(last_end, []):
+        final |= b.results
     workers = independent_passed(ev, sheet)
-    expected = sum(final.results.values()) if final else workers
+    dropped = dropped_in(ev)
+    live = [c.id for c in sheet.checks if c.id not in dropped]
+    expected = sum(final.get(c, False) for c in live) if final else workers
     if (res.report.passed, res.report.total) != (expected, required(ev, sheet)):
         _fail(res, f"report {res.report.passed}/{res.report.total}, ledger says {expected}")
     if final and expected != workers:
@@ -1422,58 +1439,69 @@ def check_passes(res: Result, *, semantic: bool = True) -> None:
 
 
 def check_product(res: Result) -> None:
-    """The final verdict on the assembled product, recomputed. Every block of product results (one
-    per run_firm call that gets as far as the end) must:
-    * follow a slice, and be the only block after the last slice ended: a finished run run again
-      adds nothing;
-    * list every live check once, in the sheet's order, in the round of the last slice, and be the
-      last thing its call did;
-    * be what the gate said about product/, which must hold the best worker's file of each task,
-      and nothing of a worker that did not build the best one.
+    """The final verdict on the assembled product, recomputed. After the last slice, every live
+    check has exactly one product result, in the sheet's order, in the round of that slice; they
+    may be written by more than one call, since a call killed part way leaves the rest to the next,
+    but a call that ends without a crash leaves none missing. Each block of results:
+    * follows a slice, and is written by a call of its own (a finished run run again adds nothing);
+    * lists the live checks that had no result yet, and is the last thing its call did;
+    * is what the gate said about product/, which must hold the best worker's file of each task.
     """
     ev, sheet, world = res.events, res.scn.sheet, res.world
     bounds = set(world.boundaries)
     ends = [i for i, e in enumerate(ev) if e.event is SLICE_END]
-    seen: set[int] = set()
-    for b in product_blocks(ev):
-        before = [i for i in ends if i < b.start]
-        if not before:
-            _fail(res, "the product was gated before any slice ended")
-        if before[-1] in seen:
-            _fail(res, "the product was gated twice for the same last slice")
-        seen.add(before[-1])
-        live = [c.id for c in sheet.checks if c.id not in dropped_in(ev[: b.start])]
-        got = [e.data["check"] for e in ev[b.start : b.end + 1]]
-        if got != live or b.round != ev[before[-1]].round:
-            _fail(res, f"product verdict on {got} in round {b.round}, live checks {live}")
-        for e in ev[b.start : b.end + 1]:
-            task = next(c.task for c in sheet.checks if c.id == e.data["check"])
-            shape = {"check", "task", "status", "detail", "scope"}
-            if e.actor != "gate" or set(e.data) != shape or e.data["task"] != task:
-                _fail(res, f"a malformed product result {e.data}")
-        after = ev[b.end + 1] if b.end + 1 < len(ev) else None
-        if after is not None and b.end + 1 not in bounds and after.event is not EventType.RESUMED:
-            _fail(res, "a run went on after its product verdict")
-        entry = next((g for g in world.product_gates if g["events"] == b.start), None)
-        if entry is None:
-            _fail(res, "a product verdict without a gate run on product/")
-        best = best_workers(ev[: b.start], sheet)
-        for task in sheet.tasks:
-            w = best[task.id]
-            want = entry["workspaces"].get(w, {}).get(task.id) if w else None
-            if entry["product"].get(f"{task.id}.py") != want:
-                _fail(res, f"product/ is not {task.id}'s best worker's ({w}) file")
-            said = set(json.loads(entry["product"].get(f"{task.id}.py", b"[]")))
-            for e in ev[b.start : b.end + 1]:
-                if e.data["task"] == task.id and (e.data["status"] == "passed") != (
-                    e.data["check"] in said
-                ):
-                    _fail(res, f"product verdict on {e.data['check']} is not what the file says")
+    epochs = product_epochs(ev)
     tampered = any(
         e.event is EventType.STOPPED and "changed after" in e.data.get("reason", "") for e in ev
     )
+    if -1 in epochs:
+        _fail(res, "the product was gated before any slice ended")
+    for last, blocks in epochs.items():
+        done: list[str] = []
+        for n, b in enumerate(blocks):
+            live = [c.id for c in sheet.checks if c.id not in dropped_in(ev[: b.start])]
+            want = [c for c in live if c not in done]
+            got = [e.data["check"] for e in ev[b.start : b.end + 1]]
+            cut = got == want[: len(got)] and bool(got) and bool(world.crashed_on)
+            if (got != want and not cut) or b.round != ev[last].round:
+                _fail(res, f"product verdict on {got} in round {b.round}, wanted {want}")
+            if n and not any(blocks[n - 1].end < x <= b.start for x in bounds):
+                _fail(res, "the product was gated twice by one call")
+            done += got
+            for e in ev[b.start : b.end + 1]:
+                task = next(c.task for c in sheet.checks if c.id == e.data["check"])
+                shape = {"check", "task", "status", "detail", "scope"}
+                if e.actor != "gate" or set(e.data) != shape or e.data["task"] != task:
+                    _fail(res, f"a malformed product result {e.data}")
+            after = ev[b.end + 1] if b.end + 1 < len(ev) else None
+            ok = after is None or b.end + 1 in bounds or after.event is EventType.RESUMED
+            if not ok:
+                _fail(res, "a run went on after its product verdict")
+            entry = next((g for g in world.product_gates if g["events"] == b.start), None)
+            if entry is None:
+                _fail(res, "a product verdict without a gate run on product/")
+            best = best_workers(ev[: b.start], sheet)
+            for task in sheet.tasks:
+                w = best[task.id]
+                want_file = entry["workspaces"].get(w, {}).get(task.id) if w else None
+                if entry["product"].get(f"{task.id}.py") != want_file:
+                    _fail(res, f"product/ is not {task.id}'s best worker's ({w}) file")
+                said = set(json.loads(entry["product"].get(f"{task.id}.py", b"[]")))
+                for e in ev[b.start : b.end + 1]:
+                    if e.data["task"] == task.id and (e.data["status"] == "passed") != (
+                        e.data["check"] in said
+                    ):
+                        _fail(
+                            res, f"product verdict on {e.data['check']} is not what the file says"
+                        )
+        gone = dropped_in(ev[: blocks[-1].start])
+        complete = done == [c.id for c in sheet.checks if c.id not in gone]
+        if not complete and (last == max(epochs) and res.exc is None and not tampered):
+            _fail(res, f"a call that ended left the product judged on {done} only")
+        if not complete and last != max(epochs) and not world.crashed_on:
+            _fail(res, "a verdict was left half written without a crash")
     judged = res.exc is None and ends and not tampered
-    if judged and not any(b.start > ends[-1] for b in product_blocks(ev)):
+    if judged and ends[-1] not in epochs:
         _fail(res, "a run that ended left no verdict on its product")
 
 
@@ -2010,16 +2038,6 @@ def equivalence_scenario(seed: int) -> Scenario:
     return dataclasses.replace(scn, sheet=sheet, config=config)
 
 
-def _after_a_kept(ref: Result, n: int) -> bool:
-    """Whether the n-th question (1-based) is a dispute question that follows another of the same
-    worker which the investor answered "keep"."""
-    q = ref.asked
-    if n < 2 or " disputes check " not in q[n - 1] or " disputes check " not in q[n - 2]:
-        return False
-    same = q[n - 2].split(" disputes check ")[0] == q[n - 1].split(" disputes check ")[0]
-    return same and ref.world.replies[n - 2].strip().lower() in ("k", "keep")
-
-
 def all_settled(events: list[Event], sheet: TermSheet) -> bool:
     """Every task is abandoned or has every live check passing."""
     per, dropped = passing_by_task(events, sheet), dropped_in(events)
@@ -2103,10 +2121,8 @@ def check_equivalence(seed: int) -> str:
     rng = random.Random(seed ^ 0x5EED)
     # A Ctrl-C at the n-th question of the reference run; each earlier one makes the run ask one
     # question again.
-    # Not after a "keep" in the middle of one escalation: pinned by
-    # test_a_crash_after_keeping_one_of_two_disputes_leaves_it_unasked, excluded here.
-    open_ = [n for n in range(1, len(ref.asked) + 1) if not _after_a_kept(ref, n)]
-    picked = sorted(rng.sample(open_, min(len(open_), rng.randint(0, 2))))
+    every_question = range(1, len(ref.asked) + 1)
+    picked = sorted(rng.sample(every_question, min(len(ref.asked), rng.randint(0, 2))))
     asks = [n + j for j, n in enumerate(picked)]
     keys = sorted(ref.world.consumed)
     # A Ctrl-C in a worker of a wave loses the work of the others, which ran: only a serial run
@@ -2285,14 +2301,10 @@ def _crash_kind(
         return "pause", None
     if lost.event is EventType.STOPPED and lost.actor == "boss":
         return "owed stop", None
-    if lost.event is EventType.RULED and prev is not None and prev.event is EventType.RULED:
-        kept = prev.data["ruling"] == "kept" and prev.data["worker"] == lost.data["worker"]
-        if kept:
-            return "half-ruled after a keep", None
     if is_product(lost):
-        if prev is not None and is_product(prev):
-            return "partial product", None
         # the verdict a run that paused gave is not part of the resumed run; the last one is
+        # (one cut short by a crash is finished by the next call, whether or not it is the first
+        # of its results that is lost)
         later = any(e.event in (EventType.SLICE_START, SLICE_END) for e in written[k:])
         return ("pause" if later else "exact"), None
     if lost.event in (EventType.CHECK_RESULT, EventType.DISPUTED):
@@ -2319,8 +2331,9 @@ def _crash_kind(
 #                      it cannot equal the uninterrupted one. The invariants must still hold.
 #   owed stop          a stop owed to an infrastructure failure or a refused start is not
 #                      recovered: the slice is retried. The invariants must still hold.
-# The classes of crash the loop does not recover from, each pinned by a strict xfail below.
-EXCLUDED: dict[str, str] = {}  # nothing is excluded now: both earlier classes were fixed
+def _between_rulings(written: list[Event], k: int) -> bool:
+    """Whether the k-th write is the ruling after another ruling: part way through an escalation."""
+    return k >= 2 and written[k - 1].event is written[k - 2].event is EventType.RULED
 
 
 def lost_disputes(ref: Result, k: int, who: str, number: int, earlier: int) -> dict:
@@ -2346,12 +2359,11 @@ def check_crash(seed: int, *, every: bool) -> Counter[str]:
     ref = run_in_tmp(scn, resume_pauses=4)
     written = [e for e in ref.events if not (e.event is EventType.APPROVED and e.round == 0)]
     kinds = {k: crash_kind(written, k, scn.sheet) for k in range(1, len(written) + 1)}
-    seen: Counter[str] = Counter(
-        f"{kind} (excluded)" for kind, _ in kinds.values() if kind in EXCLUDED
-    )
-    ks = [k for k, (kind, _) in kinds.items() if kind not in EXCLUDED]
+    seen: Counter[str] = Counter()
+    ks = list(kinds)
     if not every or len(ks) > 40:  # every write of a run, or of a run too long for that
         starts = [k for k in ks if kinds[k][0] == "wave start"][:3]  # rare, and about waves
+        starts += [k for k in ks if _between_rulings(written, k)]  # rarer still
         rest = [k for k in ks if k not in starts]
         picked = random.Random(seed).sample(rest, min(len(rest), 40 if every else 4))
         ks = sorted({*starts, *picked})
@@ -2396,6 +2408,10 @@ def test_5_a_crash_before_any_ledger_write_is_recovered():
     for seed in range(10):  # every write of these runs
         seen.update(check_crash(seed, every=True))
     for seed in range(10, 60):  # four random writes of these
+        seen.update(check_crash(seed, every=False))
+    # Runs with an escalation of two disputes (found by scanning seeds; they are rare): one of
+    # them after a "keep", where the rule alone no longer escalates.
+    for seed in (155, 221):
         seen.update(check_crash(seed, every=False))
     assert seen["exact"] > 150 and seen["dispute lost"] > 15 and seen["lost attempt"] > 10, seen
 
@@ -2570,8 +2586,8 @@ def test_the_generator_reaches_every_outcome_and_decision():
 # ---------------------------------------------------------------------------------------------
 # Regression tests: what the simulation found. Each is a minimal hand-written scenario. The eleven
 # findings of the first version are plain passing tests now (the loop was fixed, or the behaviour
-# became a documented rule); what the simulation still finds in the loop is a strict xfail,
-# excluded from the randomized tests by name.
+# became a documented rule); what the loop once got wrong and now finishes on resume is a plain
+# test too.
 
 
 def hand(
@@ -2910,10 +2926,10 @@ def test_a_ruling_reaches_a_worker_whose_session_is_not_proven():
     assert "use relative paths" in second.prompt
 
 
-# ---- what the simulation finds in the loop as it is now ----
+# ---- found in the wave and product work, fixed in the loop: plain tests now ----
 
 
-def test_a_crash_between_two_product_results_leaves_it_half_judged():
+def test_a_crash_between_two_product_results_is_finished_on_resume():
     scn = hand([beh(progress="all", status="done")])
     ref = run_in_tmp(scn)
     assert (ref.report.passed, ref.report.total) == (2, 2)
@@ -2922,7 +2938,7 @@ def test_a_crash_between_two_product_results_leaves_it_half_judged():
     assert hit.report == ref.report and _canon(hit.events) == _canon(ref.events), hit.report
 
 
-def test_a_crash_after_keeping_one_of_two_disputes_leaves_it_unasked():
+def test_a_crash_after_keeping_one_of_two_disputes_asks_the_second_on_resume():
     scn = hand(
         [beh(progress="progress", n_new=2, disputes="all"), beh(progress="all", status="done")],
         checks=(4,),
