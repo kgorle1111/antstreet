@@ -309,6 +309,46 @@ def test_a_slice_too_small_to_ever_be_funded_is_refused_before_anything_is_spent
     assert not (boss.project / ".boss").exists()
 
 
+@pytest.mark.parametrize("idea", ["", "   ", "\n -x", " --dangerously-skip-permissions"])
+def test_a_blank_idea_or_one_that_reads_as_an_option_is_refused_before_anything_exists(boss, idea):
+    # Found while documenting: this ended in a traceback and left an empty run folder.
+    code, output = boss("fund", idea, "--budget", "0.50")
+    assert code == EXIT_USAGE and "The idea must be some text" in output
+    assert not (boss.project / ".boss").exists()
+
+
+def test_an_idea_typed_as_an_option_is_stopped_by_the_argument_parser(boss, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "--dangerously-skip-permissions", "--budget", "0.50")
+    assert info.value.code == 2 and not (boss.project / ".boss").exists()
+
+
+def test_resume_repairs_a_ledger_whose_last_line_was_cut_off_and_says_so(boss):
+    wrong_product(boss)
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--max-slices", "1")
+    ledger = boss.runs()[0] / "ledger.jsonl"
+    whole = len(read_events(ledger))
+    with ledger.open("a") as fh:
+        fh.write('{"actor": "boss", "event": "hir')  # a hard kill in the middle of an append
+    code, output = boss("resume")
+    assert "last line was cut off by a hard stop and has been removed" in output
+    assert code == EXIT_INCOMPLETE
+    assert len(read_events(ledger)) >= whole  # readable again, nothing else lost
+
+
+def test_a_ledger_damaged_in_the_middle_is_reported_not_repaired(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50")
+    ledger = boss.runs()[0] / "ledger.jsonl"
+    lines = ledger.read_text().splitlines()
+    lines[2] = "not json"
+    ledger.write_text("\n".join(lines) + "\n")
+    before = ledger.read_text()
+    for command in ("resume", "report", "status"):
+        code, output = boss(command)
+        assert code == EXIT_FAILED and "its ledger is damaged" in output and ":3" in output
+    assert ledger.read_text() == before
+
+
 def test_help_lists_every_command(capsys):
     with pytest.raises(SystemExit) as info:
         main(["--help"])

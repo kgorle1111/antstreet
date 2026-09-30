@@ -29,7 +29,15 @@ from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
-from boss.worker import CLI, IsolationError, SliceSpec, billing_mode, usd, worker_env
+from boss.worker import (
+    CLI,
+    IsolationError,
+    SliceSpec,
+    billing_mode,
+    clean_status,
+    usd,
+    worker_env,
+)
 
 SOLO_PROMPT = "solo_v1.md"
 _INFRA_OUTCOMES = {str(o) for o in INFRASTRUCTURE} | {"isolation"}
@@ -112,7 +120,8 @@ def _run_single(
     ledger_path = out / "ledger.jsonl"
     with LedgerWriter(ledger_path) as ledger:
         record = Recorder(ledger, f"bench-{task.id}", round=1)
-        record("worker:solo", EventType.SLICE_START, data={"cap_micros": spec.cap_micros})
+        start = {"slice": 1, "cap_micros": spec.cap_micros, "session": str(spec.session_id)}
+        record("worker:solo", EventType.SLICE_START, data=start)
         try:
             run = run_slice(
                 spec,
@@ -132,7 +141,8 @@ def _run_single(
                 tokens_out=run.usage.tokens_out,
                 tokens_cached=run.usage.tokens_cached,
                 billing=billing_mode(env),
-                data={"outcome": str(run.outcome), "status": run.status},
+                # The same cleaning as the firm arm: a worker's words are model output.
+                data={"slice": 1, "outcome": str(run.outcome), "status": clean_status(run.status)},
             )
     return workspace, read_events(ledger_path)
 

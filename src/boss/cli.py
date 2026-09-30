@@ -1,8 +1,13 @@
-"""Command line: `boss fund`, `boss report`, `boss status`, `boss doctor`.
+"""Command line: `boss fund`, `boss resume`, `boss report`, `boss status`, `boss doctor`.
 
-Exit codes: 0 every check passed (or the command succeeded), 1 stopped or failed, 2 usage error
-(argparse, or a budget too small to fund one slice), 3 the round closed without every check
-passing, 130 interrupted (continue with `boss resume`).
+Exit codes:
+  0    every required check passes on the product (or the command succeeded)
+  1    nothing was built: no usable term sheet, the investor rejected it, a worker did not start
+       isolated, the approved checks changed, or the run cannot be read
+  2    usage error: a bad option, a blank idea, or a budget too small to fund one slice
+  3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
+       a declined round, a task set aside)
+  130  interrupted; continue with `boss resume`
 """
 
 from __future__ import annotations
@@ -30,7 +35,13 @@ from boss.firm import (
     run_firm,
     started_config,
 )
-from boss.ledger import EventType, LedgerWriter, read_events
+from boss.ledger import (
+    EventType,
+    LedgerCorruptError,
+    LedgerWriter,
+    read_events,
+    repair_torn_tail,
+)
 from boss.limits import RunLimits
 from boss.report import build_report, dollars, render_report
 from boss.rule import FiringPolicy
@@ -161,6 +172,9 @@ def _fund(
     args: argparse.Namespace, project: Path, environ: Mapping[str, str], ask: Ask, say: Say
 ) -> int:
     env, executable = worker_env(environ), environ.get(EXECUTABLE_VAR, CLI)
+    if not args.idea.strip() or args.idea.lstrip().startswith("-"):
+        say("The idea must be some text, and must not start with '-' (it would read as an option).")
+        return EXIT_USAGE
     if args.slice < MIN_SLICE_MICROS:
         say(f"--slice must be at least ${usd(MIN_SLICE_MICROS)}: a smaller slice is never funded.")
         return EXIT_USAGE
@@ -295,12 +309,21 @@ def _resume(
     if run is None:
         return EXIT_FAILED
     paths = RunPaths(project / RUNS_DIR / run)
+    torn = repair_torn_tail(paths.ledger)
+    if torn is not None:
+        say(
+            f"The ledger's last line was cut off by a hard stop and has been removed: {torn[:80]!r}"
+        )
     try:
         sheet = TermSheet.from_json((paths.root / "term_sheet.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, TermSheetError) as exc:
         say(f"Run {run} has no usable term sheet ({exc}); it cannot be resumed.")
         return EXIT_FAILED
-    events = read_events(paths.ledger)
+    try:
+        events = read_events(paths.ledger)
+    except LedgerCorruptError as exc:
+        say(f"Run {run} cannot be resumed: its ledger is damaged ({exc}).")
+        return EXIT_FAILED
     if started_config(events) is None:
         say(f"Run {run} never got as far as hiring; start again with `boss fund`.")
         return EXIT_FAILED
@@ -333,7 +356,11 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
     run = _find_run(args, project, say)
     if run is None:
         return EXIT_FAILED
-    events = read_events(RunPaths(project / RUNS_DIR / run).ledger)
+    try:
+        events = read_events(RunPaths(project / RUNS_DIR / run).ledger)
+    except LedgerCorruptError as exc:
+        say(f"Run {run} cannot be read: its ledger is damaged ({exc}).")
+        return EXIT_FAILED
     if not events:
         say(f"Run {run} has an empty ledger.")
         return EXIT_FAILED
