@@ -9,6 +9,7 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
                              with the event's cost_micros = this slice's own spend
     check_result gate        {check, task, status, detail, worker, slice}   after a slice
                  gate        {check, task, status, detail, scope: "product"}  the final product
+                 gate        {check, status, detail, scope: "held_out"}  held-out, on the product
     fired        rule        {worker, task, reason, evidence}
     reassigned   boss        {task, from, to}
     blocked      worker:<w>  {task, reason}
@@ -26,6 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from boss.errors import INFRASTRUCTURE, Outcome
+from boss.held_out import SCOPE as HELD_OUT_SCOPE
 from boss.ledger import Event, EventType
 from boss.rule import SliceRecord
 from boss.rulings import DROPPED, KEPT, ruled
@@ -39,6 +41,8 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
     """Per worker, its finished slices in order, each with the checks passing after it."""
     passing: dict[tuple[str, int], set[str]] = {}
     for e in events:
+        if e.data.get("scope") == HELD_OUT_SCOPE:
+            continue  # the workers never saw these: no per-worker decision may rest on them
         if e.event is EventType.CHECK_RESULT and "worker" in e.data and "slice" in e.data:
             key = (str(e.data["worker"]), int(e.data["slice"]))
             passing.setdefault(key, set())

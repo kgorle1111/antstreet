@@ -157,12 +157,13 @@ Config keys:
 | `limits.max_workspace_bytes` | int | Most bytes a worker's folder or the assembled product may hold. The gate copies the folder for every check, so a larger one is not gated. |
 | `parallel` | int | Tasks worked on at once (`--parallel`). Each task still has one worker at a time. |
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
+| `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. `boss fund` has no option for it yet. A run started before the key existed loads with 0. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
 
 ```json
-{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "held_out": 0, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
 ```
 
 The same, in a run that named roles:
@@ -274,7 +275,7 @@ Example:
 - If the run was killed after a slice ended and before its results were written, the loop gates
   that slice on resume and writes them then.
 - The gate also runs to build the next brief; those runs are not recorded.
-- Two scopes. A result of a worker's slice carries `worker` and `slice`. A result with
+- Three scopes. A result of a worker's slice carries `worker` and `slice`. A result with
   `scope` `product` is the verdict on the assembled `product/` folder, where the tasks' files
   meet. `firm.py` writes it whenever `run_firm` ends after at least one slice (a finished run, a
   stop or a pause), for each required check that has no product verdict after the last
@@ -283,16 +284,23 @@ Example:
   `slice`, and its round is that of the last `slice_end`. The state rebuild ignores it (it reads
   only results with a `worker` and a `slice`); the report lets it supersede the earlier result of
   the same check, so the report shows the product's figure.
+- A result with `scope` `held_out` is a held-out check (ids `h01`..) graded on the assembled
+  product, which no worker ever saw. It is written in the same place and on the same terms as the
+  product verdict, for each held-out check with no held-out result after the last `slice_end`, so a
+  run cut short between two of them finishes the grading on resume. It carries no `task`, no
+  `worker` and no `slice`. The state rebuild skips every result with this scope, so no firing,
+  dispute or unlock decision rests on it. The report shows these results apart from the visible
+  checks, and a run counts as passed only when they pass too.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `check` | str | The check id, such as `c01`. |
-| `task` | str | The task id. |
+| `task` | str | The task id. Absent when `scope` is `held_out`. |
 | `status` | str | `passed`, `failed` or `timeout`. The only source of "passed". |
 | `detail` | str | Why: the pytest exit code, or the count of passed tests. |
 | `worker` | str | The worker whose files were checked. Absent when `scope` is `product`. |
 | `slice` | int | The slice after which the gate ran. Absent when `scope` is `product`. |
-| `scope` | str | Always `product`. Present only on a verdict on the assembled product; absent on a worker's result. |
+| `scope` | str | `product` for a visible check's verdict on the assembled product, `held_out` for a held-out check's. Absent on a worker's result. |
 
 Examples:
 
@@ -302,6 +310,10 @@ Examples:
 
 ```json
 {"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "1 passed", "scope": "product", "status": "passed", "task": "t1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:50.832951+00:00", "v": 1}
+```
+
+```json
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "h01", "detail": "1 passed", "scope": "held_out", "status": "passed"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:17:34.333908+00:00", "v": 1}
 ```
 
 ### `blocked`

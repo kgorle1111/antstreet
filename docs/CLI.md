@@ -388,7 +388,10 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `demo/` | `demo.py` and `USAGE.md` as installed in `product/`. Kept because `product/` is rebuilt on every run, and a `resume` copies them back. |
 | `demo_scratch/` | Where the demo writer ran its script against a copy of the product. |
 
-`workspaces/`, `logs/` and `product/` exist only once a worker has been hired. `report.md` is
+A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
+never inside a workspace or `product/`) and, if the examiner's output was refused,
+`examiner_refused.json`. No command creates them yet. `workspaces/`, `logs/` and `product/`
+exist only once a worker has been hired. `report.md` is
 written by `fund` and `resume`; `boss report` prints it again from the ledger without writing.
 
 ## Benchmark cell folder

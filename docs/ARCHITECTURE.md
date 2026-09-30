@@ -44,7 +44,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `cli.py` | The `boss` command: parsing, validating counts, amounts and role lists, wiring, exit codes, `resume`, `roles`; the `--profile`, `--parallel`, `--roles`, `--review-cycles` and `--fix-budget` options. | Decide pass, fire or money itself; call a role (it hands the pipeline to the loop). |
 | `doctor.py` | Preflight checks, each with a one-line fix: the gate sandbox, and with `--live` one real worker slice that tries to write outside its folder. | Raise on an expected failure; print an environment value. |
 | `errors.py` | Names the outcome of one CLI run from its stream signals. | Trust `subtype` alone. |
-| `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own. |
+| `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`, with the held-out checks when the run has any. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own; let a held-out result reach a per-worker decision. |
 | `gate.py` | Running checks against a fresh copy of the workspace, inside the OS sandbox when there is one; the verdict. | Read the exit code alone; run a check from the workspace; modify the original workspace. |
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
 | `held_out.py` | The `held_out/` folder of a run: its manifest, its content hashes, and the gate its files must pass (ids, parse, a test function, failing on an empty workspace). | Hold a check's body anywhere but that folder; let a file it does not list stand. |
@@ -109,7 +109,9 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
    ends the run (`stopped`, exit 1).
 5. With `--rounds N` above 1, the round plan is replaced by an equal split.
 6. The investor reads the term sheet and every check, and approves, rejects or edits. Approval is
-   an `approved` event holding hashes of the term sheet and each check file.
+   an `approved` event holding hashes of the term sheet and each check file, and of the held-out
+   files when the run has them. (A caller that wants held-out checks runs the examiner,
+   `roles.examiner.run_examiner`, between steps 4 and 6; `boss fund` does not yet.)
 7. `run_firm` verifies the approval, writes `started` once (the run's configuration), then for each
    round asks for the investor's yes (rounds after the first) and runs the round.
 8. The round loop plans a wave: the first tasks whose checks do not all pass, at most `--parallel`
@@ -126,9 +128,11 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
     stops it, or the next round is not unlocked or not funded.
 12. `product/` is assembled from each task's best worker. The gate then runs every required check
     on `product/` and records one `check_result` per check with `scope: product`; that count
-    decides the exit code, and the loop says so when it differs from the workers' folders. The
-    report is rendered from the ledger, saved as `report.md` and printed. Exit 0 if every check
-    passed, else 3.
+    decides the exit code, and the loop says so when it differs from the workers' folders. When
+    the run has held-out checks (`FirmConfig.held_out`, the examiner's, approved with the term
+    sheet), they are run on `product/` too and recorded with `scope: held_out`; the exit code
+    needs them to pass as well. The report is rendered from the ledger, saved as `report.md` and
+    printed, with the two results apart. Exit 0 if every check passed, else 3.
 
 `boss resume [run]` continues a run that was interrupted (Ctrl-C, exit 130), paused or stopped:
 
@@ -145,7 +149,8 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
 5. A slice with a `slice_start` and no `slice_end` is charged to its round at its cap. If the last
    slice was never gated, the loop gates it; a firing, an escalation or a half-asked set of
    disputes that was owed is carried out. A product verdict cut short is completed: only the
-   checks with no `scope: product` result are run.
+   checks with no `scope: product` result are run, and likewise the held-out checks with no
+   `scope: held_out` result.
 
 ## Control flow of `firm.py`
 
@@ -193,6 +198,7 @@ Each row is one decision in `_Firm.run`, `_run_round`, `_current_worker`, `_slic
 | Round ends below its unlock threshold | `round_closed` (`unlocked` false) | Run ends |
 | Round ends, unlocked, another round exists | `round_closed` (`unlocked` true) | Ask the investor for the next round |
 | The run ends and `product/` is assembled | `check_result` (actor `gate`, `scope` `product`) for each required check that has no product result yet | The count of passing checks is the run's result; nothing is run when the product folder is over the size limit or the checks no longer match the approval |
+| The same, for a run with held-out checks | `check_result` (actor `gate`, `scope` `held_out`) for each held-out check that has no result yet | The run passes only when these pass too; no per-worker decision reads them |
 
 ## Invariants
 
@@ -202,6 +208,8 @@ The design relies on these. Each has a test; [THREAT_MODEL.md](THREAT_MODEL.md) 
   events. A worker's own `done` is a note.
 - **What is delivered is gated.** Each task is gated in its own worker's folder; at the end the
   checks run again on the assembled `product/`, and that result is the run's.
+- **A worker never sees a held-out check.** They are stored outside every workspace, graded only
+  on `product/`, approved by the investor with the term sheet, and ignored by `state` and `rule`.
 - **The loop keeps no state outside the ledger.** Before every decision it rebuilds the run with
   `state.run_state`. Calling `run_firm` again on the same ledger continues the run; `boss resume` does
   that. A stop holds until a `resumed` event from the investor lifts it.

@@ -15,9 +15,11 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from boss import budget, handoff, limits, retry, rulings
+from boss import held_out as held_out_store
 from boss.approval import NotApprovedError, require_approval
 from boss.boss import load_prompt
 from boss.briefs import (
@@ -81,6 +83,17 @@ class FirmConfig:
     # Pause the run once a slice reports a plan window this full (a fraction), instead of running
     # into the limit mid-slice and losing that slice. None turns the pause off.
     plan_pause_at: float | None = 0.95
+    # How many held-out checks the examiner was asked for (0 turns the feature off). The checks
+    # themselves are in the run folder and in the investor's approval; this records the request,
+    # so the report can say when it was not met.
+    held_out: int = 0
+
+    def __post_init__(self) -> None:
+        if type(self.held_out) is not int or not 0 <= self.held_out <= held_out_store.MAX_HELD_OUT:
+            raise ValueError(
+                f"held_out must be a whole number from 0 to {held_out_store.MAX_HELD_OUT}, "
+                f"got {self.held_out!r}"
+            )
 
 
 def config_data(config: FirmConfig) -> dict[str, Any]:
@@ -112,10 +125,14 @@ class FirmReport:
     passed: int
     total: int
     stopped: str | None  # why the run ended early, if it did
+    held_out_passed: int = 0  # held-out checks passing on the product; total 0 when there are none
+    held_out_total: int = 0
 
     @property
     def all_passed(self) -> bool:
-        return self.total > 0 and self.passed == self.total
+        """Every visible check and, when the run has held-out checks, every one of them too."""
+        visible = self.total > 0 and self.passed == self.total
+        return visible and self.held_out_passed == self.held_out_total
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +168,10 @@ class _Firm:
     def events(self) -> list[Event]:
         return read_events(self.paths.ledger)
 
+    def require_approval(self, events: Sequence[Event]) -> None:
+        """The investor's approval must match the checks and the held-out folder on disk now."""
+        require_approval(events, self.sheet, self.paths.checks, self.paths.held_out)
+
     def state(self) -> RunState:
         return run_state(self.events(), [t.id for t in self.sheet.tasks])
 
@@ -169,7 +190,7 @@ class _Firm:
     def run_gate(self, task: Task, worker: str) -> list[CheckResult]:
         # Check files are read from disk on every gate run, so the approval is verified on
         # every gate run: a check edited mid-run never produces a recorded result.
-        require_approval(self.events(), self.sheet, self.paths.checks)
+        self.require_approval(self.events())
         limit = self.config.limits.max_workspace_bytes
         size = workspace_bytes(self.paths.workspace(worker), limit)
         if size > limit:
@@ -210,7 +231,8 @@ class _Firm:
         for path in assemble_product(self.paths, self.sheet, self.state()):
             self.say(f"Not in the product: {path} (its name collides with another task's file).")
         passed = self._gate_product()
-        return FirmReport(passed, self.required(), stopped)
+        held_passed, held_total = self._gate_held_out()
+        return FirmReport(passed, self.required(), stopped, held_passed, held_total)
 
     def _gate_product(self) -> int:
         """Run every required check on the assembled product and return how many pass.
@@ -221,41 +243,18 @@ class _Firm:
         """
         events = self.events()
         workspace_passes = self.state().passing_total()
-        last_slice = max(
-            (i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1
-        )
+        last_slice = _last_slice(events)
         if last_slice < 0:
             return workspace_passes  # nothing was built
-        verdicts = {
-            e.data["check"]: e.data.get("status") == "passed"
-            for e in events[last_slice:]
-            if e.event is EventType.CHECK_RESULT and e.data.get("scope") == "product"
-        }
         dropped = self.state().dropped
         required = [Check(c.id, c.file) for c in self.sheet.checks if c.id not in dropped]
-        # A run killed between two product results leaves the verdict on some checks only:
-        # the ones still missing are gated now.
-        missing = [c for c in required if c.id not in verdicts]
-        limit = self.config.limits.max_workspace_bytes
-        if missing and workspace_bytes(self.paths.product, limit) > limit:
-            self.say("The product is over the folder size limit, so it was not gated.")
-            return workspace_passes
-        if missing:
-            tasks = {c.id: c.task for c in self.sheet.checks}
-            try:
-                require_approval(events, self.sheet, self.paths.checks)
-                results = self.gate(self.paths.product, self.paths.checks, missing)
-            except NotApprovedError:
-                return workspace_passes  # the checks changed: only earlier results can be trusted
-            record = Recorder(self.ledger, self.run_id, events[last_slice].round)
-            for r in results:
-                data = {"check": r.check_id, "task": tasks[r.check_id], "status": str(r.status)}
-                record(
-                    "gate",
-                    EventType.CHECK_RESULT,
-                    data=data | {"detail": r.detail, "scope": "product"},
-                )
-                verdicts[r.check_id] = r.passed
+        tasks = {c.id: c.task for c in self.sheet.checks}
+        over = "The product is over the folder size limit, so it was not gated."
+        verdicts = self._grade_product(
+            events, last_slice, "product", required, self.paths.checks, tasks, over
+        )
+        if verdicts is None:
+            return workspace_passes  # the checks changed: only earlier results can be trusted
         passed = sum(verdicts.get(c.id, False) for c in required)
         if passed != workspace_passes:
             self.say(
@@ -263,6 +262,78 @@ class _Firm:
                 f"passed {workspace_passes}. The product's figure is the one reported."
             )
         return passed
+
+    def _gate_held_out(self) -> tuple[int, int]:
+        """Grade the held-out checks on the assembled product: (passed, total), (0, 0) when the
+        run has none. Completed like the product verdict: a resume grades only the checks with no
+        result yet. A check that could not be graded counts as not passed."""
+        checks = held_out_store.load(self.paths.held_out)
+        if not checks:
+            return 0, 0
+        events, total = self.events(), len(checks)
+        last_slice = _last_slice(events)
+        if last_slice < 0:
+            return 0, total  # nothing was built
+        over = "The product is over the folder size limit, so the held-out checks were not run."
+        verdicts = self._grade_product(
+            events,
+            last_slice,
+            held_out_store.SCOPE,
+            [c.to_check() for c in checks],
+            self.paths.held_out,
+            None,
+            over,
+        )
+        passed = 0 if verdicts is None else sum(verdicts.get(c.id, False) for c in checks)
+        self.say(
+            f"Held-out checks: {passed} of {total} passed on the product; "
+            "the workers never saw them."
+        )
+        return passed, total
+
+    def _grade_product(
+        self,
+        events: Sequence[Event],
+        last_slice: int,
+        scope: str,
+        required: Sequence[Check],
+        checks_dir: Path,
+        tasks: Mapping[str, str] | None,
+        over: str,
+    ) -> dict[str, bool] | None:
+        """Each required check's verdict on product/ for results of this `scope` recorded since
+        the last slice, running (and recording) the checks that have none. None when the product
+        cannot be gated: it is over the size limit, or the approval no longer matches the files."""
+        verdicts = {
+            e.data["check"]: e.data.get("status") == "passed"
+            for e in events[last_slice:]
+            if e.event is EventType.CHECK_RESULT and e.data.get("scope") == scope
+        }
+        # A run killed between two results leaves the verdict on some checks only: the ones
+        # still missing are gated now.
+        missing = [c for c in required if c.id not in verdicts]
+        limit = self.config.limits.max_workspace_bytes
+        if missing and workspace_bytes(self.paths.product, limit) > limit:
+            self.say(over)
+            return None
+        if missing:
+            try:
+                self.require_approval(events)
+                results = self.gate(self.paths.product, checks_dir, missing)
+            except NotApprovedError:
+                return None
+            record = Recorder(self.ledger, self.run_id, events[last_slice].round)
+            for r in results:
+                data: dict[str, Any] = {"check": r.check_id, "status": str(r.status)}
+                if tasks is not None:
+                    data["task"] = tasks[r.check_id]
+                record(
+                    "gate",
+                    EventType.CHECK_RESULT,
+                    data=data | {"detail": r.detail, "scope": scope},
+                )
+                verdicts[r.check_id] = r.passed
+        return verdicts
 
     def _approve(self, round_: Round, record: Recorder) -> bool:
         passed = self.state().passing_total()
@@ -514,7 +585,7 @@ class _Firm:
         state = self.state()
         ws = state.workers[worker]
         history = slice_history(self.events()).get(worker, [])
-        require_approval(self.events(), self.sheet, self.paths.checks)  # before any spend
+        self.require_approval(self.events())  # before any spend
         disputed = frozenset().union(*(r.disputed for r in history))
         # A session is resumed only once the ledger proves it exists (state._live_session). Any
         # other attempt gets a new id: the CLI refuses one that is already in use (probe, CLI
@@ -711,6 +782,11 @@ class _Firm:
         return f"stopped: {action.reason}"
 
 
+def _last_slice(events: Sequence[Event]) -> int:
+    """Index of the last `slice_end`, or -1 when no slice has ended."""
+    return max((i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1)
+
+
 def _after_last_slice(events: Sequence[Event], worker: str) -> int:
     """Index just past the worker's last finished slice (0 if it has none)."""
     actor = f"worker:{worker}"
@@ -769,7 +845,11 @@ def run_firm(
     advise: Advise | None = None,
 ) -> FirmReport:
     events = read_events(paths.ledger)
-    require_approval(events, sheet, paths.checks)
+    require_approval(events, sheet, paths.checks, paths.held_out)
+    try:
+        held_out_store.load(paths.held_out)  # approved files are hashed; an unreadable list is not
+    except held_out_store.HeldOutError as exc:
+        raise NotApprovedError(f"the held-out checks cannot be read: {exc}") from exc
     cfg = config or started_config(events) or FirmConfig()
     if started_config(events) is None:
         start = Event(run=run_id, round=0, actor="boss", event=EventType.STARTED)
