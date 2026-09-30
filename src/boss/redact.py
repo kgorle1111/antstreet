@@ -14,10 +14,16 @@ _CONTROL_ESCAPES = {
 }
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # Output is cut to its tail before it gets here, so a key block can arrive without its END
+    # line (masked to the end of the text) or without its BEGIN line (the key lines above the END
+    # line are masked).
     (
-        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
+        re.compile(
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.S
+        ),
         MASK,
     ),
+    (re.compile(r"(?m)(?:^[A-Za-z0-9+/=]+\r?\n)*^-----END [A-Z ]*PRIVATE KEY-----"), MASK),
     # No leading \b on the prefixed shapes: gate output is cut mid-line, so a key can be glued to
     # the text before it. Bare `sk-` is too common inside words ("task-runner-...") to match there
     # unless the body is hyphen-free, so hyphenated bodies still need a word boundary.
@@ -35,6 +41,13 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"), MASK),  # JWT
     (re.compile(r"(?i)(bearer|basic)\s+[A-Za-z0-9._~+/=-]{16,}"), rf"\1 {MASK}"),
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@"), rf"\1{MASK}@"),  # URL creds
+    (  # a quoted key, as in JSON: "password": "value"
+        re.compile(
+            r"(?i)(['\"])([A-Z0-9_]*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*)\1"
+            r"(\s*:\s*)(['\"])[^'\"]{6,}\4"
+        ),
+        rf"\1\2\1\3\4{MASK}\4",
+    ),
     (
         re.compile(
             r"(?i)\b([A-Z0-9_]*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*)"

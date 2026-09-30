@@ -71,19 +71,40 @@ def test_empty_text_and_no_secrets():
     assert redact("", known_secrets=["abcdefghij"]) == ""
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="redact.py: the assignment pattern needs the name directly before = or :, "
-    "so a quoted JSON key leaks its value",
-)
 @pytest.mark.parametrize("key", ["password", "api_key", "client_secret"])
 def test_json_style_secret_values_are_masked(key):
     assert "hunter2222" not in redact(f'{{"{key}": "hunter2222"}}')
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="redact.py: a private key block with no END line (a truncated log) is not matched",
-)
 def test_private_key_block_cut_off_before_its_end_line_is_masked():
     assert "MIIEvQIBADANBgkq" not in redact("-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\nabc")
+
+
+def test_a_quoted_key_keeps_its_name_and_loses_only_its_value():
+    assert redact('{"api_key": "abcdef123456", "name": "visible"}') == (
+        f'{{"api_key": "{MASK}", "name": "visible"}}'
+    )
+    assert redact("{'client_secret' : 'two words here'}") == f"{{'client_secret' : '{MASK}'}}"
+
+
+def test_a_quoted_key_that_is_not_a_secret_name_is_left_alone():
+    text = '{"status": "continuing", "reason": "wrote rev.py", "tokens": 120000}'
+    assert redact(text) == text
+
+
+def test_private_key_block_cut_off_before_its_end_line_is_masked_to_the_end_only():
+    text = "before\n-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkq\nabc"
+    assert redact(text) == f"before\n{MASK}"
+
+
+def test_private_key_block_whose_begin_line_was_cut_off_is_masked():
+    # The gate keeps only the tail of the output, so a block can arrive headless.
+    text = "BADANBgkq\nMIIEvQIBADANBgkq+/==\n-----END PRIVATE KEY-----\nafter the key"
+    assert redact(text) == f"{MASK}\nafter the key"
+    prose = "this line has spaces, so it is not key material\nQUJD\n-----END PRIVATE KEY-----"
+    assert redact(prose) == f"this line has spaces, so it is not key material\n{MASK}"
+
+
+def test_a_complete_key_block_is_masked_once_and_the_text_around_it_kept():
+    block = "-----BEGIN PRIVATE KEY-----\nQUJD\n-----END PRIVATE KEY-----"
+    assert redact(f"a\n{block}\nb\n{block}\nc") == f"a\n{MASK}\nb\n{MASK}\nc"
