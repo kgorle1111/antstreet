@@ -187,6 +187,8 @@ def _held_out_counts(events: Sequence[Event]) -> tuple[int | None, int | None]:
     run that had none. One the run did not get to grade counts as not passed."""
     if not events:
         return None, None
+    # kn: counts what the product passed, not how many held-out checks are wrong; run the task's
+    # reference solution against them, as `wrong_checks` does for the visible ones.
     report = build_report(list(events))
     total_checks = max(report.held_out_written, len(report.held_out))
     if not total_checks:

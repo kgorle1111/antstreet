@@ -3,6 +3,7 @@ bound to the investor's approval, finished on resume, and ignored by every per-w
 A scripted worker and the real gate; a fake `claude` for the examiner. No model calls."""
 
 import dataclasses
+import functools
 import json
 import re
 import sys
@@ -20,6 +21,7 @@ from boss.report import build_report, render_report
 from boss.roles.examiner import run_examiner
 from boss.rule import FiringPolicy
 from boss.rundir import RunPaths
+from boss.runner import run_slice
 from boss.state import run_state, slice_history
 from boss.termsheet import Round
 
@@ -232,6 +234,73 @@ def test_held_out_text_reaches_no_prompt_environment_or_workspace_of_any_worker(
         assert needle not in everything, needle
     assert not re.search(r"\bh0[12]\b", everything)
     assert report.held_out_total == 2
+
+
+INIT = {
+    "type": "system",
+    "subtype": "init",
+    "tools": ["Read", "Write", "Edit", "StructuredOutput"],
+    "mcp_servers": [],
+    "permissionMode": "dontAsk",
+    "claude_code_version": "2.1.285",
+    "session_id": "s-1",
+}
+# A stand-in for the `claude` CLI that records what a real worker process is given: its argv, its
+# environment and every file in its folder, then builds the product and reports done.
+FAKE_WORKER = f"""#!{sys.executable}
+import json, os, sys
+home = os.environ["HOME"]
+files = {{p: open(p, errors="replace").read() for p in os.listdir(".") if os.path.isfile(p)}}
+with open(os.path.join(home, "worker.log"), "a") as log:
+    log.write(json.dumps([sys.argv[1:], dict(os.environ), files, os.getcwd()]) + "\\n")
+say = lambda e: print(json.dumps(e), flush=True)
+say({INIT!r})
+open("rev.py", "w").write({GOOD!r})
+say({{"type": "result", "subtype": "success", "is_error": False, "terminal_reason": "completed",
+     "session_id": "s-1", "total_cost_usd": 0.006,
+     "modelUsage": {{"m": {{"inputTokens": 10, "outputTokens": 5}}}},
+     "structured_output": {{"status": "done", "reason": "wrote it"}}}})
+"""
+
+
+def test_held_out_text_never_reaches_a_real_worker_processs_command_environment_or_folder(
+    paths, tmp_path
+):
+    # The same channels as above through the real runner and command builder: what the `claude`
+    # process is started with, what it inherits, and what its folder holds when it starts.
+    fake = tmp_path / "fake-claude"
+    fake.write_text(FAKE_WORKER)
+    fake.chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin"}
+    write_held_out(paths, HP, HF)
+    s = sheet()
+    with LedgerWriter(paths.ledger) as ledger:
+        data = {
+            "hashes": content_hashes(s, paths.checks),
+            "held_out_hashes": held_out.hashes(paths.held_out),
+        }
+        ledger.append(
+            Event(run="r1", round=0, actor="investor", event=EventType.APPROVED, data=data)
+        )
+        report = run_firm(
+            s, paths, ledger, "r1", env=env, config=FirmConfig(),
+            ask=lambda _: "n", say=lambda _: None,
+            slice_runner=functools.partial(run_slice, executable=str(fake)), sleep=lambda _: None,
+        )  # fmt: skip
+    assert (report.held_out_passed, report.held_out_total) == (1, 2)
+    [record] = [json.loads(line) for line in (home / "worker.log").read_text().splitlines()]
+    argv, environment, files, cwd = record
+    everything = json.dumps(record)
+    for body in (HP, HF):
+        assert body.strip() not in everything
+    for needle in ("test_h01.py", "test_h02.py", "manifest.json", HS, "held_test"):
+        assert needle not in everything, needle
+    assert str(paths.held_out) not in everything
+    assert not re.search(r"\bh0[12]\b", everything)
+    assert files == {} and set(environment) >= {"HOME", "PATH"}  # an empty folder to start in
+    assert argv[argv.index("--tools") + 1] == "Read,Write,Edit"  # no way to reach another folder
 
 
 def test_the_held_out_folder_is_outside_every_workspace_and_out_of_the_product(paths):

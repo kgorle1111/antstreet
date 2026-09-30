@@ -86,6 +86,8 @@ class FirmConfig:
     # How many held-out checks the examiner was asked for (0 turns the feature off). The checks
     # themselves are in the run folder and in the investor's approval; this records the request,
     # so the report can say when it was not met.
+    # kn: recorded, not acted on here: the caller runs the examiner before the approval, and
+    # `boss fund` does not yet. Call `run_examiner` from `_fund` when `--held-out` is added.
     held_out: int = 0
 
     def __post_init__(self) -> None:

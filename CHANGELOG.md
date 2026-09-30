@@ -10,6 +10,16 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- Held-out checks, off by default: an examiner writes checks from your idea and the product's
+  public names alone. You approve them with the term sheet; they run once on `product/`, unseen
+  by any worker. `boss fund` has no option for them yet.
+- The report shows held-out results apart ("Held-out checks: 2 of 3 passed on the product; the
+  workers never saw them."). A run passes only when they pass too. If the examiner fails you are
+  told and the run goes on without them.
+- Ledger: `scope` `held_out` on `check_result`, `held_out_hashes` on `approved`, `held_out` in the
+  `started` configuration, and examiner `role_call` events with `requested`, `kept`, `problems`.
+- The benchmark can ask each firm cell for held-out checks and records how many the product passed
+  in `held_out_passed` and `held_out_total`; older results still load.
 - `boss fund "<idea>" --budget D`: an LLM boss drafts a term sheet of tasks and pytest checks, you
   approve, reject or edit it, and headless `claude` workers build the idea against the checks.
 - `boss report`, `boss status` and `boss doctor [--live]`. `doctor` names a fix for every failed

@@ -71,6 +71,9 @@ def public_names(sheet: TermSheet, checks_dir: Path) -> PublicNames:
     """The contract a held-out check may import against. A check file contributes the product
     modules and symbols it imports (an unparsable file contributes nothing); a task brief
     contributes its code-quoted names, such as `reverse(s)`. Nothing else leaves the files."""
+    # kn: names come from code-quoted words in briefs and imports in check files; a brief that
+    # names an interface in prose only gives the examiner nothing to import. Read the design's
+    # interfaces when the staged draft is the default draft.
     files = dict.fromkeys(p for t in sheet.tasks for p in t.paths if p.strip() and p != ".")
     names: dict[str, None] = {}
     for task in sheet.tasks:
