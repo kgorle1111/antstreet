@@ -25,14 +25,20 @@ RATE = Outcome.RATE_LIMITED
 
 
 def ledger(
-    worker: str, checks: list[str], slices: list[tuple[int, Outcome, set[str]]], run: str = "r1"
+    worker: str,
+    checks: list[str],
+    slices: list[tuple[int, Outcome, set[str]]],
+    run: str = "r1",
+    blocked: frozenset[int] = frozenset(),
 ) -> list[Event]:
     """Events as the live loop records them. Each slice is (cost_micros, outcome, checks passing
-    after it). Infrastructure slices get no check_result events: the gate does not run after them.
+    after it); `blocked` holds the numbers of slices whose worker reported status "blocked".
+    Infrastructure slices get no check_result events: the gate does not run after them.
     """
     events = [Event(run=run, round=1, actor="boss", event=EventType.HIRED, data={"worker": worker})]
     for n, (cost, outcome, passing) in enumerate(slices, start=1):
-        end = {"slice": n, "task": "t1", "outcome": outcome.value, "status": {"status": "none"}}
+        status = "blocked" if n in blocked else "none"
+        end = {"slice": n, "task": "t1", "outcome": outcome.value, "status": {"status": status}}
         events.append(
             Event(
                 run=run,
@@ -154,6 +160,59 @@ def test_hitting_max_slices_while_still_progressing_fires_and_counts_later_slice
     assert (
         replay_one(ledger("limit", checks, slices[:5]), stall=2, max_slices=6).fired_after is None
     )
+
+
+def test_a_blocked_worker_is_set_aside_not_fired_and_nothing_after_it_is_saved():
+    # 3 checks, 4 slices of 1_000 each, all passing only c1; the worker reports "blocked" after
+    # slice 2. stall=2: stalled is 0, 1 after slices 1, 2, but slice 2 is blocked => ESCALATE, and
+    # live never funds slice 3. Replay used to walk on: slice 3 (stalled 2) => FIRE after slice 3,
+    # saving slice 4 = 1_000. Now: no firing, nothing saved.
+    events = ledger("blk", ["c1", "c2", "c3"], [(1_000, OK, {"c1"})] * 4, blocked=frozenset({2}))
+    assert replay_one(events, stall=2) == WorkerReplay("blk", 4, None, 0, False, False)
+
+
+def test_a_refused_worker_is_set_aside_not_fired_and_nothing_after_it_is_saved():
+    # Same shape, but slice 2 ends in a refusal instead of a blocked report. Refusal is not
+    # infrastructure, so it counts (stalled 1 after slice 2) and is ESCALATE on its own.
+    events = ledger(
+        "ref",
+        ["c1", "c2", "c3"],
+        [(1_000, OK, {"c1"}), (1_000, Outcome.REFUSAL, {"c1"}), (1_000, OK, {"c1"})]
+        + [(1_000, OK, {"c1"})],
+    )
+    assert replay_one(events, stall=2) == WorkerReplay("ref", 4, None, 0, False, False)
+
+
+def test_an_escalation_after_the_firing_point_changes_nothing():
+    # stall=1: slice 1 passes c1 (stalled 0), slice 2 passes nothing new => FIRE after slice 2.
+    # The worker reports blocked at slice 3, but it was already fired. Saved = slices 3 + 4 =
+    # 1_000 + 2_000 = 3_000; c2 arrives at slice 4, so that later slice is a false firing.
+    events = ledger(
+        "late",
+        ["c1", "c2", "c3"],
+        [(1_000, OK, {"c1"}), (1_000, OK, {"c1"}), (1_000, OK, {"c1"}), (2_000, OK, {"c1", "c2"})],
+        blocked=frozenset({3}),
+    )
+    assert replay_one(events, stall=1) == WorkerReplay("late", 4, 2, 3_000, True, False)
+
+
+def test_an_infrastructure_slice_is_not_an_escalation_and_the_walk_goes_on():
+    # stall=1: slice 1 ok c1 | slice 2 rate_limited (RETRY, uncounted) | slice 3 ok c1 (stalled 1)
+    # => FIRE after slice 3, saving slice 4 = 4_000. Stopping at RETRY would report no firing.
+    events = ledger(
+        "retry",
+        ["c1", "c2"],
+        [(1_000, OK, {"c1"}), (1_000, RATE, set()), (1_000, OK, {"c1"}), (4_000, OK, {"c1"})],
+    )
+    assert replay_one(events, stall=1) == WorkerReplay("retry", 4, 3, 4_000, False, False)
+
+
+def test_blocked_workers_add_to_the_total_but_never_to_the_saving():
+    # W_BLOCKED: 2 slices of 1_000, blocked at slice 1 => set aside under every policy.
+    # PROG (4 x 1_000) is never fired at stall=2. total = 4_000 + 2_000 = 6_000, saved = 0.
+    blocked = ledger("blk", ["c1", "c2"], [(1_000, OK, {"c1"})] * 2, blocked=frozenset({1}))
+    got = replay_runs([W_PROG + blocked], [FiringPolicy(2, 6)])
+    assert got == [PolicyResult(FiringPolicy(2, 6), 2, 0, 0, 0, 0, 6_000)]
 
 
 # --- Aggregation ----------------------------------------------------------------------------------
