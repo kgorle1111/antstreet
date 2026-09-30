@@ -1,5 +1,6 @@
 """The round loop end to end, with a scripted worker and the real gate. No model calls."""
 
+import json
 import time
 
 import pytest
@@ -41,6 +42,9 @@ def sheet(rounds=None, two_tasks=False) -> TermSheet:
         rounds = (Round(1, 500_000, 3),)
     budget = sum(r.budget_micros for r in rounds)
     return TermSheet("Reverse a string.", budget, tuple(rounds), tuple(checks), tuple(tasks), True)
+
+
+STARTED = object()  # pass as `config` to let run_firm use the configuration it recorded
 
 
 class Script:
@@ -134,7 +138,7 @@ def run(
             ledger,
             "r1",
             env=ENV,
-            config=config or FirmConfig(),
+            config=None if config is STARTED else (config or FirmConfig()),
             ask=ask,
             say=said.append,
             slice_runner=worker,
@@ -159,6 +163,7 @@ def test_one_good_slice_finishes_the_task(paths):
     assert report.all_passed and report.stopped is None
     assert kinds(paths) == [
         ("investor", EventType.APPROVED),
+        ("boss", EventType.STARTED),
         ("boss", EventType.HIRED),
         ("worker:w1", EventType.SLICE_START),
         ("worker:w1", EventType.SLICE_END),
@@ -618,14 +623,24 @@ def test_the_wall_clock_limit_stops_the_run_before_its_next_slice(paths):
 
 
 def test_the_spend_ceiling_stops_a_run_whose_slice_ran_far_past_its_cap(paths):
-    # Two rounds of 150,000 and 300,000 with a 100,000 reserve each: the ceiling is 650,000.
-    # One slice spends 700,000. The investor funds round 2, and the run still stops.
+    # Round 1 is 150,000 with a 100,000 reserve: the ceiling while round 1 runs is 250,000. The
+    # unfunded round 2 does not raise it. One slice spends 700,000 and the run stops there.
     s = sheet(rounds=(Round(1, 150_000, 1), Round(2, 300_000, 2)))
     worker = Script(step(HALF, cost=700_000), step(GOOD, "done"))
-    report, _ = run(paths, worker, s, answers=["y"])
+    report, said = run(paths, worker, s)
     assert len(worker.specs) == 1
-    assert rule_stops(paths) == ["spend $0.7 is over the run ceiling of $0.65"]
+    assert rule_stops(paths) == ["spend $0.7 is over the run ceiling of $0.25"]
     assert report.stopped.startswith("stopped: spend $0.7")
+    assert not any(line.startswith("Round 2") for line in said)  # the investor is not asked
+
+
+def test_the_spend_ceiling_grows_only_with_rounds_the_investor_funded(paths):
+    # 240,000 spent in round 1 is inside its ceiling (250,000). In round 2 the ceiling is
+    # 150,000 + 300,000 + two reserves = 650,000, so a further 300,000 is still inside it.
+    s = sheet(rounds=(Round(1, 150_000, 1), Round(2, 300_000, 2)))
+    worker = Script(step(HALF, cost=240_000), step(HALF, cost=300_000), step(GOOD, "done"))
+    report, _ = run(paths, worker, s, answers=["y"])
+    assert rule_stops(paths) == [] and len(worker.specs) == 2
 
 
 def test_a_run_inside_every_limit_is_not_stopped_by_them(paths):
@@ -748,3 +763,91 @@ def test_a_resumed_slice_that_was_interrupted_resumes_the_same_session_and_recov
     [spec] = resumed.specs
     assert spec.resume is True and spec.session_id == first.specs[0].session_id
     assert [e.cost_micros for e in events_of(paths, EventType.SLICE_END)] == [5_000, 9_000]
+
+
+# Resuming. A round that was interrupted stays open; a round that closed locked stays locked.
+
+
+def test_a_paused_round_stays_open_and_a_resume_finishes_it(paths):
+    # Found by review: a pause closed the round, so resuming skipped its unfinished task and
+    # asked the investor to fund the next round instead.
+    s = sheet(rounds=(Round(1, 300_000, 2), Round(2, 300_000, 2)))
+    limited = step(None, outcome=Outcome.USAGE_LIMIT, cost=None)
+    report, _ = run(paths, Script(step(HALF), limited), s)
+    assert report.stopped.startswith("paused:")
+    assert len(events_of(paths, EventType.PAUSED)) == 1
+    assert events_of(paths, EventType.ROUND_CLOSED) == []
+    resumed = Script(step(GOOD, "done"))
+    report, said = run(paths, resumed, s)
+    assert report.all_passed and len(resumed.specs) == 1
+    assert [e.round for e in events_of(paths, EventType.ROUND_CLOSED)] == [1]
+    assert not any(line.startswith("Round 2") for line in said)
+    assert resumed.specs[0].resume is True  # the worker's session from before the pause
+
+
+def test_a_round_that_closed_below_its_threshold_stays_locked_on_resume(paths):
+    s = sheet(rounds=(Round(1, 204_000, 2), Round(2, 300_000, 2)))
+    run(paths, Script(step(HALF, cost=100_000)), s)
+    resumed = Script(step(GOOD, "done"))
+    report, said = run(paths, resumed, s, answers=["y"])
+    assert report.stopped == "round 1 closed below its unlock threshold"
+    assert resumed.specs == [] and not any(line.startswith("Round 2") for line in said)
+
+
+def test_a_stop_is_lifted_only_by_the_investor(paths):
+    run(paths, Script(step(None, outcome=Outcome.LOGIN, cost=0)))
+    assert events_of(paths, EventType.ROUND_CLOSED) == []  # the round was not finished
+    still = Script(step(GOOD, "done"))
+    report, _ = run(paths, still)
+    assert report.stopped == "stopped earlier" and still.specs == []
+    with LedgerWriter(paths.ledger) as ledger:
+        ledger.append(Event(run="r1", round=1, actor="boss", event=EventType.RESUMED))
+    report, _ = run(paths, still)
+    assert report.stopped == "stopped earlier" and still.specs == []  # the boss cannot lift it
+    with LedgerWriter(paths.ledger) as ledger:
+        ledger.append(Event(run="r1", round=1, actor="investor", event=EventType.RESUMED))
+    report, _ = run(paths, still)
+    assert report.all_passed and len(still.specs) == 1
+    assert len(events_of(paths, EventType.HIRED)) == 1  # the same worker, not a new hire
+
+
+def test_a_later_stop_stops_the_run_again_after_a_resume(paths):
+    login = step(None, outcome=Outcome.LOGIN, cost=0)
+    run(paths, Script(login))
+    with LedgerWriter(paths.ledger) as ledger:
+        ledger.append(Event(run="r1", round=1, actor="investor", event=EventType.RESUMED))
+    run(paths, Script(login))
+    report, _ = run(paths, Script(step(GOOD, "done")))
+    assert report.stopped == "stopped earlier"
+    assert len(events_of(paths, EventType.STOPPED)) == 2
+
+
+def test_the_configuration_is_recorded_once_and_used_when_none_is_given(paths):
+    first = FirmConfig(slice_micros=70_000, reserve_micros=30_000, firing=False)
+    worker = Script(step(HALF), KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        run(paths, worker, config=first)
+    [started] = events_of(paths, EventType.STARTED)
+    assert started.actor == "boss" and started.round == 0
+    assert started.data["config"]["slice_micros"] == 70_000
+    assert started.data["config"]["policy"] == {"stall_slices": 2, "max_slices": 6}
+    resumed = Script(step(GOOD, "done"))
+    resumed.totals = dict(worker.totals)
+    run(paths, resumed, config=STARTED)
+    assert len(events_of(paths, EventType.STARTED)) == 1
+    caps = [e.data["cap_micros"] for e in events_of(paths, EventType.SLICE_START)]
+    assert caps == [70_000, 70_000, 70_000]  # the recorded slice size, not the default 100,000
+
+
+def test_a_recorded_configuration_survives_the_round_trip_through_the_ledger():
+    from boss.firm import config_data, config_from_data
+
+    config = FirmConfig(
+        model="sonnet",
+        slice_micros=1,
+        reserve_micros=2,
+        policy=FiringPolicy(stall_slices=3, max_slices=4),
+        firing=False,
+        limits=RunLimits(max_slices=5, max_workers=6, max_seconds=7.5),
+    )
+    assert config_from_data(json.loads(json.dumps(config_data(config)))) == config

@@ -19,6 +19,8 @@ _ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+)\Z")
 
 class EventType(StrEnum):
     BOSS_CALL = "boss_call"  # the boss's own model spend, e.g. drafting the term sheet
+    STARTED = "started"  # the configuration a run was started with, so it can be resumed
+    RESUMED = "resumed"  # the investor lifted an earlier stop; everything is verified again
     HIRED = "hired"
     SLICE_START = "slice_start"
     SLICE_END = "slice_end"

@@ -206,3 +206,26 @@ def test_ledgers_from_before_per_slice_sessions_fall_back_to_the_hired_session()
     events = [hired, start("w1", 1), ended("w1", 1, 3_000)]
     w = run_state(events, ["t1"]).workers["w1"]
     assert (w.session, w.session_total_micros) == ("old", 3_000)
+
+
+def test_a_stop_holds_until_the_investor_resumes_and_a_later_stop_holds_again():
+    hired = ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1"})
+    stop = ev("boss", EventType.STOPPED, data={"reason": "x"})
+    by_boss = ev("boss", EventType.RESUMED)
+    by_investor = ev("investor", EventType.RESUMED)
+    assert run_state([hired, stop], ["t1"]).stopped
+    assert run_state([hired, stop, by_boss], ["t1"]).stopped
+    assert not run_state([hired, stop, by_investor], ["t1"]).stopped
+    assert run_state([hired, stop, by_investor, stop], ["t1"]).stopped
+    assert not run_state([hired, by_investor], ["t1"]).stopped
+
+
+def test_locked_rounds_are_the_ones_that_closed_below_their_threshold():
+    def closed(n, unlocked):
+        data = {"passed": 1, "total": 2, "unlocked": unlocked}
+        return Event(run="r1", round=n, actor="boss", event=EventType.ROUND_CLOSED, data=data)
+
+    state = run_state([closed(1, True), closed(2, False)], [])
+    assert state.closed_rounds == {1, 2} and state.locked_rounds == {2}
+    malformed = Event(run="r1", round=3, actor="boss", event=EventType.ROUND_CLOSED)
+    assert run_state([malformed], []).locked_rounds == {3}  # no proof it unlocked: locked

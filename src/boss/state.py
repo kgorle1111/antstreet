@@ -13,6 +13,8 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
     blocked      worker:<w>  {task, reason}
     disputed     worker:<w>  {task, check, reason, worker, slice}
     round_closed boss        {passed, total, unlocked}
+    started      boss        {config}
+    resumed      investor    {}
 """
 
 from __future__ import annotations
@@ -110,7 +112,8 @@ class RunState:
     tasks: dict[str, TaskState]
     closed_rounds: frozenset[int]
     approved_rounds: frozenset[int]
-    stopped: bool
+    stopped: bool  # a stop that no later `resumed` event lifted
+    locked_rounds: frozenset[int] = frozenset()  # closed below their unlock threshold
 
     def passing_total(self) -> int:
         return sum(len(t.passing) for t in self.tasks.values())
@@ -160,8 +163,23 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
             for e in events
             if e.event is EventType.APPROVED and e.actor == "investor"
         ),
-        stopped=any(e.event is EventType.STOPPED for e in events),
+        stopped=_stopped(events),
+        locked_rounds=frozenset(
+            e.round
+            for e in events
+            if e.event is EventType.ROUND_CLOSED and not e.data.get("unlocked", False)
+        ),
     )
+
+
+def _stopped(events: Sequence[Event]) -> bool:
+    stopped = False
+    for e in events:
+        if e.event is EventType.STOPPED:
+            stopped = True
+        elif e.event is EventType.RESUMED and e.actor == "investor":
+            stopped = False
+    return stopped
 
 
 def _live_session(

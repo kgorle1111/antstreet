@@ -7,9 +7,10 @@ spawned until `require_approval` finds an investor approval matching the term sh
 
 from __future__ import annotations
 
+import dataclasses
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -54,6 +55,30 @@ class FirmConfig:
     policy: FiringPolicy = field(default_factory=FiringPolicy)
     firing: bool = True  # False: a stalled worker keeps being funded (the benchmark's control arm)
     limits: limits.RunLimits = field(default_factory=limits.RunLimits)
+
+
+def config_data(config: FirmConfig) -> dict[str, Any]:
+    """A FirmConfig as ledger data, so a run can be resumed with what it was started with."""
+    return dataclasses.asdict(config)
+
+
+def config_from_data(data: Mapping[str, Any]) -> FirmConfig:
+    fields = dict(data)
+    return FirmConfig(
+        **fields
+        | {
+            "policy": FiringPolicy(**fields.get("policy", {})),
+            "limits": limits.RunLimits(**fields.get("limits", {})),
+        }
+    )
+
+
+def started_config(events: Sequence[Event]) -> FirmConfig | None:
+    """The configuration recorded when the run first started, if it has started."""
+    for e in events:
+        if e.event is EventType.STARTED:
+            return config_from_data(e.data["config"])
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +131,9 @@ class _Firm:
             if state.stopped:
                 stopped = "stopped earlier"
                 break
+            if round_.n in state.locked_rounds:  # also on resume: a locked round stays locked
+                stopped = f"round {round_.n} closed below its unlock threshold"
+                break
             if round_.n in state.closed_rounds:
                 continue
             record = Recorder(self.ledger, self.run_id, round_.n)
@@ -113,11 +141,13 @@ class _Firm:
                 stopped = "investor declined the round"
                 break
             stopped = self._run_round(round_, record)
+            if stopped:  # paused or stopped mid-round: it stays open, so a resume continues it
+                break
             passed = self.state().passing_total()
             unlocked = budget.unlocked(self.sheet, round_.n, passed)
             data = {"passed": passed, "total": total, "unlocked": unlocked}
             record("boss", EventType.ROUND_CLOSED, data=data)
-            if stopped or passed == total:
+            if passed == total:
                 break
             if not unlocked:
                 stopped = f"round {round_.n} closed below its unlock threshold"
@@ -149,7 +179,7 @@ class _Firm:
             task = self._next_task(state)
             if task is None:
                 return None
-            breached = self._breach(task, state)
+            breached = self._breach(task, state, round_)
             if breached:
                 record("rule", EventType.STOPPED, data={"reason": breached})
                 return f"stopped: {breached}"
@@ -178,11 +208,13 @@ class _Firm:
             if stop:
                 return stop
 
-    def _breach(self, task: Task, state: RunState) -> str | None:
+    def _breach(self, task: Task, state: RunState, round_: Round) -> str | None:
         """Why the run must stop before its next slice, if a hard limit is reached."""
         events, ts = self.events(), state.tasks[task.id]
         replaceable = ts.current is None or state.workers[ts.current].fired
-        budgets = [budget.round_budget(self.sheet, events, r.n) for r in self.sheet.rounds]
+        # Only rounds the investor has funded so far count toward the ceiling.
+        funded = [r.n for r in self.sheet.rounds if r.n <= round_.n]
+        budgets = [budget.round_budget(self.sheet, events, n) for n in funded]
         return limits.breach(
             events,
             self.config.limits,
@@ -348,8 +380,12 @@ def run_firm(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> FirmReport:
-    require_approval(read_events(paths.ledger), sheet, paths.checks)
-    cfg = config or FirmConfig()
+    events = read_events(paths.ledger)
+    require_approval(events, sheet, paths.checks)
+    cfg = config or started_config(events) or FirmConfig()
+    if started_config(events) is None:
+        start = Event(run=run_id, round=0, actor="boss", event=EventType.STARTED)
+        ledger.append(dataclasses.replace(start, data={"config": config_data(cfg)}))
     firm = _Firm(
         sheet, paths, ledger, run_id, env, cfg, ask, say, slice_runner, gate, sleep, clock, clock()
     )
