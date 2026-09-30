@@ -119,9 +119,24 @@ def run_slice(
 
 
 def check_workspace(workspace: Path) -> None:
+    """Refuse a workspace holding agent configuration at any depth: a worker can plant one under
+    a subdirectory and work there, so checking only the top level is not enough.
+
+    Matches by name on every entry (symlinks included, never followed), so a dangling or
+    out-of-tree link named `.claude` is refused as well.
+    """
     if not workspace.is_dir():
         raise WorkspaceError(f"workspace {workspace} does not exist")
-    planted = [name for name in FORBIDDEN_WORKSPACE_ENTRIES if (workspace / name).exists()]
+
+    def unreadable(exc: OSError) -> None:
+        raise WorkspaceError(f"cannot inspect workspace: {exc}")  # an unread dir could hide one
+
+    planted = sorted(
+        Path(root, name).relative_to(workspace).as_posix()
+        for root, dirs, files in os.walk(workspace, onerror=unreadable)  # followlinks=False
+        for name in (*dirs, *files)
+        if name in FORBIDDEN_WORKSPACE_ENTRIES
+    )
     if planted:
         raise WorkspaceError(f"workspace contains agent configuration: {planted}")
 
