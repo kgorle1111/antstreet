@@ -32,7 +32,14 @@ from boss.ledger import Event, EventType, LedgerWriter, read_events
 from boss.redact import safe_text
 from boss.roles.builders import builder_system_prompt
 from boss.rule import Decision, FiringPolicy, Verdict, decide
-from boss.rundir import Recorder, RunPaths, assemble_product, slice_end_fields
+from boss.rundir import (
+    Recorder,
+    RunPaths,
+    WorkspaceTooBig,
+    assemble_product,
+    slice_end_fields,
+    workspace_bytes,
+)
 from boss.runner import SliceRun, run_slice
 from boss.state import RunState, run_state, slice_history
 from boss.termsheet import Round, Task, TermSheet
@@ -55,6 +62,7 @@ Gate = Callable[..., list[CheckResult]]
 # (check id, the worker's reason) -> a line to show the investor, or None. Advice binds nothing.
 Advise = Callable[[str, str], str | None]
 Ask = Callable[[str], str]
+_CANNOT_GATE = (NotApprovedError, WorkspaceTooBig)
 Say = Callable[[str], None]
 
 
@@ -162,6 +170,10 @@ class _Firm:
         # Check files are read from disk on every gate run, so the approval is verified on
         # every gate run: a check edited mid-run never produces a recorded result.
         require_approval(self.events(), self.sheet, self.paths.checks)
+        limit = self.config.limits.max_workspace_bytes
+        size = workspace_bytes(self.paths.workspace(worker), limit)
+        if size > limit:
+            raise WorkspaceTooBig(worker, size, limit)
         return self.gate(self.paths.workspace(worker), self.paths.checks, self.checks_of(task))
 
     def run(self) -> FirmReport:
@@ -219,6 +231,10 @@ class _Firm:
             for e in events[last_slice:]
             if e.event is EventType.CHECK_RESULT and e.data.get("scope") == "product"
         }
+        limit = self.config.limits.max_workspace_bytes
+        if not verdicts and workspace_bytes(self.paths.product, limit) > limit:
+            self.say("The product is over the folder size limit, so it was not gated.")
+            return workspace_passes
         if not verdicts:
             dropped = self.state().dropped
             checks = [Check(c.id, c.file) for c in self.sheet.checks if c.id not in dropped]
@@ -272,8 +288,8 @@ class _Firm:
                 continue  # something was recorded (a recovery, an abandonment): look again
             try:
                 wave = [self._prepare(task, worker, cap) for task, worker, cap in plans]
-            except NotApprovedError:
-                return self._tampered(record)
+            except _CANNOT_GATE as exc:
+                return self._halt(record, exc)
             for pending in wave:
                 record(f"worker:{pending.worker}", EventType.SLICE_START, data=pending.start)
             stop = self._finish_wave(wave, self._run_wave(wave), record)
@@ -296,8 +312,8 @@ class _Firm:
             if current is not None and not state.workers[current].fired:
                 try:
                     self._gate_slice(task, current, record)
-                except NotApprovedError:
-                    return None, self._tampered(record)
+                except _CANNOT_GATE as exc:
+                    return None, self._halt(record, exc)
                 self._act(task, current, record, None)
         if len(self.events()) != before:
             return [], None
@@ -392,8 +408,8 @@ class _Firm:
         for pending, run in finished:
             try:
                 self._gate_slice(pending.task, pending.worker, record, run.status)
-            except NotApprovedError:
-                return self._tampered(record)
+            except _CANNOT_GATE as exc:
+                return self._halt(record, exc)
             self._status_line(pending.task, pending.worker, pending.number, record.round)
             stop = self._act(pending.task, pending.worker, record, run) or stop
         return stop or self._plan_pressure([run for _, run in finished], record)
@@ -410,8 +426,12 @@ class _Firm:
                 return f"paused: {pause.reason}"
         return None
 
-    def _tampered(self, record: Recorder) -> str:
-        reason = "the term sheet or a check changed after the investor approved it"
+    def _halt(self, record: Recorder, why: Exception) -> str:
+        """Stop the run because the gate must not run: the checks changed, or a folder is too
+        big to copy."""
+        reason = str(why)
+        if isinstance(why, NotApprovedError):
+            reason = "the term sheet or a check changed after the investor approved it"
         record("rule", EventType.STOPPED, data={"reason": reason})
         return f"stopped: {reason}"
 

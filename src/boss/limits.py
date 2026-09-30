@@ -15,9 +15,10 @@ class RunLimits:
     max_slices: int = 60  # slices started in the whole run, infrastructure retries included
     max_workers: int = 16  # workers hired in the whole run
     max_seconds: float | None = None  # wall clock of this invocation; None = no limit
+    max_workspace_bytes: int = 200 * 2**20  # a worker's folder; the gate copies it per check
 
     def __post_init__(self) -> None:
-        for name in ("max_slices", "max_workers"):
+        for name in ("max_slices", "max_workers", "max_workspace_bytes"):
             value = getattr(self, name)
             if type(value) is not int or value < 1:
                 raise ValueError(f"{name} must be an int >= 1, got {value!r}")

@@ -29,6 +29,8 @@ from boss.worker import (
 DEFAULT_TIMEOUT_S = 15 * 60.0
 DEFAULT_GRACE_S = 5.0
 STDERR_TAIL_LINES = 50
+DEFAULT_MAX_LOG_BYTES = 50 * 2**20  # a worker that prints without end must not fill the disk
+LOG_CUT = '{"type": "boss", "note": "log cut: the size limit was reached"}\n'
 # A worker could plant these to run code or tools outside its whitelist on the next resume.
 FORBIDDEN_WORKSPACE_ENTRIES = (".claude", ".mcp.json")
 _EOF = object()
@@ -63,6 +65,7 @@ def run_slice(
     executable: str = CLI,
     known_secrets: Iterable[str] = (),
     stop: threading.Event | None = None,
+    max_log_bytes: int = DEFAULT_MAX_LOG_BYTES,
 ) -> SliceRun:
     """Run one slice to completion, timeout or refusal. Setting `stop` from another thread ends
     it the way a timeout does: the worker is interrupted and its final result still read.
@@ -98,7 +101,7 @@ def run_slice(
     try:
         with log_path.open("a", encoding="utf-8") as log:
             timed_out = _consume(
-                proc, lines, reader, log, secrets, start + timeout_s, grace_s, stop
+                proc, lines, reader, log, secrets, start + timeout_s, grace_s, stop, max_log_bytes
             )
         if not timed_out:
             with contextlib.suppress(subprocess.TimeoutExpired):  # finally stops it if needed
@@ -154,6 +157,7 @@ def _consume(
     deadline: float,
     grace_s: float,
     stop: threading.Event | None = None,
+    max_log_bytes: int = DEFAULT_MAX_LOG_BYTES,
 ) -> bool:
     """Feed stdout to the reader until EOF. Returns True if the deadline was hit.
 
@@ -161,6 +165,7 @@ def _consume(
     cost, and dropping that line would turn a known cost into an unknown one.
     """
     checked_init = timed_out = False
+    logged = 0  # bytes written to the log; past the cap the stream is still read, not stored
     while True:
         remaining = deadline - time.monotonic()
         if (remaining <= 0 or (stop is not None and stop.is_set())) and not timed_out:
@@ -175,7 +180,10 @@ def _consume(
         if item is _EOF:
             return timed_out
         line = cast(str, item)
-        log.write(redact(line if line.endswith("\n") else line + "\n", secrets))
+        if logged <= max_log_bytes:
+            text = redact(line if line.endswith("\n") else line + "\n", secrets)
+            logged += len(text.encode("utf-8", errors="replace"))
+            log.write(text if logged <= max_log_bytes else LOG_CUT)
         reader.feed(line)
         # Init passed with zero hook events, so any hook event counted since is a late one.
         if reader.init is not None and (not checked_init or reader.hook_events):

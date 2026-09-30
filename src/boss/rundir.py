@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -51,6 +52,31 @@ class Recorder:
         self.ledger.append(
             Event(run=self.run_id, round=self.round, actor=actor, event=event, **fields)
         )
+
+
+class WorkspaceTooBig(Exception):
+    """A worker's folder is over the size limit; the gate would copy it once per check."""
+
+    def __init__(self, worker: str, size: int, limit: int) -> None:
+        super().__init__(
+            f"the folder of {worker} holds more than {limit // 2**20} MB "
+            f"({size // 2**20} MB counted before stopping); the gate copies it for every check"
+        )
+
+
+def workspace_bytes(workspace: Path, stop_at: int) -> int:
+    """Bytes of the files under `workspace`, counting a symlink as itself and never following
+    one. Stops counting once the total passes `stop_at`: the caller only needs to know that."""
+    total = 0
+    for root, _dirs, files in os.walk(workspace):  # followlinks=False
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                continue  # removed while counting
+            if total > stop_at:
+                return total
+    return total
 
 
 def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> list[str]:
