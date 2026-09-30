@@ -440,7 +440,7 @@ def _resume(
     if run is None:
         return EXIT_FAILED
     try:
-        return _resume_run(run, project, environ, ask, say)
+        return _resume_run(args, run, project, environ, ask, say)
     except LedgerLockedError:  # the repair and the writer take the lock before writing anything
         say(
             f"Run {run} is still being written by another `boss` process. Nothing was changed; "
@@ -449,7 +449,14 @@ def _resume(
         return EXIT_FAILED
 
 
-def _resume_run(run: str, project: Path, environ: Mapping[str, str], ask: Ask, say: Say) -> int:
+def _resume_run(
+    args: argparse.Namespace,
+    run: str,
+    project: Path,
+    environ: Mapping[str, str],
+    ask: Ask,
+    say: Say,
+) -> int:
     paths = RunPaths(project / RUNS_DIR / run)
     torn = repair_torn_tail(paths.ledger)
     if torn is not None:
