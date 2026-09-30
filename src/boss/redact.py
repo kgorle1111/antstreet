@@ -13,12 +13,22 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S),
         MASK,
     ),
-    (re.compile(r"\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}"), MASK),  # Anthropic / OpenAI-style keys
-    (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})"), MASK),
-    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), MASK),  # AWS access key id
-    (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"), MASK),  # Slack
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"), MASK),  # JWT
-    (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{16,}"), rf"\1 {MASK}"),
+    # No leading \b on the prefixed shapes: gate output is cut mid-line, so a key can be glued to
+    # the text before it. Bare `sk-` is too common inside words ("task-runner-...") to match there
+    # unless the body is hyphen-free, so hyphenated bodies still need a word boundary.
+    (
+        re.compile(
+            r"sk-(?:ant|proj|svcacct|admin)-[A-Za-z0-9_-]{20,}"  # Anthropic / OpenAI-style keys
+            r"|(?<!\w)sk-[A-Za-z0-9_-]{20,}"
+            r"|sk-[A-Za-z0-9]{20,}"
+        ),
+        MASK,
+    ),
+    (re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})"), MASK),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), MASK),  # AWS access key id
+    (re.compile(r"xox[abprs]-[A-Za-z0-9-]{10,}"), MASK),  # Slack
+    (re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"), MASK),  # JWT
+    (re.compile(r"(?i)(bearer|basic)\s+[A-Za-z0-9._~+/=-]{16,}"), rf"\1 {MASK}"),
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@"), rf"\1{MASK}@"),  # URL creds
     (
         re.compile(

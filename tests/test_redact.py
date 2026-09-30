@@ -86,3 +86,39 @@ def test_recorded_fixtures_need_no_redaction():
 def test_redacted_json_line_stays_valid_json():
     line = json.dumps({"cmd": "curl -H 'Authorization: Bearer abcdefghijklmnop1234' x"})
     assert json.loads(redact(line))["cmd"] == f"curl -H 'Authorization: Bearer {MASK}' x"
+
+
+@pytest.mark.parametrize(
+    ("before", "secret", "after"),
+    [
+        ("x", "sk-ant-" + "a" * 30, ""),
+        ("x", "sk-" + "a" * 30, ""),
+        ("x", "ghp_" + "a" * 36, ""),
+        ("x", "AKIA" + "A" * 16, ""),
+        ("", "AKIA" + "A" * 16, "x"),
+        ("x", "xoxb-" + "1" * 12, ""),
+        ("x", SAMPLES["jwt"], ""),
+    ],
+)
+def test_secret_glued_to_surrounding_text_is_masked(before, secret, after):
+    assert redact(before + secret + after) == before + MASK + after
+
+
+def test_bearer_glued_to_a_preceding_word_is_masked():
+    assert redact("xBearer " + "a" * 24) == f"xBearer {MASK}"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "taskbar",
+        "risk-antics and ask-anthony",
+        "makiage and a MAKIAVELLI note",
+        "task-runner-configuration-file-loader",  # bare sk- with a hyphenated body
+        "AKIA plus a short tail",
+        "ghp_ short and ghost_pipeline",
+        "sunbasic nothing here",
+    ],
+)
+def test_words_that_merely_contain_a_prefix_are_untouched(text):
+    assert redact(text) == text

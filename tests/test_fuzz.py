@@ -349,38 +349,7 @@ def test_redact_is_idempotent():
         assert redact(once) == once
 
 
-def boundary_xfail(example: str) -> pytest.MarkDecorator:
-    return pytest.mark.xfail(
-        strict=True,
-        raises=AssertionError,
-        reason=f"patterns start with \\b, so a secret glued to a preceding word character is "
-        f"not masked: {example}",
-    )
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        pytest.param(
-            "sk-ant",
-            marks=boundary_xfail("redact('x' + 'sk-ant-' + 'a' * 30) returns the key intact"),
-        ),
-        pytest.param(
-            "ghp", marks=boundary_xfail("redact('x' + 'ghp_' + 'a' * 36) returns the key intact")
-        ),
-        pytest.param(
-            "aws",
-            marks=boundary_xfail(
-                "redact('x' + 'AKIA' + 'A' * 16) and redact('AKIA' + 'A' * 16 + 'x') (trailing \\b "
-                "too) return the key intact"
-            ),
-        ),
-        pytest.param(
-            "bearer",
-            marks=boundary_xfail("redact('xBearer ' + 'a' * 24) returns the token intact"),
-        ),
-    ],
-)
+@pytest.mark.parametrize("shape", SECRET_MAKERS)
 def test_redact_masks_secret_shaped_strings_at_random_positions(shape):
     rng = random.Random(3002)
     for _ in range(REDACT_RUNS):
