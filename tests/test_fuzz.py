@@ -178,15 +178,7 @@ def _wrong_version(rng, raw):
         _flip,
         _drop_key,
         _add_key,
-        pytest.param(
-            _change_type,
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=AssertionError,
-                reason="Event validates `run` only for truthiness and `ts` not at all, so a line "
-                'with "run": 5 (or "ts": null) parses to an Event whose field is not a str',
-            ),
-        ),
+        _change_type,
         _wrong_version,
     ],
 )

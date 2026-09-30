@@ -106,6 +106,46 @@ def test_schema_violations_are_corruption(path, mutate):
         read_events(path)
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("run", 5),
+        ("run", ""),
+        ("run", None),
+        ("actor", 5),
+        ("actor", ""),
+        ("actor", "boss\n"),
+        ("ts", None),
+        ("ts", 5),
+        ("ts", ""),
+        ("ts", "yesterday"),
+    ],
+    ids=str,
+)
+def test_run_actor_and_ts_of_the_wrong_kind_are_corruption_with_a_line_number(path, key, value):
+    record = json.loads(ev().to_json())
+    record[key] = value
+    write_all(path, [ev()])
+    with path.open("a") as fh:
+        fh.write(json.dumps(record) + "\n")
+    with pytest.raises(LedgerCorruptError, match=r"ledger\.jsonl:2"):
+        read_events(path)
+
+
+@pytest.mark.parametrize("bad", [{"run": 5}, {"actor": 5}, {"ts": None}, {"ts": "not a time"}])
+def test_event_rejects_run_actor_or_ts_of_the_wrong_kind(bad):
+    with pytest.raises(ValueError):
+        ev(**bad)
+
+
+def test_a_deeply_nested_line_is_corruption(path):
+    write_all(path, [ev()])
+    with path.open("a") as fh:
+        fh.write("[" * 100_000 + "\n")
+    with pytest.raises(LedgerCorruptError, match=r"ledger\.jsonl:2"):
+        read_events(path)
+
+
 def test_second_writer_is_refused_until_the_first_closes(path):
     with LedgerWriter(path) as first:
         first.append(ev())

@@ -86,11 +86,15 @@ class Event:
     ts: str = field(default_factory=_now)
 
     def __post_init__(self) -> None:
+        for name in ("run", "actor", "ts"):
+            if not isinstance(getattr(self, name), str):
+                raise ValueError(f"{name} must be a string, got {getattr(self, name)!r}")
         if not self.run:
             raise ValueError("run must be non-empty")
         _require_count("round", self.round)
-        if not _ACTOR_RE.match(self.actor):
+        if not _ACTOR_RE.fullmatch(self.actor):  # match() would let "boss\n" through `$`
             raise ValueError(f"unknown actor {self.actor!r}")
+        datetime.fromisoformat(self.ts)  # raises ValueError on anything else
         object.__setattr__(self, "event", EventType(self.event))
         object.__setattr__(self, "billing", Billing(self.billing))
         if self.cost_micros is not None:
@@ -105,7 +109,10 @@ class Event:
 
     @classmethod
     def from_json(cls, line: str) -> Event:
-        raw = json.loads(line)
+        try:
+            raw = json.loads(line)
+        except RecursionError:  # a deeply nested line is corrupt, not a crash
+            raise ValueError("line nested too deeply") from None
         if not isinstance(raw, dict) or raw.pop("v", None) != LEDGER_VERSION:
             raise ValueError(f"not a v{LEDGER_VERSION} ledger event")
         expected = {f.name for f in fields(cls)}
