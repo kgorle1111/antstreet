@@ -122,5 +122,51 @@ def test_missing_or_invalid_cost_is_unknown(bad):
     assert reader.usage().cost_micros is None
 
 
+def result_reader(**fields) -> StreamReader:
+    reader = StreamReader()
+    reader.feed(json.dumps({"type": "result", "subtype": "success", **fields}))
+    assert reader.result is not None
+    return reader
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf"), 1e308, [], {}, "x"])
+def test_non_finite_or_unscalable_cost_is_unknown_never_a_crash(bad):
+    assert result_reader(total_cost_usd=bad).usage().cost_micros is None
+
+
+def test_an_int_cost_too_big_for_a_float_does_not_crash():
+    assert result_reader(total_cost_usd=10**400).usage().cost_micros == 10**406
+
+
+@pytest.mark.parametrize("bad", [5, "x", None, [], [{"inputTokens": 1}]])
+def test_model_usage_of_the_wrong_shape_is_zero_tokens(bad):
+    assert result_reader(total_cost_usd=0.5, modelUsage=bad).usage() == Usage(500_000, 0, 0, 0)
+
+
+def test_model_usage_entries_that_are_not_objects_are_skipped_not_fatal():
+    good = {"inputTokens": 3, "cacheCreationInputTokens": 4, "outputTokens": 5}
+    usage = result_reader(total_cost_usd=1, modelUsage={"a": 7, "b": None, "c": good}).usage()
+    assert usage == Usage(1_000_000, 7, 5, 0)
+
+
+@pytest.mark.parametrize("bad", [None, "12", -1, float("nan"), float("inf"), 1.5, True, [], {}])
+def test_bad_token_counts_are_zero_and_good_ones_survive(bad):
+    model = {
+        "inputTokens": bad,
+        "cacheCreationInputTokens": 2,
+        "outputTokens": bad,
+        "cacheReadInputTokens": bad,
+    }
+    assert result_reader(total_cost_usd=0, modelUsage={"m": model}).usage() == Usage(0, 2, 0, 0)
+
+
+@pytest.mark.parametrize("line", ["1" * 4301, "[" * 100_000, '{"a":' * 100_000])
+def test_feed_never_raises_and_counts_the_line_as_malformed(line):
+    reader = StreamReader()
+    reader.feed(line)
+    assert reader.malformed_lines == 1
+    assert reader.usage() == Usage(None, 0, 0, 0)
+
+
 def test_timeout_flag_reaches_the_signals():
     assert read("stream_safe_mode_ok_2.1.285.jsonl").signals(timed_out=True).timed_out

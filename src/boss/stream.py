@@ -44,7 +44,7 @@ class StreamReader:
             return
         try:
             event = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):  # not only JSONDecodeError: int digit limit, nesting
             self.malformed_lines += 1
             return
         if not isinstance(event, dict):
@@ -97,21 +97,30 @@ class StreamReader:
         if result is None:
             # kn: input tokens could be recovered from per-message usage; not needed yet.
             return Usage(None, 0, 0, 0)
-        by_model = result.get("modelUsage") or {}
+        raw = result.get("modelUsage")
+        models = [m for m in raw.values() if isinstance(m, dict)] if isinstance(raw, dict) else []
         tokens_in = sum(
-            int(m.get("inputTokens", 0)) + int(m.get("cacheCreationInputTokens", 0))
-            for m in by_model.values()
+            _count(m, "inputTokens") + _count(m, "cacheCreationInputTokens") for m in models
         )
-        tokens_out = sum(int(m.get("outputTokens", 0)) for m in by_model.values())
-        tokens_cached = sum(int(m.get("cacheReadInputTokens", 0)) for m in by_model.values())
-        return Usage(_cost_micros(result, by_model), tokens_in, tokens_out, tokens_cached)
+        tokens_out = sum(_count(m, "outputTokens") for m in models)
+        tokens_cached = sum(_count(m, "cacheReadInputTokens") for m in models)
+        return Usage(_cost_micros(result, bool(models)), tokens_in, tokens_out, tokens_cached)
 
 
-def _cost_micros(result: dict[str, Any], by_model: dict[str, Any]) -> int | None:
+def _count(model: dict[str, Any], key: str) -> int:
+    value = model.get(key)
+    # bool is an int subclass; a malformed count is 0 (an undercount), never an exception.
+    return value if type(value) is int and value >= 0 else 0
+
+
+def _cost_micros(result: dict[str, Any], has_model_usage: bool) -> int | None:
     cost = result.get("total_cost_usd")
     if isinstance(cost, bool) or not isinstance(cost, int | float) or cost < 0:
         return None
     # Docs: after a session crash every cost field may be zeroed, so zero there means unknown.
-    if result.get("subtype") == "error_during_execution" and not by_model:
+    if result.get("subtype") == "error_during_execution" and not has_model_usage:
         return None
-    return round(cost * MICROS_PER_USD)
+    try:
+        return round(cost * MICROS_PER_USD)
+    except (ValueError, OverflowError):  # NaN, or a figure too large to scale (1e308)
+        return None

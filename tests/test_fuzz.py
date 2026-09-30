@@ -229,16 +229,7 @@ def junk_line(rng: random.Random, kind: str) -> str:
         "bytes",
         "json",
         "truncated",
-        pytest.param(
-            "digit_run",
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=ValueError,
-                reason="StreamReader.feed only catches json.JSONDecodeError; a line that is a "
-                "run of 4301+ digits makes json.loads raise plain ValueError "
-                "(int max_str_digits), e.g. feed('1' * 4301)",
-            ),
-        ),
+        "digit_run",
     ],
 )
 def test_stream_feed_never_raises_and_usage_is_typed(kind):
@@ -263,14 +254,6 @@ def mutate_result(rng: random.Random, result: dict) -> dict:
     return result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=(ValueError, OverflowError, AttributeError, TypeError),
-    reason="usage() trusts the shape of `result`: feeding "
-    '{"type":"result","total_cost_usd":NaN} raises ValueError (Infinity/1e308: OverflowError); '
-    '{"type":"result","modelUsage":{"m":5}} raises AttributeError; '
-    '{"type":"result","modelUsage":{"m":{"inputTokens":null}}} raises TypeError',
-)
 def test_stream_result_shaped_mutants_keep_usage_typed():
     rng = random.Random(2002)
     results = [json.loads(line) for line in FIXTURE_LINES if '"type": "result"' in line]
