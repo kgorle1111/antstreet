@@ -157,7 +157,10 @@ def test_per_task_ordering_and_counts() -> None:
 def test_render_single_arm_exact_row_and_no_firm_line() -> None:
     text = render_table(single_set())
     assert text.startswith("Task set: set1 | Model: m1 | Budget per cell: $1.0000\n")
-    assert "| single | 3 | 2 | 1 | 33% [6-79%] | 50% | $2.0000 | $6.0000 | 0% | 3 | 1 |" in text
+    row = (
+        "| single | 3 | 2 | 1 | 33% [6-79%] | 50% | $2.0000 | $6.0000 | 0% | 3 | 1 | 0m01s | 0/2 |"
+    )
+    assert row in text
     assert "| t1 | 1/2 |" in text
     assert "| t2 | 0/1 |" in text
     assert "Visible vs hidden" not in text
@@ -166,7 +169,10 @@ def test_render_single_arm_exact_row_and_no_firm_line() -> None:
 
 def test_render_n_a_when_nothing_passed() -> None:
     text = render_table([cell(hidden=NONE)])
-    assert "| single | 1 | 1 | 0 | 0% [0-79%] | 0% | $1.0000 | n/a | 0% | 0 | 0 |" in text
+    assert (
+        "| single | 1 | 1 | 0 | 0% [0-79%] | 0% | $1.0000 | n/a | 0% | 0 | 0 | 0m01s | 0/1 |"
+        in text
+    )
 
 
 def test_render_n_a_cost_when_only_infrastructure() -> None:
@@ -292,3 +298,34 @@ def test_results_written_before_the_wrong_check_field_still_load(tmp_path: Path)
     (tmp_path / "result.json").write_text(json.dumps(raw))
     with pytest.raises(ValueError, match="wrong_checks"):
         CellResult.load(tmp_path / "result.json")
+
+
+def test_time_is_the_median_of_counted_cells_and_ignores_infrastructure() -> None:
+    cells = [
+        cell(rep=0, duration_s=60.0),
+        cell(rep=1, duration_s=125.4),
+        cell(rep=2, duration_s=9000.0),
+        cell(rep=3, duration_s=1.0, hidden={}, failure_class="infrastructure"),
+    ]
+    [s] = summarize(cells)
+    assert s.median_duration_s == 125.4  # not the mean, which one slow cell would drag
+    assert "| 2m05s | 1/1 |" in render_table(cells)
+
+
+def test_a_task_counts_as_reliable_only_when_every_counted_run_passed() -> None:
+    cells = [
+        cell(task="t1", rep=0),
+        cell(task="t1", rep=1),
+        cell(task="t2", rep=0),
+        cell(task="t2", rep=1, hidden=HALF),
+        cell(task="t3", rep=0),
+        cell(task="t3", rep=1, hidden={}, failure_class="infrastructure"),
+    ]
+    [s] = summarize(cells)
+    assert (s.passed, s.cells, s.reliable_tasks, s.tasks) == (4, 5, 2, 3)  # t1 and t3
+
+
+def test_an_arm_with_only_infrastructure_cells_has_no_time() -> None:
+    [s] = summarize([cell(hidden={}, failure_class="infrastructure")])
+    assert s.median_duration_s is None and s.reliable_tasks == 0
+    assert "| n/a | 0/0 |" in render_table([cell(hidden={}, failure_class="infrastructure")])

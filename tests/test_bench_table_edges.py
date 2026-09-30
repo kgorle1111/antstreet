@@ -216,7 +216,7 @@ def test_the_table_ends_with_exactly_one_newline():
 def test_infrastructure_only_results_render_without_dividing_by_zero():
     text = render_table([cell(hidden=FAIL, failure_class="infrastructure")])
     row = next(line for line in text.splitlines() if line.startswith("| single"))
-    assert row == "| single | 0 | 0 | 0 | 0% [0-100%] | 0% | n/a | n/a | 0% | 0 | 1 |"
+    assert row == "| single | 0 | 0 | 0 | 0% [0-100%] | 0% | n/a | n/a | 0% | 0 | 1 | n/a | 0/0 |"
 
 
 # --- main -----------------------------------------------------------------------------------
