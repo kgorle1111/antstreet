@@ -37,12 +37,17 @@ from boss.boss import (
 )
 from boss.errors import Outcome
 from boss.report import dollars
+from boss.roles.base import RoleError, system_prompt
+from boss.roles.engineering import SYSTEM_DESIGNER, TESTER, StagedDraftError, draft_staged
+from boss.roles.product import PRODUCT_MANAGER, write_stories
 from boss.stream import Usage
 from boss.worker import CLI, usd, worker_env
 
 DRAFT_FILE = "draft.json"
 CHECKS_DIR = "checks"
 # The term sheet needs a budget to be valid; it is never spent and the prompt does not mention it.
+STAGED = "staged"  # in place of a prompt name: the three-role draft
+_STAGED_ROLES = (PRODUCT_MANAGER, SYSTEM_DESIGNER, TESTER)
 DRAFT_BUDGET_MICROS = 400_000
 SCORED, INVALID, FAILED = "scored", "invalid", "failed"
 STATUSES = (SCORED, INVALID, FAILED)
@@ -132,7 +137,9 @@ class DraftCell:
 
 
 def settings_for(prompt: str, boss_model: str, boss_thinking: int | None) -> Settings:
-    text = load_prompt(prompt)
+    # The staged draft has no single prompt: its identity is its three roles' whole system
+    # prompts, skills included, so editing any of them is a different draft.
+    text = "".join(map(system_prompt, _STAGED_ROLES)) if prompt == STAGED else load_prompt(prompt)
     return Settings(
         prompt, hashlib.sha256(text.encode()).hexdigest()[:12], boss_model, boss_thinking
     )
@@ -158,16 +165,19 @@ def run_draft(
     checks_dir = cell / CHECKS_DIR
     shutil.rmtree(cell, ignore_errors=True)  # leftovers of a run that died before saving
     try:
-        draft = draft_term_sheet(
-            task.idea,
-            DRAFT_BUDGET_MICROS,
-            checks_dir,
-            env=worker_env(environ),
-            model=settings.boss_model,
-            executable=environ.get(cli.EXECUTABLE_VAR, CLI),
-            thinking_tokens=settings.boss_thinking,
-            prompt_name=settings.prompt,
-        )
+        if settings.prompt == STAGED:
+            usage = _staged_draft(task, checks_dir, environ, settings)
+        else:
+            usage = draft_term_sheet(
+                task.idea,
+                DRAFT_BUDGET_MICROS,
+                checks_dir,
+                env=worker_env(environ),
+                model=settings.boss_model,
+                executable=environ.get(cli.EXECUTABLE_VAR, CLI),
+                thinking_tokens=settings.boss_thinking,
+                prompt_name=settings.prompt,
+            ).usage
     except BossError as exc:
         # A call that completed but gave nothing usable is the draft's fault; anything else
         # (capped, timeout, login, ...) says nothing about the prompt.
@@ -176,9 +186,47 @@ def run_draft(
         result = _cell(task, rep, set_hash, settings, status, exc.usage, str(exc.outcome), str(exc))
     else:
         score = score_draft(task, checks_dir)
-        result = _cell(task, rep, set_hash, settings, SCORED, draft.usage, score=score)
+        result = _cell(task, rep, set_hash, settings, SCORED, usage, score=score)
     result.save(cell)
     return result
+
+
+def _staged_draft(
+    task: BenchTask, checks_dir: Path, environ: Mapping[str, str], settings: Settings
+) -> Usage:
+    """Stories, then a design, then checks that must cover every criterion: three calls in
+    place of the boss's one. Returns what all of them cost; a failure at any stage raises
+    BossError carrying what was paid up to and including it."""
+    call = {
+        "env": worker_env(environ),
+        "model": settings.boss_model,
+        "executable": environ.get(cli.EXECUTABLE_VAR, CLI),
+        "thinking_tokens": settings.boss_thinking,
+    }
+    paid: list[Usage] = []
+    try:
+        stories, used = write_stories(task.idea, **call)
+        paid.append(used)
+        staged = draft_staged(
+            task.idea, DRAFT_BUDGET_MICROS, checks_dir, stories=stories, max_tasks=1, **call
+        )
+    except RoleError as exc:
+        raise BossError(str(exc), exc.outcome, _sum([*paid, exc.usage])) from exc
+    except StagedDraftError as exc:
+        detail = f"{exc.stage}: " + "; ".join(exc.problems)
+        raise BossError(detail, exc.outcome, _sum([*paid, *exc.paid.values()])) from exc
+    return _sum([*paid, staged.designer_usage, staged.tester_usage])
+
+
+def _sum(usages: Sequence[Usage]) -> Usage:
+    """Usage of several calls together. One unknown cost makes the total unknown."""
+    costs = [u.cost_micros for u in usages]
+    return Usage(
+        None if None in costs else sum(c for c in costs if c is not None),
+        sum(u.tokens_in for u in usages),
+        sum(u.tokens_out for u in usages),
+        sum(u.tokens_cached for u in usages),
+    )
 
 
 def _cell(
@@ -429,7 +477,10 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     parser.add_argument("--boss-model", default=DEFAULT_MODEL)
     parser.add_argument("--boss-thinking", type=cli._tokens_arg, help="thinking tokens per draft")
     parser.add_argument(
-        "--prompt", default=TERM_SHEET_PROMPT, help="term-sheet prompt file under src/boss/prompts"
+        "--prompt",
+        default=TERM_SHEET_PROMPT,
+        help=f"term-sheet prompt file under src/boss/prompts, or '{STAGED}' for the product "
+        "manager, system designer and tester in place of the boss's one call",
     )
     parser.add_argument("--jobs", type=int, default=2, help="drafts to make and score at once")
     parser.add_argument("--dry-run", action="store_true", help="list the drafts and exit")
@@ -478,10 +529,12 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         print(exc, file=sys.stderr)
         return 1
     todo = [(t, rep) for t, rep in plan if (t.id, rep) not in done]
-    ceiling = usd(len(todo) * DEFAULT_CAP_MICROS)
+    staged = settings.prompt == STAGED
+    per_draft = sum(r.cap_micros for r in _STAGED_ROLES) if staged else DEFAULT_CAP_MICROS
+    measured = "not measured yet" if staged else "past runs averaged about $0.09 each"
     print(
         f"task set {set_hash}: {len(plan)} drafts, {len(todo)} to make, "
-        f"up to ${ceiling} at the per-draft cap (past runs averaged about $0.09 each)"
+        f"up to ${usd(len(todo) * per_draft)} at the per-draft cap ({measured})"
     )
     if args.dry_run:
         for task, rep in plan:
