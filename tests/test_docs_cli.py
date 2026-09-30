@@ -16,8 +16,8 @@ from docs_support import (
     table,
 )
 
-from boss import cli, worker
-from boss.bench import replay
+from boss import cli, gate, worker
+from boss.bench import drafts, replay
 from boss.bench import run as bench_run
 from boss.bench import table as bench_table
 from boss.bench.tasks import BenchTask
@@ -43,6 +43,7 @@ def parsers() -> dict[str, argparse.ArgumentParser]:
 def bench_parsers() -> dict[str, argparse.ArgumentParser]:
     return {
         "python -m boss.bench.run": captured_parser(bench_run.main),
+        "python -m boss.bench.drafts": captured_parser(drafts.main),
         "python -m boss.bench.table": captured_parser(bench_table.main),
         "python -m boss.bench.replay": captured_parser(replay.main),
     }
@@ -114,7 +115,14 @@ def test_exit_codes_in_the_document_are_the_constants_in_the_code(text):
     body = section(text, "Exit codes of `boss`")
     codes = {r[0].strip("`") for r in table(body)}
     assert codes == {
-        str(c) for c in (cli.EXIT_OK, cli.EXIT_FAILED, cli.EXIT_USAGE, cli.EXIT_INCOMPLETE)
+        str(c)
+        for c in (
+            cli.EXIT_OK,
+            cli.EXIT_FAILED,
+            cli.EXIT_USAGE,
+            cli.EXIT_INCOMPLETE,
+            cli.EXIT_INTERRUPTED,
+        )
     }
 
 
@@ -134,13 +142,15 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
         worker._API_KEY_VAR,
         worker._THINKING_VAR,
         *worker._ENV_ALLOWLIST,
+        gate.SANDBOX_ENV,
         "BOSS_LIVE",
     }
     assert set(rows) == expected
     assert 'os.environ.get("BOSS_LIVE")' in read(ROOT / "tests" / "test_end_to_end.py")
     assert source_env_names() <= expected, "the source reads a variable this document omits"
     readers = {p.relative_to(SRC).as_posix() for p in SRC.rglob("*.py") if "os.environ" in read(p)}
-    assert readers == {"cli.py", "bench/run.py"}
+    assert readers == {"cli.py", "bench/run.py", "bench/drafts.py", "gate.py", "sandbox.py"}
+    assert "`boss.gate`" in text and "`boss.sandbox`" in text and "`boss.bench.drafts`" in text
 
 
 @pytest.fixture(scope="module")
@@ -176,6 +186,34 @@ def test_too_small_a_budget_is_a_usage_error_and_spends_nothing(tmp_path):
     code, run_dir, said = run_cli(tmp_path, ["fund", "Reverse a string.", "--budget", "0.05"])
     assert code == cli.EXIT_USAGE and run_dir is None
     assert "$0.105" in " ".join(said)
+
+
+def test_a_run_stopped_early_names_the_command_that_continues_it(tmp_path):
+    # `--max-minutes` far below the clock's resolution: the limit stops the run before any slice.
+    args = ["fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9"]
+    code, run_dir, said = run_cli(tmp_path, args)
+    assert code == cli.EXIT_INCOMPLETE
+    assert f"To continue this run: `boss resume {run_dir.name}`" in "\n".join(said)
+    code, resumed_dir, said = run_cli(tmp_path, ["resume"])
+    assert code == cli.EXIT_INCOMPLETE and resumed_dir == run_dir
+    kinds = [e.event for e in read_events(run_dir / "ledger.jsonl")]
+    assert kinds.count(EventType.RESUMED) == 1  # the command itself lifts the stop
+    assert (run_dir / "report.md").is_file()
+
+
+def test_resume_with_nothing_to_resume_exits_one_and_spends_nothing(tmp_path):
+    code, run_dir, said = run_cli(tmp_path, ["resume"])
+    assert code == cli.EXIT_FAILED and run_dir is None
+    assert "No runs under" in " ".join(said)
+
+
+def test_a_count_that_is_not_a_whole_number_is_a_usage_error(tmp_path):
+    for option in ("--rounds", "--max-tasks", "--max-slices", "--stall-slices"):
+        with pytest.raises(SystemExit) as raised:
+            run_cli(tmp_path, ["fund", "x", "--budget", "0.50", option, "0"])
+        assert raised.value.code == cli.EXIT_USAGE
+    code, run_dir, _ = run_cli(tmp_path, ["fund", "x", "--budget", "0.50", "--slice", "0.001"])
+    assert code == cli.EXIT_USAGE and run_dir is None
 
 
 def test_rejecting_the_term_sheet_exits_one(tmp_path):
