@@ -1,5 +1,6 @@
-"""The product department: the product manager's call and gate, and the deterministic coverage
-guard. No model calls: a fake `claude` plays the model."""
+"""The product department: the product manager's call and gate, the deterministic coverage guard,
+and the user agent's advisory review and its gate. No model calls: a fake `claude` plays the
+model."""
 
 import json
 import re
@@ -11,7 +12,21 @@ from boss.boss import load_prompt
 from boss.errors import Outcome
 from boss.roles import registry
 from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.product import PRODUCT_MANAGER, uncovered_fragments, write_stories
+from boss.roles.product import (
+    MAX_FINDINGS,
+    PRODUCT_MANAGER,
+    REVIEW_SCHEMA,
+    USER_AGENT,
+    Misread,
+    Missing,
+    ReviewError,
+    StoryReview,
+    parse_review,
+    review_problems,
+    review_stories,
+    uncovered_fragments,
+    write_stories,
+)
 from boss.roles.stories import STORIES_SCHEMA, parse_stories, story_problems
 from boss.skills import all_skill_ids, load_skill
 from boss.stream import Usage
@@ -402,3 +417,263 @@ def test_the_prompts_worked_example_passes_the_gate_it_teaches():
     stories = parse_stories(example)
     assert story_problems(stories, idea) == []
     assert uncovered_fragments(idea, stories) == []
+
+
+# --- the user agent ---------------------------------------------------------------------------
+
+STORIES = parse_stories(GOOD)
+MISSING = {"quote": "Lower-case the text", "why": "no criterion checks lower-casing"}
+MISREAD = {
+    "criterion": "S1.2",
+    "quote": "If max_length is given, never cut a word in half",
+    "why": "the criterion cuts a word",
+}
+REVISE = {"missing": [MISSING], "misread": [MISREAD], "verdict": "revise"}
+ACCEPT = {"missing": [], "misread": [], "verdict": "accept"}
+
+
+def review(cli, structured, idea=IDEA, stories=STORIES):
+    output = RESULT | {"structured_output": structured}
+    return review_stories(idea, stories, env=cli.env(output), model="haiku", executable=cli.path)
+
+
+def review_fails(cli, structured) -> RoleOutputError:
+    with pytest.raises(RoleOutputError) as info:
+        review(cli, structured)
+    assert info.value.usage == USAGE and info.value.outcome is Outcome.COMPLETED
+    assert info.value.role == "user_agent"
+    return info.value
+
+
+def test_the_review_call_has_no_tools_both_skills_the_schema_and_the_idea_with_the_stories(cli):
+    review(cli, ACCEPT)
+    argv = cli.argv()
+    assert argv[argv.index("--tools") + 1] == ""
+    system = argv[argv.index("--system-prompt") + 1]
+    assert system == system_prompt(USER_AGENT)
+    for skill_id in USER_AGENT.skills:
+        assert load_skill(skill_id).text in system
+    assert json.loads(argv[argv.index("--json-schema") + 1]) == REVIEW_SCHEMA
+    idea_part, stories_part = argv[-1].split("\n\nStories:\n")
+    assert idea_part == f"Idea:\n{IDEA}"
+    assert json.loads(stories_part) == STORIES.to_data()
+
+
+def test_a_review_with_findings_is_parsed_gated_and_returned_with_the_usage(cli):
+    got, usage = review(cli, REVISE)
+    assert got == StoryReview((Missing(**MISSING),), (Misread(**MISREAD),), "revise")
+    assert got.to_data() == REVISE and parse_review(got.to_data()) == got
+    assert usage == USAGE
+
+
+def test_a_review_with_no_findings_is_accepted(cli):
+    got, _ = review(cli, ACCEPT)
+    assert got == StoryReview((), (), "accept")
+
+
+def test_the_review_call_sends_the_idea_without_surrounding_white_space(cli):
+    review(cli, ACCEPT, f"\n {IDEA}\n\n")
+    assert cli.argv()[-1].startswith(f"Idea:\n{IDEA}\n\nStories:\n")
+
+
+def test_the_review_leaves_the_stories_as_they_were(cli):
+    before = STORIES.to_data()
+    review(cli, REVISE)
+    assert STORIES.to_data() == before
+
+
+@pytest.mark.parametrize("idea", ["", " \n"])
+def test_an_empty_idea_is_refused_before_a_review_call(idea):
+    with pytest.raises(ValueError, match="idea"):
+        review_stories(idea, STORIES, env={}, model="haiku", executable="/no/such/binary")
+
+
+@pytest.mark.parametrize(
+    "structured",
+    [
+        {},
+        {"missing": [], "misread": []},
+        {"missing": "none", "misread": [], "verdict": "accept"},
+        {"missing": [{"quote": "Lower-case the text"}], "misread": [], "verdict": "revise"},
+        {"missing": [], "misread": [{"quote": "x", "why": "y"}], "verdict": "revise"},
+        {"missing": [], "misread": [None], "verdict": "revise"},
+        {"missing": [], "misread": [], "verdict": 1},
+        {"missing": [MISSING | {"why": None}], "misread": [], "verdict": "revise"},
+    ],
+)
+def test_output_that_is_not_shaped_like_a_review_raises_with_the_usage_kept(cli, structured):
+    error = review_fails(cli, structured)
+    assert len(error.problems) == 1 and "not shaped like a story review" in error.problems[0]
+
+
+def test_a_quote_that_is_not_in_the_idea_is_named_in_either_list(cli):
+    invented = "strip every emoji character"
+    error = review_fails(
+        cli,
+        {
+            "missing": [MISSING | {"quote": invented}],
+            "misread": [MISREAD | {"quote": invented}],
+            "verdict": "revise",
+        },
+    )
+    assert error.problems == [
+        f"missing 1: quote is not a fragment of the idea: {invented!r}",
+        f"misread 1: quote is not a fragment of the idea: {invented!r}",
+    ]
+
+
+def test_a_quote_from_the_stories_rather_than_the_idea_is_refused(cli):
+    error = review_fails(
+        cli, ACCEPT | {"missing": [MISSING | {"quote": "words are joined"}], "verdict": "revise"}
+    )
+    assert "missing 1: quote is not a fragment" in error.problems[0]
+
+
+def test_a_quote_too_short_to_mean_anything_is_refused(cli):
+    error = review_fails(
+        cli, ACCEPT | {"missing": [MISSING | {"quote": "text"}], "verdict": "revise"}
+    )
+    assert error.problems == ["missing 1: quote must be at least 8 characters"]
+
+
+def test_a_criterion_that_does_not_exist_is_named(cli):
+    error = review_fails(
+        cli, {"missing": [], "misread": [MISREAD | {"criterion": "S9.1"}], "verdict": "revise"}
+    )
+    assert error.problems == ["misread 1: there is no criterion 'S9.1'"]
+
+
+def test_an_empty_why_is_refused(cli):
+    error = review_fails(cli, ACCEPT | {"missing": [MISSING | {"why": "  "}], "verdict": "revise"})
+    assert error.problems == ["missing 1: why is empty"]
+
+
+@pytest.mark.parametrize(
+    ("structured", "count"),
+    [
+        (REVISE | {"verdict": "accept"}, 2),
+        (ACCEPT | {"verdict": "revise"}, 0),
+        (ACCEPT | {"missing": [MISSING], "verdict": "accept"}, 1),
+    ],
+)
+def test_a_verdict_that_disagrees_with_the_findings_is_refused(cli, structured, count):
+    [problem] = review_fails(cli, structured).problems
+    assert problem.endswith(
+        f"with {count} findings; it must be 'revise' exactly when there is at least one"
+    )
+
+
+def test_a_verdict_outside_the_two_words_is_refused(cli):
+    error = review_fails(cli, ACCEPT | {"verdict": "approve"})
+    assert error.problems == ["verdict must be one of accept, revise, is 'approve'"]
+
+
+def test_the_number_of_findings_is_bounded_across_both_lists(cli):
+    many = {
+        "missing": [MISSING] * (MAX_FINDINGS - 1),
+        "misread": [MISREAD] * 2,
+        "verdict": "revise",
+    }
+    assert review_fails(cli, many).problems == [
+        f"at most {MAX_FINDINGS} findings in all, has {MAX_FINDINGS + 1}"
+    ]
+    exactly = many | {"misread": [MISREAD]}
+    assert review(cli, exactly)[0].verdict == "revise"
+
+
+def test_every_problem_in_a_review_is_listed_not_only_the_first(cli):
+    error = review_fails(
+        cli,
+        {
+            "missing": [MISSING | {"quote": "not in the idea at all"}, MISSING | {"why": ""}],
+            "misread": [MISREAD | {"criterion": "S3.1", "quote": "abc"}],
+            "verdict": "accept",
+        },
+    )
+    assert error.problems == [
+        "missing 1: quote is not a fragment of the idea: 'not in the idea at all'",
+        "missing 2: why is empty",
+        "misread 1: there is no criterion 'S3.1'",
+        "misread 1: quote must be at least 8 characters",
+        "verdict is 'accept' with 3 findings; it must be 'revise' exactly when there is at "
+        "least one",
+    ]
+    assert "; ".join(error.problems) in str(error)
+
+
+@pytest.mark.parametrize(
+    ("output", "outcome"),
+    [
+        (
+            RESULT | {"is_error": True, "api_error_status": 401, "terminal_reason": "api_error"},
+            Outcome.LOGIN,
+        ),
+        (
+            RESULT | {"subtype": "error_max_budget_usd", "terminal_reason": "budget_exhausted"},
+            Outcome.CAPPED,
+        ),
+    ],
+)
+def test_a_failed_review_call_raises_a_role_error_with_its_outcome_and_cost(cli, output, outcome):
+    with pytest.raises(RoleError) as info:
+        review_stories(IDEA, STORIES, env=cli.env(output), model="haiku", executable=cli.path)
+    assert type(info.value) is RoleError and info.value.role == "user_agent"
+    assert info.value.outcome is outcome and info.value.usage.cost_micros == 12_300
+
+
+def test_the_gate_is_pure_code_over_data():
+    assert review_problems(StoryReview((), (), "accept"), IDEA, STORIES) == []
+    assert review_problems(StoryReview((), (), "revise"), IDEA, STORIES) != []
+    with pytest.raises(ReviewError):
+        parse_review(None)
+
+
+def test_the_schema_asks_for_everything_the_parser_needs():
+    assert set(REVIEW_SCHEMA["required"]) == {"missing", "misread", "verdict"}
+    props = REVIEW_SCHEMA["properties"]
+    assert set(props["missing"]["items"]["required"]) == {"quote", "why"}
+    assert set(props["misread"]["items"]["required"]) == {"criterion", "quote", "why"}
+    assert props["verdict"]["enum"] == ["accept", "revise"]
+    assert props["missing"]["maxItems"] == props["misread"]["maxItems"] == MAX_FINDINGS
+
+
+def test_the_user_agent_is_registered_advisory_and_reports_to_the_product_manager():
+    spec = registry()["user_agent"]
+    assert spec is USER_AGENT
+    assert (spec.department, spec.reports_to) == ("product", "product_manager")
+    assert spec.actor == "role:user_agent" and spec.default_on is False
+    assert "advisory" in spec.purpose and "advisory" in spec.gate
+    assert 2 <= len(spec.skills) <= 3
+    for skill_id in spec.skills:
+        assert skill_id in all_skill_ids() and load_skill(skill_id).text
+
+
+def test_the_user_agent_prompt_states_the_grounding_rule_and_the_verdict_rule():
+    prompt = load_prompt(USER_AGENT.prompt)
+    assert "word for word" in prompt and "does not belong" in prompt
+    assert "if and only if" in prompt and "advisory" in prompt
+    assert f"At most {MAX_FINDINGS} findings" in prompt  # the prompt says what the gate enforces
+    assert MAX_FINDINGS == 8
+
+
+def test_the_user_agent_prompts_worked_example_passes_the_gate_it_teaches():
+    prompt = load_prompt(USER_AGENT.prompt)
+    idea = re.search(r'^Idea: "(.*)"$', prompt, re.M)[1]
+    example = json.loads(re.search(r"```json\n(.*?)\n```", prompt, re.S)[1])
+    stories = parse_stories(
+        {
+            "stories": [
+                story(
+                    1, "reverses the order of the words, so 'a b c' gives 'c b a'", "Runs of spaces"
+                )
+            ]
+        }
+    )
+    assert review_problems(parse_review(example), idea, stories) == []
+
+
+def test_every_skill_of_both_roles_is_under_the_size_limit_and_versioned():
+    for spec in (PRODUCT_MANAGER, USER_AGENT):
+        for skill_id in spec.skills:
+            skill = load_skill(skill_id)
+            assert len(skill.text) < 4_000 and skill.version == 1 and skill.description
