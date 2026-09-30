@@ -423,11 +423,6 @@ def test_hash_depends_on_the_task_folder_name_not_just_the_bytes(tmp_path):
     assert task_set_hash([a]) != task_set_hash([b])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="tasks.py:task_set_hash feeds path and content into the digest with no separator, so "
-    "file 'a' holding 'bc' and file 'ab' holding 'c' hash identically",
-)
 def test_hash_distinguishes_where_a_file_name_ends_and_its_content_begins(tmp_path):
     def task_with(root: Path, name: str, content: bytes) -> BenchTask:
         folder = root / "t1"
