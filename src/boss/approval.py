@@ -13,10 +13,13 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from boss.ledger import Event, EventType, LedgerWriter
+from boss.redact import _CONTROL_ESCAPES, safe_text
 from boss.termsheet import TermSheet, TermSheetError, validate
 from boss.worker import usd
 
 TERM_SHEET_FILE = "term_sheet.json"
+MAX_BRIEF_CHARS = 2_000  # shown cut (marked) beyond this; the hashed term sheet keeps all of it
+MAX_DESCRIPTION_CHARS = 300
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
 
@@ -162,20 +165,34 @@ def render(sheet: TermSheet, checks_dir: Path) -> str:
             f"passing checks"
         )
     for task in sheet.tasks:
-        lines += [f"\nTask {task.id} (owns {', '.join(task.paths)}):", f"  {task.brief}"]
+        lines += [
+            f"\nTask {task.id} (owns {', '.join(task.paths)}):",
+            f"  {_line(task.brief, MAX_BRIEF_CHARS)}",
+        ]
     for check in sheet.checks:
         code = _check_text(checks_dir / check.file)
         lines += [
-            f"\nCheck {check.id} [{check.task}] {check.description}",
+            f"\nCheck {check.id} [{check.task}] {_line(check.description, MAX_DESCRIPTION_CHARS)}",
             f"--- {checks_dir / check.file}",
             code,
         ]
     return "\n".join(lines)
 
 
+def _line(text: str, limit: int) -> str:
+    """Boss-written text for a one-line slot: no forged lines, secrets masked, controls visible."""
+    return safe_text(" ".join(text.split()), limit=limit)
+
+
 def _check_text(path: Path) -> str:
-    """Display text only; the gate, not this, decides what a check means."""
+    """Display text only; the gate, not this, decides what a check means.
+
+    Never redacted or cut: the investor must read exactly what will run. Only control and
+    invisible format characters are made visible (a raw ESC could rewrite the screen, a bidi
+    override could reorder what is read); newlines and tabs stay.
+    """
     try:
-        return path.read_bytes().decode("utf-8-sig", errors="replace").rstrip()
+        text = path.read_bytes().decode("utf-8-sig", errors="replace").rstrip()
     except OSError as exc:
         return f"<unreadable: {exc}>"
+    return text.translate(_CONTROL_ESCAPES)

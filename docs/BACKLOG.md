@@ -46,7 +46,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B24 | Probe API-key mode; `worker.py` kn: --bare not yet probed. | Needs an API key | open |
 | B25 | A recorded fixture for a plan usage limit; `errors.py` kn: no recorded fixture for a plan usage limit yet | One has not occurred | open |
 | B26 | Probe whether `Read(./**)` also confines Glob and Grep | Workers are not given those tools | wont: they are not in the tool list; revisit if they are added |
-| B27 | Escape the boss's briefs and check descriptions where a person reads them | Only worker text is cleaned (T35) | open |
+| B27 | Escape the boss's briefs and check descriptions where a person reads them | Only worker text is cleaned (T35) | done: fix(approval): the boss's text and gate details are shown as data |
 
 ## Boss and checks
 
