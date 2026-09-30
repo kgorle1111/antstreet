@@ -20,15 +20,27 @@ The full list of threats, controls and the test behind each is in
   shapes are masked in logs, the ledger and reports.
 - **Approval is bound to content.** Hashes of the term sheet and every check file are verified
   before each slice and each gate run. Editing either afterwards stops the run.
+- **Checks run in an OS sandbox where the platform has one.** On macOS: no network, writes only in
+  the check's own temp folder, reads only that folder and the Python installation. It is tested on
+  macOS only ([docs/SANDBOX.md](docs/SANDBOX.md)). `BOSS_GATE_SANDBOX=require` refuses to run a
+  check without one; the default runs unsandboxed when no tool works, and `boss doctor` says so.
 - **Spend is bounded twice.** A reserve is held back from every slice cap, and hard limits stop a
-  run at 60 slices, 16 workers, or spend past its rounds' budgets plus one reserve each.
+  run at 60 slices, 16 workers, or spend past its rounds' budgets plus one reserve each. A slice
+  that reported no cost, or never ended, is charged at its cap.
 - **A worker's words are treated as data.** They are stored with control characters made visible
-  and a length limit, and quoted, never obeyed, when handed to a replacement.
+  and a length limit, and quoted, never obeyed, when handed to a replacement. The boss's text and
+  the gate's details are shown the same way.
+- **The investor's decisions are the investor's.** A ruling or a resume is an event by the
+  `investor` actor; nothing else can lift a stop, and a resumed run verifies the approval again.
 
 ## What it does not protect
 
-- **`boss` is not a sandbox.** The gate runs the code a worker wrote on your machine, as you, with a
-  filtered environment and a timeout. Do not run ideas from sources you do not trust.
+- **`boss` is not a container.** The gate runs the code a worker wrote on your machine, as you, with
+  a filtered environment, a timeout and, where there is one, an OS sandbox that is partial: `stat`
+  works on any path, a check can change its own folder (and the test report in it), and CPU and
+  disk are unlimited. On Linux the sandbox has never been run, and with no working tool checks run
+  with your full access. Do not run ideas from sources you do not trust.
+- A worker CLI is not sandboxed: it is limited by its tool list and path rules only.
 - Prompt-injection resistance of the models is not measured. The controls limit what an injected
   instruction can do, not whether the model follows it.
 - The `claude` CLI's own behaviour (path rules, `--safe-mode`, the budget cap) was verified by
@@ -43,8 +55,6 @@ Risks accepted in the threat model, with what would change each:
 | Id | Risk | Status |
 |---|---|---|
 | T12 | Code written to defeat the gate can fake a pass | `accepted` |
-| T13 | The gate runs worker-written code on the host | `accepted` |
-| T14 | Check code runs during validation, before you have read it | `accepted` |
 | T29 | Anyone who can write the ledger can forge an approval | `accepted` |
 | T36 | A hostile `claude` binary on `PATH` or in `BOSS_CLAUDE_BIN` | `accepted` |
 | T37 | A worker can fill the disk or CPU within the time and money caps | `accepted` |

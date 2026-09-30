@@ -6,7 +6,8 @@ import tomllib
 import pytest
 from docs_support import DOCS, ROOT, read, section, table
 
-from boss import doctor, limits, worker
+from boss import doctor, gate, limits, worker
+from boss.sandbox import SandboxMode
 
 DOC = ROOT / "SECURITY.md"
 THREAT_MODEL = DOCS / "THREAT_MODEL.md"
@@ -73,3 +74,10 @@ def test_how_to_report_is_a_private_advisory_and_no_contact_is_invented(text):
 
 def test_it_links_the_threat_model(text):
     assert "(docs/THREAT_MODEL.md)" in text and THREAT_MODEL.is_file()
+
+
+def test_the_sandbox_modes_stated_are_the_real_ones(text):
+    body = section(text, "What it protects")
+    assert f"`{gate.SANDBOX_ENV}={SandboxMode.REQUIRE.value}`" in body
+    assert (DOCS / "SANDBOX.md").is_file() and "(docs/SANDBOX.md)" in text
+    assert gate.sandbox_mode({}) is SandboxMode.AUTO  # unsandboxed if none works
