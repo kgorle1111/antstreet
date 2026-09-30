@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK, main
+from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK, EXIT_USAGE, main
 from boss.ledger import EventType, read_events, total
 
 CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
@@ -140,6 +140,27 @@ def test_bad_budget_is_a_usage_error(boss, budget, capsys):
         boss("fund", "x", "--budget", budget)
     assert info.value.code == 2
     assert "budget" in capsys.readouterr().err
+
+
+def test_a_budget_too_small_for_one_slice_is_refused_before_anything_is_spent(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.104999")
+    assert code == EXIT_USAGE
+    assert "cannot fund one worker slice" in output and "at least $0.105" in output
+    assert not (boss.project / ".boss").exists()  # no run folder, no boss call, no ledger
+
+
+def test_the_budget_check_is_per_round(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.20", "--rounds", "2")
+    assert code == EXIT_USAGE and "over 2 round(s)" in output
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.21", "--rounds", "2")
+    assert code == EXIT_OK
+
+
+def test_reserve_option_reaches_the_slice_cap(boss):
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.05", "--reserve", "0.01")
+    assert code == EXIT_OK
+    [start] = [e for e in read_events(boss.runs()[0] / "ledger.jsonl") if e.event == "slice_start"]
+    assert start.data["cap_micros"] == 40_000  # 0.05 budget - 0.01 reserve, under the 0.10 slice
 
 
 def test_help_lists_every_command(capsys):

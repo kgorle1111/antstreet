@@ -204,20 +204,39 @@ def test_with_firing_off_a_stalled_worker_runs_to_the_slice_limit(paths):
     assert len(events_of(paths, EventType.SLICE_END)) == 6
 
 
-def test_round_ends_when_the_next_slice_is_not_affordable(paths):
-    # 104,000 funds one slice capped at 83,200 (25% headroom). After a 100,000 slice only 4,000
-    # is left, which cannot fund the 5,000 minimum, so the round stops there.
-    s = sheet(rounds=(Round(1, 104_000, 2),))
-    worker = Script(step(HALF, cost=100_000), step(GOOD, "done"))
+def test_a_slice_cap_holds_back_the_reserve_so_an_overshoot_stays_inside_the_round(paths):
+    # 150,000 with a 100,000 reserve funds a 50,000 cap. The worker runs one response past its cap
+    # and spends 140,000; the round is still inside its budget and cannot fund another slice.
+    s = sheet(rounds=(Round(1, 150_000, 2),))
+    worker = Script(step(HALF, cost=140_000), step(GOOD, "done"))
     report, said = run(paths, worker, s, config=FirmConfig(slice_micros=100_000))
     assert not report.all_passed
     assert len(worker.specs) == 1
-    assert any("out of budget" in line for line in said)
-    assert events_of(paths, EventType.SLICE_START)[0].data["cap_micros"] == 83_200
+    assert events_of(paths, EventType.SLICE_START)[0].data["cap_micros"] == 50_000
+    assert total(read_events(paths.ledger)).cost_micros == 140_000 <= s.budget_micros
+    [line] = [line for line in said if "cannot fund another slice" in line]
+    assert "$0.01 left" in line and "$0.1 of it reserved" in line
+
+
+def test_nobody_is_hired_into_a_round_that_cannot_fund_a_slice(paths):
+    s = sheet(rounds=(Round(1, 104_999, 2),))  # one micro short of reserve + minimum slice
+    worker = Script(step(GOOD, "done"))
+    report, _ = run(paths, worker, s)
+    assert worker.specs == [] and events_of(paths, EventType.HIRED) == []
+    assert report.passed == 0
+
+
+def test_the_reserve_is_configurable(paths):
+    s = sheet(rounds=(Round(1, 104_999, 2),))
+    worker = Script(step(GOOD, "done", cost=90_000))
+    config = FirmConfig(slice_micros=100_000, reserve_micros=20_000)
+    report, _ = run(paths, worker, s, config=config)
+    assert report.all_passed
+    assert events_of(paths, EventType.SLICE_START)[0].data["cap_micros"] == 84_999
 
 
 def test_next_round_needs_the_investor_and_then_continues(paths):
-    s = sheet(rounds=(Round(1, 104_000, 1), Round(2, 300_000, 2)))
+    s = sheet(rounds=(Round(1, 204_000, 1), Round(2, 300_000, 2)))
     worker = Script(step(HALF, cost=100_000), step(GOOD, "done"))
     report, said = run(paths, worker, s, answers=["y"])
     assert report.all_passed
@@ -230,7 +249,7 @@ def test_next_round_needs_the_investor_and_then_continues(paths):
 
 
 def test_investor_can_decline_a_round(paths):
-    s = sheet(rounds=(Round(1, 104_000, 1), Round(2, 300_000, 2)))
+    s = sheet(rounds=(Round(1, 204_000, 1), Round(2, 300_000, 2)))
     worker = Script(step(HALF, cost=100_000), step(GOOD, "done"))
     report, _ = run(paths, worker, s, answers=["n"])
     assert report.stopped == "investor declined the round"
@@ -239,9 +258,11 @@ def test_investor_can_decline_a_round(paths):
 
 
 def test_round_below_its_unlock_threshold_stops_the_run(paths):
-    s = sheet(rounds=(Round(1, 104_000, 2), Round(2, 300_000, 2)))
-    report, said = run(paths, Script(step(HALF, cost=100_000)), s)
+    s = sheet(rounds=(Round(1, 204_000, 2), Round(2, 300_000, 2)))
+    worker = Script(step(HALF, cost=100_000))
+    report, said = run(paths, worker, s)
     assert report.stopped == "round 1 closed below its unlock threshold"
+    assert len(worker.specs) == 1
     assert not any(line.startswith("Round 2") for line in said)
 
 
@@ -326,9 +347,10 @@ def test_board_report_agrees_with_the_run_and_the_ledger(paths):
 
 
 def test_a_fired_workers_progress_survives_when_nothing_is_left_for_a_replacement(paths):
-    # 304,000 funds three slices that each spend 100,000, leaving 4,000: below the 5,000
-    # minimum slice, so the stalled worker is fired with no money to replace it.
-    s = sheet(rounds=(Round(1, 304_000, 2),))
+    # 404,000 funds three slices that each spend 100,000, leaving 104,000: 4,000 above the
+    # reserve, below the 5,000 minimum slice. The stalled worker is fired with no money to
+    # replace it.
+    s = sheet(rounds=(Round(1, 404_000, 2),))
     worker = Script(*[step(HALF, cost=100_000)] * 3)
     report, _ = run(paths, worker, s)
     assert len(events_of(paths, EventType.FIRED)) == 1

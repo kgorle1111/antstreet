@@ -43,6 +43,7 @@ Say = Callable[[str], None]
 class FirmConfig:
     model: str = DEFAULT_WORKER_MODEL
     slice_micros: int = DEFAULT_SLICE_MICROS
+    reserve_micros: int = budget.RESERVE_MICROS  # held back from every cap: one model response
     policy: FiringPolicy = field(default_factory=FiringPolicy)
     firing: bool = True  # False: a stalled worker keeps being funded (the benchmark's control arm)
 
@@ -135,9 +136,17 @@ class _Firm:
             if task is None:
                 return None
             left = budget.remaining(self.sheet, self.events(), round_.n)
-            cap = budget.next_slice_cap(left, slice_micros=self.config.slice_micros)
+            cap = budget.next_slice_cap(
+                left,
+                slice_micros=self.config.slice_micros,
+                reserve_micros=self.config.reserve_micros,
+            )
             if cap is None:  # checked before hiring, so nobody is hired into an empty round
-                self.say(f"Round {round_.n} is out of budget (${usd(max(left, 0))} left).")
+                reserve = usd(self.config.reserve_micros)
+                self.say(
+                    f"Round {round_.n} cannot fund another slice: ${usd(max(left, 0))} left, "
+                    f"${reserve} of it reserved for one response running past its cap."
+                )
                 return None
             worker = self._current_worker(task, state, record)
             if worker is None:
