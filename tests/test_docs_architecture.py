@@ -5,7 +5,7 @@ import importlib
 import re
 
 import pytest
-from docs_support import DOCS, ROOT, code_spans, read, section, table
+from docs_support import DOCS, ROOT, code_spans, money, read, section, table
 
 from boss import boss, budget, cli, firm, gate, limits, retry, rule, runner, worker
 from boss.bench import run as bench_run
@@ -86,12 +86,6 @@ def test_the_control_flow_table_names_only_real_events_and_every_loop_event(text
     assert not unknown, f"table names events that do not exist: {unknown}"
 
 
-def _money(micros: int) -> str:
-    text = f"{micros / 1_000_000:.6f}".rstrip("0")
-    whole, _, frac = text.partition(".")
-    return f"${whole}.{frac.ljust(2, '0')}"
-
-
 def _resolve(dotted: str) -> object:
     module, *path = dotted.split(".")
     obj: object = importlib.import_module(f"boss.{module}")
@@ -104,9 +98,9 @@ def test_fixed_limits_match_the_code_and_the_named_symbols_exist(text):
     policy, run_limits = rule.FiringPolicy(), limits.RunLimits()
     expected = {
         "Workers per task": str(firm.MAX_WORKERS_PER_TASK),
-        "Default worker slice": _money(firm.DEFAULT_SLICE_MICROS),
-        "Reserve held back from every cap": _money(budget.RESERVE_MICROS),
-        "Smallest slice cap": _money(budget.MIN_SLICE_MICROS),
+        "Default worker slice": money(firm.DEFAULT_SLICE_MICROS),
+        "Reserve held back from every cap": money(budget.RESERVE_MICROS),
+        "Smallest slice cap": money(budget.MIN_SLICE_MICROS),
         "Slices in a whole run": str(run_limits.max_slices),
         "Workers in a whole run": str(run_limits.max_workers),
         "Stall slices before firing": str(policy.stall_slices),
@@ -115,7 +109,7 @@ def test_fixed_limits_match_the_code_and_the_named_symbols_exist(text):
         "One worker slice, wall clock": f"{int(runner.DEFAULT_TIMEOUT_S)} s",
         "One check, wall clock": f"{int(gate.DEFAULT_TIMEOUT_S)} s",
         "One boss call, wall clock": f"{int(boss.DEFAULT_TIMEOUT_S)} s",
-        "One boss call, cap": _money(boss.DEFAULT_CAP_MICROS),
+        "One boss call, cap": money(boss.DEFAULT_CAP_MICROS),
         "Checks in a draft": f"1 to {boss.MAX_CHECKS}",
         "Oldest supported `claude` CLI": ".".join(map(str, worker.MIN_CLI_VERSION)),
     }

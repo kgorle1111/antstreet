@@ -36,6 +36,12 @@ def table(body: str) -> list[list[str]]:
     return rows[1:]
 
 
+def money(micros: int) -> str:
+    """Micro-dollars as the documents write them: $0.10, $0.005."""
+    whole, _, frac = f"{micros / 1_000_000:.6f}".rstrip("0").partition(".")
+    return f"${whole}.{frac.ljust(2, '0')}"
+
+
 def code_spans(text: str) -> list[str]:
     return re.findall(r"`([^`\n]+)`", text)
 
@@ -53,17 +59,23 @@ INIT = {
     "session_id": "s-1",
 }  # fmt: skip
 FAKE_CLAUDE = f"""#!{sys.executable}
-import json, sys
+import json, os, sys
 argv = sys.argv[1:]
 say = lambda e: print(json.dumps(e), flush=True)
 usage = {{"m": {{"inputTokens": 10, "outputTokens": 5, "cacheReadInputTokens": 0}}}}
 result = {{"type": "result", "subtype": "success", "is_error": False,
           "terminal_reason": "completed", "modelUsage": usage, "session_id": "s-1"}}
-if argv[argv.index("--output-format") + 1] == "json":
+if argv[:1] == ["--version"]:
+    print("2.1.285")
+elif argv[:2] == ["auth", "status"]:
+    print(json.dumps({{"loggedIn": True}}))
+elif argv[argv.index("--output-format") + 1] == "json":
     say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
 else:
     say({INIT!r})
-    open("rev.py", "w").write("def reverse(s):\\n    return s[::-1]\\n")
+    wrong = os.path.exists(os.path.join(os.environ["HOME"], "break"))
+    expr = "s" if wrong else "s[::-1]"
+    open("rev.py", "w").write("def reverse(s):\\n    return " + expr + "\\n")
     say(result | {{"total_cost_usd": 0.006,
                   "structured_output": {{"status": "done", "reason": "wrote rev.py"}}}})
 """
@@ -77,13 +89,17 @@ def fake_claude(folder: Path) -> Path:
     return path
 
 
-def run_cli(folder: Path, argv: list[str], *, answers=("a",), binary: str | None = None):
+def run_cli(
+    folder: Path, argv: list[str], *, answers=("a",), binary: str | None = None, broken=False
+):
     """Run `boss <argv>` in a fresh project folder. Returns (exit code, the run folder or None,
-    everything printed)."""
+    everything printed). `broken` makes the fake worker write a wrong product."""
     from boss.cli import main
 
     project = folder / "project"
     project.mkdir(parents=True, exist_ok=True)
+    if broken:
+        (folder / "break").write_text("1")
     environ = {
         "PATH": "/usr/bin:/bin",
         "HOME": str(folder),
