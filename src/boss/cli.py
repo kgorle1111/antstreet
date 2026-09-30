@@ -17,6 +17,7 @@ import dataclasses
 import functools
 import os
 import sys
+import threading
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -110,6 +111,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     fund.add_argument(
         "--max-tasks", type=_count_arg, default=1, help="most tasks the boss may split into"
+    )
+    fund.add_argument(
+        "--parallel",
+        type=_count_arg,
+        default=1,
+        help="tasks to work on at once (each task still has one worker at a time)",
     )
     fund.add_argument("--max-slices", type=_count_arg, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=_count_arg, default=FiringPolicy().stall_slices)
@@ -246,6 +253,7 @@ def _fund(
             reserve_micros=args.reserve,
             policy=FiringPolicy(stall_slices=args.stall_slices, max_slices=args.max_slices),
             firing=not args.no_firing,
+            parallel=args.parallel,
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
         )
         outcome = _run(sheet, paths, ledger, run_id, env, executable, config, ask, say)
@@ -264,6 +272,7 @@ def _run(
     say: Say,
 ) -> FirmReport | int:
     """Run (or continue) the firm. An exit code instead of a report when it could not finish."""
+    cancel = threading.Event()  # set on Ctrl-C, so slices running in other threads stop too
     try:
         return run_firm(
             sheet,
@@ -274,7 +283,8 @@ def _run(
             config=config,
             ask=ask,
             say=say,
-            slice_runner=functools.partial(run_slice, executable=executable),
+            slice_runner=functools.partial(run_slice, executable=executable, stop=cancel),
+            cancel=cancel,
         )
     except IsolationError as exc:
         say(f"Stopped: the worker did not start isolated ({exc}). Run `boss doctor`.")

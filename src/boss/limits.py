@@ -43,6 +43,7 @@ def breach(
     ceiling_micros: int,
     elapsed_s: float,
     hiring: bool = False,
+    planned_slices: int = 0,
 ) -> str | None:
     """None while the run is inside every limit; otherwise one sentence naming the limit, the
     figure reached and the figure allowed.
@@ -59,6 +60,7 @@ def breach(
     if spent > ceiling_micros:
         return f"spend ${usd(spent)} is over the run ceiling of ${usd(ceiling_micros)}"
     slices = sum(e.event is EventType.SLICE_START for e in events)
+    slices += planned_slices  # slices of the same wave that are planned and not yet started
     if slices >= limits.max_slices:
         return f"{slices} slices started; the run limit is {limits.max_slices}"
     workers = sum(e.event is EventType.HIRED for e in events)

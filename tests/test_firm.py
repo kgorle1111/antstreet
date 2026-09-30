@@ -1,7 +1,9 @@
 """The round loop end to end, with a scripted worker and the real gate. No model calls."""
 
 import contextlib
+import dataclasses
 import json
+import threading
 import time
 
 import pytest
@@ -1171,3 +1173,144 @@ def test_a_status_line_follows_every_slice(paths):
     _, said = run(paths, Script(step(HALF, cost=30_000), step(GOOD, "done", cost=20_000)))
     assert "w1 slice 1 on t1: 1/2 checks pass; round 1 has spent $0.03 of $0.5" in said
     assert "w1 slice 2 on t1: 2/2 checks pass; round 1 has spent $0.05 of $0.5" in said
+
+
+# Several tasks at once. One thread writes the ledger; only the workers' processes run in others.
+SHOUT = "def shout(s):\n    return s.upper() + '!'\n"
+NO_SHOUT = "def shout(s):\n    return s\n"
+
+
+class ByTask:
+    """A scripted worker safe to call from several threads: each task has its own steps."""
+
+    def __init__(self, **steps):
+        self.steps = {task: list(items) for task, items in steps.items()}
+        self.specs, self.lock, self.totals = [], threading.Lock(), {}
+        self.running = self.most_at_once = 0
+        self.together = threading.Barrier(2, timeout=5)
+
+    def __call__(self, spec, workspace, log_path, *, env):
+        task = "t2" if "Your task (t2)" in spec.prompt or "c03" in spec.prompt else "t1"
+        with self.lock:
+            self.specs.append(spec)
+            self.running += 1
+            self.most_at_once = max(self.most_at_once, self.running)
+            item = self.steps[task].pop(0)
+        try:
+            if isinstance(item, BaseException):
+                raise item
+            name, code, status, outcome, cost, _, _ = item
+            if code is not None:
+                (workspace / name).write_text(code)
+            session = str(spec.session_id)
+            with self.lock:
+                self.totals[session] = self.totals.get(session, 0) + (cost or 0)
+                total = self.totals[session]
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text("{}\n")
+            return SliceRun(
+                outcome=outcome,
+                usage=Usage(total if cost is not None else None, 10, 5, 0),
+                status={"status": status, "reason": f"scripted {status}"},
+                session_id=session,
+                exit_code=0,
+                duration_s=0.1,
+                log_path=log_path,
+            )
+        finally:
+            time.sleep(0.05)  # long enough for the other slice to be running too
+            with self.lock:
+                self.running -= 1
+
+
+def up(code, status="continuing", **kw):
+    return step(code, status, name="up.py", **kw)
+
+
+def test_two_tasks_are_worked_on_at_once_and_the_ledger_stays_in_order(paths):
+    worker = ByTask(t1=[step(GOOD, "done")], t2=[up(SHOUT, "done")])
+    report, _ = run(paths, worker, sheet(two_tasks=True), config=FirmConfig(parallel=2))
+    assert report.all_passed and worker.most_at_once == 2
+    order = [(e.actor, e.event) for e in read_events(paths.ledger) if e.actor.startswith("worker")]
+    assert order == [
+        ("worker:w1", EventType.SLICE_START),
+        ("worker:w2", EventType.SLICE_START),
+        ("worker:w1", EventType.SLICE_END),
+        ("worker:w2", EventType.SLICE_END),
+    ]
+    assert sorted(p.name for p in paths.product.iterdir()) == ["rev.py", "up.py"]
+
+
+def test_one_at_a_time_is_the_default(paths):
+    worker = ByTask(t1=[step(GOOD, "done")], t2=[up(SHOUT, "done")])
+    report, _ = run(paths, worker, sheet(two_tasks=True))
+    assert report.all_passed and worker.most_at_once == 1
+
+
+def test_slices_run_at_once_each_leave_room_for_the_others_overshoot(paths):
+    # 450,000 with a 100,000 reserve and a 200,000 slice. The first slice is capped at 200,000.
+    # The second must leave two reserves: 450,000 - 200,000 - 200,000 = 50,000. Both overshoot
+    # by a full reserve and the round still holds: 300,000 + 150,000 = 450,000.
+    s = sheet(two_tasks=True)
+    s = dataclasses.replace(s, budget_micros=450_000, rounds=(Round(1, 450_000, 3),))
+    worker = ByTask(t1=[step(GOOD, "done", cost=300_000)], t2=[up(SHOUT, "done", cost=150_000)])
+    config = FirmConfig(parallel=2, slice_micros=200_000)
+    report, _ = run(paths, worker, s, config=config)
+    caps = [e.data["cap_micros"] for e in events_of(paths, EventType.SLICE_START)]
+    assert caps == [200_000, 50_000]
+    assert total(read_events(paths.ledger)).cost_micros == 450_000 <= s.budget_micros
+    assert report.all_passed
+
+
+def test_a_round_that_can_fund_only_one_slice_runs_one(paths):
+    s = sheet(two_tasks=True)
+    s = dataclasses.replace(s, budget_micros=300_000, rounds=(Round(1, 300_000, 3),))
+    worker = ByTask(t1=[step(GOOD, "done", cost=50_000)], t2=[up(SHOUT, "done", cost=50_000)])
+    run(paths, worker, s, config=FirmConfig(parallel=2, slice_micros=200_000))
+    starts = [(e.actor, e.data["cap_micros"]) for e in events_of(paths, EventType.SLICE_START)]
+    # 300,000: the first slice takes 200,000; a second at once would need 5,000 plus two
+    # reserves. So the first wave is one slice, and the second task runs after it.
+    assert starts == [("worker:w1", 200_000), ("worker:w2", 150_000)]
+    assert worker.most_at_once == 1
+
+
+def test_each_task_is_judged_by_its_own_history_when_run_together(paths):
+    worker = ByTask(
+        t1=[step(HALF), step(GOOD, "done")],
+        t2=[up(NO_SHOUT), up(NO_SHOUT), up(SHOUT, "done")],
+    )
+    report, _ = run(paths, worker, sheet(two_tasks=True), config=FirmConfig(parallel=2))
+    [fired] = events_of(paths, EventType.FIRED)
+    assert (fired.data["worker"], fired.data["task"]) == ("w2", "t2")
+    assert report.all_passed
+    assert [e.data["worker"] for e in events_of(paths, EventType.HIRED)] == ["w1", "w2", "w3"]
+
+
+def test_an_isolation_failure_in_one_slice_still_books_the_other_and_stops_the_run(paths):
+    worker = ByTask(t1=[IsolationError("hooks ran")], t2=[up(SHOUT, "done", cost=40_000)])
+    with pytest.raises(IsolationError):
+        run(paths, worker, sheet(two_tasks=True), config=FirmConfig(parallel=2))
+    assert [e.actor for e in events_of(paths, EventType.SLICE_END)] == ["worker:w2"]
+    assert total(read_events(paths.ledger)).cost_micros == 40_000
+    assert events_of(paths, EventType.ERROR)[0].actor == "worker:w1"
+    assert events_of(paths, EventType.STOPPED)[0].data["reason"] == "worker did not start isolated"
+
+
+def test_ctrl_c_during_slices_run_at_once_is_resumable(paths):
+    worker = ByTask(t1=[KeyboardInterrupt()], t2=[up(SHOUT, "done", cost=40_000)])
+    with pytest.raises(KeyboardInterrupt):
+        run(paths, worker, sheet(two_tasks=True), config=FirmConfig(parallel=2))
+    assert events_of(paths, EventType.SLICE_END) == []  # both slices are lost, none half-booked
+    resumed = ByTask(t1=[step(GOOD, "done")], t2=[up(SHOUT, "done")])
+    report, _ = run(paths, resumed, sheet(two_tasks=True), config=FirmConfig(parallel=2))
+    assert report.all_passed
+    assert len(events_of(paths, EventType.HIRED)) == 2  # the same two workers carried on
+
+
+def test_the_slice_limit_counts_every_slice_of_a_wave(paths):
+    config = FirmConfig(parallel=2, policy=PATIENT, limits=RunLimits(max_slices=3))
+    worker = ByTask(t1=[step(BAD)] * 5, t2=[up(NO_SHOUT)] * 5)
+    report, _ = run(paths, worker, sheet(two_tasks=True), config=config)
+    # Two slices, then the limit allows one more: the next wave is cut to a single slice.
+    assert len(events_of(paths, EventType.SLICE_START)) == 3
+    assert rule_stops(paths) == ["3 slices started; the run limit is 3"]

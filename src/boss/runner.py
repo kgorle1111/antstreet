@@ -62,8 +62,10 @@ def run_slice(
     grace_s: float = DEFAULT_GRACE_S,
     executable: str = CLI,
     known_secrets: Iterable[str] = (),
+    stop: threading.Event | None = None,
 ) -> SliceRun:
-    """Run one slice to completion, timeout or refusal.
+    """Run one slice to completion, timeout or refusal. Setting `stop` from another thread ends
+    it the way a timeout does: the worker is interrupted and its final result still read.
 
     Raises IsolationError (after stopping the process) if the worker did not start isolated.
     """
@@ -95,7 +97,9 @@ def run_slice(
     timed_out = False
     try:
         with log_path.open("a", encoding="utf-8") as log:
-            timed_out = _consume(proc, lines, reader, log, secrets, start + timeout_s, grace_s)
+            timed_out = _consume(
+                proc, lines, reader, log, secrets, start + timeout_s, grace_s, stop
+            )
         if not timed_out:
             with contextlib.suppress(subprocess.TimeoutExpired):  # finally stops it if needed
                 proc.wait(timeout=grace_s)
@@ -149,6 +153,7 @@ def _consume(
     secrets: list[str],
     deadline: float,
     grace_s: float,
+    stop: threading.Event | None = None,
 ) -> bool:
     """Feed stdout to the reader until EOF. Returns True if the deadline was hit.
 
@@ -158,11 +163,11 @@ def _consume(
     checked_init = timed_out = False
     while True:
         remaining = deadline - time.monotonic()
-        if remaining <= 0 and not timed_out:
+        if (remaining <= 0 or (stop is not None and stop.is_set())) and not timed_out:
             timed_out = True
             _stop(proc, grace_s)
         try:
-            item = lines.get(timeout=grace_s if timed_out else min(remaining, 0.5))
+            item = lines.get(timeout=grace_s if timed_out else max(0.01, min(remaining, 0.5)))
         except queue.Empty:
             if timed_out:
                 return True  # stopped, and nothing more is coming

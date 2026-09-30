@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import threading
 import time
 from uuid import uuid4
 
@@ -78,7 +79,7 @@ def fake(tmp_path):
     ws.mkdir()
     child_pid = tmp_path / "child.pid"
 
-    def run(mode, *, timeout_s=10.0, init=INIT, **extra_env):
+    def run(mode, *, timeout_s=10.0, init=INIT, stop=None, **extra_env):
         env = {
             "PATH": "/usr/bin:/bin",
             "HOME": str(tmp_path),
@@ -99,6 +100,7 @@ def fake(tmp_path):
             timeout_s=timeout_s,
             grace_s=0.5,
             executable=str(cli),
+            stop=stop,
         )
 
     run.child_pid = child_pid
@@ -180,3 +182,40 @@ def test_timeout_interrupts_first_so_the_slice_cost_is_still_recorded(fake):
     run = fake("graceful", timeout_s=1.0)
     assert run.outcome is Outcome.TIMEOUT
     assert run.usage.cost_micros == 5400
+
+
+def stop_once(path, stop):
+    """Set `stop` from another thread as soon as `path` exists: the fake worker is then running."""
+
+    def watch():
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and not (path.exists() and path.stat().st_size):
+            time.sleep(0.02)
+        stop.set()
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
+def test_a_slice_can_be_stopped_from_another_thread_and_its_cost_is_still_read(fake, tmp_path):
+    # Parallel slices run in threads; Ctrl-C reaches only the main one, which sets this event.
+    stop = threading.Event()
+    stop_once(tmp_path / "logs" / "w1.jsonl", stop)  # the init line is logged: it is running
+    start = time.monotonic()
+    run = fake("graceful", timeout_s=120.0, stop=stop)
+    assert time.monotonic() - start < 60
+    assert run.outcome is Outcome.TIMEOUT
+    assert run.usage.cost_micros == 5400  # interrupted first, so the final result was printed
+
+
+def test_stopping_a_hung_slice_kills_it_and_its_children(fake):
+    stop = threading.Event()
+    stop_once(fake.child_pid, stop)
+    start = time.monotonic()
+    fake("hang", timeout_s=120.0, stop=stop)
+    assert time.monotonic() - start < 60
+    assert_dead(fake.child_pid)
+
+
+def test_an_unset_stop_event_changes_nothing(fake):
+    run = fake("ok", stop=threading.Event())
+    assert run.outcome is Outcome.COMPLETED
