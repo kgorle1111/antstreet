@@ -5,7 +5,8 @@ builds against them. Nothing counts as done until an independent gate says the c
 every cent is written to a ledger.
 
 **Status: working, and not yet better than one agent.** Funding rounds, capped slices, firing,
-one reassignment, disputed checks and hard run limits are built. On the 17-task benchmark (Haiku,
+one reassignment, disputed checks, your rulings on them, `boss resume` and hard run limits are
+built. Checks run in an OS sandbox on macOS (tested there only). On the 17-task benchmark (Haiku,
 $0.40 a task) the firm passed 9 of 17 (53%) against 10 of 17 (59%) for a single agent given the
 same idea, at about 2.3 times the mean cost per task ($0.206 against $0.091). One run per task, so
 the difference is descriptive only; see [bench/METHOD.md](bench/METHOD.md). The two arms ran on
@@ -55,9 +56,11 @@ uv run boss fund "A function is_palindrome(text) that ignores case, spaces and p
    is given your idea word for word, then the boss's brief and checks.
 4. The gate runs the checks after every slice. The worker's next brief shows what failed.
 5. A worker that stops making progress is fired and replaced once, with its files and the gate's
-   findings handed over. A worker that believes a check contradicts your idea can dispute it: the
-   check never counts as passing, the task is set aside instead of the worker being fired, and the
-   dispute is shown to you in the report.
+   findings handed over. A worker that believes a check contradicts your idea can dispute it. The
+   check never counts as passing. If the claim is credible (every other check passes and at most
+   half the task's checks are disputed), you are asked: drop the check, keep it, or set the task
+   aside. A worker that says it is blocked gets the same choice, with a note from you. Your answer
+   is a ledger event; the approved term sheet is not edited.
 6. The board report is printed and saved. Built files are in `.boss/runs/<run>/product/`.
 
 Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
@@ -73,14 +76,18 @@ Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
 | `--max-tasks N` | Let the boss split the work into up to N tasks | 1 |
 
 ```bash
+uv run boss resume    # continue the latest run: interrupted, paused or stopped
 uv run boss report    # the latest run's board report
 uv run boss status    # one line: last event, checks passing, spend
 ```
 
+`boss resume` reads the run's ledger and the settings it started with. Running it is your decision
+to lift a stop, and the approval, the budget and every limit are checked again.
+
 Exit codes: `0` every check passed; `1` the boss produced no usable term sheet, you rejected it, or
 a worker did not start isolated; `2` usage error (including a budget too small to fund one slice);
 `3` the run ended with checks not passing, including a run stopped early by a limit, a declined
-round, a pause or a lost login.
+round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss resume`).
 
 ## What the safeguards are, and are not
 
@@ -95,21 +102,27 @@ round, a pause or a lost login.
 - Costs are the CLI's client-side estimates, not a bill. Unknown costs are shown as unknown, and
   counted against the budget at the slice's cap.
 - A run also stops at hard limits on total spend, slices, workers and (optionally) wall clock.
-- A worker's own words are cleaned of secrets and control characters before they are stored.
+- Where the platform has a working tool, each check runs in an OS sandbox: no network, writes only
+  in its own temp folder. See [docs/SANDBOX.md](docs/SANDBOX.md).
+- A worker's own words are cleaned of secrets and control characters before they are stored, and
+  the boss's text is shown to you the same way.
 - The [threat model](docs/THREAT_MODEL.md) lists each threat, its control, the test that proves it, and what is accepted.
 
 Limits you should know:
 
-- **The tool whitelist is not a sandbox.** The gate executes the code a worker wrote, on your
-  machine, with a filtered environment and a timeout. Do not run ideas from sources you do not
-  trust. Container isolation is not built.
+- **The tool whitelist is not a sandbox, and the gate's sandbox is partial.** The gate executes the
+  code a worker wrote, on your machine, with a filtered environment and a timeout. On macOS that
+  runs under a deny-by-default profile; on Linux the `bwrap` version has never been run; with no
+  working tool, checks run with your full access (`boss doctor` warns; `BOSS_GATE_SANDBOX=require`
+  refuses). Do not run ideas from sources you do not trust. Container isolation is not built.
 - Code written specifically to defeat the gate can still fake a pass.
 - Built products are meant to use only the Python standard library: the builder prompt says so,
   and nothing installs dependencies for a product.
 - `--budget` covers the funding rounds. The boss's own drafting call is charged on top of it (about
   $0.03 to $0.10 on Haiku, most of it thinking; see `--boss-thinking`).
-- A task that is set aside (blocked, refused, or only disputed checks left) stays set aside for the
-  run: you can read why in the report, but there is no command to rule on it or to resume a run.
+- A task you set aside (or leave unanswered) stays set aside for the run, resumed or not.
+- A ledger whose last line was cut by a hard kill cannot be resumed until you remove that line:
+  the repair function exists and no command calls it yet.
 - A slice cap can be overshot by one model response. The reserve is sized for that; a response
   that costs more than the reserve still overshoots.
 - The boss can write a wrong check. You are the filter: read the checks before approving.
@@ -124,7 +137,9 @@ Limits you should know:
 | [docs/CLI.md](docs/CLI.md) | Every command and option, environment variables, exit codes, the run folder |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why it is built this way: what was rejected and the evidence |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Each threat, its control, the test that proves it, and what is accepted |
-| [bench/METHOD.md](bench/METHOD.md) | What the benchmark measures and what its numbers can support |
+| [docs/SANDBOX.md](docs/SANDBOX.md) | The gate's OS sandbox: what it denies, what it allows, the probes, what is not verified |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Everything skipped or deferred, with a status |
+| [bench/METHOD.md](bench/METHOD.md) | What the benchmark measures, the draft evaluation of the boss's checks, and what the numbers can support |
 | [CHANGELOG.md](CHANGELOG.md) | What changed |
 | [SECURITY.md](SECURITY.md) | What is and is not protected, and how to report a problem |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, tests, the rules, and how to add a benchmark task |

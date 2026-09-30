@@ -100,10 +100,22 @@ def test_the_stated_requirements_are_the_enforced_ones(text):
 
 def test_the_exit_codes_stated_are_the_constants(text):
     line = " ".join(text[text.index("Exit codes:") :].split("\n\n")[0].split())
-    codes = re.findall(r"`(\d)`", line)
+    codes = re.findall(r"`(\d+)`", line)
     assert codes == [
-        str(c) for c in (cli.EXIT_OK, cli.EXIT_FAILED, cli.EXIT_USAGE, cli.EXIT_INCOMPLETE)
+        str(c)
+        for c in (
+            cli.EXIT_OK,
+            cli.EXIT_FAILED,
+            cli.EXIT_USAGE,
+            cli.EXIT_INCOMPLETE,
+            cli.EXIT_INTERRUPTED,
+        )
     ]
+
+
+def test_every_command_is_shown_in_the_readme(text):
+    for name in cli._parser()._subparsers._group_actions[0].choices:
+        assert f"boss {name}" in text, f"the README never shows `boss {name}`"
 
 
 def test_the_benchmark_figures_agree_with_the_decision_log_and_the_task_count(text):
