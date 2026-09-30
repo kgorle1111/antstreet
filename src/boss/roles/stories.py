@@ -16,6 +16,9 @@ from typing import Any
 MAX_STORIES = 8
 MAX_CRITERIA = 16  # across all stories: each needs at least one check, and checks cost gate time
 MIN_SOURCE_CHARS = 8  # shorter fragments match by accident
+MIN_PIECE_CHARS = 4  # each piece of a quote that elides text with "..."
+_TYPOGRAPHY = str.maketrans("", "", "`'\"\u2018\u2019\u201c\u201d")
+_ELISION = re.compile(r"\.{3,}|\u2026")
 PRIORITIES = ("must", "should", "could")
 _STORY_ID = re.compile(r"S[1-9]\d?")
 _TEXT = {"type": "string", "minLength": 1}
@@ -156,7 +159,6 @@ def story_problems(stories: Stories, idea: str) -> list[str]:
         problems.append(f"needs 1 to {MAX_STORIES} stories, has {len(stories.stories)}")
     if len(stories.criteria()) > MAX_CRITERIA:
         problems.append(f"at most {MAX_CRITERIA} criteria in all, has {len(stories.criteria())}")
-    haystack = normalise(idea)
     for n, story in enumerate(stories.stories, start=1):
         if story.id != f"S{n}" or not _STORY_ID.fullmatch(story.id):
             problems.append(f"story {n} must have id S{n}, has {story.id!r}")
@@ -174,12 +176,11 @@ def story_problems(stories: Stories, idea: str) -> list[str]:
             for field in ("given", "when", "then"):
                 if not getattr(criterion, field).strip():
                     problems.append(f"{expected}: {field} is empty")
-            source = normalise(criterion.source)
-            if len(source) < MIN_SOURCE_CHARS:
+            if sum(map(len, quote_pieces(criterion.source))) < MIN_SOURCE_CHARS:
                 problems.append(
                     f"{expected}: source must quote at least {MIN_SOURCE_CHARS} characters"
                 )
-            elif source not in haystack:
+            elif not is_fragment(criterion.source, idea):
                 problems.append(
                     f"{expected}: source is not a fragment of the idea: {criterion.source!r}"
                 )
@@ -189,17 +190,38 @@ def story_problems(stories: Stories, idea: str) -> list[str]:
 
 
 def normalise(text: str) -> str:
-    """Lower case, single spaces: a quote may differ from the idea in case and line breaks only."""
-    return " ".join(text.lower().split())
+    """Lower case, single spaces, no backticks or quote marks: a quote may differ from the idea in
+    case, line breaks and that typography only.
+
+    Measured on 16 real drafts: nine in ten rejected quotes were the idea's own words with its
+    Markdown backticks dropped or turned into quote marks. That is not a change of meaning.
+    """
+    return " ".join(text.translate(_TYPOGRAPHY).lower().split())
+
+
+def quote_pieces(quote: str) -> list[str]:
+    """The normalised pieces of a quote, split where it elides text with `...` or `…`."""
+    return [piece for piece in map(normalise, _ELISION.split(quote)) if piece]
 
 
 def is_fragment(quote: str, idea: str, *, min_chars: int = 1) -> bool:
     """True when `quote`, once normalised, is at least `min_chars` long and a piece of the
     normalised idea. The grounding rule every role's quotes must meet; pass
     `min_chars=MIN_SOURCE_CHARS` where a quote must be long enough to mean something (a
-    two-letter quote is a fragment of almost anything)."""
-    needle = normalise(quote)
-    return len(needle) >= max(1, min_chars) and needle in normalise(idea)
+    two-letter quote is a fragment of almost anything). A quote may elide text with `...`: every
+    piece must then be in the idea word for word, in order."""
+    pieces = quote_pieces(quote)
+    if sum(map(len, pieces)) < max(1, min_chars):
+        return False
+    if len(pieces) > 1 and min(map(len, pieces)) < MIN_PIECE_CHARS:
+        return False  # a few letters either side of an elision would match almost anything
+    haystack, at = normalise(idea), 0
+    for piece in pieces:  # each piece word for word, in the idea's order
+        found = haystack.find(piece, at)
+        if found == -1:
+            return False
+        at = found + len(piece)
+    return True
 
 
 def is_quote_of(quote: str, idea: str) -> bool:
@@ -210,7 +232,7 @@ def is_quote_of(quote: str, idea: str) -> bool:
 
 def fragment_problem(quote: str, idea: str) -> str | None:
     """Why `quote` is not a usable word-for-word fragment of `idea`, or None if it is."""
-    if len(normalise(quote)) < MIN_SOURCE_CHARS:
+    if sum(map(len, quote_pieces(quote))) < MIN_SOURCE_CHARS:
         return f"must quote at least {MIN_SOURCE_CHARS} characters"
     if not is_fragment(quote, idea):
         return f"is not a fragment of the idea: {quote!r}"

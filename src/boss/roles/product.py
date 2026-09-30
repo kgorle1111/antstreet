@@ -23,6 +23,7 @@ from boss.roles.stories import (
     is_fragment,
     normalise,
     parse_stories,
+    quote_pieces,
     story_problems,
 )
 from boss.stream import Usage
@@ -41,6 +42,8 @@ PRODUCT_MANAGER = RoleSpec(
         "product_manager/story-splitting",
         "product_manager/acceptance-criteria",
     ),
+    # Measured: 5 of 16 drafts hit the default $0.15 cap. Stories quote the whole idea back.
+    cap_micros=300_000,
 )
 
 USER_AGENT = RoleSpec(
@@ -128,18 +131,19 @@ def uncovered_fragments(idea: str, stories: Stories) -> list[str]:
         position += len(text) + 1
     covered: set[int] = set()
     for criterion in stories.criteria():
-        source = normalise(criterion.source)
-        if len(source) < MIN_SOURCE_CHARS:
+        pieces = quote_pieces(criterion.source)
+        if sum(map(len, pieces)) < MIN_SOURCE_CHARS:
             continue
-        at = haystack.find(source)
-        while at != -1:
-            end = at + len(source)
-            covered.update(
-                n
-                for n, (start, text) in enumerate(zip(starts, normalised, strict=True))
-                if start < end and at < start + len(text)
-            )
-            at = haystack.find(source, at + 1)
+        for source in pieces:  # a quote that elides text covers what each piece overlaps
+            at = haystack.find(source)
+            while at != -1:
+                end = at + len(source)
+                covered.update(
+                    n
+                    for n, (start, text) in enumerate(zip(starts, normalised, strict=True))
+                    if start < end and at < start + len(text)
+                )
+                at = haystack.find(source, at + 1)
     return [
         fragment
         for n, fragment in enumerate(fragments)

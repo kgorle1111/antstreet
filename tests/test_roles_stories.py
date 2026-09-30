@@ -198,3 +198,79 @@ def test_the_shared_quote_helpers_agree_with_the_story_gate():
     )
     for quote in (good, short, invented, ""):
         assert is_quote_of(quote, IDEA) is (fragment_problem(quote, IDEA) is None)
+
+
+# Measured on 16 real product-manager drafts: nine in ten rejected quotes were the idea's own
+# words with its Markdown backticks dropped or turned into quote marks, or two verbatim pieces
+# joined with "...". Neither changes what the idea says.
+MARKDOWN_IDEA = (
+    "1. `width` below 1 raises `ValueError`, whatever the text is (even empty text).\n"
+    "2. Durations are added: `1h30m` is 5400 seconds and `1m5ms` is 60.005 seconds.\n"
+    '3. `add("0.1", "0.2")` is `"0.3"`; `\' "a"\'` (a space before the quote makes the\n'
+    "   field unquoted) and a bare quote are errors."
+)
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "width below 1 raises ValueError, whatever the text is (even empty text)",
+        "'1h30m' is 5400 seconds",
+        "\u201c1h30m\u201d is 5400 seconds",
+        'add("0.1", "0.2") is "0.3"',
+        "add(0.1, 0.2) is 0.3",
+        "`width` below 1 raises `ValueError`",
+    ],
+)
+def test_a_quote_may_drop_or_change_the_ideas_backticks_and_quote_marks(quote):
+    from boss.roles.stories import MIN_SOURCE_CHARS, is_fragment
+
+    assert is_fragment(quote, MARKDOWN_IDEA, min_chars=MIN_SOURCE_CHARS)
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "width below 2 raises ValueError",
+        "width under 1 raises ValueError",
+        "1h30m is 5401 seconds",
+        "add(0.1, 0.2) is 0.30",
+    ],
+)
+def test_a_changed_word_or_number_is_still_not_a_fragment(quote):
+    from boss.roles.stories import is_fragment
+
+    assert not is_fragment(quote, MARKDOWN_IDEA)
+
+
+def test_a_quote_may_elide_text_when_every_piece_is_word_for_word_and_in_order():
+    from boss.roles.stories import is_fragment, quote_pieces
+
+    elided = "a space before the quote makes the field unquoted ... are errors"
+    assert quote_pieces(elided) == [
+        "a space before the quote makes the field unquoted",
+        "are errors",
+    ]
+    assert is_fragment(elided, MARKDOWN_IDEA)
+    assert is_fragment("width below 1 \u2026 whatever the text is", MARKDOWN_IDEA)
+    assert not is_fragment("are errors ... a space before the quote", MARKDOWN_IDEA)  # order
+    assert not is_fragment("width below 1 ... raises KeyError", MARKDOWN_IDEA)  # one piece invented
+    assert not is_fragment(
+        "width below 1 ... is", MARKDOWN_IDEA
+    )  # a piece too short to mean anything
+    assert not is_fragment("...", MARKDOWN_IDEA) and quote_pieces(" ... ") == []
+
+
+def test_the_story_gate_accepts_those_quotes_and_still_refuses_an_invented_one():
+    data = changed(["stories", 0, "criteria", 0, "source"], "join words with SINGLE hyphens")
+    assert problems(data) == []
+    data = changed(
+        ["stories", 0, "criteria", 0, "source"], "Lower-case the text ... single hyphens"
+    )
+    assert problems(data) == []
+    data = changed(["stories", 0, "criteria", 0, "source"], "Lower-case the text ... drop emoji")
+    assert problems(data) == [
+        "S1.1: source is not a fragment of the idea: 'Lower-case the text ... drop emoji'"
+    ]
+    short = changed(["stories", 0, "criteria", 0, "source"], "a ... b")
+    assert problems(short) == ["S1.1: source must quote at least 8 characters"]

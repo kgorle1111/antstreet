@@ -172,7 +172,7 @@ def test_the_command_line_runs_a_staged_draft_and_prints_its_cost_ceiling(staged
     argv = ["--tasks", str(TASKS), "--out", str(out), "--only", "slugify", "--prompt", STAGED]
     assert main([*argv, "--dry-run"], environ=staged.environ) == 0
     dry = capsys.readouterr().out
-    assert "1 drafts, 1 to make, up to $0.55 at the per-draft cap (not measured yet)" in dry
+    assert "1 drafts, 1 to make, up to $0.7 at the per-draft cap (not measured yet)" in dry
     assert not out.exists()
     assert main(argv, environ=staged.environ) == 0
     table = capsys.readouterr().out
