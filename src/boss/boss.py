@@ -7,6 +7,7 @@ here, never taken from the model.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 from collections.abc import Mapping
@@ -22,6 +23,7 @@ from boss.worker import CLI, usd, uses_api_key, with_thinking
 
 TERM_SHEET_PROMPT = "term_sheet_v1.md"
 MULTI_TASK_PROMPT = "term_sheet_v2.md"  # used when the boss may split the work
+_PROMPT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.md\Z")
 DEFAULT_MODEL = "haiku"
 DEFAULT_CAP_MICROS = 250_000  # $0.25; live drafts cost $0.008-0.060, and a capped draft is wasted
 DEFAULT_TIMEOUT_S = 300.0
@@ -94,6 +96,8 @@ class Draft:
 
 
 def load_prompt(name: str) -> str:
+    if not _PROMPT_NAME.match(name):
+        raise ValueError(f"prompt name must be a file name like term_sheet_v1.md, got {name!r}")
     return (resources.files("boss") / "prompts" / name).read_text(encoding="utf-8")
 
 
@@ -130,6 +134,7 @@ def draft_term_sheet(
     executable: str = CLI,
     max_tasks: int = 1,
     thinking_tokens: int | None = None,
+    prompt_name: str | None = None,
 ) -> Draft:
     """Ask the boss for checks and up to max_tasks tasks; write the check files, return a sheet.
 
@@ -138,17 +143,21 @@ def draft_term_sheet(
 
     Raises BossError if the call fails or returns unusable output, and InvalidDraftError (listing
     every problem) if the draft does not validate. Both carry the call's usage for the ledger.
+
+    `prompt_name` picks another system prompt from the prompts folder, to compare prompts offline.
     """
     if not idea.strip() or idea.lstrip().startswith("-"):
         raise ValueError("idea must be non-empty text that does not start with '-'")
     if max_tasks < 1:
         raise ValueError("max_tasks must be at least 1")
+    if prompt_name is None:
+        prompt_name = MULTI_TASK_PROMPT if max_tasks > 1 else TERM_SHEET_PROMPT
     prompt = f"Idea:\n{idea.strip()}"
     if max_tasks > 1:
         prompt += f"\n\nYou may use at most {max_tasks} tasks."
     argv = build_boss_command(
         prompt=prompt,
-        system_prompt=load_prompt(MULTI_TASK_PROMPT if max_tasks > 1 else TERM_SHEET_PROMPT),
+        system_prompt=load_prompt(prompt_name),
         schema=draft_schema(max_tasks),
         model=model,
         cap_micros=cap_micros,
