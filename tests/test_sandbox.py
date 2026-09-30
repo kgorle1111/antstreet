@@ -32,7 +32,6 @@ PROFILE_NO_EXTRA = """\
 (allow file-read*
   (literal "/")
   (literal "/dev/null")
-  (literal "/dev/urandom")
   (subpath "/usr/share/locale")
   (subpath "/private/var/db/timezone")
   (subpath (param "WRITABLE")))
