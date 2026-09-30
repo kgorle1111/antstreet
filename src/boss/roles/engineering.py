@@ -21,11 +21,14 @@ from boss.roles.stories import Stories
 from boss.stream import Usage
 from boss.termsheet import (
     CheckSpec,
+    Round,
     Task,
     TermSheet,
+    TermSheetError,
     _id_problems,
     _ownership_problems,
     check_file_problems,
+    validate,
 )
 from boss.worker import CLI
 
@@ -357,6 +360,111 @@ def write_checks(
         _remove(written)
         raise RoleOutputError(TESTER.name, problems, output.usage)
     return TestPlan(specs, tuple(untestable)), output.usage
+
+
+@dataclass(frozen=True, slots=True)
+class StagedDraft:
+    sheet: TermSheet
+    design: Design
+    plan: TestPlan
+    designer_usage: Usage  # each call is booked under its own role
+    tester_usage: Usage
+
+
+class StagedDraftError(Exception):
+    """A stage of `draft_staged` failed. `paid` holds the usage of every call made so far, by role
+    name and the failing call's included, so the caller can book all of it. `stage` is the role
+    whose call failed, or "assembly" when both were paid for and the sheet was then refused;
+    `outcome` is how the failing call ended (COMPLETED when an output or the sheet was rejected)."""
+
+    def __init__(
+        self, stage: str, problems: list[str], outcome: Outcome, paid: Mapping[str, Usage]
+    ) -> None:
+        super().__init__(f"{stage}: " + "; ".join(problems))
+        self.stage, self.problems, self.outcome, self.paid = stage, problems, outcome, dict(paid)
+
+
+def draft_staged(
+    idea: str,
+    budget_micros: int,
+    checks_dir: Path,
+    *,
+    stories: Stories,
+    max_tasks: int,
+    env: Mapping[str, str],
+    model: str,
+    executable: str = CLI,
+    thinking_tokens: int | None = None,
+    timeout_s: float = 300.0,
+) -> StagedDraft:
+    """The designer, then the tester, then a term sheet that passes `termsheet.validate` (so every
+    check fails on an empty workspace). `stories` must already have passed their gate.
+
+    Raises ValueError before any call for a bad idea, budget or max_tasks, and StagedDraftError
+    for anything after: it carries the usage of the stages already paid for.
+    """
+    if not idea.strip() or idea.lstrip().startswith("-"):
+        raise ValueError("idea must be non-empty text that does not start with '-'")
+    if type(budget_micros) is not int or budget_micros <= 0:
+        raise ValueError("budget_micros must be a positive int")
+    if max_tasks < 1:
+        raise ValueError("max_tasks must be at least 1")
+    call = {
+        "env": env,
+        "model": model,
+        "executable": executable,
+        "thinking_tokens": thinking_tokens,
+        "timeout_s": timeout_s,
+    }
+    paid: dict[str, Usage] = {}
+    try:
+        design, paid[SYSTEM_DESIGNER.name] = design_tasks(
+            idea, stories, max_tasks=max_tasks, **call
+        )
+        plan, paid[TESTER.name] = write_checks(idea, stories, design, checks_dir, **call)
+    except RoleError as exc:
+        paid[exc.role] = exc.usage
+        problems = (
+            exc.problems
+            if isinstance(exc, RoleOutputError)
+            else [str(exc).removeprefix(f"{exc.role}: ")]
+        )
+        raise StagedDraftError(exc.role, problems, exc.outcome, paid) from exc
+    try:
+        sheet = assemble_term_sheet(idea, budget_micros, stories, design, plan, checks_dir)
+        validate(sheet, checks_dir)
+    except TermSheetError as exc:
+        raise StagedDraftError("assembly", exc.problems, Outcome.COMPLETED, paid) from exc
+    except ValueError as exc:
+        raise StagedDraftError("assembly", [str(exc)], Outcome.COMPLETED, paid) from exc
+    return StagedDraft(sheet, design, plan, paid[SYSTEM_DESIGNER.name], paid[TESTER.name])
+
+
+def assemble_term_sheet(
+    idea: str,
+    budget_micros: int,
+    stories: Stories,
+    design: Design,
+    plan: TestPlan,
+    checks_dir: Path,
+) -> TermSheet:
+    """A term sheet from a design and a test plan: one round holding the whole budget that opens
+    the next stage only when every check passes, exactly what `boss.draft_term_sheet` builds.
+
+    Does not validate the sheet (`termsheet.validate` runs the checks); it refuses, with
+    ValueError, a plan that does not fit the stories and design or whose files are not in
+    `checks_dir`, which only a caller mixing up two runs can hand it.
+    """
+    raw = [_RawCheck(c.criteria, c.task, c.description, "") for c in plan.checks]
+    problems = _plan_problems(stories, design, raw, plan.untestable)
+    problems += [p for check in plan.checks for p in check_file_problems(check, checks_dir)]
+    if problems:
+        raise ValueError(
+            "the plan does not fit the stories, design and checks: " + "; ".join(problems)
+        )
+    rounds = (Round(1, budget_micros, len(plan.checks)),)
+    tasks = tuple(task.as_task() for task in design.tasks)
+    return TermSheet(idea.strip(), budget_micros, rounds, plan.checks, tasks)
 
 
 def coverage(stories: Stories, checks: Sequence[CheckSpec]) -> dict[str, tuple[str, ...]]:

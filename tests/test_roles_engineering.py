@@ -5,6 +5,7 @@ differently."""
 import copy
 import json
 import sys
+from dataclasses import replace
 
 import pytest
 
@@ -17,19 +18,22 @@ from boss.roles.engineering import (
     TESTS_SCHEMA,
     Design,
     DesignTask,
+    StagedDraftError,
     TestPlan,
     Untestable,
+    assemble_term_sheet,
     coverage,
     design_schema,
     design_tasks,
     design_text,
+    draft_staged,
     render_coverage,
     stories_text,
     write_checks,
 )
 from boss.roles.stories import Stories, parse_stories, story_problems
 from boss.stream import Usage
-from boss.termsheet import CheckSpec
+from boss.termsheet import CheckSpec, Round, TermSheet, validate
 
 IDEA = (
     "Create slug.py with slugify(text). Lower-case the text and join words with single hyphens.\n"
@@ -797,3 +801,185 @@ def test_a_run_with_no_stories_has_an_empty_matrix():
     assert render_coverage(Stories(()), [], []) == (
         "0 criteria: 0 covered, 0 untestable, 0 with no check"
     )
+
+
+# --- the staged pipeline and the assembled term sheet --------------------------------------------
+
+
+def staged(cli, **kwargs):
+    kwargs = {"stories": STORIES, "max_tasks": 2} | kwargs
+    return draft_staged(
+        IDEA,
+        500_000,
+        cli.checks_dir,
+        env=cli.env,
+        model="haiku",
+        executable=cli.executable,
+        **kwargs,
+    )
+
+
+def test_a_staged_draft_runs_the_designer_then_the_tester_and_returns_a_valid_sheet(cli):
+    cli.designer(DESIGN)
+    cli.tester(TESTS)
+    draft = staged(cli)
+    assert [call["role"] for call in cli.calls] == ["designer", "tester"]
+    assert draft.designer_usage == USAGE and draft.tester_usage == USAGE
+    assert draft.design == design_obj() and len(draft.plan.checks) == 3
+    sheet = draft.sheet
+    assert not sheet.approved_by_investor
+    assert sheet.idea == IDEA and sheet.budget_micros == 500_000
+    assert sheet.rounds == (Round(1, 500_000, 3),)
+    assert [(c.id, c.task, c.criteria) for c in sheet.checks] == [
+        ("c01", "t1", ("S1.1",)),
+        ("c02", "t1", ("S1.2",)),
+        ("c03", "t2", ("S2.1",)),
+    ]
+    assert [t.id for t in sheet.tasks] == ["t1", "t2"]
+    assert sheet.tasks[1].brief.endswith(
+        "Public interface, exactly:\n- wrap(text, width) -> list[str]"
+    )
+    assert sheet.tasks[0].paths == ("slug.py",)
+    validate(sheet, cli.checks_dir)
+    assert TermSheet.from_json(sheet.to_json()) == sheet
+    assert json.loads(sheet.to_json())["checks"][2]["criteria"] == ["S2.1"]
+
+
+def test_the_tester_is_shown_the_design_the_designer_produced(cli):
+    renamed = edited(["tasks", 0, "brief"], "Create slug.py: a marker only the designer wrote.")
+    cli.designer(renamed)
+    cli.tester(TESTS)
+    staged(cli)
+    designer_call, tester_call = cli.calls
+    assert "marker only the designer wrote" not in designer_call["argv"][-1]
+    assert "marker only the designer wrote" in tester_call["argv"][-1]
+    assert (
+        designer_call["argv"][designer_call["argv"].index("--system-prompt") + 1]
+        != (tester_call["argv"][tester_call["argv"].index("--system-prompt") + 1])
+    )
+
+
+def test_a_designer_that_fails_its_gate_stops_the_pipeline_after_one_paid_call(cli):
+    cli.designer(edited(["tasks", 0, "stories"], []))
+    with pytest.raises(StagedDraftError) as info:
+        staged(cli)
+    error = info.value
+    assert error.stage == "system_designer" and error.outcome is Outcome.COMPLETED
+    assert "task t1 delivers no story" in error.problems
+    assert error.paid == {"system_designer": USAGE}
+    assert isinstance(error.__cause__, RoleOutputError)
+    assert [call["role"] for call in cli.calls] == ["designer"]
+    assert not cli.checks_dir.exists()
+
+
+def test_a_designer_call_that_fails_reports_how_it_ended(cli):
+    capped = RESULT | {"subtype": "error_max_budget_usd", "terminal_reason": "budget_exhausted"}
+    cli.designer(json.dumps(capped))
+    with pytest.raises(StagedDraftError) as info:
+        staged(cli)
+    assert info.value.stage == "system_designer" and info.value.outcome is Outcome.CAPPED
+    assert info.value.paid == {"system_designer": USAGE}
+    assert info.value.problems == [f"boss call ended as {Outcome.CAPPED}"]
+
+
+def test_a_tester_failure_carries_the_usage_of_the_designer_that_was_already_paid(cli):
+    cli.designer(DESIGN)
+    cli.tester(edited_tests(["checks", 0, "task"], "t2"))
+    with pytest.raises(StagedDraftError) as info:
+        staged(cli)
+    error = info.value
+    assert error.stage == "tester" and error.outcome is Outcome.COMPLETED
+    assert error.problems == ["check c01 belongs to t2 but S1.1 is delivered by t1"]
+    assert list(error.paid) == ["system_designer", "tester"]
+    assert error.paid["system_designer"] == USAGE and error.paid["tester"] == USAGE
+    assert str(error).startswith("tester: check c01 belongs to t2")
+
+
+def test_a_tester_call_that_fails_carries_both_usages_and_its_outcome(cli):
+    cli.designer(DESIGN)
+    cli.tester(
+        json.dumps(
+            RESULT | {"is_error": True, "api_error_status": 401, "terminal_reason": "api_error"}
+        )
+    )
+    with pytest.raises(StagedDraftError) as info:
+        staged(cli)
+    assert info.value.stage == "tester" and info.value.outcome is Outcome.LOGIN
+    assert set(info.value.paid) == {"system_designer", "tester"}
+
+
+def test_a_check_that_passes_on_an_empty_workspace_fails_after_both_calls_were_paid(cli):
+    cli.designer(DESIGN)
+    cli.tester(edited_tests(["checks", 2, "code"], "def test_always():\n    assert True\n"))
+    with pytest.raises(StagedDraftError) as info:
+        staged(cli)
+    error = info.value
+    assert error.stage == "assembly" and error.outcome is Outcome.COMPLETED
+    assert error.problems == ["check c03 passes on an empty workspace"]
+    assert error.paid == {"system_designer": USAGE, "tester": USAGE}
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "budget", "idea"),
+    [
+        ({}, 500_000, ""),
+        ({}, 500_000, "  \n"),
+        ({}, 500_000, "-rf"),
+        ({}, 0, IDEA),
+        ({}, -5, IDEA),
+        ({}, 1.5, IDEA),
+        ({}, True, IDEA),
+        ({"max_tasks": 0}, 500_000, IDEA),
+    ],
+)
+def test_bad_arguments_are_refused_before_any_call_is_paid(cli, kwargs, budget, idea):
+    with pytest.raises(ValueError):
+        draft_staged(
+            idea,
+            budget,
+            cli.checks_dir,
+            stories=STORIES,
+            max_tasks=kwargs.get("max_tasks", 2),
+            env=cli.env,
+            model="haiku",
+            executable=cli.executable,
+        )
+    assert cli.calls == []
+
+
+def test_assembling_needs_no_call_and_strips_the_idea(cli):
+    plan, _ = checks_of(cli, TESTS)
+    calls = len(cli.calls)
+    sheet = assemble_term_sheet(f"\n{IDEA}\n", 300_000, STORIES, design_obj(), plan, cli.checks_dir)
+    assert sheet.idea == IDEA and sheet.rounds == (Round(1, 300_000, 3),)
+    assert sheet.checks == plan.checks and len(cli.calls) == calls
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (lambda plan: replace(plan, untestable=()), "criterion S2.2 has no check"),
+        (
+            lambda plan: replace(plan, checks=plan.checks[:2]),
+            "task t2 has no check, so its progress cannot be measured",
+        ),
+        (
+            lambda plan: replace(
+                plan, checks=(replace(plan.checks[0], task="t2"), *plan.checks[1:])
+            ),
+            "check c01 belongs to t2 but S1.1 is delivered by t1",
+        ),
+    ],
+    ids=["uncovered", "task-without-check", "wrong-task"],
+)
+def test_a_plan_that_does_not_fit_the_stories_and_design_is_refused(cli, mutate, expected):
+    plan, _ = checks_of(cli, TESTS)
+    with pytest.raises(ValueError, match="does not fit") as info:
+        assemble_term_sheet(IDEA, 300_000, STORIES, design_obj(), mutate(plan), cli.checks_dir)
+    assert expected in str(info.value)
+
+
+def test_a_plan_whose_files_are_not_in_the_directory_is_refused(cli, tmp_path):
+    plan, _ = checks_of(cli, TESTS)
+    with pytest.raises(ValueError, match="check c01 file test_c01.py does not exist"):
+        assemble_term_sheet(IDEA, 300_000, STORIES, design_obj(), plan, tmp_path / "elsewhere")
