@@ -16,9 +16,11 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 - Append-only. One writer at a time (exclusive lock; a second writer is refused).
 - Each event is validated before it is written, then flushed to disk.
 - A line that is not a valid event makes reading fail with the file name and line number.
-  A torn last line counts.
+  A torn last line counts: `ledger.repair_torn_tail` cuts it (only when every earlier line is
+  valid), but no command calls it yet.
+- The version `v` must be the integer 1: `true` and `1.0` make the line corrupt.
 - Keys are sorted. Timestamps are UTC ISO 8601.
-- `state.py`'s docstring lists the `data` contract for nine event types. This file is the
+- `state.py`'s docstring lists the `data` contract for twelve event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
 
 ## Top-level fields
@@ -27,7 +29,7 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 |---|---|---|
 | `v` | int | Always 1. The ledger format version. |
 | `run` | str | The run id, for example `20260930T101500Z-3fa9c1`. Never empty. |
-| `round` | int | 0 for events before any round (the boss's call, the first approval, a rejection); 1 and up for the round the event belongs to. Money is summed per round. |
+| `round` | int | 0 for events before any round (the boss's call, the first approval, a rejection, `started`); 1 and up for the round the event belongs to. Money is summed per round. |
 | `actor` | str | Who wrote it: `boss`, `gate`, `rule`, `investor`, or `worker:<name>` such as `worker:w1`. Any other value is refused. |
 | `event` | str | One of the event types below. |
 | `cost_micros` | int or null | Estimated cost in millionths of a dollar. `null` means unknown, which is never the same as 0. Default 0. |
@@ -70,24 +72,76 @@ Example:
 {"actor": "boss", "billing": "subscription", "cost_micros": 4000, "data": {"model": "haiku", "outcome": "completed", "purpose": "term_sheet", "thinking_tokens": null}, "event": "boss_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:35.110818+00:00", "v": 1}
 ```
 
+### `started`
+
+- Actor: `boss` (the loop)
+- Round: 0
+- Written once by `run_firm`, before the first round, holding the configuration the run was started
+  with. `boss resume` reads it back, so a run continues with its own settings, not the defaults.
+  A run without this event never hired anyone and cannot be resumed.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `config` | object | The run's `FirmConfig`. Keys below. |
+
+Config keys:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `model` | str | The worker model. |
+| `slice_micros` | int | The default slice cap. |
+| `reserve_micros` | int | Held back from every cap. |
+| `firing` | bool | `false` with `--no-firing`. |
+| `policy.stall_slices` | int | Counted slices in a row with no new passing check before firing. |
+| `policy.max_slices` | int | Counted slices before firing. |
+| `limits.max_slices` | int | Slices started in the whole run. |
+| `limits.max_workers` | int | Workers hired in the whole run. |
+| `limits.max_seconds` | float or null | Wall clock of one invocation, in seconds; `null` means no limit. |
+
+Example:
+
+```json
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16}, "model": "haiku", "policy": {"max_slices": 6, "stall_slices": 2}, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:37.284144+00:00", "v": 1}
+```
+
+### `resumed`
+
+- Actor: `investor`
+- Round: the round of the last event in the ledger
+- Written by `cli.py` when `boss resume` finds the run stopped. It lifts the stop: a stop holds
+  until a later `resumed`, and a later stop holds again. Nothing else writes it. It has no keys.
+- Lifting a stop does not skip a check: the approval, the budget and every hard limit are verified
+  again before the next slice.
+
+| Key | Type | Meaning |
+|---|---|---|
+| none | | |
+
+Example:
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {}, "event": "resumed", "round": 1, "run": "20260930T115339Z-97e2b3", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:40.133254+00:00", "v": 1}
+```
+
 ### `hired`
 
 - Actor: `boss` (the loop)
 - Round: the current round
 - Written by `firm.py` when a task needs a worker: its first, or a replacement.
+- `hired` carries no session id. Ledgers written before the `session` key moved to `slice_start`
+  had one here; a resume falls back to it.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `worker` | str | The worker's name: `w1`, `w2`, ... in hiring order across the run. |
 | `task` | str | The task id. |
-| `session` | str | The UUID of the worker's CLI session. |
 | `model` | str | The worker model. |
 | `prompt` | str | The builder prompt file the worker runs under. |
 
 Example:
 
 ```json
-{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"model": "haiku", "prompt": "builder_v3.md", "session": "313b164c-0a4a-4078-82fe-758c1de638c7", "task": "t1", "worker": "w1"}, "event": "hired", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:25.685263+00:00", "v": 1}
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"model": "haiku", "prompt": "builder_v3.md", "task": "t1", "worker": "w1"}, "event": "hired", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:25.685263+00:00", "v": 1}
 ```
 
 ### `slice_start`
@@ -96,17 +150,20 @@ Example:
 - Round: the current round
 - Written by `firm.py` after the cap is fixed and the approval verified, before the CLI starts.
   The benchmark's single arm writes it with `cap_micros` only.
+- A `slice_start` with no `slice_end` after it (the run was killed) is charged to its round at its
+  `cap_micros`. The same slice number started again means the first was lost, and is charged too.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `slice` | int | The worker's slice number, from 1. Infrastructure retries count. |
 | `task` | str | The task id. |
 | `cap_micros` | int | The slice's spend cap in micro-dollars. A target: one response can run past it. |
+| `session` | str | The UUID of the CLI session this attempt uses. A new one for every attempt that is not a proven resume (a session is resumed only after a slice in it got past infrastructure); the CLI refuses an id that is already in use. |
 
 Example:
 
 ```json
-{"actor": "worker:w1", "billing": "unknown", "cost_micros": 0, "data": {"cap_micros": 100000, "slice": 1, "task": "t1"}, "event": "slice_start", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:25.685789+00:00", "v": 1}
+{"actor": "worker:w1", "billing": "unknown", "cost_micros": 0, "data": {"cap_micros": 100000, "session": "9a5c8b55-eb42-490d-a75b-9d9fad2c7eba", "slice": 1, "task": "t1"}, "event": "slice_start", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:25.685789+00:00", "v": 1}
 ```
 
 ### `slice_end`
@@ -142,7 +199,10 @@ Example:
 - Actor: `gate`
 - Round: the current round
 - Written by `firm.py` after a slice whose outcome is not an infrastructure failure: one event per
-  check of the worker's task. Later results supersede earlier ones.
+  check of the worker's task that still counts (a check the investor dropped is no longer run).
+  Later results supersede earlier ones.
+- If the run was killed after a slice ended and before its results were written, the loop gates
+  that slice on resume and writes them then.
 - The gate also runs to build the next brief; those runs are not recorded.
 
 | Key | Type | Meaning |
@@ -165,7 +225,8 @@ Example:
 - Actor: `worker:<name>`
 - Round: the current round
 - Written by `firm.py` when the rule escalates a worker that reported `blocked` without a refused
-  tool call, or whose run ended in a model refusal. `abandoned` follows.
+  tool call, or whose run ended in a model refusal. The investor is then asked: `ruled`
+  (`unblocked`) or `abandoned` follows.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -178,12 +239,47 @@ Example:
 {"actor": "worker:w1", "billing": "unknown", "cost_micros": 0, "data": {"reason": "scripted blocked", "task": "t1"}, "event": "blocked", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:29.626100+00:00", "v": 1}
 ```
 
+### `ruled`
+
+- Actor: `investor`
+- Round: the current round
+- Written by `firm.py` after the investor answers a question the worker could not settle. Only an
+  `investor` event counts as a ruling. The term sheet and its approval are not touched: a dropped
+  check is skipped because the ledger says so.
+- Three rulings:
+  - `dropped`: the check is no longer run, counted or required. Unlock thresholds are capped at
+    what is left.
+  - `kept`: the dispute is settled and the worker is told to satisfy the check.
+  - `unblocked`: a blocked worker is funded again; the note is in its next brief.
+- Anything but a clear answer (or the end of input) writes `abandoned` instead.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `task` | str | The task id. |
+| `worker` | str | The worker that raised the dispute or the block. |
+| `ruling` | str | `dropped`, `kept` or `unblocked`. |
+| `check` | str | The check ruled on. Present for `dropped` and `kept` only. |
+| `note` | str | The investor's note, on one line, secrets masked, at most 1000 characters. Present for `unblocked` only. |
+
+Examples:
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "ruling": "dropped", "task": "t1", "worker": "w1"}, "event": "ruled", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:37.767131+00:00", "v": 1}
+```
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"note": "use the standard library", "ruling": "unblocked", "task": "t1", "worker": "w1"}, "event": "ruled", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:36.246239+00:00", "v": 1}
+```
+
 ### `disputed`
 
 - Actor: `worker:<name>`
 - Round: the current round
-- Written by `firm.py` when a worker's report names a check of its own task that fails now and
-  that it has not disputed before. A dispute never counts as passing.
+- Written by `firm.py` when a worker's report names a check of its own task that fails now, that it
+  has not disputed before and that the investor has not ruled `kept`. A dispute never counts as
+  passing. It changes the rule's decision only when it is credible: every other check passes and
+  at most half of the task's checks are disputed. Otherwise the worker is judged as if it had
+  disputed nothing; the event stays on record.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -237,7 +333,8 @@ Example:
 
 - Actor: `boss` (the loop)
 - Round: the current round
-- Written by `firm.py` when a task will get no more work in this run. Nothing later reopens it.
+- Written by `firm.py` when a task will get no more work in this run: two workers used, or the
+  investor set it aside (or gave no clear answer). Nothing later reopens it, a resume included.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -272,13 +369,14 @@ Example:
 
 - Actor: `boss` (the loop)
 - Round: the round that ended
-- Written by `firm.py` whenever a round's loop ends: done, out of money, limit reached, paused or
-  stopped.
+- Written by `firm.py` when a round runs to its end: every task done or set aside, or the round
+  cannot fund another slice. A pause or a stop leaves the round open, so a resume continues it.
+- A round closed with `unlocked` false stays locked: a resume does not fund the next round.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `passed` | int | Checks passing across all tasks, taking each task's best worker. |
-| `total` | int | Checks in the term sheet. |
+| `total` | int | Checks in the term sheet, less the ones the investor dropped. |
 | `unlocked` | bool | Whether `passed` reaches this round's unlock threshold. |
 
 Example:
@@ -333,7 +431,8 @@ Example, built with the `Event` class to show the shape the budget code accepts:
 
 - Actor: `boss` (the loop)
 - Round: the current round
-- Written by `firm.py` when the plan's usage limit is reached. The round ends and so does the run.
+- Written by `firm.py` when the plan's usage limit is reached. The run ends; the round stays open
+  and `boss resume` continues it.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -350,7 +449,8 @@ Example:
 
 - Actor: `boss`, `investor` or `rule`, as listed under Writers
 - Round: the round it happened in; 0 before the first round
-- Written when the run ends on purpose. Writers:
+- Written when the run ends on purpose. A stop holds until a `resumed` event; a later stop holds
+  again. Writers:
   - `boss`, by `cli.py`: the boss's call failed or its draft was invalid (round 0).
   - `investor`, by `approval.py`: the term sheet was rejected (round 0).
   - `investor`, by `firm.py`: a later round was not funded.
@@ -396,8 +496,8 @@ Example, built with the `Event` class:
 - Round: the current round
 - Cost: `null`, because a worker that never started cannot prove it cost nothing.
 - Written by `firm.py` (and by the benchmark's single arm, as `worker:solo`) when the CLI's
-  `system/init` shows the worker is not in the configuration that was launched. `stopped`
-  follows.
+  `system/init` shows the worker is not in the configuration that was launched, or when a hook
+  event appears anywhere later in the stream. `stopped` follows.
 
 | Key | Type | Meaning |
 |---|---|---|

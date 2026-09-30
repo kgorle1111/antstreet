@@ -128,6 +128,14 @@ def cli_events(tmp_path, *, binary=None, answers=("a",), extra=()):
     return read_events(run_dir / "ledger.jsonl")
 
 
+def cli_resumed_events(tmp_path):
+    """A run stopped by a wall-clock limit that is already over, then `boss resume` on it."""
+    fund = ["fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9"]
+    run_cli(tmp_path, fund)
+    _, run_dir, _ = run_cli(tmp_path, ["resume"])
+    return read_events(run_dir / "ledger.jsonl")
+
+
 @pytest.fixture(scope="module")
 def produced(tmp_path_factory) -> dict[str, list[Event]]:
     """Every event the code writes across a set of runs that reaches every writer, by type."""
@@ -143,8 +151,17 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
         step(BAD, disputes=("c01",), denials=("Write",)), step(BAD),
         step(HALF, cost=100_000), step(GOOD, "done"),
     ), two_rounds, answers=["y"]))  # fmt: skip
-    runs.append(firm_events(where("blocked"), Script(step(None, "blocked"))))
-    runs.append(firm_events(where("disputed"), Script(step(HALF, disputes=("c01",)))))
+    # The investor answers each escalation: set aside (`s`), drop or keep a disputed check,
+    # unblock with a note. Each answer writes its own `ruled` or `abandoned` event.
+    runs.append(firm_events(where("blocked"), Script(step(None, "blocked")), answers=["s"]))
+    runs.append(firm_events(where("unblocked"), Script(step(None, "blocked"), step(GOOD, "done")),
+                            answers=["u", "use the standard library"]))  # fmt: skip
+    runs.append(
+        firm_events(where("disputed"), Script(step(HALF, disputes=("c01",))), answers=["s"])
+    )
+    runs.append(firm_events(where("dropped"), Script(step(HALF, disputes=("c01",))), answers=["d"]))
+    kept = Script(step(HALF, disputes=("c01",)), step(GOOD, "done"))
+    runs.append(firm_events(where("kept"), kept, answers=["k"]))
     runs.append(firm_events(where("abandoned"), Script(step(BAD), step(BAD), step(BAD), step(BAD))))
     runs.append(
         firm_events(where("paused"), Script(step(None, outcome=Outcome.USAGE_LIMIT, cost=None)))
@@ -160,6 +177,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_events(where("cli-rejected"), answers=("r",)))
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
+    runs.append(cli_resumed_events(where("cli-resumed")))
     found: dict[str, list[Event]] = defaultdict(list)
     for events in runs:
         for e in events:
@@ -281,6 +299,38 @@ def test_nested_evidence_keys_are_documented(produced, text):
     assert written == documented
 
 
+def test_the_started_config_keys_are_documented_with_their_types(produced, text):
+    rows = table(sections(text)["started"].split("Config keys")[1])
+    documented = {r[0].strip("`"): r[1] for r in rows}
+
+    def flat(prefix, data):
+        for key, value in data.items():
+            if isinstance(value, dict):
+                yield from flat(f"{prefix}{key}.", value)
+            else:
+                yield f"{prefix}{key}", json_type(value)
+
+    written = {}
+    for e in produced["started"]:
+        for key, kind in flat("", e.data["config"]):
+            written.setdefault(key, set()).add(kind)
+    assert set(written) == set(documented)
+    for key, kinds in written.items():
+        assert kinds <= declared(documented[key]), f"{key}: {kinds} is not in {documented[key]!r}"
+
+
+def test_every_ruling_and_when_its_optional_keys_appear_is_documented(produced, text):
+    body = sections(text)["ruled"]
+    rulings = {e.data["ruling"] for e in produced["ruled"]}
+    assert rulings == {"dropped", "kept", "unblocked"}, "a run no longer reaches every ruling"
+    for ruling in rulings:
+        assert f"`{ruling}`" in body
+    for e in produced["ruled"]:
+        assert e.actor == "investor"
+        assert ("check" in e.data) == (e.data["ruling"] != "unblocked")
+        assert ("note" in e.data) == (e.data["ruling"] == "unblocked")
+
+
 def test_each_example_is_a_valid_line_of_the_right_type_with_the_shape_the_code_writes(
     produced, text
 ):
@@ -307,6 +357,7 @@ def test_the_state_contract_is_a_subset_of_this_document(text):
     contract = re.findall(r"^\s{4}(\w+)\s+\S+\s+\{([^}]*)\}", inspect.getdoc(state) or "", re.M)
     assert contract, "state.py's contract docstring changed shape; update this test"
     for name, keys in contract:
-        named = {k.strip() for k in keys.split(",") if k.strip() and k.strip() != "..."}
+        # the docstring marks a key that only some events carry with a trailing `?`
+        named = {k.strip().rstrip("?") for k in keys.split(",") if k.strip() and k.strip() != "..."}
         assert named <= set(keys_table(docs[name])), f"{name}: contract keys not documented"
     assert "state.py" in text
