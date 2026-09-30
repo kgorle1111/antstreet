@@ -89,8 +89,8 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B42 | `state.slice_history` raises on an outcome it does not know (a ledger from a newer version) | open |
 | B43 | `ledger.Event.from_json` accepts `"v": true` as version 1 | done: fix(ledger): a version must be the integer 1 |
 | B44 | `errors.classify`: an `errors` field that is an int raises TypeError | done: fix(errors): classify never raises on malformed signals |
-| B45 | `retry.infra_action` overflows for an attempt number over about 1000 | open |
-| B46 | `retry.plan_pressure` assumes utilisation is a fraction, not a percentage | open |
+| B45 | `retry.infra_action` overflows for an attempt number over about 1000 | done: fix(retry): backoff and plan pressure hold for any input |
+| B46 | `retry.plan_pressure` assumes utilisation is a fraction, not a percentage | done: fix(retry): backoff and plan pressure hold for any input |
 | B47 | `FiringPolicy` accepts bool and float | open |
 | B48 | `redact` masks some ordinary text (a word containing `sk-` followed by 20 characters; `max_tokens: 1000000`) | open |
 | B49 | The early budget check refuses `--budget 0.30 --rounds 3` even when the boss would draft fewer checks than rounds | open |
