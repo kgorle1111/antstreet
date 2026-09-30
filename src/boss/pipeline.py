@@ -249,7 +249,7 @@ class Pipeline:
         stories = self._call(
             _spec("product_manager"),
             lambda: write_stories(idea, **self._call_args()),
-            lambda s: {"detail": f"{len(s.stories)} stories, {len(s.criteria())} criteria"},
+            lambda s: {"detail": f"stories {len(s.stories)}, criteria {len(s.criteria())}"},
             notes=notes,
         )
         if stories is None:

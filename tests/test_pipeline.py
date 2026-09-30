@@ -1499,3 +1499,34 @@ def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
     kinds = [str(e.event) for e in events]
     assert kinds.count("started") == 1 and kinds.count("approved") == 2
     assert usage_file(fx).exists() and (fx.run_dir / "stories.json").exists()
+
+
+# --- the board report lists every role call -----------------------------------------------------
+
+
+def test_the_board_report_lists_every_role_call_and_its_outcome_one_line_each(fx):
+    script_stage_1(fx)
+    fx.set("tester", bad(0.003))
+    fx.set("critic", ok({"findings": []}))
+    out = fx.fund("--roles", f"{DESIGN_ROLES},critic")
+    assert out.code == EXIT_OK
+    report = (fx.run_dir / "report.md").read_text()
+    assert report.rstrip("\n") in out.text
+    section = report.split("Roles (each call, in order; their spend is in the lines above)\n")[1]
+    lines = section.rstrip("\n").split("\n\n")[0].split("\n")
+    unused = "not used: the staged draft failed at tester"
+    assert lines == [
+        "  product_manager  ok (completed), $0.0040: stories 1, criteria 2",
+        "  user_agent  ok (completed), $0.0040: 0 missing, 0 misread",
+        f"  system_designer  unused (completed), $0.0040: {unused}",
+        "  tester  failed (api_error), $0.0030: boss call ended as api_error",
+        "  critic  ok (completed), $0.0040: 0 verified, 0 rejected",
+    ]
+    assert lines == [line for line in lines if line.startswith("  ")]
+    # the numbers above are the ledger's: one line per ROLE_CALL event, in its order
+    assert len(lines) == len(fx.role_calls())
+
+
+def test_a_report_of_a_run_without_roles_is_the_one_it_always_was(fx):
+    fx.fund()
+    assert "Roles" not in (fx.run_dir / "report.md").read_text()

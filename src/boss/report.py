@@ -31,6 +31,7 @@ _REQUIRED = {
     EventType.ROUND_CLOSED: ("passed", "total", "unlocked"),
     EventType.HIRED: ("worker",),
     EventType.DISPUTED: ("check",),
+    EventType.ROLE_CALL: ("role", "outcome"),
 }
 
 
@@ -60,6 +61,15 @@ class DisputeLine:
 
 
 @dataclass(frozen=True, slots=True)
+class RoleLine:
+    role: str
+    outcome: str  # how the call ended; "not_called" when it was refused before any call
+    result: str  # ok, failed, or unused (its output was good but a later stage failed)
+    cost_micros: int | None
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class RoundLine:
     n: int
     passed: int
@@ -77,6 +87,7 @@ class Report:
     checks: list[CheckLine] = field(default_factory=list)
     workers: list[WorkerLine] = field(default_factory=list)
     disputes: list[DisputeLine] = field(default_factory=list)
+    roles: list[RoleLine] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -110,6 +121,17 @@ def build_report(events: Sequence[Event]) -> Report:
             DisputeLine(e.data["check"], e.data.get("worker", ""), e.data.get("reason", ""))
             for e in events
             if e.event is EventType.DISPUTED and not _missing(e)
+        ],
+        roles=[
+            RoleLine(
+                str(e.data["role"]),
+                str(e.data["outcome"]),
+                str(e.data.get("result", "")),
+                e.cost_micros,
+                str(e.data.get("detail", "")),
+            )
+            for e in events
+            if e.event is EventType.ROLE_CALL and not _missing(e)
         ],
         notes=[_note(e) for e in events if e.event in _NOTABLE]
         + [_incomplete_note(e) for e in events if _missing(e)],
@@ -195,6 +217,13 @@ def render_report(report: Report) -> str:
         )
     if not report.workers:
         out.append("  none hired")
+    if report.roles:
+        out += ["", "Roles (each call, in order; their spend is in the lines above)"]
+        for r in report.roles:
+            cost = "unknown cost" if r.cost_micros is None else dollars(r.cost_micros)
+            detail = f": {_detail(r.detail)}" if r.detail else ""
+            how = f"{_detail(r.result) or '?'} ({_detail(r.outcome)})"
+            out.append(f"  {_detail(r.role)}  {how}, {cost}{detail}")
     if report.disputes:
         out += ["", "Disputed checks (yours to rule on; a disputed check never counts as passing)"]
         out += [f'  {d.check} by {d.worker}: "{d.reason}"' for d in report.disputes]
