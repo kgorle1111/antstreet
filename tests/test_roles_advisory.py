@@ -29,7 +29,7 @@ from boss.roles.advisory import (
     render_verdict,
 )
 from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.stories import is_fragment
+from boss.roles.stories import MIN_SOURCE_CHARS, is_fragment
 from boss.skills import MAX_SKILL_CHARS, load_skill
 from boss.stream import Usage
 from boss.termsheet import CheckSpec
@@ -162,12 +162,12 @@ def full(**over):
     ],
 )
 def test_a_quote_must_be_a_long_enough_fragment_up_to_case_and_white_space(quote, expected):
-    assert is_fragment(quote, IDEA) is expected
+    assert is_fragment(quote, IDEA, min_chars=MIN_SOURCE_CHARS) is expected
 
 
 def test_the_minimum_length_can_be_lowered_by_the_caller():
-    assert not is_fragment("hyphen", IDEA)
-    assert is_fragment("hyphen", IDEA, min_chars=6)
+    assert not is_fragment("hyphen", IDEA, min_chars=MIN_SOURCE_CHARS)
+    assert is_fragment("hyphen", IDEA, min_chars=6) and is_fragment("hyphen", IDEA)
 
 
 # --- the auditor's call -------------------------------------------------------------------------

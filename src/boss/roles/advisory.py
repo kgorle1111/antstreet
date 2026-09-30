@@ -22,7 +22,7 @@ from typing import Any
 
 from boss.redact import safe_text
 from boss.roles.base import RoleOutputError, RoleSpec, call_role
-from boss.roles.stories import is_fragment
+from boss.roles.stories import MIN_SOURCE_CHARS, is_fragment
 from boss.stream import Usage
 from boss.termsheet import CheckSpec
 from boss.worker import CLI
@@ -329,7 +329,7 @@ def render_advice(advice: Advice) -> str:
 
 
 def _quote_problems(name: str, quote: str, idea: str) -> list[str]:
-    if is_fragment(quote, idea):
+    if is_fragment(quote, idea, min_chars=MIN_SOURCE_CHARS):
         return []
     return [f"{name}: quote must be a fragment of the idea, word for word: {_line(quote, 80)!r}"]
 
