@@ -6,6 +6,7 @@ from boss.approval import NotApprovedError, content_hashes
 from boss.errors import Outcome
 from boss.firm import RunPaths, run_first_round, task_prompt
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total
+from boss.report import build_report
 from boss.runner import SliceRun
 from boss.stream import Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
@@ -158,3 +159,13 @@ def test_unknown_cost_stays_unknown_in_the_ledger(paths):
 
 def test_task_prompt_never_starts_with_a_dash(paths):
     assert not task_prompt(SHEET, paths).startswith("-")
+
+
+def test_board_report_agrees_with_the_round_and_the_ledger(paths):
+    round_report = first_round(paths, scripted_worker(GOOD))
+    events = read_events(paths.ledger)
+    report = build_report(events)
+    assert report.approved
+    assert (report.rounds[0].passed, report.rounds[0].unlocked) == (round_report.passed, True)
+    assert report.total.cost_micros == round_report.spend_micros == total(events).cost_micros
+    assert [c.status for c in report.checks] == ["passed", "passed"]
