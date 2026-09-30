@@ -36,16 +36,21 @@ than a single agent given the idea directly?
 | Extra spend | none | the boss's drafting call (capped separately) |
 
 - Neither arm can run code. Neither ever sees the hidden checks or the reference.
-- The firm arm is `boss fund` with the term sheet **approved automatically**. This is the only
-  automated investor decision; a real run has a human there, who is also the filter for a wrong
-  boss check.
+- The firm arm is `boss fund` with the term sheet **approved automatically**: every question the
+  run asks is answered `a`. That approves the term sheet and funds a later round. It is not a
+  ruling, so a disputed or blocked task is set aside, as it was before the investor could rule
+  (`boss resume` is not used). A real run has a human there, who is also the filter for a wrong
+  boss check and the one who rules on a dispute.
 - Extra `boss fund` options given with `--firm-args` are recorded in every result.
 - The single arm gets one slice. The firm may use several within the same budget: the gate's
   feedback between slices is part of what is being measured.
 
 ## Scoring
 
-- The gate runs the task's hidden checks on the arm's workspace.
+- The gate runs the task's hidden checks on the arm's workspace. Under the default
+  `BOSS_GATE_SANDBOX=auto` that is inside the OS sandbox where the platform has one, the boss's
+  checks in the firm arm included. Results recorded before the sandbox existed ran unsandboxed.
+  Whether the sandbox changed any recorded outcome was not measured.
 - A cell **passes** only if every hidden check passes.
 - The per-check pass fraction is reported as a secondary number.
 - For the firm, a cell that passed all of its own visible checks but failed a hidden check is
@@ -107,6 +112,7 @@ Only the boss's drafting call costs money; no worker runs.
   are listed and excluded from every rate, never counted as zero.
 - Baseline, `--score-existing` on the boss drafts of past runs (17 drafts each, no spend):
   `pilot` 10 of 134 checks wrong, 38 of 65 mutants killed; `rerun1` 4 of 134 wrong, 39 of 65 killed.
+  That is precision 93% and 97% of checks, recall 58% and 60% of mutants.
 - **Limits**: a small hand-picked corpus. With 3 to 6 mutants a task, one mutant is 17 to 33 points
   of that task's recall, so recall is a coarse figure and a task-level difference is not a claim.
   Harvested mutants come from Haiku runs and lean toward the mistakes Haiku makes; hand-made ones

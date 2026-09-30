@@ -1,14 +1,18 @@
 """bench/METHOD.md stays true: the figures, names and commands it states are the code's."""
 
+import dataclasses
 import re
 
 import pytest
 from docs_support import ROOT, captured_parser, read
 
-from boss.bench import results
+from boss.bench import drafts as bench_drafts
+from boss.bench import results, score
 from boss.bench import run as bench_run
 from boss.bench import table as bench_table
+from boss.bench.score import DraftScore
 from boss.bench.tasks import (
+    MIN_MUTANTS,
     load_tasks,
     task_set_hash,
     validate_task,
@@ -35,7 +39,8 @@ def test_the_single_arms_slice_cap_is_the_share_it_states(text):
 
 
 def test_the_failure_classes_named_are_the_recorded_ones(text):
-    named = re.findall(r"^- \*\*(\w+)\*\*:", text, re.M)
+    body = text.split("## Failure classes")[1].split("\n## ")[0]
+    named = re.findall(r"^- \*\*(\w+)\*\*:", body, re.M)
     assert named == [c for c in results.FAILURE_CLASSES if c != "unlabelled"]
     assert "`unlabelled`" in text
 
@@ -51,11 +56,43 @@ def test_the_task_rules_named_are_enforced(text):
 
 def test_the_reproducing_commands_use_real_modules_and_options(text):
     body = text.split("## Reproducing")[1]
-    assert "python -m boss.bench.run" in body and "python -m boss.bench.table" in body
-    options = set(re.findall(r"--[a-z-]+", body))
+    first, second = body.split("```bash")[1:3]
+    assert "python -m boss.bench.run" in first and "python -m boss.bench.table" in first
+    options = set(re.findall(r"--[a-z-]+", first))
     assert options == {"--out", "--budget", "--reps"}
     real = {s for a in captured_parser(bench_run.main)._actions for s in a.option_strings}
     assert options <= real
+    assert second.count("python -m boss.bench.drafts") == 2
+    drafts_options = set(re.findall(r"--[a-z-]+", second))
+    assert drafts_options == {"--out", "--reps", "--prompt", "--score-existing"}
+    real = {s for a in captured_parser(bench_drafts.main)._actions for s in a.option_strings}
+    assert drafts_options <= real
+
+
+def test_the_draft_evaluation_states_the_scores_and_layout_the_code_uses(text):
+    body = text.split("## Draft evaluation")[1].split("\n## ")[0]
+    assert "`bench/tasks/<id>/mutants/<name>/<module>.py`" in body
+    assert f"fewer than {MIN_MUTANTS} mutants" in body
+    for task in load_tasks(ROOT / "bench" / "tasks"):
+        assert len(task.mutants()) >= MIN_MUTANTS
+    fields = {f.name for f in dataclasses.fields(DraftScore)}
+    assert {"wrong", "killed", "killed_only_by_wrong", "survived"} <= fields
+    assert score.DraftScore.precision.fget and score.DraftScore.recall.fget
+
+
+def test_the_firm_arm_answers_every_question_with_a(text):
+    assert "every question the\n  run asks is answered `a`" in text
+    assert 'ask=lambda prompt: "a"' in read(ROOT / "src" / "boss" / "bench" / "run.py")
+    from boss import rulings
+
+    for answer in ("a", "y"):  # an automatic answer is never one of the rulings
+        assert (
+            rulings.ask_dispute(
+                lambda _, a=answer: a, task="t", worker="w", check="c", description="", reason=""
+            )
+            is None
+        )
+        assert rulings.ask_block(lambda _, a=answer: a, task="t", worker="w", reason="") is None
 
 
 def test_the_interval_quoted_for_45_cells_is_about_thirteen_points(text):
