@@ -23,7 +23,7 @@ from boss.bench.results import ARMS, CellResult, cell_dir
 from boss.bench.score import count_wrong_checks
 from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
-from boss.errors import INFRASTRUCTURE
+from boss.errors import INFRASTRUCTURE, Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
@@ -173,7 +173,10 @@ def _score(task: BenchTask, workspace: Path) -> dict[str, str]:
 
 
 def _outcome(events: Sequence[Event]) -> str:
-    """The worker's outcome, or why no worker finished a slice."""
+    """The worker's outcome, or why no worker finished a slice. A run that paused for the plan
+    limit says nothing about either arm, so it is an infrastructure outcome."""
+    if any(event.event is EventType.PAUSED for event in events):
+        return str(Outcome.USAGE_LIMIT)
     for event in reversed(events):
         if event.event is EventType.SLICE_END:
             return str(event.data.get("outcome", "unknown"))

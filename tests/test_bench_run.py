@@ -241,3 +241,16 @@ def test_the_single_arm_cleans_the_workers_words_like_the_firm_arm(bench):
     assert start.data["slice"] == 1 and len(start.data["session"]) == 36
     assert end.data["slice"] == 1
     assert end.data["status"] == {"status": "done", "reason": "wrote it"}  # only the two keys
+
+
+def test_a_run_paused_for_the_plan_limit_is_an_infrastructure_outcome():
+    from boss.bench.run import _outcome
+    from boss.ledger import Event
+
+    def ev(kind, actor="worker:w1", **data):
+        return Event(run="r", round=1, actor=actor, event=kind, data=data)
+
+    finished = [ev(EventType.SLICE_END, outcome="completed")]
+    assert _outcome(finished) == "completed"
+    paused = [*finished, ev(EventType.PAUSED, actor="boss", reason="five_hour window at 96%")]
+    assert _outcome(paused) == "usage_limit"
