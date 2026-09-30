@@ -165,7 +165,53 @@ class _Firm:
                 break
         for path in assemble_product(self.paths, self.sheet, self.state()):
             self.say(f"Not in the product: {path} (its name collides with another task's file).")
-        return FirmReport(self.state().passing_total(), self.required(), stopped)
+        passed = self._gate_product()
+        return FirmReport(passed, self.required(), stopped)
+
+    def _gate_product(self) -> int:
+        """Run every required check on the assembled product and return how many pass.
+
+        Each task was gated in its own worker's folder; what the investor receives is product/,
+        where several tasks' files meet. This is the verdict on what is delivered. It is
+        recorded once per product: running a finished run again adds nothing.
+        """
+        events = self.events()
+        workspace_passes = self.state().passing_total()
+        last_slice = max(
+            (i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1
+        )
+        if last_slice < 0:
+            return workspace_passes  # nothing was built
+        verdicts = {
+            e.data["check"]: e.data.get("status") == "passed"
+            for e in events[last_slice:]
+            if e.event is EventType.CHECK_RESULT and e.data.get("scope") == "product"
+        }
+        if not verdicts:
+            dropped = self.state().dropped
+            checks = [Check(c.id, c.file) for c in self.sheet.checks if c.id not in dropped]
+            tasks = {c.id: c.task for c in self.sheet.checks}
+            try:
+                require_approval(events, self.sheet, self.paths.checks)
+                results = self.gate(self.paths.product, self.paths.checks, checks)
+            except NotApprovedError:
+                return workspace_passes  # the checks changed: only earlier results can be trusted
+            record = Recorder(self.ledger, self.run_id, events[last_slice].round)
+            for r in results:
+                data = {"check": r.check_id, "task": tasks[r.check_id], "status": str(r.status)}
+                record(
+                    "gate",
+                    EventType.CHECK_RESULT,
+                    data=data | {"detail": r.detail, "scope": "product"},
+                )
+                verdicts[r.check_id] = r.passed
+        passed = sum(verdicts.values())
+        if passed != workspace_passes:
+            self.say(
+                f"The assembled product passes {passed} checks; the workers' own folders "
+                f"passed {workspace_passes}. The product's figure is the one reported."
+            )
+        return passed
 
     def _approve(self, round_: Round, record: Recorder) -> bool:
         passed = self.state().passing_total()
@@ -336,7 +382,18 @@ class _Firm:
         fields = slice_end_fields(run, number, task.id, ws.session_total_micros)
         record(actor, EventType.SLICE_END, billing=billing_mode(self.env), **fields)
         self._gate_slice(task, worker, record, run.status)
+        self._status_line(task, worker, number, record.round)
         return self._act(task, worker, record, run)
+
+    def _status_line(self, task: Task, worker: str, number: int, round_n: int) -> None:
+        events = self.events()
+        passing = slice_history(events)[worker][-1].passing
+        spent = budget.round_spend(events, round_n).cost_micros
+        of = budget.round_budget(self.sheet, events, round_n)
+        self.say(
+            f"{worker} slice {number} on {task.id}: {len(passing)}/{len(self.checks_of(task))} "
+            f"checks pass; round {round_n} has spent ${usd(spent)} of ${usd(of)}"
+        )
 
     def _gate_slice(self, task: Task, worker: str, record: Recorder, status: object = None) -> None:
         """Gate the worker's last slice and record what it disputes, unless that is already on

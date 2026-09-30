@@ -101,6 +101,7 @@ def test_fund_builds_the_idea_and_reports_from_the_ledger(boss):
         EventType.SLICE_END,
         EventType.CHECK_RESULT,
         EventType.ROUND_CLOSED,
+        EventType.CHECK_RESULT,  # the verdict on the assembled product
     ]
     assert total(events).cost_micros == 4_000 + 6_000
     assert "total        $0.0100" in (run_dir / "report.md").read_text()
@@ -136,7 +137,7 @@ def test_report_and_status_read_the_latest_run(boss):
     assert code == EXIT_OK and "BOARD REPORT" in report
     code, status = boss("status")
     assert code == EXIT_OK
-    assert "last event boss round_closed; 1/1 checks passing; spend $0.0100 estimated" in status
+    assert "last event gate check_result; 1/1 checks passing; spend $0.0100 estimated" in status
 
 
 def test_report_without_runs_or_with_an_unknown_run(boss):

@@ -157,6 +157,16 @@ def kinds(paths):
     return [(e.actor, e.event) for e in read_events(paths.ledger)]
 
 
+def slice_results(paths):
+    """The gate's results after slices, without the final verdict on the product."""
+    return [e for e in events_of(paths, EventType.CHECK_RESULT) if "slice" in e.data]
+
+
+def product_results(paths):
+    results = events_of(paths, EventType.CHECK_RESULT)
+    return [(e.data["check"], e.data["status"]) for e in results if e.data.get("scope")]
+
+
 def events_of(paths, kind):
     return [e for e in read_events(paths.ledger) if e.event is kind]
 
@@ -174,7 +184,10 @@ def test_one_good_slice_finishes_the_task(paths):
         ("gate", EventType.CHECK_RESULT),
         ("gate", EventType.CHECK_RESULT),
         ("boss", EventType.ROUND_CLOSED),
+        ("gate", EventType.CHECK_RESULT),  # the verdict on the assembled product
+        ("gate", EventType.CHECK_RESULT),
     ]
+    assert product_results(paths) == [("c01", "passed"), ("c02", "passed")]
     assert (paths.product / "rev.py").read_text() == GOOD
     assert worker.specs[0].resume is False
 
@@ -325,7 +338,7 @@ def test_rate_limit_is_waited_out_and_never_counts_against_the_worker(paths):
     assert events_of(paths, EventType.FIRED) == []
     assert [s.resume for s in worker.specs] == [False, False, False]
     assert len({s.session_id for s in worker.specs}) == 3  # a fresh session id per attempt
-    assert len(events_of(paths, EventType.CHECK_RESULT)) == 2
+    assert len(slice_results(paths)) == 2
 
 
 def test_login_failure_stops_the_run_with_a_fix(paths):
@@ -373,7 +386,7 @@ def test_two_tasks_get_separate_workspaces_and_one_product(paths):
     assert "c03" not in worker.specs[0].prompt and "test_c03.py" in worker.specs[1].prompt
     assert sorted(p.name for p in paths.product.iterdir()) == ["rev.py", "up.py"]
     assert not (paths.workspace("w1") / "up.py").exists()
-    tagged = {(e.data["check"], e.data["worker"]) for e in events_of(paths, EventType.CHECK_RESULT)}
+    tagged = {(e.data["check"], e.data["worker"]) for e in slice_results(paths)}
     assert tagged == {("c01", "w1"), ("c02", "w1"), ("c03", "w2")}
 
 
@@ -523,7 +536,7 @@ def test_a_check_edited_mid_run_stops_the_run_and_its_result_is_never_recorded(p
     assert report.stopped == (
         "stopped: the term sheet or a check changed after the investor approved it"
     )
-    assert report.passed == 0 and events_of(paths, EventType.CHECK_RESULT) == []
+    assert report.passed == 0 and slice_results(paths) == []
     [stop] = events_of(paths, EventType.STOPPED)
     assert stop.actor == "rule"
     assert len(worker.specs) == 1  # nothing more is funded
@@ -540,7 +553,7 @@ def test_a_check_edited_between_slices_stops_the_run_before_the_next_slice_is_pa
     report, _ = run(paths, worker, gate=gate_then_tamper)
     assert report.stopped.startswith("stopped: the term sheet or a check changed")
     assert len(worker.specs) == 1  # slice 2 was never spawned
-    assert len(events_of(paths, EventType.CHECK_RESULT)) == 2  # slice 1's honest results stand
+    assert len(slice_results(paths)) == 2  # slice 1's honest results stand
 
 
 def test_a_new_worker_is_never_briefed_from_a_check_edited_after_approval(paths):
@@ -569,7 +582,7 @@ def test_a_check_deleted_mid_run_stops_the_run_like_an_edited_one(paths):
     worker = Script(step(HALF, cost=30_000), step(GOOD, "done"))
     report, _ = run(paths, Deleting(worker, paths.checks / "test_c01.py"))
     assert report.stopped.startswith("stopped: the term sheet or a check changed")
-    assert events_of(paths, EventType.CHECK_RESULT) == [] and len(worker.specs) == 1
+    assert slice_results(paths) == [] and len(worker.specs) == 1
     assert total(read_events(paths.ledger)).cost_micros == 30_000
 
 
@@ -907,7 +920,7 @@ def test_a_dropped_check_is_never_run_or_counted_again(paths):
     # The dispute was not credible while other checks failed, so nobody was asked until the
     # rest passed; then the investor dropped it.
     assert rulings_of(paths) == [("investor", "c05", "dropped")]
-    last_gate = [e.data["check"] for e in events_of(paths, EventType.CHECK_RESULT)][-4:]
+    last_gate = [e.data["check"] for e in slice_results(paths)][-4:]
     assert "c05" in last_gate  # it ran until it was dropped
     assert report.all_passed and report.total == 3
 
@@ -1056,11 +1069,11 @@ def test_a_slice_that_was_never_gated_is_gated_on_resume_before_anything_is_deci
     with contextlib.suppress(KeyboardInterrupt):
         run(paths, Script(step(GOOD, "done"), KeyboardInterrupt()))
     cut_ledger_before(paths, '"event": "check_result"')
-    assert events_of(paths, EventType.CHECK_RESULT) == []
+    assert slice_results(paths) == []
     resumed = Script(step(BAD))
     report, _ = run(paths, resumed)
     assert report.all_passed and resumed.specs == []  # no slice paid for: the work was done
-    results = events_of(paths, EventType.CHECK_RESULT)
+    results = slice_results(paths)
     assert [(e.data["check"], e.data["slice"], e.data["status"]) for e in results] == [
         ("c01", 1, "passed"),
         ("c02", 1, "passed"),
@@ -1104,3 +1117,57 @@ def test_ctrl_c_at_the_funding_question_interrupts_the_run_and_declines_nothing(
     assert events_of(paths, EventType.STOPPED) == []
     report, _ = run(paths, Script(step(GOOD, "done")), s, answers=["y"])
     assert report.all_passed  # asked again on resume, and funded
+
+
+# The final verdict is the gate's result on the assembled product, not the sum of the workers'.
+
+
+def test_the_product_is_gated_once_and_running_again_adds_nothing(paths):
+    run(paths, Script(step(HALF), step(GOOD, "done")))
+    assert product_results(paths) == [("c01", "passed"), ("c02", "passed")]
+    before = read_events(paths.ledger)
+    run(paths, Script())
+    assert read_events(paths.ledger) == before
+
+
+def test_a_product_broken_by_assembly_is_reported_as_the_product_not_as_the_workspaces(paths):
+    # Each task passes in its own folder. The second worker also wrote a helper that the first
+    # task's code imports; in the product the first task's own helper wins, and the second
+    # task's check fails there.
+    shared_a = "VALUE = 'a'\n"
+    rev = "from helper import VALUE\n\ndef reverse(s):\n    return s[::-1]\n"
+    up = "from helper import VALUE\n\ndef shout(s):\n    return s.upper() + VALUE\n"
+
+    class TwoFiles(Script):
+        def __call__(self, spec, workspace, log_path, *, env):
+            helper = shared_a if len(self.specs) == 0 else "VALUE = '!'\n"
+            (workspace / "helper.py").write_text(helper)
+            return super().__call__(spec, workspace, log_path, env=env)
+
+    worker = TwoFiles(step(rev, "done"), step(up, "done", name="up.py"))
+    report, said = run(paths, worker, sheet(two_tasks=True))
+    assert len(slice_results(paths)) == 3
+    assert all(e.data["status"] == "passed" for e in slice_results(paths))
+    assert product_results(paths) == [("c01", "passed"), ("c02", "passed"), ("c03", "failed")]
+    assert (report.passed, report.total) == (2, 3) and not report.all_passed
+    assert any("The assembled product passes 2 checks" in line for line in said)
+    text = render_report(build_report(read_events(paths.ledger)))
+    assert "c03  failed" in text
+
+
+def test_nothing_is_gated_as_a_product_when_nothing_was_built(paths):
+    s = sheet(rounds=(Round(1, 104_999, 2),))
+    run(paths, Script(), s)
+    assert product_results(paths) == []
+
+
+def test_a_dropped_check_is_not_part_of_the_products_verdict(paths):
+    s = four_checks(paths)
+    run(paths, Script(step(GOOD, "done", disputes=[dispute("c05")])), s, answers=["d"])
+    assert [check for check, _ in product_results(paths)] == ["c01", "c02", "c04"]
+
+
+def test_a_status_line_follows_every_slice(paths):
+    _, said = run(paths, Script(step(HALF, cost=30_000), step(GOOD, "done", cost=20_000)))
+    assert "w1 slice 1 on t1: 1/2 checks pass; round 1 has spent $0.03 of $0.5" in said
+    assert "w1 slice 2 on t1: 2/2 checks pass; round 1 has spent $0.05 of $0.5" in said
