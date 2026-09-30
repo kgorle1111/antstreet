@@ -88,7 +88,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|
 | B42 | `state.slice_history` raises on an outcome it does not know (a ledger from a newer version) | open |
 | B43 | `ledger.Event.from_json` accepts `"v": true` as version 1 | done: fix(ledger): a version must be the integer 1 |
-| B44 | `errors.classify`: an `errors` field that is an int raises TypeError | open |
+| B44 | `errors.classify`: an `errors` field that is an int raises TypeError | done: fix(errors): classify never raises on malformed signals |
 | B45 | `retry.infra_action` overflows for an attempt number over about 1000 | open |
 | B46 | `retry.plan_pressure` assumes utilisation is a fraction, not a percentage | open |
 | B47 | `FiringPolicy` accepts bool and float | open |

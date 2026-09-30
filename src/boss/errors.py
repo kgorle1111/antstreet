@@ -48,36 +48,49 @@ class RunSignals:
     timed_out: bool = False
 
 
+def _str(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _strings(value: object) -> list[str]:
+    """The text in a field that should be a list of strings; a lone string counts as one entry."""
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value] if isinstance(value, list | tuple) else []
+
+
 def classify(signals: RunSignals) -> Outcome:
+    """Never raises: a field of the wrong type reads as absent, and no verdict is not success."""
     if signals.timed_out:
         return Outcome.TIMEOUT
     result = signals.result
-    if result is None:
+    if not isinstance(result, Mapping):
         return Outcome.CRASHED
 
-    subtype = str(result.get("subtype", ""))
-    terminal = str(result.get("terminal_reason", ""))
+    subtype = _str(result.get("subtype"))
+    terminal = _str(result.get("terminal_reason"))
     if subtype == "error_max_budget_usd" or terminal == "budget_exhausted":
         return Outcome.CAPPED
     if subtype == "error_max_turns":
         return Outcome.MAX_TURNS
     if subtype in _REFUSAL_SUBTYPES or result.get("stop_reason") == "refusal":
         return Outcome.REFUSAL
-    if not result.get("is_error"):
+    if result.get("is_error") is False:  # missing or non-bool is unknown, so not COMPLETED
         return Outcome.COMPLETED
     return _classify_error(result, signals)
 
 
 def _classify_error(result: Mapping[str, Any], signals: RunSignals) -> Outcome:
-    status = result.get("api_error_status")
-    retries = set(signals.retry_errors)
-    text = str(result.get("result") or "") + " " + " ".join(map(str, result.get("errors") or ()))
+    raw_status = result.get("api_error_status")
+    status = raw_status if type(raw_status) is int else None
+    retries = set(_strings(signals.retry_errors))
+    text = " ".join([_str(result.get("result")), *_strings(result.get("errors"))])
     if status in (401, 403) or retries & _AUTH_ERRORS:
         return Outcome.LOGIN
     if signals.rate_limit_status == "rejected" or _USAGE_LIMIT_RE.search(text):
         return Outcome.USAGE_LIMIT
     if status == 429 or "rate_limit" in retries:
         return Outcome.RATE_LIMITED
-    if status is not None or result.get("terminal_reason") == "api_error":
+    if status is not None or _str(result.get("terminal_reason")) == "api_error":
         return Outcome.API_ERROR
     return Outcome.CRASHED
