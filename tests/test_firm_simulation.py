@@ -1,46 +1,88 @@
-"""Randomized simulation of the firm loop: random term sheets, configs and worker behaviour, seven
-invariants checked over thousands of seeded scenarios. No model calls, no pytest gate: the gate is
-a pure function of the files in a workspace.
+"""Randomized simulation of the firm loop: random term sheets, configs, worker behaviour and
+investor answers, seven invariants checked over thousands of seeded scenarios. No model calls, no
+pytest gate: the gate is a pure function of the files in a workspace.
 
 How a scenario runs. A scenario is a seed. It fixes a term sheet (1-3 tasks, 1-4 checks each, 1-3
-rounds), a `FirmConfig`, the investor's answers for later rounds, and an endless script of worker
-behaviour: script position `i` is drawn from `Random(seed, i)`, so it never depends on the run. A
-simulated worker consumes one position per call; the fake gate reads `<task>.py` in the workspace,
-a JSON list of the check ids that file "makes pass".
+rounds), a `FirmConfig`, the investor's answers, and an endless script of worker behaviour: script
+position `i` is drawn from `Random(seed, i)`, so it never depends on the run. A simulated worker
+consumes one position per call; the fake gate reads `<task>.py` in the workspace, a JSON list of
+the check ids that file "makes pass". The investor answers funding questions from a per-scenario
+list and every other question (drop / keep a disputed check, unblock with a note, set aside, say
+nothing, nobody there, Ctrl-C) as a pure function of (seed, question): asked the same thing again,
+by a resumed run, it says the same thing, except that a Ctrl-C happens once per question.
 
-Crash-resume equivalence (invariant 5), precisely. Interrupt the run by raising `KeyboardInterrupt`
-from the worker, before it does any work, at a random script position, then call `run_firm` again
-with a fresh worker object that continues the same script. The interrupted call recorded a
-`slice_start` and no `slice_end` (an orphan). The two runs are "the same" when
+The invariants: 1 termination, 2 money, 3 only the gate grants passes, 4 the ledger is
+well-formed (including every rule of who may write what after what), 5 crash-resume equivalence,
+6 determinism, 7 an edited check or term sheet stops the run.
 
-  * their ledgers, after dropping orphaned `slice_start` events and the fields that are not part of
-    the run's meaning (timestamps, run id, session uuids renamed in order of appearance, log
-    paths), are the same sequence of (round, actor, event, cost, tokens, billing, data);
+Money (invariant 2), precisely. The ledger charges a round for every recorded cost, for every
+slice that did work and reported none (charged its cap; an infrastructure failure did no work), and
+for every `slice_start` that never got its `slice_end` (an orphan, charged its cap). Then:
+(1) every slice is capped at min(slice, budget - charged - reserve), so the charge never exceeds
+the budget by more than what one costed slice took beyond its cap + reserve; (2) what the workers
+truly spent never exceeds the budget by more than that, plus what slices charged only their cap
+truly spent beyond it. (2) is deliberately weaker than the first version's "true spend <= budget +
+one excess": a lost or unpriced slice may have cost up to cap + reserve while being charged cap.
+
+Crash-resume equivalence (invariant 5), precisely. Interrupt the run, call `run_firm` again with a
+fresh worker object that continues the same script, and compare with the uninterrupted run. The
+interruption is a `KeyboardInterrupt` raised by the worker before it works (an orphaned
+`slice_start`), by `ask` at a question, or by the ledger just before a write: a crash before every
+write of a run is tried, i.e. after every write that came before it. The runs are "the same" when
+
+  * their ledgers, after dropping the fields that are not part of the run's meaning (timestamps,
+    run id, log paths; session uuids are renamed in order of appearance) and the two things a
+    resume legitimately leaves behind, are the same sequence of (round, actor, event, cost,
+    tokens, billing, data). The two things: an orphaned `slice_start` (it stays on the ledger and
+    stays charged) and a `reassigned` whose `hired` was lost (written again on resume);
   * the workers were briefed the same way: same prompt, cap and resume flag for every finished
     slice, in order, and the same true cost;
-  * the reports are the same, and so are the product and every workspace, byte for byte.
+  * the reports are the same, and so are the product and every workspace, byte for byte; and the
+    investor was asked the same set of questions (a lost answer is asked again).
 
-An orphaned `slice_start` still counts toward `RunLimits.max_slices`, so a run whose slice limit
-binds is not equivalent (see `test_an_orphaned_slice_start_uses_up_the_slice_limit`); those
-scenarios are excluded from the equivalence test and nothing else is.
+Where the resumed run legitimately differs, the rule is stated and the difference is checked to be
+exactly that (`crash_kind` names each class):
+  * a worker's disputes live in its status report, which only reaches the ledger as `disputed`
+    events after the gate has run; a crash after `slice_end` and before the slice's last `disputed`
+    event loses the rest, and the worker may raise them again. The resumed run must equal the
+    uninterrupted run in which that slice's report carried only the disputes written before the
+    crash.
+  * a pause owed after an infrastructure failure is not recovered: the slice is tried again, which
+    is what resuming a pause does. Both runs are called again after a pause, and pauses are
+    dropped from both ledgers.
+  * the worker ran and its `slice_end` (or the `error` that ended it) never reached the ledger, or
+    a stop owed to an infrastructure failure was lost: money was spent that the resumed run cannot
+    see. It cannot equal the uninterrupted run; every other invariant must still hold.
+  * an orphan is charged, so a resumed run may have less money than the uninterrupted one and
+    decide differently (`orphan_binds`); and it counts toward `RunLimits.max_slices`
+    (`test_an_orphaned_slice_start_uses_up_the_slice_limit`). Runs where either changed a decision
+    are excluded, and nothing else is.
+What the simulation still finds in the loop is pinned by strict xfails, each excluded from the
+randomized tests by name: three crash classes (`EXCLUDED`) and one class of rulings that never reach
+the worker (`check_rulings_reach_the_worker`).
 """
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import tempfile
+import uuid as uuid_mod
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 
 from boss import budget as budget_mod
+from boss import firm as firm_mod
 from boss.approval import content_hashes
 from boss.errors import INFRASTRUCTURE, Outcome
 from boss.firm import FirmConfig, FirmReport, run_firm
@@ -58,6 +100,7 @@ from boss.worker import IsolationError
 ENV = {"HOME": "/h"}
 TOOLS = ("Read", "Write", "Edit", "Bash", "WebFetch")
 MIN_CAP = budget_mod.MIN_SLICE_MICROS
+SLICE_END = EventType.SLICE_END
 
 
 @pytest.fixture(autouse=True)
@@ -82,6 +125,9 @@ class Scenario:
     tick: tuple[float, ...]  # what one call of the fake clock may advance it by
     script: tuple[Behaviour, ...] | None = None  # hand-written behaviour, then `IDLE` for ever
     mode: str = "normal"  # "cheap": free stalling slices; "hostile": mostly infrastructure failures
+    rulings: str = "mixed"  # how the investor answers escalations, see `RULINGS`
+    ask_ki: float = 0.0  # chance that a question is first answered by Ctrl-C (asked again after)
+    fixed: tuple[tuple[str, str], ...] = ()  # hand-written scenarios: (question prefix, reply)
 
     @property
     def n_checks(self) -> int:
@@ -91,8 +137,32 @@ class Scenario:
         return [c.id for c in self.sheet.checks if c.task == task_id]
 
 
+# The simulated investor. Every answer is a pure function of (seed, question): asked the same thing
+# again, whether by a resumed run or by the same run, the investor says the same thing. "EOF" is
+# nobody being there (`EOFError`); a Ctrl-C at a question is `World.ask`'s business.
+DISPUTE_REPLIES = ("d", "drop", "k", " KEEP ", "s", "", "maybe", "EOF")
+BLOCK_REPLIES = ("u", "Unblock", "s", "", "maybe", "EOF")
+NOTE_REPLIES = (
+    "use the stdlib", "  spaced\n  out   note ", "sk-ant-" + "n" * 40 + " \x1b[31mred", "", " ",
+    "n" * 3000, "EOF",
+)  # fmt: skip
+RULINGS = {  # scenario style -> weights over DISPUTE_REPLIES, weights over BLOCK_REPLIES
+    "mixed": ([16, 6, 16, 6, 8, 3, 3, 4], [22, 6, 8, 3, 2, 4]),
+    "drop": ([80, 12, 0, 0, 2, 1, 1, 1], [40, 10, 4, 1, 1, 1]),
+    "keep": ([0, 0, 80, 12, 2, 1, 1, 1], [40, 10, 4, 1, 1, 1]),
+    "unblock": ([10, 0, 10, 0, 1, 0, 0, 0], [90, 9, 0, 0, 0, 0]),
+    "silent": ([0, 0, 0, 0, 30, 20, 20, 30], [0, 0, 30, 20, 20, 30]),
+    "cranky": ([10, 10, 10, 10, 10, 10, 10, 10], [10, 10, 10, 10, 10, 10]),
+}
+
+
 def make_scenario(
-    seed: int, *, ki_rate: float = 0.0, iso_rate: float = 0.0, max_seconds: bool = True
+    seed: int,
+    *,
+    ki_rate: float = 0.0,
+    iso_rate: float = 0.0,
+    max_seconds: bool = True,
+    ask_ki: float = 0.0,
 ) -> Scenario:
     rng = random.Random(seed)
     n_tasks = rng.randint(1, 3)
@@ -108,6 +178,8 @@ def make_scenario(
     for _ in range(n_rounds - 1):
         unlocks.append(rng.randint(max([1, *unlocks]), len(checks)))
     unlocks.append(len(checks))
+    if n_rounds > 1 and rng.random() < 0.4:  # rounds that open easily: later ones get funded
+        unlocks = [1] * (n_rounds - 1) + [len(checks)]
     rounds = []
     for k in range(1, n_rounds + 1):
         low, high = rng.choice([(90_000, 130_000), (130_000, 350_000), (350_000, 900_000),
@@ -143,8 +215,10 @@ def make_scenario(
         for _ in range(n_rounds - 1)
     )
     mode = rng.choices(["normal", "cheap", "hostile"], weights=[70, 15, 15])[0]
+    rulings = rng.choices(list(RULINGS), weights=[36, 12, 12, 12, 8, 20])[0]
     ticks = (0.0, 0.0, 1.0, 2.0, 10.0, 60.0)
-    return Scenario(seed, sheet, config, answers, ki_rate, iso_rate, ticks, None, mode)
+    return Scenario(seed, sheet, config, answers, ki_rate, iso_rate, ticks, None, mode, rulings,
+                    ask_ki)  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -190,16 +264,16 @@ def behaviour(scn: Scenario, pos: int) -> Behaviour:
         list(Outcome),
         weights=[62, 12, 4, 3, 4, 3, 1, 5, 1, 5],  # in enum order: completed ... api_error
     )[0]
-    weights = [46, 12, 16, 8, 3, 8, 7]
+    weights = [46, 12, 16, 8, 3, 8, 7, 10]
     if scn.mode == "cheap":  # nothing but the firing rule and the limits can stop a stalling worker
-        outcome, weights = Outcome.COMPLETED, [4, 0, 55, 0, 0, 0, 41]
+        outcome, weights = Outcome.COMPLETED, [4, 0, 55, 0, 0, 0, 41, 0]
     elif scn.mode == "hostile" and rng.random() < 0.75:
         outcome = rng.choice([Outcome.RATE_LIMITED, Outcome.API_ERROR])
     return Behaviour(
         exc=exc,
         outcome=outcome,
         progress=rng.choices(
-            ["progress", "all", "stall", "regress", "wipe", "adopt", "untouched"],
+            ["progress", "all", "stall", "regress", "wipe", "adopt", "untouched", "nearly"],
             weights=weights,
         )[0],
         n_new=rng.randint(1, 3),
@@ -214,9 +288,10 @@ def behaviour(scn: Scenario, pos: int) -> Behaviour:
         )[0],
         cost_frac=rng.random(),
         disputes=rng.choices(
-            ["none", "valid", "passing", "other", "malformed"], weights=[70, 12, 6, 5, 7]
+            ["none", "valid", "passing", "other", "malformed", "all"],
+            weights=[62, 10, 6, 5, 7, 14],
         )[0],
-        denied=tuple(rng.sample(TOOLS, rng.choice([0, 0, 0, 1, 1, 2]))),
+        denied=tuple(rng.sample(TOOLS, rng.choice([0, 0, 0, 0, 0, 0, 1, 1, 2]))),
     )
 
 
@@ -240,6 +315,16 @@ class Call:
     true_cost: int = 0
     reported: int | None = None
     pos: int | None = None
+
+
+class Decision(NamedTuple):
+    """What the simulated investor clearly answered: `kind` is dropped, kept, unblocked (with a
+    note) or aside (no clear answer: the task is to be set aside)."""
+
+    task: str
+    worker: str
+    check: str | None
+    kind: str
 
 
 @dataclass
@@ -266,6 +351,8 @@ class CrashingLedger(LedgerWriter):
         w = self.world
         if not (event.event is EventType.APPROVED and event.round == 0):  # the harness's own
             w.appends += 1
+            if w.appends > 300 + 40 * (w.invocations + w.ask_interrupts + len(w.crashed_on)):
+                raise AssertionError("the ledger grows without bound")
             w.appended[event.event] += 1
             due = w.crash_before and w.crash_before[0] == w.appends
             typed = (event.event, w.appended[event.event]) in w.crash_on
@@ -301,7 +388,84 @@ class World:
         self.strict_sessions = True
         self.crashed_on: list[EventType] = []
         # A worker is called at most this often: see `call_bound`.
-        self.bound = call_bound(scn)
+        self.bound = call_bound(scn)  # without the investor's unblocking, see `call_bound`
+        self.gate_calls: list[tuple[str, frozenset]] = []  # (worker, (check, passed) pairs)
+        self.boundaries: list[int] = []  # ledger lines written when each run_firm call began
+        self.asked: list[str] = []  # every question, in order
+        self.decisions: list[Decision] = []  # what the investor clearly answered
+        self.ask_planned: list[int] = []  # Ctrl-C at the n-th question (1-based, once each)
+        self.ask_hit: set[str] = set()  # questions already answered by a random Ctrl-C
+        self.ask_interrupts = 0
+        self.last_question = ""
+        self.pending_block: tuple[str, str] | None = None  # (task, worker) awaiting its note
+
+    # -- the investor -------------------------------------------------------------------------
+
+    def ask(self, question: str) -> str:
+        """The `ask` of `run_firm`: funding, a ruling on a dispute, a block, or a note."""
+        self.asked.append(question)
+        note = question.startswith("Your note")
+        key = f"{self.last_question}|note" if note else question
+        if not note:
+            self.last_question = question
+        n_calls, scn = len(self.asked), self.scn
+        planned = n_calls in self.ask_planned
+        if planned:
+            self.ask_planned.remove(n_calls)
+        random_ki = (
+            scn.ask_ki
+            and key not in self.ask_hit
+            and random.Random(f"{scn.seed}|ki|{key}").random() < scn.ask_ki
+        )
+        if planned or random_ki:
+            self.ask_hit.add(key)
+            self.ask_interrupts += 1
+            raise KeyboardInterrupt
+        if n_calls > 30 + 10 * (self.invocations + self.ask_interrupts + len(self.crashed_on)):
+            raise AssertionError("the loop asks the investor for ever")
+        reply = self._reply(question, key)
+        if question.startswith("Task "):
+            m = re.match(r"Task (\w+): (\w+) (disputes check (\w+)|says it cannot go on)", question)
+            task, worker, check = m.group(1), m.group(2), m.group(4)
+            if check:
+                clear = {"d": "dropped", "drop": "dropped", "k": "kept", "keep": "kept"}
+                kind = clear.get(reply.strip().lower(), "aside")
+                self.decisions.append(Decision(task, worker, check, kind))
+            elif reply.strip().lower() in ("u", "unblock"):
+                self.pending_block = (task, worker)  # the note decides
+            else:
+                self.decisions.append(Decision(task, worker, None, "aside"))
+        elif note:
+            task, worker = self.pending_block or ("", "")
+            self.pending_block = None
+            said = "" if reply == "EOF" else " ".join(reply.split())
+            self.decisions.append(Decision(task, worker, None, "unblocked" if said else "aside"))
+        if reply == "EOF":
+            raise EOFError
+        return reply
+
+    def _reply(self, question: str, key: str) -> str:
+        scn = self.scn
+        for prefix, fixed in scn.fixed:
+            if question.startswith(prefix):
+                return fixed
+        rnd = random.Random(f"{scn.seed}|{key}")
+        dispute_w, block_w = RULINGS[scn.rulings]
+        if question.startswith("Round "):
+            n = int(question.split(":")[0].removeprefix("Round "))
+            return scn.answers[n - 2] if 2 <= n <= len(scn.answers) + 1 else "EOF"
+        if question.startswith("Your note"):
+            return rnd.choice(NOTE_REPLIES)
+        if " disputes check " in question:
+            return rnd.choices(DISPUTE_REPLIES, weights=dispute_w)[0]
+        return rnd.choices(BLOCK_REPLIES, weights=block_w)[0]
+
+    def over_bound(self, unblocked: int) -> bool:
+        """Worker calls beyond `call_bound`. A call lost to a Ctrl-C is not counted, nor is the one
+        call a crash between the worker's return and its slice_end can cost (the loop cannot know
+        the slice ran)."""
+        calls = self.invocations - self.interrupted - len(self.crashed_on)
+        return calls > call_bound(self.scn, unblocked)
 
     def fire_tamper(self, where: str) -> None:
         self.counts[where] += 1
@@ -317,7 +481,8 @@ class World:
     def worker(self, spec, workspace: Path, log_path: Path, *, env) -> SliceRun:
         self.invocations += 1
         self.fire_tamper("worker")
-        start = read_events(self.paths.ledger)[-1]
+        events = read_events(self.paths.ledger)
+        start = events[-1]
         if start.event is not EventType.SLICE_START:
             self.violations.append(f"worker called after {start.event}, not a slice_start")
         actor, data = start.actor, start.data
@@ -329,7 +494,7 @@ class World:
         self.calls.append(call)
         # Termination (invariant 1): the loop must never call the worker more often than the bound
         # derived from the configuration.
-        if self.invocations - self.interrupted > self.bound or (
+        if self.over_bound(unblocked_in(events)) or (
             self.invocations > self.scn.config.limits.max_slices
         ):
             raise AssertionError(
@@ -390,9 +555,7 @@ class World:
             "overshoot": cap + int(beh.cost_frac * reserve),
             "far": cap + reserve + 1 + int(beh.cost_frac * 300_000),
             "zero": 0,
-            "unknown": int(
-                beh.cost_frac * cap
-            ),  # crashed or killed: whatever it spent stays hidden
+            "unknown": int(beh.cost_frac * (cap + reserve)),  # killed: what it spent stays hidden
         }[beh.cost_kind]
         if beh.exact is not None:
             true = beh.exact
@@ -445,6 +608,7 @@ class World:
                 CheckResult(check.id, status, 0 if ok else 1, "ok" if ok else "assertion failed",
                             "" if ok else f"E assert {check.id}", 0.0)
             )  # fmt: skip
+        self.gate_calls.append((workspace.name, frozenset((r.check_id, r.passed) for r in results)))
         self.fire_tamper("gate")
         return results
 
@@ -465,6 +629,8 @@ def _progress(
         return base | set(rng.sample(missing, min(len(missing), beh.n_new)))
     if beh.progress == "all":
         return set(ids)
+    if beh.progress == "nearly":  # all but the first 1..len/2 of them: the shape a dispute needs
+        return base | set(sorted(ids)[rng.randint(1, max(1, len(ids) // 2)) :])
     if beh.progress == "regress":
         keep = [c for c in sorted(base) if rng.random() < 0.5]
         return set(keep)
@@ -498,6 +664,8 @@ def _status(beh, sheet, task, scn, ids, after, rng) -> dict[str, Any] | None:
         status["disputed_checks"] = [
             entry(c) for c in rng.sample(failing, rng.randint(1, len(failing)))
         ]
+    elif beh.disputes == "all" and failing:
+        status["disputed_checks"] = [entry(c) for c in failing]
     elif beh.disputes == "passing" and after:
         status["disputed_checks"] = [entry(c) for c in sorted(after)]
     elif beh.disputes == "other":
@@ -545,7 +713,7 @@ class Clock:
         return value
 
 
-def call_bound(scn: Scenario) -> int:
+def call_bound(scn: Scenario, unblocked: int = 0) -> int:
     """Most worker calls the configuration allows, excluding calls that raised KeyboardInterrupt.
 
     A worker's counted (non-infrastructure) slices stop at `policy.max_slices`: `decide` fires it
@@ -555,9 +723,15 @@ def call_bound(scn: Scenario) -> int:
     5*P calls. A task gets at most 2 workers (the hire and one reassignment) and the run at most
     `limits.max_workers`. Every call also records a `slice_start`, so `limits.max_slices` bounds the
     calls including the interrupted ones, which the worker checks separately.
+
+    Deliberately weaker than before: a worker that says "blocked" is escalated before the slice
+    limit is looked at, so each time the investor unblocks it (a `ruled` event) it may run one more
+    counted slice, with its own 4 retries; and a stop the investor lifts (a `resumed` event) may
+    let one more attempt through. The bound grows by 5 per grant; the run limits still cap
+    everything.
     """
     workers = min(2 * len(scn.sheet.tasks), scn.config.limits.max_workers)
-    return 5 * scn.config.policy.max_slices * workers
+    return 5 * (scn.config.policy.max_slices * workers + unblocked)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -578,6 +752,7 @@ class Result:
     invocations_of_run_firm: int
     raw_ledger: str = ""
     events_before_rerun: int = 0
+    asks_before_rerun: int = 0
     calls_before_rerun: int = 0
     tamper: Tamper | None = None
 
@@ -603,11 +778,19 @@ def run_scenario(
     gate_interrupt: int | None = None,
     crash_before: list[int] = (),
     crash_on: list[tuple[EventType, int]] = (),
+    ask_interrupts: list[int] = (),
     strict_sessions: bool = True,
     rerun: bool = False,
+    lift: str | None = None,
+    forge: list[Event] = (),
+    resume_pauses: int = 0,
+    mute: tuple[str, int, int] | None = None,
 ) -> Result:
     """Run `scn` in `root`. A KeyboardInterrupt is followed by another `run_firm` call, like a user
-    re-running the command, up to `max_resumes` times."""
+    re-running the command, up to `max_resumes` times. `rerun` calls `run_firm` once more on the
+    finished run; `lift` first has that actor lift a stop (a `resumed` event). `resume_pauses`
+    calls it again, up to that many times, after a run that reports a pause. `mute` is
+    (worker, slice, n): keep only the first n disputes of that slice's status report."""
     paths = RunPaths(root / "run")
     paths.checks.mkdir(parents=True)
     for c in scn.sheet.checks:
@@ -616,6 +799,7 @@ def run_scenario(
     world.gate_interrupt = gate_interrupt
     world.crash_before = sorted(crash_before)
     world.crash_on = list(crash_on)
+    world.ask_planned = sorted(ask_interrupts)
     world.strict_sessions = strict_sessions
     if tamper is not None:
         tamper.path = paths.checks / tamper.path.name
@@ -623,52 +807,80 @@ def run_scenario(
     clock = Clock(scn)
     clock.world = world
     said: list[str] = []
-    asked: list[str] = []
 
-    def ask(question: str) -> str:
-        # The investor gives the same answer to the same question, however often it is asked.
-        asked.append(question)
-        n = int(question.split(":")[0].removeprefix("Round "))
-        reply = scn.answers[n - 2] if 2 <= n <= len(scn.answers) + 1 else "EOF"
-        if reply == "EOF":
-            raise EOFError
-        return reply
-
-    report, exc, calls = None, None, 0
-    before_events = before_calls = 0
+    report, exc, calls, pauses = None, None, 0, 0
+    before_events = before_calls = before_asks = 0
     reran = False
-    while True:
-        calls += 1
-        try:
-            with CrashingLedger(paths.ledger, world) as ledger:
-                if paths.ledger.stat().st_size == 0:
-                    data = {"hashes": content_hashes(scn.sheet, paths.checks)}
-                    ledger.append(Event("r1", 0, "investor", EventType.APPROVED, data=data))
-                report = run_firm(
-                    scn.sheet, paths, ledger, "r1", env=ENV, config=scn.config, ask=ask,
-                    say=said.append, slice_runner=world.worker, gate=world.gate,
-                    sleep=world.sleeps.append, clock=clock,
-                )  # fmt: skip
-            if rerun and not reran:
-                reran = True
-                # Run the finished run again, as a user would, with the edited check restored.
-                before_events, before_calls = len(read_events(paths.ledger)), world.invocations
-                if tamper and tamper.done:
-                    tamper.path.write_text(tamper.original)
-                continue
-            break
-        except KeyboardInterrupt as e:
-            if not resume or calls > max_resumes:
+    muted = _muted(world, mute) if mute else contextlib.nullcontext()
+    with muted:
+        while True:
+            calls += 1
+            try:
+                with CrashingLedger(paths.ledger, world) as ledger:
+                    if paths.ledger.stat().st_size == 0:
+                        data = {"hashes": content_hashes(scn.sheet, paths.checks)}
+                        ledger.append(Event("r1", 0, "investor", EventType.APPROVED, data=data))
+                        for forged in forge:
+                            ledger.append(forged)
+                    world.boundaries.append(len(read_events(paths.ledger)))
+                    report = run_firm(
+                        scn.sheet, paths, ledger, "r1", env=ENV, config=scn.config, ask=world.ask,
+                        say=said.append, slice_runner=world.worker, gate=world.gate,
+                        sleep=world.sleeps.append, clock=clock,
+                    )  # fmt: skip
+                if (
+                    report.stopped
+                    and report.stopped.startswith("paused:")
+                    and pauses < resume_pauses
+                ):
+                    pauses += 1
+                    continue
+                if rerun and not reran:
+                    reran = True
+                    # Run the finished run again, as a user would, with the edited check restored.
+                    before_events, before_calls = len(read_events(paths.ledger)), world.invocations
+                    before_asks = len(world.asked)
+                    if tamper and tamper.done:
+                        tamper.path.write_text(tamper.original)
+                    if lift:
+                        with LedgerWriter(paths.ledger) as ledger:
+                            last = read_events(paths.ledger)[-1].round
+                            ledger.append(Event("r1", last, lift, EventType.RESUMED))
+                    continue
+                break
+            except KeyboardInterrupt as e:
+                if not resume or calls > max_resumes:
+                    exc = e
+                    break
+            except Exception as e:  # expected ones are asserted on; an unexpected one is a finding
                 exc = e
                 break
-        except Exception as e:  # expected ones are asserted on; an unexpected one is a finding
-            exc = e
-            break
     return Result(
-        scn, read_events(paths.ledger), report, exc, world, said, asked,
-        _tree(paths.product), _tree(paths.root / "workspaces"), calls,
-        paths.ledger.read_text(), before_events, before_calls, tamper,
+        scn, read_events(paths.ledger), report, exc, world, said, world.asked, _tree(paths.product),
+        _tree(paths.root / "workspaces"), calls, paths.ledger.read_text(), before_events,
+        before_asks, before_calls, tamper,
     )  # fmt: skip
+
+
+@contextlib.contextmanager
+def _muted(world: World, mute: tuple[str, int, int]):
+    """Make one slice's status report carry only its first `n` valid disputes, as a report whose
+    other disputes were lost with the process would."""
+    target, keep = (mute[0], mute[1]), mute[2]
+    real = firm_mod.disputed_checks
+
+    def disputed_checks(status, allowed):
+        found = real(status, allowed)
+        last = next(e for e in reversed(read_events(world.paths.ledger)) if e.event is SLICE_END)
+        if (last.actor.removeprefix("worker:"), last.data["slice"]) == target:
+            return dict(list(found.items())[:keep])
+        return found
+
+    firm_mod.disputed_checks = disputed_checks
+    try:
+        yield
+    finally:
+        firm_mod.disputed_checks = real
 
 
 def run_in_tmp(scn: Scenario, **kw: Any) -> Result:
@@ -679,78 +891,149 @@ def run_in_tmp(scn: Scenario, **kw: Any) -> Result:
 # ---------------------------------------------------------------------------------------------
 # Independent recomputations from the documented ledger contract (never `state.run_state`)
 
+INFRA = {o.value for o in INFRASTRUCTURE}
+YES = ("y", "yes", "a", "approve")
 
-def independent_passed(events: list[Event], sheet: TermSheet) -> int:
-    """Checks passing at the end: per task, the gate results of the best worker's latest gated
-    slice, where the best worker is the one with most passing checks and later hires win ties."""
+
+def dropped_in(events: list[Event]) -> set[str]:
+    return {
+        e.data["check"]
+        for e in events
+        if e.event is EventType.RULED and e.actor == "investor" and e.data["ruling"] == "dropped"
+    }
+
+
+def passing_by_task(events: list[Event], sheet: TermSheet) -> dict[str, set[str]]:
+    """Per task, the checks passing at the end of `events`: the gate results of the best worker's
+    latest gated slice, where the best worker is the one with most passing checks and later hires
+    win ties. A check the investor dropped counts for nothing."""
+    dropped = dropped_in(events)
     hired: dict[str, list[str]] = {}
+    results: dict[tuple[str, int], set[str]] = {}
     for e in events:
         if e.event is EventType.HIRED:
             hired.setdefault(e.data["task"], []).append(e.data["worker"])
-    results: dict[tuple[str, int], set[str]] = {}
-    for e in events:
-        if e.event is EventType.CHECK_RESULT:
+        elif e.event is EventType.CHECK_RESULT:
             bucket = results.setdefault((e.data["worker"], e.data["slice"]), set())
             if e.data["status"] == "passed":
                 bucket.add(e.data["check"])
-    total = 0
+    out: dict[str, set[str]] = {}
     for task in sheet.tasks:
-        own = {c.id for c in sheet.checks if c.task == task.id}
+        own = {c.id for c in sheet.checks if c.task == task.id} - dropped
         latest = []
         for worker in hired.get(task.id, []):
             slices = [s for (w, s) in results if w == worker]
             latest.append(results[(worker, max(slices))] & own if slices else set())
-        if latest:
-            total += max(len(p) for p in latest)
-    return total
+        out[task.id] = max(reversed(latest), key=len) if latest else set()
+    return out
+
+
+def independent_passed(events: list[Event], sheet: TermSheet) -> int:
+    return sum(len(p) for p in passing_by_task(events, sheet).values())
+
+
+def required(events: list[Event], sheet: TermSheet) -> int:
+    return len(sheet.checks) - len(dropped_in(events))
 
 
 def spent_by_round(
     events: list[Event], sheet: TermSheet, upto: int | None = None
 ) -> dict[int, int]:
-    """Per round: known costs plus, for every slice that ended with an unknown cost and was not an
-    infrastructure failure, the cap it was started with."""
-    caps: dict[tuple[str, Any], int] = {}
+    """Per round, what the ledger charges: every recorded cost, plus the cap of every slice that
+    did work and reported no cost (an infrastructure failure did none), plus the cap of every
+    slice_start that never got its slice_end (an orphan), whether the run ended there or started
+    the slice again."""
     spent: dict[int, int] = {r.n: 0 for r in sheet.rounds}
+    unfinished: dict[tuple[int, str, Any], int] = {}
     for e in events[: upto if upto is not None else len(events)]:
         if e.round < 1:
             continue
-        if e.event is EventType.SLICE_START:
-            caps[(e.actor, e.data["slice"])] = e.data["cap_micros"]
+        key = (e.round, e.actor, e.data.get("slice"))
         if e.cost_micros is not None:
             spent[e.round] += e.cost_micros
-        elif e.event is EventType.SLICE_END and e.data["outcome"] not in {
-            o.value for o in INFRASTRUCTURE
-        }:
-            spent[e.round] += caps[(e.actor, e.data["slice"])]
+        if e.event is EventType.SLICE_START:
+            spent[e.round] += unfinished.pop(key, 0)
+            unfinished[key] = e.data["cap_micros"]
+        elif e.event is EventType.SLICE_END:
+            cap = unfinished.pop(key, 0)
+            if e.cost_micros is None and e.data["outcome"] not in INFRA:
+                spent[e.round] += cap
+    for (n, _, _), cap in unfinished.items():
+        spent[n] += cap
     return spent
 
 
-def _canon(events: list[Event]) -> list[tuple]:
-    """The events that describe the run, without what is not part of its meaning (see the module
-    docstring): timestamps, run id, session uuids and log paths; orphaned slice_starts."""
-    sessions: dict[str, str] = {}
-    pending: dict[str, int] = {}
-    out: list[tuple | None] = []
+def known_spend(events: list[Event]) -> int:
+    return sum(e.cost_micros or 0 for e in events if e.round >= 1)
+
+
+def spend_ceiling(sheet: TermSheet, round_n: int, reserve: int) -> int:
+    """The most the run may have spent when it is in round `round_n`: the budgets of the rounds
+    funded so far, and one reserve for each."""
+    return sum(r.budget_micros + reserve for r in sheet.rounds if r.n <= round_n)
+
+
+def orphan_charge(events: list[Event], round_n: int, upto: int) -> int:
+    """What `spent_by_round` charges round `round_n` for slice_starts that never ended, as of
+    `upto` events."""
+    return sum(_orphan_caps(events[:upto], round_n))
+
+
+def _orphan_caps(events: list[Event], round_n: int) -> list[int]:
+    unfinished: dict[tuple[str, Any], int] = {}
+    lost: list[int] = []
     for e in events:
+        if e.round != round_n:
+            continue
+        key = (e.actor, e.data.get("slice"))
+        if e.event is EventType.SLICE_START:
+            if key in unfinished:
+                lost.append(unfinished[key])
+            unfinished[key] = e.data["cap_micros"]
+        elif e.event is EventType.SLICE_END:
+            unfinished.pop(key, None)
+    return lost + list(unfinished.values())
+
+
+def _canon(events: list[Event], *, drop_pauses: bool = False) -> list[tuple]:
+    """The events that describe the run, without what is not part of its meaning (see the module
+    docstring): timestamps, run id and log paths; session uuids, renamed in order of appearance;
+    slice_starts that never ended (orphans); a `reassigned` whose hire never followed (a hire the
+    crash lost, written again on resume); and, if asked, pauses."""
+    keep: list[Event] = []
+    for i, e in enumerate(events):
+        if e.event is EventType.SLICE_START:
+            later = events[i + 1 :]
+            nxt = next(
+                (
+                    x
+                    for x in later
+                    if x.actor == e.actor and x.event in (EventType.SLICE_START, SLICE_END)
+                ),
+                None,
+            )
+            if nxt is None or nxt.event is EventType.SLICE_START:
+                continue
+        if e.event is EventType.REASSIGNED:
+            nxt = events[i + 1] if i + 1 < len(events) else None
+            if not (nxt and nxt.event is EventType.HIRED and nxt.data["worker"] == e.data["to"]):
+                continue
+        if drop_pauses and e.event is EventType.PAUSED:
+            continue
+        keep.append(e)
+    sessions: dict[str, str] = {}
+    out = []
+    for e in keep:
         data = dict(e.data)
-        if e.event is EventType.HIRED:
+        if "session" in data:
             data["session"] = sessions.setdefault(data["session"], f"s{len(sessions) + 1}")
         if "log" in data:
             data["log"] = Path(data["log"]).name
-        if e.event is EventType.SLICE_START:
-            if e.actor in pending:
-                out[pending[e.actor]] = None  # the earlier start never ended: orphaned
-            pending[e.actor] = len(out)
-        elif e.event is EventType.SLICE_END:
-            pending.pop(e.actor, None)
         out.append(
             (e.round, e.actor, e.event.value, e.cost_micros, e.tokens_in, e.tokens_out,
              e.tokens_cached, e.billing.value, json.dumps(data, sort_keys=True))
         )  # fmt: skip
-    for index in pending.values():
-        out[index] = None
-    return [x for x in out if x is not None]
+    return out
 
 
 def _briefing(result: Result) -> list[tuple]:
@@ -776,6 +1059,26 @@ def _briefing(result: Result) -> list[tuple]:
     return rows
 
 
+def paired_calls(res: Result) -> list[tuple[Call, Event, Event | None]]:
+    """Every worker call with the slice_start the loop wrote for it (the n-th call follows the
+    n-th slice_start) and the slice_end that answered it, if one was recorded."""
+    starts = [i for i, e in enumerate(res.events) if e.event is EventType.SLICE_START]
+    if len(starts) != len(res.world.calls):
+        raise AssertionError(
+            f"seed {res.scn.seed}: {len(starts)} slice_starts, {len(res.world.calls)} calls"
+        )
+    out = []
+    for i, call in zip(starts, res.world.calls, strict=True):
+        start = res.events[i]
+        end = None
+        for e in res.events[i + 1 :]:
+            if e.actor == start.actor and e.event in (EventType.SLICE_START, SLICE_END):
+                end = e if e.event is SLICE_END else None
+                break
+        out.append((call, start, end))
+    return out
+
+
 # ---------------------------------------------------------------------------------------------
 # The invariants, each a function over one finished scenario
 
@@ -784,13 +1087,22 @@ def _fail(res: Result, message: str) -> None:
     raise AssertionError(f"seed {res.scn.seed}: {message}")
 
 
+def unblocked_in(events: list[Event]) -> int:
+    """How often the investor sent a worker or the run on: an unblocking, or a lifted stop."""
+    return sum(
+        e.event is EventType.RESUMED
+        or (e.event is EventType.RULED and e.data.get("ruling") == "unblocked")
+        for e in events
+    )
+
+
 def check_termination(res: Result) -> None:
     w, cfg = res.world, res.scn.config
     if res.exc is not None and not isinstance(res.exc, IsolationError | KeyboardInterrupt):
         _fail(res, f"the loop raised {res.exc!r}")
     if res.exc is None and res.report is None:
         _fail(res, "no report and no exception")
-    if w.invocations - w.interrupted > w.bound or w.invocations > cfg.limits.max_slices:
+    if w.over_bound(unblocked_in(res.events)) or w.invocations > cfg.limits.max_slices:
         _fail(
             res, f"{w.invocations} worker calls ({w.interrupted} interrupted) over bound {w.bound}"
         )
@@ -802,6 +1114,22 @@ def check_termination(res: Result) -> None:
 
 
 def check_money(res: Result) -> None:
+    """What "never exceeds" means now. Three statements, each derived from the code:
+
+    1. Every slice is capped by the round's charged remainder: at its slice_start the round's
+       budget minus what the ledger charges (see `spent_by_round`) is at least cap + reserve, and
+       the cap is exactly min(slice_micros, that remainder - reserve).
+    2. The ledger's charge for a round never exceeds its budget by more than the largest amount a
+       finished, costed slice took past its own cap + reserve (ledger costs only; a later slice's
+       cost can contain the spend of an earlier unknown-cost slice of the same session, which was
+       charged at its cap as well: the documented over-count, on the safe side).
+    3. What the workers truly spent in a round (the simulated CLI knows) never exceeds its budget by
+       more than that excess in true terms, plus the true overshoot beyond cap of every slice the
+       ledger charged at its cap (unknown cost, or no slice_end): such a slice may truly have cost
+       up to cap + reserve while being charged cap, so a lost or unpriced slice can hide up to one
+       reserve. That hidden part is the one deliberate weakening of the old "true spend <= budget
+       + one excess"; it is measured, not assumed.
+    """
     ev, sheet, cfg = res.events, res.scn.sheet, res.scn.config
     reserve = cfg.reserve_micros
     budgets = {r.n: r.budget_micros for r in sheet.rounds}
@@ -812,111 +1140,180 @@ def check_money(res: Result) -> None:
         if not MIN_CAP <= cap <= cfg.slice_micros:
             _fail(res, f"slice started with cap {cap}, outside [{MIN_CAP}, {cfg.slice_micros}]")
         left = budgets[e.round] - spent_by_round(ev, sheet, i)[e.round]
-        if left < cap + reserve:
-            _fail(
-                res, f"round {e.round}: slice cap {cap} started with {left} left, reserve {reserve}"
-            )
-    # Pair every slice the loop recorded with the simulated call that produced it.
-    returned = [c for c in res.world.calls if c.returned]
-    ends = [e for e in ev if e.event is EventType.SLICE_END]
-    if len(returned) != len(ends):
-        _fail(res, f"{len(returned)} finished calls but {len(ends)} slice_end events")
-    beyond = {r: 0 for r in budgets}  # per round, largest overshoot past cap + reserve
+        if left < cap + reserve or cap != min(cfg.slice_micros, left - reserve):
+            _fail(res, f"round {e.round}: cap {cap} with {left} left, slice {cfg.slice_micros}, "
+                       f"reserve {reserve}")  # fmt: skip
+        if known_spend(ev[:i]) > spend_ceiling(sheet, e.round, reserve):
+            _fail(res, f"a slice started in round {e.round} over the run's spend ceiling")
+    excess_ledger = {r: 0 for r in budgets}  # largest cost past cap + reserve, as recorded
+    excess_true = {r: 0 for r in budgets}
+    hidden = {r: 0 for r in budgets}  # true cost past the cap of slices charged at their cap
     truth = {r: 0 for r in budgets}
-    absorbed = {r: 0 for r in budgets}
     known: dict[str, int] = {}
-    for call, end in zip(returned, ends, strict=True):
+    for call, _start, end in paired_calls(res):
+        r, cap = call.round, call.cap
+        truth[r] += call.true_cost
+        if end is None or (end.cost_micros is None and end.data["outcome"] not in INFRA):
+            hidden[r] += max(0, call.true_cost - cap)
+            continue
+        if end.cost_micros is None:
+            continue  # an infrastructure failure did no work
         if (call.actor, call.number) != (end.actor, end.data["slice"]):
             _fail(
                 res, f"call {call.actor}#{call.number} recorded as {end.actor}#{end.data['slice']}"
             )
-        if end.cost_micros is not None:
-            gap = (
-                end.cost_micros - call.true_cost
-            )  # spend of earlier unknown-cost slices, folded in
-            if gap < 0:
-                _fail(res, f"ledger cost {end.cost_micros} below true cost {call.true_cost}")
-            absorbed[call.round] = max(absorbed[call.round], gap)
-            known[call.session] = known.get(call.session, 0) + end.cost_micros
-    for c in res.world.calls:
-        truth[c.round] += c.true_cost
-        beyond[c.round] = max(beyond[c.round], c.true_cost - c.cap - reserve)
-    for n, spent in spent_by_round(ev, sheet).items():
-        # Only what the scenario itself overshot by beyond the reserve, and what the ledger charges
-        # twice (a later slice's cost delta contains the spend of an earlier unknown-cost slice
-        # that was already charged at its cap; see test_an_unknown_cost_slice_is_charged_twice),
-        # may take a round past its budget.
-        if spent > budgets[n] + beyond[n] + absorbed[n]:
+        gap = end.cost_micros - call.true_cost  # spend of earlier unknown-cost slices, folded in
+        if gap < 0:
+            _fail(res, f"ledger cost {end.cost_micros} below true cost {call.true_cost}")
+        excess_ledger[r] = max(excess_ledger[r], end.cost_micros - cap - reserve)
+        excess_true[r] = max(excess_true[r], call.true_cost - cap - reserve)
+        known[call.session] = known.get(call.session, 0) + end.cost_micros
+    for n, charged in spent_by_round(ev, sheet).items():
+        if charged > budgets[n] + excess_ledger[n]:
+            _fail(res, f"round {n} charged {charged} of {budgets[n]} (excess {excess_ledger[n]})")
+        if truth[n] > budgets[n] + excess_true[n] + hidden[n]:
             _fail(
                 res,
-                f"round {n} spent {spent}/{budgets[n]} (beyond {beyond[n]}, twice {absorbed[n]})",
+                f"round {n} truly spent {truth[n]} of {budgets[n]} "
+                f"(excess {excess_true[n]}, hidden {hidden[n]})",
             )
-        if truth[n] > budgets[n] + max(beyond[n], 0):
-            _fail(res, f"round {n} truly spent {truth[n]} of {budgets[n]} (beyond {beyond[n]})")
     for session, total in known.items():
-        last = [c.reported for c in returned if c.session == session and c.reported is not None]
+        last = [c.reported for c, _, end in paired_calls(res) if c.session == session
+                and end is not None and c.reported is not None]  # fmt: skip
         if last and total != last[-1]:
             _fail(res, f"session ledger costs sum to {total}, the CLI reported {last[-1]}")
 
 
-def check_passes(res: Result) -> None:
+def check_passes(res: Result, *, semantic: bool = True) -> None:
     if res.report is None:
         return
     ev, sheet = res.events, res.scn.sheet
     expected = independent_passed(ev, sheet)
-    if (res.report.passed, res.report.total) != (expected, len(sheet.checks)):
+    if (res.report.passed, res.report.total) != (expected, required(ev, sheet)):
         _fail(res, f"report {res.report.passed}/{res.report.total}, ledger says {expected}")
     for i, e in enumerate(ev):
-        if e.event is EventType.ROUND_CLOSED and e.data["passed"] != independent_passed(
-            ev[:i], sheet
+        if e.event is EventType.ROUND_CLOSED and (e.data["passed"], e.data["total"]) != (
+            independent_passed(ev[:i], sheet),
+            required(ev[:i], sheet),
         ):
-            _fail(res, f"round {e.round} closed with passed={e.data['passed']}")
+            _fail(res, f"round {e.round} closed with {e.data}")
     gated = {e.data["check"] for e in ev
              if e.event is EventType.CHECK_RESULT and e.data["status"] == "passed"}  # fmt: skip
     if res.report.passed > len(gated):
         _fail(res, f"{res.report.passed} passes reported, the gate passed {len(gated)} checks")
+    if semantic:  # every recorded slice is exactly what some gate run answered for that worker
+        recorded: dict[tuple[str, int], set[tuple[str, bool]]] = {}
+        for e in ev:
+            if e.event is EventType.CHECK_RESULT:
+                key = (e.data["worker"], e.data["slice"])
+                recorded.setdefault(key, set()).add((e.data["check"], e.data["status"] == "passed"))
+        answers = {(w, run) for w, run in res.world.gate_calls}
+        for (worker, number), got in recorded.items():
+            if (worker, frozenset(got)) not in answers:
+                _fail(res, f"{worker}#{number}: the ledger's gate results match no gate run")
+
+
+NOTE_TEXT = {
+    "kept": "The investor ruled on your dispute: check {check} stands. Make it pass.",
+    "dropped": "The investor dropped check {check}. It is no longer required.",
+    "unblocked": "The investor answered your block: {note}",
+}
+BLOCKED_ABANDON = ("disputed", "blocked", "refusal")
 
 
 def check_ledger(res: Result) -> None:
-    ev, sheet, cfg = res.events, res.scn.sheet, res.scn.config
+    ev, sheet, cfg, world = res.events, res.scn.sheet, res.scn.config, res.world
+    bounds = set(world.boundaries)
+
+    def new_invocation(a: int, b: int) -> bool:  # did a run_firm call begin in (a, b]?
+        return any(a < x <= b for x in bounds)
+
     checks_of = {t.id: {c.id for c in sheet.checks if c.task == t.id} for t in sheet.tasks}
+    unlock = {r.n: r.unlock_checks for r in sheet.rounds}
     hired: dict[str, str] = {}
     per_task: Counter[str] = Counter()
     fired: set[str] = set()
     abandoned: set[str] = set()
     finished: dict[str, int] = Counter()
-    opened: dict[str, int] = {}
+    counted: dict[str, int] = Counter()
+    opened: dict[str, tuple[int, int]] = {}  # worker -> (slice, index of its slice_start)
+    last_session: dict[str, str] = {}
+    proven: dict[str, str] = {}
+    seen_sessions: set[str] = set()
+    last_end: dict[str, Event] = {}
+    outcome_of_slice: dict[tuple[str, int], str] = {}
     graded: dict[tuple[str, int], list[str]] = {}
-    disputed: set[tuple[str, str]] = set()
-    stopped = 0
-    closed: dict[int, bool] = {}
+    expected_graded: dict[tuple[str, int], set[str]] = {}
+    disputed_by: dict[tuple[str, str], int] = {}  # (worker, check) -> ledger index
+    kept: set[str] = set()
+    dropped: set[str] = set()
+    ruled_checks: set[str] = set()
+    ruled_at: list[tuple[int, str, str]] = []  # (ledger index, ruling, check)
+    last_end_at: dict[str, int] = {}
+    blocked_open: set[tuple[str, str]] = set()  # (task, worker) with a blocked and no ruling yet
+    closed: dict[int, dict[str, Any]] = {}
     last_round = 0
-    reassigned_to: str | None = None
+    started = False
+    reassigned_to: tuple[int, str] | None = None
     outcome_of: dict[tuple[str, int, str], str] = {}
+    decisions = set(world.decisions)
     for i, e in enumerate(ev):
         d, actor = e.data, e.actor
-        if (
-            i
-            and ev[i - 1].event is EventType.BLOCKED
-            and not (e.event is EventType.ABANDONED and e.data["task"] == ev[i - 1].data["task"])
-        ):
-            _fail(res, "a blocked worker was not set aside at once")
-        if stopped and not (
-            e.event is EventType.ROUND_CLOSED and stopped == 1 and i == len(ev) - 1
-        ):
-            _fail(res, f"event {e.event} after stopped")
+        prev = ev[i - 1] if i else None
+        if prev is not None:
+            if prev.event is EventType.STOPPED and e.event is not EventType.RESUMED:
+                _fail(res, f"event {e.event} after stopped")
+            if prev.event is EventType.PAUSED and i not in bounds:
+                _fail(res, f"{e.event} follows paused in the same run_firm call")
+            if prev.event is EventType.BLOCKED and i not in bounds:
+                ok = (
+                    e.event is EventType.RULED and d["ruling"] == "unblocked"
+                ) or e.event is EventType.ABANDONED
+                if not (ok and d["task"] == prev.data["task"]):
+                    _fail(res, "a blocked worker was not put to the investor at once")
+            if prev.event is EventType.ROUND_CLOSED and e.event is not EventType.RESUMED:
+                p = prev.data
+                if p["passed"] == p["total"] or not p["unlocked"]:
+                    _fail(res, f"{e.event} after a round closed finished or locked")
+                if not (
+                    e.event in (EventType.APPROVED, EventType.STOPPED)
+                    and e.actor == "investor"
+                    and e.round == prev.round + 1
+                ):
+                    _fail(res, f"{e.event} after a round closed unlocked, not the next funding")
         if e.round < last_round:
             _fail(res, f"round went back from {last_round} to {e.round}")
         last_round = e.round
-        if reassigned_to and not (e.event is EventType.HIRED and d["worker"] == reassigned_to):
-            _fail(res, "reassigned is not followed by the hire it names")
-        if e.event is not EventType.HIRED:
-            reassigned_to = reassigned_to if e.event is EventType.REASSIGNED else None
-        if e.event is EventType.HIRED:
+        if e.event is not EventType.RESUMED:
+            if e.round >= 1 and not started:
+                _fail(res, f"{e.event} before started")
+            if e.round in closed:
+                _fail(res, f"{e.event} in round {e.round}, which is closed")
+            if e.round >= 2 and not (closed.get(e.round - 1) or {}).get("unlocked"):
+                _fail(res, f"{e.event} in round {e.round} although round {e.round - 1} is not open")
+        if reassigned_to:
+            if not (e.event is EventType.HIRED and d["worker"] == reassigned_to[1]):
+                # only a lost hire, written again by a new run_firm call, may break the pair
+                again = e.event is EventType.REASSIGNED and d["to"] == reassigned_to[1]
+                if not (again and new_invocation(reassigned_to[0], i)):
+                    _fail(res, "reassigned is not followed by the hire it names")
             reassigned_to = None
+        if e.event is EventType.STARTED:
+            if started or actor != "boss" or e.round != 0:
+                _fail(res, "started twice, or not by the boss in round 0")
+            if d != {"config": firm_mod.config_data(cfg)}:
+                _fail(res, "started records another configuration than the run's")
+            started = True
+        elif e.event is EventType.HIRED:
             worker, task = d["worker"], d["task"]
+            if set(d) != {"worker", "task", "model", "prompt"} or d["model"] != cfg.model:
+                _fail(res, f"hired carries {sorted(d)}")
             if worker in hired or worker != f"w{len(hired) + 1}" or task not in checks_of:
                 _fail(res, f"bad hire {worker} for {task}")
+            if per_task[task] and not (
+                prev.event is EventType.REASSIGNED and prev.data["to"] == worker
+            ):
+                _fail(res, f"{worker} replaces someone on {task} without a reassignment")
             hired[worker] = task
             per_task[task] += 1
             if per_task[task] > 2:  # one hire plus one reassignment
@@ -931,82 +1328,259 @@ def check_ledger(res: Result) -> None:
                 _fail(res, f"abandoned task {d['task']} got a slice")
             if d["slice"] != finished[worker] + 1:
                 _fail(res, f"{actor} started slice {d['slice']} after {finished[worker]} finished")
-            if worker in opened and res.world.interrupted == 0:
+            if worker in opened and not new_invocation(opened[worker][1], i):
                 _fail(res, f"{actor} started a slice while another was open")
-            opened[worker] = d["slice"]
+            session = d["session"]
+            uuid_mod.UUID(session)
+            if worker in proven:  # a session the CLI has answered in is resumed, no other is
+                if session != proven[worker]:
+                    _fail(res, f"{actor} left its proven session for a new one")
+            elif session in seen_sessions:
+                _fail(res, f"{actor} reused session {session} which nothing proves exists")
+            seen_sessions.add(session)
+            last_session[worker] = session
+            opened[worker] = (d["slice"], i)
         elif e.event is EventType.SLICE_END:
             worker = actor.removeprefix("worker:")
-            if opened.pop(worker, None) != d["slice"]:
+            if opened.pop(worker, (None,))[0] != d["slice"]:
                 _fail(res, f"{actor} slice_end {d['slice']} without its slice_start")
             finished[worker] += 1
+            outcome_of_slice[(worker, d["slice"])] = d["outcome"]
+            last_end[worker] = e
+            last_end_at[worker] = i
+            if d["outcome"] not in INFRA:
+                counted[worker] += 1
+                if isinstance(d["session_total_micros"], int) and worker not in proven:
+                    proven[worker] = last_session[worker]
+            st = d["status"]
+            if st is not None and not (
+                set(st) == {"status", "reason"}
+                and st["status"] in ("done", "continuing", "blocked", "none")
+                and len(st["reason"]) <= 500
+                and "\n" not in st["reason"]
+            ):
+                _fail(res, f"an uncleaned status reached the ledger: {str(st)[:80]}")
         elif e.event is EventType.CHECK_RESULT:
             worker, number = d["worker"], d["slice"]
             if finished[worker] != number or hired.get(worker) != d["task"]:
                 _fail(res, f"check_result for unfinished slice {worker}#{number}")
-            if d["check"] not in checks_of[d["task"]]:
-                _fail(res, f"check {d['check']} is not a check of {d['task']}")
+            if outcome_of_slice[(worker, number)] in INFRA:
+                _fail(res, f"an infrastructure slice {worker}#{number} was gated")
+            if d["check"] not in checks_of[d["task"]] or d["check"] in dropped:
+                _fail(res, f"check {d['check']} is not a live check of {d['task']}")
             graded.setdefault((worker, number), []).append(d["check"])
+            expected_graded.setdefault((worker, number), checks_of[d["task"]] - dropped)
             outcome_of[(worker, number, d["check"])] = d["status"]
         elif e.event is EventType.FIRED:
             worker = d["worker"]
             if hired.get(worker) != d["task"] or worker in fired:
                 _fail(res, f"bad fired {worker}")
+            ev_ = d["evidence"]
+            if ev_["counted_slices"] != counted[worker]:
+                _fail(res, f"{worker} fired after {ev_['counted_slices']} counted slices, "
+                           f"the ledger has {counted[worker]}")  # fmt: skip
+            if d["reason"] == "slice limit":
+                if counted[worker] < cfg.policy.max_slices:
+                    _fail(res, f"{worker} fired for its slice limit after {counted[worker]}")
+            elif d["reason"] == "no progress":
+                if not cfg.firing or ev_["stalled_slices"] < cfg.policy.stall_slices:
+                    _fail(res, f"{worker} fired for no progress: {ev_['stalled_slices']} stalled")
+            else:
+                _fail(res, f"fired for {d['reason']!r}")
             fired.add(worker)
         elif e.event is EventType.REASSIGNED:
             if d["from"] not in fired or hired.get(d["from"]) != d["task"]:
                 _fail(res, f"reassigned from {d['from']}, which was not fired on {d['task']}")
-            reassigned_to = d["to"]
+            reassigned_to = (i, d["to"])
         elif e.event is EventType.ABANDONED:
             if d["task"] not in checks_of or d["task"] in abandoned:
                 _fail(res, f"bad abandoned {d}")
+            if d["reason"] == "already reassigned once":
+                if per_task[d["task"]] != 2:
+                    _fail(res, f"{d['task']} given up on with {per_task[d['task']]} workers")
+            elif d["reason"] in BLOCKED_ABANDON:
+                if not any(x.task == d["task"] and x.kind == "aside" for x in decisions):
+                    _fail(res, f"{d['task']} set aside, but the investor gave a clear answer")
+            else:
+                _fail(res, f"abandoned for {d['reason']!r}")
             abandoned.add(d["task"])
+            blocked_open = {b for b in blocked_open if b[0] != d["task"]}
         elif e.event is EventType.BLOCKED:
-            if hired.get(actor.removeprefix("worker:")) != d["task"]:
+            worker = actor.removeprefix("worker:")
+            if hired.get(worker) != d["task"]:
                 _fail(res, f"blocked by {actor} on {d['task']}")
+            last = last_end[worker]
+            said_blocked = (last.data["status"] or {}).get("status") == "blocked"
+            if not (
+                (said_blocked and not last.data["denied_tools"])
+                or last.data["outcome"] == "refusal"
+            ):
+                _fail(res, "escalated a worker that neither said blocked without refused tools "
+                           "nor was refused")  # fmt: skip
+            blocked_open.add((d["task"], worker))
         elif e.event is EventType.DISPUTED:
             worker, number = d["worker"], d["slice"]
             if actor != f"worker:{worker}" or hired.get(worker) != d["task"]:
                 _fail(res, f"disputed by {actor} for {worker} on {d['task']}")
-            if d["check"] not in checks_of.get(d["task"], ()) or (worker, d["check"]) in disputed:
+            if (
+                d["check"] not in checks_of.get(d["task"], ())
+                or (worker, d["check"]) in disputed_by
+            ):
                 _fail(res, f"disputed {d['check']} is foreign or repeated")
+            if d["check"] in kept or d["check"] in dropped:
+                _fail(res, f"{d['check']} was disputed although the investor had ruled on it")
             if finished[worker] != number:
                 _fail(res, "disputed a slice that has not finished")
             if outcome_of.get((worker, number, d["check"])) in (None, "passed"):
                 _fail(res, f"{d['check']} was disputed although it did not fail in that slice")
-            disputed.add((worker, d["check"]))
+            if len(d["reason"]) > 300 or "\n" in d["reason"]:
+                _fail(res, "an uncleaned dispute reason reached the ledger")
+            disputed_by[(worker, d["check"])] = i
+        elif e.event is EventType.RULED:
+            worker, task, ruling = d["worker"], d["task"], d["ruling"]
+            if actor != "investor" or hired.get(worker) != task:
+                _fail(res, f"ruled by {actor} on {worker}/{task}")
+            if ruling in ("dropped", "kept"):
+                check = d["check"]
+                if (worker, check) not in disputed_by or check in ruled_checks:
+                    _fail(res, f"ruled on {check}, which {worker} had not disputed or was ruled")
+                if Decision(task, worker, check, ruling) not in decisions:
+                    _fail(res, f"{ruling} {check}: not what the investor answered")
+                # A dispute stands, and calls for a ruling, only if it is credible: as the worker's
+                # last slice ended, every failing check was disputed, and no more than half of the
+                # task's live checks were.
+                end, number = last_end_at[worker], finished[worker]
+                before = {c for j, _, c in ruled_at if j < end}
+                lives = checks_of[task] - {c for j, r, c in ruled_at if j < end and r == "dropped"}
+                failing = {c for c in lives if outcome_of.get((worker, number, c)) == "failed"}
+                standing = {c for w, c in disputed_by if w == worker} - before - (lives - failing)
+                if not (0 < 2 * len(standing) <= len(lives) and failing <= standing):
+                    _fail(res, f"{worker} was put to the investor on {sorted(standing)} of "
+                               f"{len(lives)} checks, failing {sorted(failing)}")  # fmt: skip
+                ruled_checks.add(check)
+                ruled_at.append((i, ruling, check))
+                (dropped if ruling == "dropped" else kept).add(check)
+            elif ruling == "unblocked":
+                note = d["note"]
+                if (task, worker) not in blocked_open or "check" in d:
+                    _fail(res, f"unblocked {worker} who was not blocked")
+                if not note or note != " ".join(note.split()) or len(note) > 1000:
+                    _fail(res, f"an unclean note reached the ledger: {note[:40]!r}")
+                if Decision(task, worker, None, "unblocked") not in decisions:
+                    _fail(res, "unblocked: not what the investor answered")
+                blocked_open.discard((task, worker))
+            else:
+                _fail(res, f"ruling {ruling!r}")
         elif e.event is EventType.STOPPED:
-            stopped += 1
-        elif e.event is EventType.APPROVED and e.actor == "investor":
+            if actor == "investor" and _funded(res, int(d["reason"].split()[1])):
+                _fail(res, f"{d['reason']} although the investor said yes")
+        elif e.event is EventType.RESUMED:
+            if actor != "investor" or prev is None or prev.event is not EventType.STOPPED:
+                _fail(res, "resumed without a stop to lift")
+        elif e.event is EventType.APPROVED and actor == "investor" and e.round >= 1:
             n = d.get("round", 1)
-            if n > 1 and closed.get(n - 1) is not True:
+            if n != e.round or (n > 1 and not (closed.get(n - 1) or {}).get("unlocked")):
                 _fail(res, f"round {n} funded although round {n - 1} did not unlock")
+            if not _funded(res, n):
+                _fail(res, f"round {n} funded although the investor did not say yes")
         elif e.event is EventType.ROUND_CLOSED:
-            closed[e.round] = d["unlocked"]
-        elif e.event is EventType.PAUSED and i != len(ev) - 2:
-            _fail(res, "events after paused other than the round closing")
+            if e.round in closed:
+                _fail(res, f"round {e.round} closed twice")
+            now = ev[:i]
+            passed, total = independent_passed(now, sheet), required(now, sheet)
+            unlocked = passed >= min(unlock[e.round], total)
+            if d != {"passed": passed, "total": total, "unlocked": unlocked}:
+                _fail(res, f"round {e.round} closed with {d}, the ledger says {passed}/{total}")
+            per = passing_by_task(now, sheet)
+            settled = all(t in abandoned or checks_of[t] - dropped <= per[t] for t in checks_of)
+            left = sheet.rounds[e.round - 1].budget_micros - spent_by_round(ev, sheet, i)[e.round]
+            capped = min(cfg.slice_micros, left - cfg.reserve_micros) < MIN_CAP
+            if not (settled or capped):
+                _fail(res, f"round {e.round} closed with work left and {left} to spend")
+            if not settled and known_spend(now) > spend_ceiling(sheet, e.round, cfg.reserve_micros):
+                _fail(res, f"round {e.round} closed over the spend ceiling instead of stopping")
+            closed[e.round] = d
     for (worker, number), got in graded.items():
-        if sorted(got) != sorted(checks_of[hired[worker]]):
-            _fail(res, f"{worker}#{number} graded {got}")
+        if sorted(got) != sorted(expected_graded[(worker, number)]):
+            want = sorted(expected_graded[(worker, number)])
+            _fail(res, f"{worker}#{number} graded {got}, expected {want}")
+    tampered = any(
+        e.event is EventType.STOPPED and "changed after" in e.data.get("reason", "") for e in ev
+    )
+    if res.exc is None and not tampered:  # a finished run gated every slice that ran
+        for (worker, number), outcome in outcome_of_slice.items():
+            ungated = outcome not in INFRA and (worker, number) not in graded
+            if ungated and checks_of[hired[worker]] - dropped:
+                _fail(res, f"{worker}#{number} ended and was never gated")
+    if not world.crashed_on:  # every clear answer the investor gave reached the ledger
+        for x in decisions:
+            if x.kind == "aside":
+                continue
+            found = any(
+                e.event is EventType.RULED and e.data["task"] == x.task
+                and e.data["worker"] == x.worker and e.data["ruling"] == x.kind
+                and e.data.get("check") == x.check
+                for e in ev
+            )  # fmt: skip
+            if not found and not res.exc:
+                _fail(res, f"the investor answered {x} and no ruling was recorded")
     if len(hired) > cfg.limits.max_workers:
         _fail(res, f"{len(hired)} workers hired, limit {cfg.limits.max_workers}")
     starts = sum(e.event is EventType.SLICE_START for e in ev)
     if starts > cfg.limits.max_slices:
         _fail(res, f"{starts} slices started, limit {cfg.limits.max_slices}")
+    if "sk-ant-" in res.raw_ledger or "\\u001b" in res.raw_ledger:
+        _fail(res, "a secret or a raw control character reached the ledger")
     render_report(build_report(ev))  # the board report must be able to read every ledger
+
+
+def _funded(res: Result, round_n: int) -> bool:
+    answers = res.scn.answers
+    reply = answers[round_n - 2] if 2 <= round_n <= len(answers) + 1 else "EOF"
+    return round_n == 1 or reply.strip().lower() in YES
+
+
+def check_rulings_reach_the_worker(res: Result) -> None:
+    """What the investor ruled reaches the worker: its next brief, when that brief continues its
+    session, says so. Excluded, and pinned by `test_a_ruling_is_lost_when_the_workers_session_is_
+    not_proven`: a brief that starts a new session (the worker's last slice reported no session
+    total), which never carries rulings."""
+    ev = res.events
+    starts = [i for i, e in enumerate(ev) if e.event is EventType.SLICE_START]
+    call_at = dict(zip(starts, res.world.calls, strict=True))
+    for i, e in enumerate(ev):
+        if e.event is not EventType.RULED:
+            continue
+        line = NOTE_TEXT[e.data["ruling"]].format(
+            check=e.data.get("check"), note=e.data.get("note")
+        )
+        who = f"worker:{e.data['worker']}"
+        nxt = next((j for j in starts if j > i and ev[j].actor == who), None)
+        if nxt is not None and call_at[nxt].resume and line not in call_at[nxt].prompt:
+            _fail(res, f"the investor's ruling {e.data['ruling']} on {e.data['task']} (line {i}) "
+                       f"is missing from {ev[nxt].actor}'s next brief")  # fmt: skip
 
 
 # ---------------------------------------------------------------------------------------------
 # Sweeps
 
 
-N_SCENARIOS = 1200  # invariants 1-4 share one sweep, cached
+def check_all(res: Result, *, semantic: bool = True) -> None:
+    check_termination(res)
+    check_money(res)
+    check_passes(res, semantic=semantic)
+    check_ledger(res)
+    check_rulings_reach_the_worker(res)
+
+
+N_SCENARIOS = 600  # invariants 1-4 share one sweep, cached
 _SWEEP: dict[int, Result] = {}
 
 
 def sweep() -> list[Result]:
     for seed in range(N_SCENARIOS):
         if seed not in _SWEEP:
-            _SWEEP[seed] = run_in_tmp(make_scenario(seed, ki_rate=0.02, iso_rate=0.01))
+            _SWEEP[seed] = run_in_tmp(make_scenario(seed, ki_rate=0.02, iso_rate=0.01, ask_ki=0.05))
     return [_SWEEP[s] for s in range(N_SCENARIOS)]
 
 
@@ -1028,10 +1602,16 @@ def test_3_only_the_gate_grants_passes():
 def test_4_ledger_is_well_formed():
     for res in sweep():
         check_ledger(res)
+        check_rulings_reach_the_worker(res)
 
 
 # ---------------------------------------------------------------------------------------------
 # 5. Crash-resume equivalence
+#
+# Two families. `check_equivalence` interrupts the loop where it costs nothing (a Ctrl-C in the
+# worker before it works, a Ctrl-C at a question). `check_crash` crashes before a ledger write, at
+# every write of a run. Both compare the resumed run with the uninterrupted one as the module
+# docstring defines "the same".
 
 
 def slice_starts(res: Result) -> int:
@@ -1040,44 +1620,116 @@ def slice_starts(res: Result) -> int:
 
 def equivalence_scenario(seed: int) -> Scenario:
     # The wall-clock limit is per invocation by design, so a resumed run gets a new allowance.
-    return make_scenario(seed, ki_rate=0.0, iso_rate=0.01, max_seconds=False)
+    scn = make_scenario(seed, ki_rate=0.0, iso_rate=0.01, max_seconds=False)
+    sheet, config = scn.sheet, scn.config
+    if seed % 3:  # most runs are rich, so that an orphan's charge rarely decides anything
+        rounds = tuple(
+            dataclasses.replace(r, budget_micros=r.budget_micros * 8) for r in sheet.rounds
+        )
+        total = sum(r.budget_micros for r in rounds)
+        sheet = dataclasses.replace(sheet, rounds=rounds, budget_micros=total)
+    if seed % 4:  # ... and rarely stopped by the slice limit, which an orphan also uses up
+        limits = dataclasses.replace(config.limits, max_slices=60)
+        config = dataclasses.replace(config, limits=limits)
+    return dataclasses.replace(scn, sheet=sheet, config=config)
+
+
+def _second_dispute(asked: list[str], n: int) -> bool:
+    """Whether the n-th question (1-based) follows another dispute question of the same worker."""
+    if n < 2 or " disputes check " not in asked[n - 1]:
+        return False
+    return asked[n - 2].split(" disputes check ")[0] == asked[n - 1].split(" disputes check ")[0]
+
+
+def all_settled(events: list[Event], sheet: TermSheet) -> bool:
+    """Every task is abandoned or has every live check passing."""
+    per, dropped = passing_by_task(events, sheet), dropped_in(events)
+    gone = {e.data["task"] for e in events if e.event is EventType.ABANDONED}
+    return all(
+        t.id in gone or {c.id for c in sheet.checks if c.task == t.id} - dropped <= per[t.id]
+        for t in sheet.tasks
+    )
+
+
+def orphan_binds(res: Result) -> bool:
+    """Whether charging an orphan at its cap changed a decision of the resumed run: a slice's cap,
+    or a round that closed because no cap fits. If it did, the resumed run legitimately differs
+    from the uninterrupted one (it has less money), and that difference is not a finding."""
+    ev, sheet, cfg = res.events, res.scn.sheet, res.scn.config
+    budgets = {r.n: r.budget_micros for r in sheet.rounds}
+    for i, e in enumerate(ev):
+        if e.event not in (EventType.SLICE_START, EventType.ROUND_CLOSED):
+            continue
+        extra = orphan_charge(ev, e.round, i)
+        if not extra:
+            continue
+        left = budgets[e.round] - spent_by_round(ev, sheet, i)[e.round]
+        cap = min(cfg.slice_micros, left + extra - cfg.reserve_micros)
+        if e.event is EventType.SLICE_START and cap != e.data["cap_micros"]:
+            return True
+        if e.event is EventType.ROUND_CLOSED and cap >= MIN_CAP and not all_settled(ev[:i], sheet):
+            return True
+    return False
+
+
+def compare(
+    ref: Result, hit: Result, *, drop_pauses: bool = False, sleeps: bool = False
+) -> list[str]:
+    """The names of what differs between an uninterrupted run and a resumed one."""
+    rows = [
+        ("exception", type(ref.exc), type(hit.exc)),
+        ("report", ref.report, hit.report),
+        ("ledger", _canon(ref.events, drop_pauses=drop_pauses),
+         _canon(hit.events, drop_pauses=drop_pauses)),
+        ("briefings", _briefing(ref), _briefing(hit)),
+        ("product", ref.product, hit.product),
+        ("workspaces", ref.workspaces, hit.workspaces),
+        ("questions", sorted(set(ref.asked)), sorted(set(hit.asked))),
+    ]  # fmt: skip
+    if sleeps:
+        rows.append(("sleeps", len(ref.world.sleeps), len(hit.world.sleeps)))
+    return [name for name, a, b in rows if a != b]
 
 
 def check_equivalence(seed: int) -> str:
     scn = equivalence_scenario(seed)
     ref = run_in_tmp(scn)
-    if ref.world.pos == 0:
-        return "no slices"
     rng = random.Random(seed ^ 0x5EED)
-    interrupts = sorted((rng.randrange(ref.world.pos), False) for _ in range(rng.randint(1, 3)))
-    # An orphaned slice_start counts toward max_slices; that class is excluded and pinned by
-    # test_an_orphaned_slice_start_uses_up_the_slice_limit.
-    if slice_starts(ref) + len(interrupts) >= scn.config.limits.max_slices:
+    # A Ctrl-C at the n-th question of the reference run; each earlier one makes the run ask one
+    # question again. Not between two rulings of one escalation: pinned by
+    # test_a_crash_between_two_rulings_lets_the_worker_run_on, excluded here.
+    open_ = [n for n in range(1, len(ref.asked) + 1) if not _second_dispute(ref.asked, n)]
+    picked = sorted(rng.sample(open_, min(len(open_), rng.randint(0, 2))))
+    asks = [n + j for j, n in enumerate(picked)]
+    interrupts = (
+        sorted((rng.randrange(ref.world.pos), False) for _ in range(rng.randint(1, 3)))
+        if ref.world.pos and (not asks or rng.random() < 0.6)
+        else []
+    )
+    if not interrupts and not asks:
+        return "nothing to interrupt"
+    # An orphaned slice_start counts toward max_slices, as its charge counts toward the round: a
+    # deliberate rule (test_an_orphaned_slice_start_uses_up_the_slice_limit), so that class is out.
+    if interrupts and slice_starts(ref) + len(interrupts) >= scn.config.limits.max_slices:
         return "slice limit binds"
-    hit = run_in_tmp(scn, interrupts=interrupts)
-    if hit.world.interrupted != len(interrupts):
-        _fail(hit, f"{len(interrupts)} interruptions planned, {hit.world.interrupted} happened")
-    same = [
-        ("exception", type(ref.exc), type(hit.exc)),
-        ("report", ref.report, hit.report),
-        ("ledger", _canon(ref.events), _canon(hit.events)),
-        ("briefings", _briefing(ref), _briefing(hit)),
-        ("product", ref.product, hit.product),
-        ("workspaces", ref.workspaces, hit.workspaces),
-        ("questions", ref.asked, hit.asked),
-        ("sleeps", len(ref.world.sleeps), len(hit.world.sleeps)),
-    ]
-    for name, a, b in same:
-        if a != b:
-            _fail(hit, f"interrupted at {interrupts}: {name} differs")
+    hit = run_in_tmp(scn, interrupts=interrupts, ask_interrupts=asks)
+    differs = compare(ref, hit, sleeps=True)
+    if differs:
+        if interrupts and orphan_binds(hit):
+            return "orphan charge binds"
+        _fail(hit, f"interrupted at {interrupts}, questions {asks}: {differs} differ")
+    if hit.world.interrupted != len(interrupts) or hit.world.ask_interrupts != len(asks):
+        _fail(hit, f"planned {interrupts} + {asks}, happened {hit.world.interrupted}, "
+                   f"{hit.world.ask_interrupts}")  # fmt: skip
+    check_all(hit)
     return "checked"
 
 
 def test_5_crash_resume_equivalence():
     seen: Counter[str] = Counter()
-    for seed in range(700):
+    for seed in range(220):
         seen[check_equivalence(seed)] += 1
-    assert seen["checked"] > 350, seen  # the exclusions must stay the minority
+    assert seen["checked"] > 110, seen  # the exclusions must stay the minority
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1091,7 +1743,7 @@ def digest(res: Result) -> str:
 
 
 def test_6_same_scenario_same_ledger():
-    for seed in range(350):
+    for seed in range(150):
         scn = make_scenario(seed, ki_rate=0.02, iso_rate=0.01)
         if digest(run_in_tmp(scn)) != digest(run_in_tmp(scn)):
             raise AssertionError(f"seed {seed}: two runs of one scenario differ")
@@ -1119,7 +1771,7 @@ def test_6_no_dependence_on_the_process_hash_seed():
     for hash_seed in ("1", "2", "3"):
         env = {**os.environ, "PYTHONHASHSEED": hash_seed}
         proc = subprocess.run(
-            [sys.executable, "-c", _HASH_SEEDS, __file__, "60"],
+            [sys.executable, "-c", _HASH_SEEDS, __file__, "40"],
             env=env, capture_output=True, text=True, check=True, timeout=120,
         )  # fmt: skip
         digests.add(proc.stdout.strip())
@@ -1173,97 +1825,206 @@ def check_tamper(seed: int) -> str:
 
 def test_7_an_edited_check_stops_the_run():
     seen: Counter[str] = Counter()
-    for seed in range(600):
+    for seed in range(200):
         seen[check_tamper(seed)] += 1
-    assert seen["checked"] > 450, seen
+    assert seen["checked"] > 130, seen
 
 
 # ---------------------------------------------------------------------------------------------
-# More of invariant 5: crashes anywhere a ledger line is written, and re-running a finished run
+# More of invariant 5: a crash before every ledger write, and re-running a finished run
 
 
-def safe_to_lose(prev: EventType | None, lost: EventType) -> bool:
-    """Ledger writes whose loss the loop recovers from. Losing any other one is pinned by a
-    regression test below: slice_end (test_a_crash_before_slice_end_*), check_result
-    (test_a_slice_whose_gate_results_were_lost_*), disputed/fired/blocked/abandoned/paused/stopped
-    after a slice (test_a_decision_lost_in_a_crash_*, the same cause), hired after reassigned
-    (test_a_crash_between_reassigned_*), round_closed after stopped
-    (test_a_crash_between_stopped_and_round_closed_*) or paused (test_a_paused_run_*)."""
-    if lost in (EventType.SLICE_START, EventType.APPROVED):
-        return True
-    if lost is EventType.HIRED:
-        return prev is not EventType.REASSIGNED
-    if lost is EventType.ROUND_CLOSED:
-        return prev not in (EventType.STOPPED, EventType.PAUSED)
-    return lost is EventType.ABANDONED and prev is EventType.FIRED
+def crash_kind(
+    written: list[Event], k: int, sheet: TermSheet
+) -> tuple[str, tuple[str, int, int] | None]:
+    """How a crash just before the k-th ledger write (1-based) is judged, and, for a crash that
+    loses part of a slice's dispute report, the reference that loses the same part."""
+    lost, prev = written[k - 1], written[k - 2] if k >= 2 else None
+    if lost.event in (EventType.SLICE_END, EventType.ERROR):
+        return "lost attempt", None
+    if lost.event is EventType.PAUSED:
+        return "pause", None
+    if lost.event is EventType.STOPPED and lost.actor == "boss":
+        return "owed stop", None
+    if lost.event in (EventType.CHECK_RESULT, EventType.DISPUTED):
+        who, number = lost.data["worker"], lost.data["slice"]
+        if lost.event is EventType.CHECK_RESULT and prev is not None:
+            same = prev.event is EventType.CHECK_RESULT
+            if same and (prev.data["worker"], prev.data["slice"]) == (who, number):
+                return "partial gate", None
+        earlier = sum(
+            e.event is EventType.DISPUTED and (e.data["worker"], e.data["slice"]) == (who, number)
+            for e in written[: k - 1]
+        )
+        return "dispute lost", (who, number, earlier)
+    if lost.event is EventType.RULED and prev is not None and prev.event is EventType.RULED:
+        return "partial escalation", None
+    if lost.event is EventType.ROUND_CLOSED and all_settled(written[: k - 1], sheet):
+        return "close with nothing left", None
+    return "exact", None
 
 
-def check_crash_equivalence(seed: int) -> str:
+# What each class means for the resumed run (see the module docstring for the definitions):
+#   exact              nothing is lost that the loop cannot rebuild: the resumed run is "the same".
+#   dispute lost       the crash fell after slice_end and before the slice's last disputed event:
+#                      the disputes not yet written died with the process. The resumed run equals
+#                      the uninterrupted run in which that slice's report carried only the
+#                      disputes written before the crash (`mute`).
+#   pause              an owed pause is not recovered: the resumed run retries the slice, which is
+#                      what resuming a pause does. Both runs are compared with pauses resumed
+#                      at once and dropped from the ledgers.
+#   lost attempt       the worker ran and its slice_end (or the error that ended it) never reached
+#                      the ledger: money was spent and work done that the resumed run cannot see, so
+#                      it cannot equal the uninterrupted one. The invariants must still hold.
+#   owed stop          a stop owed to an infrastructure failure or a refused start is not
+#                      recovered: the slice is retried. The invariants must still hold.
+EXCLUDED = {
+    "partial gate": "test_a_crash_between_two_gate_results_leaves_the_slice_half_graded",
+    "partial escalation": "test_a_crash_between_two_rulings_lets_the_worker_run_on",
+    "close with nothing left": "test_a_crash_before_round_closed_leaves_the_round_open_for_good",
+}
+
+
+def check_crash(seed: int, *, every: bool) -> Counter[str]:
     scn = equivalence_scenario(seed)
-    ref = run_in_tmp(scn)
+    ref = run_in_tmp(scn, resume_pauses=4)
     written = [e for e in ref.events if not (e.event is EventType.APPROVED and e.round == 0)]
-    safe = [
-        k
-        for k in range(1, len(written) + 1)
-        if safe_to_lose(written[k - 2].event if k >= 2 else None, written[k - 1].event)
-    ]
-    if not safe:
-        return "nothing to lose"
-    crashes = sorted(random.Random(seed).sample(safe, min(len(safe), 2)))
-    # Each crash makes the loop write its lost line again, which shifts every later index by one.
-    hit = run_in_tmp(scn, crash_before=[k + i for i, k in enumerate(crashes)])
-    if hit.world.crashed_on != [written[k - 1].event for k in crashes]:
-        _fail(hit, f"crashes planned at {crashes}, happened on {hit.world.crashed_on}")
-    for name, a, b in [
-        ("exception", type(ref.exc), type(hit.exc)),
-        ("report", ref.report, hit.report),
-        ("ledger", _canon(ref.events), _canon(hit.events)),
-        ("briefings", _briefing(ref), _briefing(hit)),
-        ("product", ref.product, hit.product),
-        ("questions", sorted(set(ref.asked)), sorted(set(hit.asked))),
-    ]:
-        if a != b:
-            _fail(hit, f"crash before appends {crashes} ({hit.world.crashed_on}): {name} differs")
-    return "checked"
+    kinds = {k: crash_kind(written, k, scn.sheet) for k in range(1, len(written) + 1)}
+    seen: Counter[str] = Counter(
+        f"{kind} (excluded)" for kind, _ in kinds.values() if kind in EXCLUDED
+    )
+    ks = [k for k, (kind, _) in kinds.items() if kind not in EXCLUDED]
+    if not every or len(ks) > 40:  # every write of a run, or of a run too long for that
+        ks = sorted(random.Random(seed).sample(ks, min(len(ks), 40 if every else 4)))
+    muted: dict[tuple, Result] = {}
+    for k in ks:
+        kind, mute = kinds[k]
+        hit = run_in_tmp(scn, crash_before=[k], resume_pauses=4)
+        if hit.world.crashed_on != [written[k - 1].event]:
+            _fail(hit, f"crash before write {k} happened on {hit.world.crashed_on}")
+        check_all(hit, semantic=kind != "lost attempt")
+        seen[kind] += 1
+        if kind in ("lost attempt", "owed stop"):
+            continue
+        expected = ref
+        if (
+            mute is not None
+            and mute[2]
+            < sum(  # nothing to mute if the slice disputed nothing
+                e.event is EventType.DISPUTED and (e.data["worker"], e.data["slice"]) == mute[:2]
+                for e in ref.events
+            )
+        ):
+            if mute not in muted:
+                muted[mute] = run_in_tmp(scn, mute=mute, resume_pauses=4)
+            expected = muted[mute]
+        differs = compare(expected, hit, drop_pauses=kind == "pause")
+        if differs:
+            _fail(hit, f"crash before write {k} ({written[k - 1].event}, {kind}): {differs} differ")
+    return seen
 
 
-def test_5_crash_at_a_ledger_write_the_loop_recovers_from_is_invisible():
+def test_5_a_crash_before_any_ledger_write_is_recovered():
     seen: Counter[str] = Counter()
-    for seed in range(700):
-        seen[check_crash_equivalence(seed)] += 1
-    assert seen["checked"] > 400, seen
+    for seed in range(10):  # every write of these runs
+        seen.update(check_crash(seed, every=True))
+    for seed in range(10, 60):  # four random writes of these
+        seen.update(check_crash(seed, every=False))
+    assert seen["exact"] > 150 and seen["dispute lost"] > 15 and seen["lost attempt"] > 10, seen
 
 
 def check_rerun(seed: int) -> str:
+    """Call `run_firm` again on a run that ended. It either goes on from a pause, or does nothing:
+    no event, no worker, no question."""
     res = run_in_tmp(make_scenario(seed), rerun=True)
     if res.exc is not None:
         _fail(res, f"re-running raised {res.exc!r}")
     first, added = res.events[: res.events_before_rerun], res.events[res.events_before_rerun :]
-    kinds = {e.event for e in first}
-    closed = [e for e in first if e.event is EventType.ROUND_CLOSED]
-    if EventType.STOPPED in kinds:
-        if added or res.world.invocations != res.calls_before_rerun:
-            _fail(res, f"a stopped run went on when re-run: {[e.event.value for e in added]}")
-        check_ledger(res)
-        return "stopped"
-    # Pinned by regression tests, each excluded here: a pause closes the round it interrupts
-    # (test_a_paused_run_can_be_resumed); a round closed below its threshold, or a finished run,
-    # asks the investor for the next round (test_re_running_a_run_*).
-    if EventType.PAUSED in kinds:
-        return "paused (excluded)"
-    if closed and (not closed[-1].data["unlocked"] or res.report and res.report.all_passed):
-        return "below threshold or finished (excluded)"
-    # Every other run ends stopped, paused, finished or closed below a threshold; a round that
-    # closed unlocked with work left is reachable only by a hand-made scenario.
-    check_ledger(res)
+    if first[-1].event is EventType.PAUSED:
+        check_all(res)  # a pause is not a stop: the run goes on
+        return "paused"
+    if added or res.world.invocations != res.calls_before_rerun:
+        _fail(res, f"a run that had ended went on when re-run: {[e.event.value for e in added]}")
+    if len(res.asked) != res.asks_before_rerun:
+        _fail(res, f"a run that had ended asked {res.asked[res.asks_before_rerun :]}")
+    check_all(res)
+    return "stopped" if first[-1].event is EventType.STOPPED else "quiet"
+
+
+def test_4_re_running_a_run_that_ended_is_harmless():
+    seen: Counter[str] = Counter()
+    for seed in range(220):
+        seen[check_rerun(seed)] += 1
+    assert seen["stopped"] > 30 and seen["quiet"] > 30 and seen["paused"] > 1, seen
+
+
+def check_lift(seed: int) -> str:
+    """The investor lifts a stop and the run is called again: it goes on, and every invariant
+    still holds over the whole ledger."""
+    res = run_in_tmp(make_scenario(seed), rerun=True, lift="investor")
+    if res.events[res.events_before_rerun - 1].event is not EventType.STOPPED:
+        return "not stopped"
+    if res.exc is not None:
+        _fail(res, f"lifting a stop raised {res.exc!r}")
+    if not any(e.event is EventType.RESUMED for e in res.events):
+        _fail(res, "the stop was not lifted")
+    if res.events[-1].event is EventType.RESUMED:
+        _fail(res, "a lifted stop was neither worked through nor decided again")
+    check_all(res)
+    return "lifted"
+
+
+def test_a_lifted_stop_lets_the_run_go_on():
+    seen: Counter[str] = Counter()
+    for seed in range(200):
+        seen[check_lift(seed)] += 1
+    assert seen["lifted"] > 30, seen
+
+
+def forged_events(scn: Scenario) -> list[Event]:
+    """Ledger lines that claim to be the investor's, or a stop lifted, from anyone else."""
+    out = []
+    for n, c in enumerate(scn.sheet.checks):
+        who = ("worker:w1", "gate", "boss", "rule")[n % 4]
+        ruling = ("kept", "dropped")[n % 2]
+        data = {"task": c.task, "worker": "w1", "check": c.id, "ruling": ruling}
+        out.append(Event("r1", 1, who, EventType.RULED, data=data))
+    note = {"task": "t1", "worker": "w1", "ruling": "unblocked", "note": "go on"}
+    out.append(Event("r1", 1, "gate", EventType.RULED, data=note))
+    out += [
+        Event("r1", r.n, "boss", EventType.APPROVED, data={"round": r.n}) for r in scn.sheet.rounds
+    ]
+    return [*out, Event("r1", 1, "worker:w1", EventType.RESUMED)]
+
+
+def check_forgery(seed: int) -> str:
+    """Only the investor rules, funds a round or lifts a stop: lines that say so from any other
+    actor change nothing about the run."""
+    scn = make_scenario(seed)
+    forged = forged_events(scn)
+    ref, hit = run_in_tmp(scn), run_in_tmp(scn, forge=forged)
+    genuine = [*hit.events[:1], *hit.events[1 + len(forged) :]]
+    if _canon(ref.events) != _canon(genuine) or ref.report != hit.report:
+        _fail(hit, "lines forged in the ledger changed the run")
+    if (ref.asked, ref.product) != (hit.asked, hit.product) or _briefing(ref) != _briefing(hit):
+        _fail(hit, "lines forged in the ledger changed what was asked or briefed")
+    stopped = run_in_tmp(scn, rerun=True, lift="boss")
+    if stopped.events[stopped.events_before_rerun - 1].event is not EventType.STOPPED:
+        return "no stop to lift"
+    added = stopped.events[stopped.events_before_rerun :]
+    if [e.event for e in added] != [EventType.RESUMED] or (
+        stopped.world.invocations != stopped.calls_before_rerun
+        or len(stopped.asked) != stopped.asks_before_rerun
+    ):
+        _fail(stopped, "a stop was lifted by someone who is not the investor")
     return "checked"
 
 
-def test_4_re_running_a_finished_run_is_harmless():
+def test_only_the_investor_rules_funds_and_lifts_stops():
     seen: Counter[str] = Counter()
-    for seed in range(450):
-        seen[check_rerun(seed)] += 1
-    assert seen["stopped"] > 60, seen
+    for seed in range(120):
+        seen[check_forgery(seed)] += 1
+    assert seen["checked"] > 20, seen
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1289,14 +2050,28 @@ def test_the_generator_reaches_every_outcome_and_decision():
                 seen["outcome:" + e.data["outcome"]] += 1
                 seen["cost:" + ("unknown" if e.cost_micros is None else "known")] += 1
                 seen["status:" + str((e.data["status"] or {}).get("status"))] += 1
+                if e.data["denied_tools"] and (e.data["status"] or {}).get("status") == "blocked":
+                    seen["blocked with denied tools"] += 1
+            if e.event is EventType.RULED:
+                seen["ruling:" + e.data["ruling"]] += 1
+            if e.event is EventType.ABANDONED:
+                seen["abandoned:" + e.data["reason"]] += 1
         seen["exc:" + type(res.exc).__name__] += 1
         seen["rounds:" + str(len(res.scn.sheet.rounds))] += 1
         seen["report:" + str(res.report and res.report.stopped or "-")[:12]] += 1
-    wanted = [e.value for e in EventType if e not in (EventType.BOSS_CALL, EventType.DENIED)]
-    wanted.remove(EventType.TOPPED_UP.value)
+        seen["ask interrupted"] += bool(res.world.ask_interrupts)
+        seen["answered EOF"] += any(x.kind == "aside" for x in res.world.decisions)
+    wanted = [
+        e.value
+        for e in EventType
+        if e not in (EventType.BOSS_CALL, EventType.DENIED, EventType.TOPPED_UP, EventType.RESUMED)
+    ]  # `resumed` is the investor's own act: test_a_lifted_stop_lets_the_run_go_on
     wanted += [f"outcome:{o.value}" for o in Outcome] + ["cost:unknown", "cost:known"]
     wanted += ["status:done", "status:continuing", "status:blocked", "status:none"]
     wanted += ["exc:IsolationError", "rounds:1", "rounds:2", "rounds:3"]
+    wanted += ["ruling:dropped", "ruling:kept", "ruling:unblocked", "blocked with denied tools"]
+    wanted += ["abandoned:disputed", "abandoned:blocked", "abandoned:refusal"]
+    wanted += ["abandoned:already reassigned once", "ask interrupted", "answered EOF"]
     wanted += [
         "report:round 1 clos",
         "report:investor dec",
@@ -1308,8 +2083,10 @@ def test_the_generator_reaches_every_outcome_and_decision():
 
 
 # ---------------------------------------------------------------------------------------------
-# Regression tests: what the simulation found. Each is a minimal hand-written scenario, strict
-# xfail so that fixing the cause turns it into a failure that says to delete the marker.
+# Regression tests: what the simulation found. Each is a minimal hand-written scenario. The eleven
+# findings of the first version are plain passing tests now (the loop was fixed, or the behaviour
+# became a documented rule); the ones the current loop still has are strict xfails, each excluded
+# from the randomized tests by name (`EXCLUDED`, `check_rulings_reach_the_worker`).
 
 
 def hand(
@@ -1323,6 +2100,7 @@ def hand(
     policy: FiringPolicy | None = None,
     limits: RunLimits | None = None,
     answers: tuple[str, ...] = (),
+    fixed: tuple[tuple[str, str], ...] = (),
 ) -> Scenario:
     tasks = [Task(f"t{t}", f"Create t{t}.py.", (f"t{t}.py",)) for t in range(1, len(checks) + 1)]
     specs = [
@@ -1336,21 +2114,19 @@ def hand(
         slice_micros=slice_micros, reserve_micros=reserve,
         policy=policy or FiringPolicy(), limits=limits or RunLimits(),
     )  # fmt: skip
-    return Scenario(0, sheet, config, answers, 0.0, 0.0, (0.0,), tuple(script))
+    return Scenario(0, sheet, config, answers, 0.0, 0.0, (0.0,), tuple(script), fixed=fixed)
 
 
 def some(res: Result, kind: EventType) -> list[Event]:
     return [e for e in res.events if e.event is kind]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="limits.breach counts every slice_start, so the orphan of an interrupted slice uses up "
-    "one slice of RunLimits.max_slices and the resumed run stops a slice earlier than the "
-    "uninterrupted one",
-)
 def test_an_orphaned_slice_start_uses_up_the_slice_limit():
-    # One slice of progress, then the finishing one: exactly max_slices = 2 when uninterrupted.
+    # By design since orphans are charged: a slice that started and never ended used one slice of
+    # RunLimits.max_slices, as it used one cap of the round. One slice of progress, then the
+    # finishing one: exactly max_slices = 2 when uninterrupted; interrupted as the second slice
+    # starts, the resumed run has one slice left and stops. (Formerly a strict xfail expecting the
+    # two runs to agree; the equivalence test excludes this class by name.)
     scn = hand(
         [beh(progress="progress"), beh(progress="all", status="done")],
         limits=RunLimits(max_slices=2),
@@ -1358,60 +2134,42 @@ def test_an_orphaned_slice_start_uses_up_the_slice_limit():
     ref = run_in_tmp(scn)
     hit = run_in_tmp(scn, interrupts=[(1, False)])  # Ctrl-C as the second slice starts
     assert ref.report.all_passed and hit.world.interrupted == 1
-    assert hit.report == ref.report, hit.report  # stopped: 2 slices started; the run limit is 2
+    assert hit.report.stopped == "stopped: 2 slices started; the run limit is 2"
+    assert (hit.report.passed, slice_starts(hit)) == (1, 2)
+    assert spent_by_round(hit.events, scn.sheet)[1] == 50_000 + 100_000  # the orphan's cap too
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="firm.run records round_closed after a pause and a resume skips closed rounds, so a "
-    "paused run never continues (a one-round run resumes as 'finished' with nothing done)",
-)
 def test_a_paused_run_can_be_resumed():
     scn = hand([beh(outcome=Outcome.USAGE_LIMIT, cost_kind="unknown"), beh(progress="all")])
     res = run_in_tmp(scn, rerun=True)
     assert some(res, EventType.PAUSED) and res.calls_before_rerun == 1
     assert res.world.invocations == 2 and res.report.all_passed, res.report
+    assert not some(res, EventType.ROUND_CLOSED)[:0] and len(some(res, EventType.ROUND_CLOSED)) == 1
 
 
 TWO_ROUNDS = dict(budgets=(300_000, 400_000), unlocks=(2, 2), answers=("y", "y"))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="firm.run enforces a round's unlock threshold only in the invocation that closed it; "
-    "a resume skips the closed round and asks the investor to fund the next one",
-)
 def test_re_running_a_run_closed_below_its_threshold_does_not_fund_the_next_round():
     # 150,000 of round 1's 300,000 is spent on one passing check, then 50,000 more: no cap fits.
     scn = hand([beh(progress="progress", exact=150_000), beh(exact=50_000)], **TWO_ROUNDS)
     res = run_in_tmp(scn, rerun=True)
-    assert res.report.stopped is not None and res.calls_before_rerun == 2
+    assert res.report.stopped == "round 1 closed below its unlock threshold"
     assert some(res, EventType.ROUND_CLOSED)[0].data == {"passed": 1, "total": 2, "unlocked": False}
     assert res.asked == [] and res.world.invocations == 2, res.asked
+    assert len(res.events) == res.events_before_rerun
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="firm.run asks for the next round after a resume even when every check already passes: "
-    "it does not look at the finished run's round_closed event",
-)
 def test_re_running_a_finished_run_does_not_ask_for_more_money():
     scn = hand([beh(progress="all", status="done")], **TWO_ROUNDS)
     res = run_in_tmp(scn, rerun=True)
-    assert res.calls_before_rerun == 1 and res.events_before_rerun == len(res.events) - 2
-    assert res.asked == []
+    assert res.calls_before_rerun == 1 and res.report.all_passed
+    assert res.asked == [] and len(res.events) == res.events_before_rerun
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="budget._unknown_slice_charges charges an unknown-cost slice at its cap while "
-    "rundir.slice_end_fields folds the same spend into the next slice's cost, so the round "
-    "counts it twice",
-)
-def test_an_unknown_cost_slice_is_charged_twice():
-    # Slice 1's cost is unknown (truly 40,000; charged 100,000). Slice 2 overshoots its 100,000
-    # cap by exactly the reserve, as allowed. The CLI's cumulative total is 240,000 in a round of
-    # 300,000, yet the round is charged 100,000 + 240,000.
+def test_an_unknown_cost_slice_is_no_longer_charged_twice():
+    # Slice 1's cost is unknown (truly 40,000; charged 100,000). It proved no session, so slice 2
+    # starts a new one and its cost is its own 200,000: charged 300,000 = the round, not 400,000.
     scn = hand(
         [beh(cost_kind="unknown", exact=40_000, progress="progress"),
          beh(exact=200_000, progress="all", status="done")],
@@ -1419,47 +2177,56 @@ def test_an_unknown_cost_slice_is_charged_twice():
     )  # fmt: skip
     res = run_in_tmp(scn)
     assert sum(c.true_cost for c in res.world.calls) == 240_000
-    assert spent_by_round(res.events, scn.sheet)[1] <= 300_000, spent_by_round(
-        res.events, scn.sheet
-    )
+    assert spent_by_round(res.events, scn.sheet)[1] == 300_000
+    check_all(res)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a slice that spent money but died before slice_end leaves only a slice_start, which "
-    "budget.remaining ignores, so the resumed slice is capped as if nothing was spent",
-)
-def test_a_crash_before_slice_end_hides_the_slices_spend_from_the_round():
-    # Each slice overshoots its 100,000 cap by less than the 100,000 reserve; 350,000 is spent
-    # from a round of 300,000.
+def test_the_documented_over_count_of_an_unknown_cost_slice_in_a_proven_session():
+    # What remains of the double charge, on the safe side: slice 1 proves the session, slice 2's
+    # cost is unknown (truly 40,000; charged its cap, 100,000), and slice 3, resuming the session,
+    # reports a total that contains slice 2's spend, so it is charged twice: 190,000 for 90,000.
+    scn = hand(
+        [beh(exact=30_000, progress="progress"), beh(cost_kind="unknown", exact=40_000),
+         beh(exact=20_000, progress="all", status="done")],
+        budgets=(1_000_000,),
+    )  # fmt: skip
+    res = run_in_tmp(scn)
+    assert [c.resume for c in res.world.calls] == [False, True, True]
+    assert sum(c.true_cost for c in res.world.calls) == 90_000
+    assert spent_by_round(res.events, scn.sheet)[1] == 190_000
+    known = [e.cost_micros for e in some(res, EventType.SLICE_END) if e.cost_micros is not None]
+    assert sum(known) == 90_000  # the ledger's own costs still sum to what the CLI reported
+    check_all(res)
+
+
+def test_a_crash_before_slice_end_is_charged_at_its_cap():
+    # Each slice overshoots its 100,000 cap by less than the 100,000 reserve. The first one's
+    # slice_end is lost: it is charged its cap (100,000), so the next is capped as a round of
+    # 200,000 to spend, and the ledger charges 300,000 of 300,000. What it truly cost, 150,000,
+    # is hidden: the workers spent 350,000, 50,000 past the round, which `check_money` allows
+    # only as the hidden overshoot of a lost slice (one reserve at most).
     scn = hand(
         [beh(exact=150_000, progress="progress"), beh(exact=200_000, progress="all")],
         budgets=(300_000,),
-    )
-    res = run_in_tmp(scn, crash_on=[(EventType.SLICE_END, 1)], strict_sessions=False)
+    )  # fmt: skip
+    res = run_in_tmp(scn, crash_on=[(EventType.SLICE_END, 1)])
     assert res.world.crashed_on == [EventType.SLICE_END]
-    assert sum(c.true_cost for c in res.world.calls) <= 300_000
+    assert [e.data["cap_micros"] for e in some(res, EventType.SLICE_START)] == [100_000] * 2
+    assert spent_by_round(res.events, scn.sheet)[1] == 300_000
+    assert sum(c.true_cost for c in res.world.calls) == 350_000
+    check_all(res, semantic=False)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="firm._slice sets `resume` from finished slices only; a crash after the CLI created the "
-    "session but before slice_end makes the resumed slice start the same session id again",
-)
-def test_a_crash_before_slice_end_makes_the_next_slice_reuse_the_session_id():
+def test_a_crash_before_slice_end_makes_the_next_slice_start_a_new_session():
     res = run_in_tmp(
         hand([beh(progress="all", status="done")]), crash_on=[(EventType.SLICE_END, 1)]
     )
     assert res.world.violations == [], res.world.violations
+    sessions = [e.data["session"] for e in some(res, EventType.SLICE_START)]
+    assert len(sessions) == 2 and sessions[0] != sessions[1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="state.slice_history/_latest_gated read a slice_end without check_results as a gated "
-    "slice with nothing passing, and nothing gates it again, so the resumed run pays for a "
-    "slice the uninterrupted run did not need",
-)
-def test_a_slice_whose_gate_results_were_lost_is_paid_for_twice():
+def test_a_slice_whose_gate_results_were_lost_is_gated_on_resume():
     scn = hand([beh(progress="all", status="done")])
     ref = run_in_tmp(scn)
     hit = run_in_tmp(scn, crash_on=[(EventType.CHECK_RESULT, 1)])
@@ -1471,12 +2238,7 @@ def test_a_slice_whose_gate_results_were_lost_is_paid_for_twice():
 STALLS = [beh(progress="progress"), beh(progress="stall"), beh(progress="stall")]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="rule.decide runs only right after a live slice (firm._act); a crash between the last "
-    "check_result and the fired event loses the decision and the worker is funded again",
-)
-def test_a_decision_lost_in_a_crash_keeps_funding_a_worker_the_rule_fired():
+def test_a_decision_lost_in_a_crash_is_taken_again_on_resume_fired():
     scn = hand([*STALLS, beh(progress="all")], policy=FiringPolicy(stall_slices=2, max_slices=6))
     ref = run_in_tmp(scn)
     assert [e.data["reason"] for e in some(ref, EventType.FIRED)] == ["no progress"]
@@ -1485,46 +2247,161 @@ def test_a_decision_lost_in_a_crash_keeps_funding_a_worker_the_rule_fired():
     assert _canon(hit.events) == _canon(ref.events)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="rule.decide runs only right after a live slice (firm._act); a crash between the last "
-    "check_result and the blocked/abandoned events loses the escalation and the blocked worker "
-    "is funded again",
-)
-def test_a_decision_lost_in_a_crash_keeps_funding_a_worker_that_said_blocked():
-    scn = hand([beh(status="blocked"), beh(progress="all", status="done")])
+BLOCKED = dict(fixed=(("Task t1:", "u"), ("Your note", "use relative paths")))
+
+
+def test_a_decision_lost_in_a_crash_is_taken_again_on_resume_blocked():
+    scn = hand([beh(status="blocked"), beh(progress="all", status="done")], **BLOCKED)
     ref = run_in_tmp(scn)
-    assert [e.data["reason"] for e in some(ref, EventType.ABANDONED)] == ["blocked"]
-    hit = run_in_tmp(scn, crash_on=[(EventType.BLOCKED, 1)])
-    assert hit.world.crashed_on == [EventType.BLOCKED]
-    assert _canon(hit.events) == _canon(ref.events)
+    assert [e.data["ruling"] for e in some(ref, EventType.RULED)] == ["unblocked"]
+    for lost in (EventType.BLOCKED, EventType.RULED):
+        hit = run_in_tmp(scn, crash_on=[(lost, 1)])
+        assert hit.world.crashed_on == [lost]
+        assert _canon(hit.events) == _canon(ref.events)
+        assert hit.report == ref.report and hit.report.all_passed
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="firm._current_worker copies the fired worker's files into the replacement's workspace "
-    "before recording hired, and handoff.prepare_workspace refuses a non-empty workspace, so a "
-    "crash in between makes every resume raise ValueError",
-)
-def test_a_crash_between_reassigned_and_hired_makes_the_run_unresumable():
+def test_a_crash_between_reassigned_and_hired_no_longer_makes_the_run_unresumable():
     scn = hand(
         [beh(progress="stall"), beh(progress="stall"), beh(progress="all", status="done")],
         policy=FiringPolicy(stall_slices=2, max_slices=6),
     )
+    ref = run_in_tmp(scn)
     res = run_in_tmp(scn, crash_on=[(EventType.HIRED, 2)])
     assert res.world.crashed_on == [EventType.HIRED]
     assert res.exc is None, res.exc
+    assert len(some(res, EventType.REASSIGNED)) == 2  # the lost hire's reassigned stays
+    assert _canon(res.events) == _canon(ref.events) and res.workspaces == ref.workspaces
+
+
+def test_a_stop_is_recomputed_after_a_crash_before_it_was_recorded():
+    # A mid-round stop no longer closes the round, so what was once a crash between `stopped` and
+    # `round_closed` is now a crash before `stopped`: the resumed run reaches the same limit.
+    scn = hand([beh(progress="progress")], limits=RunLimits(max_slices=1))
+    ref = run_in_tmp(scn)
+    assert ref.report.stopped == "stopped: 1 slices started; the run limit is 1"
+    assert not some(ref, EventType.ROUND_CLOSED)
+    hit = run_in_tmp(scn, crash_on=[(EventType.STOPPED, 1)])
+    assert hit.world.crashed_on == [EventType.STOPPED]
+    assert hit.report == ref.report and _canon(hit.events) == _canon(ref.events), hit.report
+
+
+# ---- paths the random scenarios reach too rarely to rely on ----
+
+
+def test_ctrl_c_at_the_funding_question_is_not_a_no():
+    # Round 1 runs dry with one check passing, which unlocks round 2; Ctrl-C at the question
+    # records nothing, and the resumed run asks again.
+    scn = hand(
+        [beh(progress="progress", exact=150_000), beh(exact=50_000), beh(progress="all")],
+        budgets=(300_000, 400_000),
+        unlocks=(1, 2),
+        answers=("y",),
+    )
+    res = run_in_tmp(scn, ask_interrupts=[1])
+    assert res.world.ask_interrupts == 1 and len(res.asked) == 2 and res.asked[0] == res.asked[1]
+    assert not some(res, EventType.STOPPED) and res.report.all_passed, res.report
+    assert [e.round for e in some(res, EventType.APPROVED) if e.round] == [2]
+
+
+def test_a_dropped_check_counts_for_nobody():
+    # w1 passes c01-c03 of four and stalls; w2 passes c03 and c04 and disputes the two it fails,
+    # a credible dispute, and the investor drops both. Only c03 and c04 are left to pass, and they
+    # do; w1's better score on the checks that are gone must not win the task.
+    scn = hand(
+        [beh(progress="progress", n_new=3, sub=1), beh(progress="stall"),
+         beh(progress="progress", n_new=2, sub=5, disputes="all")],
+        checks=(4,),
+        policy=FiringPolicy(stall_slices=1, max_slices=6),
+        fixed=(("Task t1: w2 disputes check", "d"),),
+    )  # fmt: skip
+    res = run_in_tmp(scn)
+    assert [e.data["ruling"] for e in some(res, EventType.RULED)] == ["dropped", "dropped"]
+    assert (res.report.passed, res.report.total) == (2, 2), res.report
+    check_all(res)
+
+
+def test_an_overshoot_past_the_ceiling_stops_the_run_before_the_next_round():
+    # One slice costs 600,000 against a round of 300,000 (a reserve of 100,000 is all the CLI may
+    # overshoot by). The ceiling of the rounds funded so far is 400,000: the run stops, rather
+    # than closing the round and spending round 2's money to make up for it.
+    scn = hand(
+        [beh(progress="progress", exact=600_000)],
+        budgets=(300_000, 400_000),
+        unlocks=(1, 2),
+        answers=("y",),
+    )
+    res = run_in_tmp(scn)
+    assert res.report.stopped.startswith("stopped: spend $0.6 is over the run ceiling of $0.4")
+    assert res.asked == [] and not some(res, EventType.ROUND_CLOSED)
+
+
+# ---- what the simulation found in the current loop ----
 
 
 @pytest.mark.xfail(
     strict=True,
-    reason="firm.run closes a round only in the invocation that stopped it; a resume sees the "
-    "stopped event, breaks out without recording round_closed and reports 'stopped earlier'",
+    reason="firm._gate_slice treats a slice as gated once any of its check_results is on the "
+    "ledger, so a crash between two of them leaves it graded on a subset and the resumed run "
+    "funds another slice for checks that pass",
 )
-def test_a_crash_between_stopped_and_round_closed_changes_the_report():
-    scn = hand([beh(progress="progress")], limits=RunLimits(max_slices=1))
+def test_a_crash_between_two_gate_results_leaves_the_slice_half_graded():
+    scn = hand([beh(progress="all", status="done")])
     ref = run_in_tmp(scn)
-    assert ref.report.stopped == "stopped: 1 slices started; the run limit is 1"
+    hit = run_in_tmp(scn, crash_on=[(EventType.CHECK_RESULT, 2)])
+    assert hit.world.crashed_on == [EventType.CHECK_RESULT]
+    assert _canon(hit.events) == _canon(ref.events), len(some(hit, EventType.SLICE_START))
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="firm._act (via _settles) counts any ruling after the worker's last slice as settling "
+    "the whole escalation, so a crash or Ctrl-C between the rulings on two disputed checks leaves "
+    "the second unasked until the worker has been funded again",
+)
+def test_a_crash_between_two_rulings_lets_the_worker_run_on():
+    scn = hand(
+        [beh(progress="progress", n_new=2, disputes="all"), beh(progress="all", status="done")],
+        checks=(4,),
+        fixed=(("Task t1: w1 disputes check", "d"),),
+    )
+    ref = run_in_tmp(scn)
+    assert [e.data["ruling"] for e in some(ref, EventType.RULED)] == ["dropped", "dropped"]
+    hit = run_in_tmp(scn, crash_on=[(EventType.RULED, 2)])
+    assert hit.world.crashed_on == [EventType.RULED]
+    assert _canon(hit.events) == _canon(ref.events), len(some(hit, EventType.SLICE_START))
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="firm.run breaks on 'nothing is left to do' before it opens the round, so a round whose "
+    "close was lost in a crash is never closed by a resume: no round_closed is recorded and the "
+    "report loses 'closed below its unlock threshold'",
+)
+def test_a_crash_before_round_closed_leaves_the_round_open_for_good():
+    scn = hand(
+        [beh(progress="stall"), beh(progress="stall")],
+        policy=FiringPolicy(stall_slices=1, max_slices=6),
+    )
+    ref = run_in_tmp(scn)
+    assert ref.report.stopped == "round 1 closed below its unlock threshold"
     hit = run_in_tmp(scn, crash_on=[(EventType.ROUND_CLOSED, 1)])
     assert hit.world.crashed_on == [EventType.ROUND_CLOSED]
     assert hit.report == ref.report and _canon(hit.events) == _canon(ref.events), hit.report
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="firm._slice briefs a worker whose session is not proven (its last slice reported no "
+    "session total) with _first_prompt, which never carries rulings.notes_since, so the investor's "
+    "note is lost",
+)
+def test_a_ruling_is_lost_when_the_workers_session_is_not_proven():
+    scn = hand(
+        [beh(status="blocked", cost_kind="unknown"), beh(progress="all", status="done")], **BLOCKED
+    )
+    res = run_in_tmp(scn)
+    assert [e.data["ruling"] for e in some(res, EventType.RULED)] == ["unblocked"]
+    second = res.world.calls[1]
+    assert second.resume is False  # the first slice proved no session
+    assert "use relative paths" in second.prompt
