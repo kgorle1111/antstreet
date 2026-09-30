@@ -229,3 +229,38 @@ def test_locked_rounds_are_the_ones_that_closed_below_their_threshold():
     assert state.closed_rounds == {1, 2} and state.locked_rounds == {2}
     malformed = Event(run="r1", round=3, actor="boss", event=EventType.ROUND_CLOSED)
     assert run_state([malformed], []).locked_rounds == {3}  # no proof it unlocked: locked
+
+
+def test_a_dropped_check_counts_for_nothing_and_a_ruled_dispute_is_settled():
+    def ruled_event(kind, check_id, actor="investor") -> Event:
+        data = {"task": "t1", "worker": "w1", "check": check_id, "ruling": kind}
+        return ev(actor, EventType.RULED, data=data)
+
+    def dispute_event(check_id) -> Event:
+        data = {"task": "t1", "check": check_id, "reason": "r", "worker": "w1", "slice": 1}
+        return ev("worker:w1", EventType.DISPUTED, data=data)
+
+    base = [
+        ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1"}),
+        slice_end("w1", 1, 5_000),
+        check("w1", 1, "c01", "passed"),
+        check("w1", 1, "c02", "passed"),
+        dispute_event("c03"),
+        dispute_event("c04"),
+        dispute_event("c05"),
+    ]
+    before = run_state(base, ["t1"])
+    assert before.dropped == frozenset() and before.tasks["t1"].passing == {"c01", "c02"}
+    assert slice_history(base)["w1"][0].disputed == {"c03", "c04", "c05"}
+
+    events = [
+        *base,
+        ruled_event("dropped", "c02"),
+        ruled_event("kept", "c03"),
+        ruled_event("dropped", "c04", actor="worker:w1"),  # not the investor: no effect
+    ]
+    after = run_state(events, ["t1"])
+    assert after.dropped == {"c02"}
+    assert after.tasks["t1"].passing == {"c01"} and after.passing_total() == 1
+    [record] = slice_history(events)["w1"]
+    assert record.passing == {"c01"} and record.disputed == {"c04", "c05"}

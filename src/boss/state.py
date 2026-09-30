@@ -15,6 +15,7 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
     round_closed boss        {passed, total, unlocked}
     started      boss        {config}
     resumed      investor    {}
+    ruled        investor    {task, worker, ruling, check?, note?}   ruling: dropped|kept|unblocked
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from dataclasses import dataclass
 from boss.errors import INFRASTRUCTURE, Outcome
 from boss.ledger import Event, EventType
 from boss.rule import SliceRecord
+from boss.rulings import DROPPED, KEPT, ruled
 
 
 def worker_name(actor: str) -> str | None:
@@ -41,12 +43,17 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
             if e.data.get("status") == "passed":
                 passing[key].add(str(e.data["check"]))
 
+    # A dispute the investor has ruled on is settled: it no longer speaks for the worker.
+    settled = ruled(events, KEPT) | ruled(events, DROPPED)
     disputed: dict[tuple[str, int], set[str]] = {}
     for e in events:
         if e.event is EventType.DISPUTED and "worker" in e.data and "slice" in e.data:
             key = (str(e.data["worker"]), int(e.data["slice"]))
-            disputed.setdefault(key, set()).add(str(e.data["check"]))
+            disputed.setdefault(key, set())
+            if str(e.data["check"]) not in settled:
+                disputed[key].add(str(e.data["check"]))
 
+    dropped = ruled(events, DROPPED)  # a dropped check counts for nothing, passing or not
     history: dict[str, list[SliceRecord]] = {}
     for e in events:
         worker = worker_name(e.actor)
@@ -60,7 +67,7 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
                 cost_micros=e.cost_micros,
                 outcome=Outcome(e.data.get("outcome", Outcome.CRASHED)),
                 status=str(status),
-                passing=frozenset(passing.get((worker, number), set())),
+                passing=frozenset(passing.get((worker, number), set())) - dropped,
                 disputed=frozenset(disputed.get((worker, number), set())),
                 denied_tools=tuple(str(t) for t in e.data.get("denied_tools") or ()),
             )
@@ -114,6 +121,7 @@ class RunState:
     approved_rounds: frozenset[int]
     stopped: bool  # a stop that no later `resumed` event lifted
     locked_rounds: frozenset[int] = frozenset()  # closed below their unlock threshold
+    dropped: frozenset[str] = frozenset()  # checks the investor dropped after a dispute
 
     def passing_total(self) -> int:
         return sum(len(t.passing) for t in self.tasks.values())
@@ -164,6 +172,7 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
             if e.event is EventType.APPROVED and e.actor == "investor"
         ),
         stopped=_stopped(events),
+        dropped=ruled(events, DROPPED),
         locked_rounds=frozenset(
             e.round
             for e in events

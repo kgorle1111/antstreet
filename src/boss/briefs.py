@@ -48,6 +48,7 @@ def continuation_prompt(
     disputed: Collection[str] = (),
     denied_tools: Sequence[str] = (),
     example_path: str = "module.py",
+    investor_notes: Sequence[str] = (),
 ) -> str:
     """The brief for a later slice: which checks pass now, the gate's output for the rest, which
     of the failing ones this worker has already disputed, and what to do about refused tool
@@ -61,6 +62,7 @@ def continuation_prompt(
         if not r.passed:
             tail = redact(r.output_tail[-FEEDBACK_TAIL_CHARS:]).strip()
             parts.append(f"Failing: {r.check_id} ({r.detail})\n{tail}")
+    parts += investor_notes  # the investor's own words and rulings, ahead of the rest
     open_disputes = sorted(set(disputed) - set(passing))
     if open_disputes:
         parts.append(

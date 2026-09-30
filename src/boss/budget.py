@@ -99,8 +99,15 @@ def min_round_budget(reserve_micros: int = RESERVE_MICROS, min_cap: int = MIN_SL
     return reserve_micros + min_cap
 
 
-def unlocked(sheet: TermSheet, round_n: int, passing_checks: int) -> bool:
-    return passing_checks >= _round(sheet, round_n).unlock_checks
+def unlocked(
+    sheet: TermSheet, round_n: int, passing_checks: int, total_checks: int | None = None
+) -> bool:
+    """`total_checks` is what is still required after the investor dropped any: a threshold
+    written for the full sheet cannot ask for more checks than remain."""
+    threshold = _round(sheet, round_n).unlock_checks
+    if total_checks is not None:
+        threshold = min(threshold, total_checks)
+    return passing_checks >= threshold
 
 
 def plan_rounds(budget_micros: int, n_checks: int, n_rounds: int = 3) -> tuple[Round, ...]:

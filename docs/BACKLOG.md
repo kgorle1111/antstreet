@@ -10,8 +10,8 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B01 | The investor rules on a disputed check inside a run (drop it, keep it, set the task aside) | Needed the interactive prompt; `firm.py` kn: an escalated task is set aside for this run | building |
-| B02 | The investor unblocks a blocked task with a note, inside a run | Same prompt as B01 | building |
+| B01 | The investor rules on a disputed check inside a run (drop it, keep it, set the task aside) | Needed the interactive prompt | done: feat(firm): the investor rules on disputed checks and blocked tasks |
+| B02 | The investor unblocks a blocked task with a note, inside a run | Same prompt as B01 | done: feat(firm): the investor rules on disputed checks and blocked tasks |
 | B03 | Run every check on `product/` after assembly and report that result | Only matters with several tasks | building |
 | B04 | Parallel workers for tasks that own disjoint paths | Sequential was enough for one task | open |
 | B05 | One-line status after every slice (spend against budget, checks passing, worker) | Not needed for correctness | open |

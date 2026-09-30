@@ -265,6 +265,14 @@ def test_unlocked_thresholds() -> None:
     assert unlocked(s, 2, 4)
 
 
+def test_a_threshold_cannot_ask_for_more_checks_than_the_investor_left_required() -> None:
+    # Round 2 of this sheet unlocks at 4 checks. After the investor drops one, 3 remain.
+    assert not unlocked(sheet(), 2, 3)
+    assert unlocked(sheet(), 2, 3, total_checks=3)
+    assert not unlocked(sheet(), 2, 2, total_checks=3)
+    assert unlocked(sheet(), 1, 2, total_checks=4) and not unlocked(sheet(), 1, 1, total_checks=4)
+
+
 def test_unlocked_missing_round_raises() -> None:
     with pytest.raises(ValueError):
         unlocked(sheet(), 5, 1)

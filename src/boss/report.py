@@ -16,6 +16,8 @@ _NOTABLE = (
     EventType.REASSIGNED,
     EventType.ABANDONED,
     EventType.BLOCKED,
+    EventType.RULED,
+    EventType.RESUMED,
     EventType.PAUSED,
     EventType.ERROR,
     EventType.STOPPED,
