@@ -8,11 +8,15 @@ nothing is recorded (the caller books each call's usage under its own role).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import contextlib
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from boss.roles.base import RoleOutputError, RoleSpec, call_role
+from boss.errors import Outcome
+from boss.redact import safe_text
+from boss.roles.base import RoleError, RoleOutputError, RoleSpec, call_role
 from boss.roles.stories import Stories
 from boss.stream import Usage
 from boss.termsheet import (
@@ -21,8 +25,13 @@ from boss.termsheet import (
     TermSheet,
     _id_problems,
     _ownership_problems,
+    check_file_problems,
 )
 from boss.worker import CLI
+
+MAX_CHECKS = 16  # each is a pytest run in the gate, and the stories allow at most 16 criteria
+MAX_LINE = 99  # the coverage matrix is read in a terminal, under 100 columns
+_TAIL = 40  # columns for the checks (or the reason) at the end of a matrix line
 
 SYSTEM_DESIGNER = RoleSpec(
     name="system_designer",
@@ -40,7 +49,55 @@ SYSTEM_DESIGNER = RoleSpec(
         "system_designer/interfaces-from-the-idea",
     ),
 )
-SPECS = (SYSTEM_DESIGNER,)
+TESTER = RoleSpec(
+    name="tester",
+    department="engineering",
+    reports_to="system_designer",
+    purpose="writes pytest checks that between them cover every acceptance criterion",
+    gate=(
+        "every cited criterion exists and belongs to the check's task; every criterion has a "
+        f"check or an untestable reason, never both; at most {MAX_CHECKS} checks; every file "
+        "is a valid pytest file"
+    ),
+    prompt="tester_v1.md",
+    skills=(
+        "tester/only-what-the-idea-states",
+        "tester/one-behaviour-per-check",
+        "tester/boundary-values",
+    ),
+    cap_micros=250_000,  # up to 16 complete test files in one answer
+)
+SPECS = (SYSTEM_DESIGNER, TESTER)
+
+TESTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "checks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": MAX_CHECKS,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                    "task": {"type": "string"},
+                    "description": {"type": "string"},
+                    "code": {"type": "string"},
+                },
+                "required": ["criteria", "task", "description", "code"],
+            },
+        },
+        "untestable": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"criterion": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["criterion", "reason"],
+            },
+        },
+    },
+    "required": ["checks", "untestable"],
+}
 
 
 def design_schema(max_tasks: int) -> dict[str, Any]:
@@ -219,3 +276,239 @@ def _texts_in(item: object, key: str, where: str, problems: list[str]) -> tuple[
         problems.append(f"{where}: {key} must be a list of text")
         return ()
     return tuple(value)
+
+
+@dataclass(frozen=True, slots=True)
+class Untestable:
+    criterion: str
+    reason: str  # one line, from the tester
+
+
+@dataclass(frozen=True, slots=True)
+class TestPlan:
+    __test__ = False  # not a pytest class, whatever its name says
+
+    checks: tuple[CheckSpec, ...]  # ids, files and criteria are ours; the code is in the files
+    untestable: tuple[Untestable, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _RawCheck:
+    criteria: tuple[str, ...]
+    task: str
+    description: str
+    code: str
+
+
+def write_checks(
+    idea: str,
+    stories: Stories,
+    design: Design,
+    checks_dir: Path,
+    *,
+    env: Mapping[str, str],
+    model: str,
+    executable: str = CLI,
+    thinking_tokens: int | None = None,
+    timeout_s: float = 300.0,
+) -> tuple[TestPlan, Usage]:
+    """One call: write pytest checks for the criteria, and write them into `checks_dir` as
+    `test_c01.py`, `test_c02.py`, ... (ids and names are ours, not the model's).
+
+    Raises RoleError if the call fails or the files cannot be written, and RoleOutputError,
+    listing every problem, if the output breaks a rule in the tester's gate. Both carry the call's
+    usage, and a rejected output leaves no check file behind.
+    """
+    prompt = (
+        f"Idea:\n{idea.strip()}\n\nStories and acceptance criteria:\n{stories_text(stories)}"
+        f"\n\nDesign:\n{design_text(design)}\n\nWrite at most {MAX_CHECKS} checks."
+    )
+    output = call_role(
+        TESTER,
+        prompt,
+        TESTS_SCHEMA,
+        env=env,
+        model=model,
+        executable=executable,
+        thinking_tokens=thinking_tokens,
+        timeout_s=timeout_s,
+    )
+    raw, untestable, problems = _parse_tests(output.data)
+    if not problems:
+        problems = _plan_problems(stories, design, raw, untestable)
+    if problems:
+        raise RoleOutputError(TESTER.name, problems, output.usage)
+    specs = tuple(
+        CheckSpec(f"c{n:02d}", r.description.strip(), f"test_c{n:02d}.py", r.task, r.criteria)
+        for n, r in enumerate(raw, start=1)
+    )
+    written: list[Path] = []
+    try:
+        checks_dir.mkdir(parents=True, exist_ok=True)
+        for spec, r in zip(specs, raw, strict=True):
+            written.append(checks_dir / spec.file)
+            written[-1].write_text(r.code, encoding="utf-8")
+    except OSError as exc:
+        _remove(written)
+        message = f"cannot write the check files: {exc}"
+        raise RoleError(TESTER.name, message, Outcome.COMPLETED, output.usage) from exc
+    problems = [p for spec in specs for p in check_file_problems(spec, checks_dir)]
+    if problems:
+        _remove(written)
+        raise RoleOutputError(TESTER.name, problems, output.usage)
+    return TestPlan(specs, tuple(untestable)), output.usage
+
+
+def coverage(stories: Stories, checks: Sequence[CheckSpec]) -> dict[str, tuple[str, ...]]:
+    """Each criterion id, in story order, with the ids of the checks citing it, in check order."""
+    return _cover([c.id for c in stories.criteria()], ((k.id, k.criteria) for k in checks))
+
+
+def render_coverage(
+    stories: Stories, checks: Sequence[CheckSpec], untestable: Sequence[Untestable]
+) -> str:
+    """The matrix the investor reads before approving: one line per criterion, with its `then`
+    and the checks that cover it, or UNTESTABLE and why. Under 100 columns; every piece of model
+    text is made safe and put on one line."""
+    covered = coverage(stories, checks)
+    reasons = {u.criterion: u.reason for u in untestable}
+    ids = {cid: _flat(cid, 8) for cid in covered}
+    pad = max((len(i) for i in ids.values()), default=0) + 1
+    room = MAX_LINE - pad - 2 - _TAIL
+    lines = []
+    for criterion in stories.criteria():
+        cid = criterion.id
+        if covered[cid]:
+            tail = ", ".join(covered[cid])
+        elif cid in reasons:
+            tail = f"UNTESTABLE: {reasons[cid]}"
+        else:
+            tail = "NO CHECK"
+        then = _flat(criterion.then, room).ljust(room)
+        lines.append(f"{ids[cid].ljust(pad)}{then}  {_flat(tail, _TAIL)}".rstrip())
+    n_covered = sum(1 for found in covered.values() if found)
+    n_untestable = sum(1 for cid, found in covered.items() if not found and cid in reasons)
+    lines.append(
+        f"{len(covered)} criteria: {n_covered} covered, {n_untestable} untestable, "
+        f"{len(covered) - n_covered - n_untestable} with no check"
+    )
+    return "\n".join(lines)
+
+
+def design_text(design: Design) -> str:
+    lines: list[str] = []
+    for task in design.tasks:
+        lines.append(f"{task.id}: {task.brief.strip()}")
+        lines.append(f"  owns: {', '.join(task.paths)}")
+        lines.append(f"  delivers: {', '.join(task.stories)}")
+        lines += [f"  interface: {name}" for name in task.interfaces]
+    return "\n".join(lines)
+
+
+def _cover(
+    criterion_ids: Iterable[str], cites: Iterable[tuple[str, tuple[str, ...]]]
+) -> dict[str, tuple[str, ...]]:
+    found: dict[str, list[str]] = {cid: [] for cid in criterion_ids}
+    for check_id, cited in cites:
+        for cid in dict.fromkeys(cited):
+            if cid in found:
+                found[cid].append(check_id)
+    return {cid: tuple(ids) for cid, ids in found.items()}
+
+
+def _plan_problems(
+    stories: Stories, design: Design, raw: Sequence[_RawCheck], untestable: Sequence[Untestable]
+) -> list[str]:
+    problems: list[str] = []
+    story_of = {c.id: story.id for story in stories.stories for c in story.criteria}
+    tasks = {t.id for t in design.tasks}
+    if not 1 <= len(raw) <= MAX_CHECKS:
+        problems.append(f"needs 1 to {MAX_CHECKS} checks, has {len(raw)}")
+    for n, check in enumerate(raw, start=1):
+        name = f"check c{n:02d}"
+        if not check.description.strip():
+            problems.append(f"{name} has no description")
+        if not check.criteria:
+            problems.append(f"{name} cites no criterion")
+        if len(set(check.criteria)) != len(check.criteria):
+            problems.append(f"{name} cites a criterion twice")
+        if check.task not in tasks:
+            problems.append(f"{name} belongs to unknown task {check.task!r}")
+        for cid in dict.fromkeys(check.criteria):
+            if cid not in story_of:
+                problems.append(f"{name} cites unknown criterion {cid!r}")
+            elif check.task in tasks and design.owner_of(story_of[cid]) != check.task:
+                owner = design.owner_of(story_of[cid])
+                problems.append(f"{name} belongs to {check.task} but {cid} is delivered by {owner}")
+    covered = _cover(story_of, ((f"c{n:02d}", c.criteria) for n, c in enumerate(raw, start=1)))
+    listed: set[str] = set()
+    for item in untestable:
+        if item.criterion not in story_of:
+            problems.append(f"untestable names unknown criterion {item.criterion!r}")
+        elif item.criterion in listed:
+            problems.append(f"{item.criterion} is listed untestable twice")
+        elif covered[item.criterion]:
+            by = ", ".join(covered[item.criterion])
+            problems.append(f"{item.criterion} is covered by {by} and also listed untestable")
+        if not item.reason.strip():
+            problems.append(f"untestable {item.criterion} has no reason")
+        listed.add(item.criterion)
+    problems += [
+        f"criterion {cid} has no check and is not listed untestable"
+        for cid, ids in covered.items()
+        if not ids and cid not in listed
+    ]
+    problems += [
+        f"task {t.id} has no check, so its progress cannot be measured"
+        for t in design.tasks
+        if not any(check.task == t.id for check in raw)
+    ]
+    return problems
+
+
+def _parse_tests(data: Mapping[str, Any]) -> tuple[list[_RawCheck], list[Untestable], list[str]]:
+    """The checks and untestable criteria as data, plus every way the output is not shaped like
+    them. With any such problem the data is incomplete and must not be gated."""
+    problems: list[str] = []
+    raw_checks, raw_untestable = data.get("checks"), data.get("untestable", [])
+    if not isinstance(raw_checks, list):
+        problems.append("checks must be a list")
+        raw_checks = []
+    if not isinstance(raw_untestable, list):
+        problems.append("untestable must be a list")
+        raw_untestable = []
+    checks = []
+    for n, item in enumerate(raw_checks, start=1):
+        where = f"check {n}"
+        code = _text_in(item, "code", where, problems)
+        try:
+            code.encode("utf-8")
+        except UnicodeEncodeError:
+            problems.append(f"{where}: code is not valid text")
+        checks.append(
+            _RawCheck(
+                _texts_in(item, "criteria", where, problems),
+                _text_in(item, "task", where, problems),
+                _text_in(item, "description", where, problems),
+                code,
+            )
+        )
+    untestable = [
+        Untestable(
+            _text_in(item, "criterion", f"untestable {n}", problems),
+            _text_in(item, "reason", f"untestable {n}", problems),
+        )
+        for n, item in enumerate(raw_untestable, start=1)
+    ]
+    return checks, untestable, problems
+
+
+def _flat(text: str, limit: int) -> str:
+    """Model text made safe to show, on one line, at most `limit` characters."""
+    return safe_text(" ".join(safe_text(text, limit=limit * 4).split()), limit=limit)
+
+
+def _remove(paths: Sequence[Path]) -> None:
+    for path in paths:
+        with contextlib.suppress(OSError):
+            path.unlink(missing_ok=True)

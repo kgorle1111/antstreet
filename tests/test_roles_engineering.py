@@ -13,14 +13,23 @@ from boss.roles import registry
 from boss.roles.base import RoleError, RoleOutputError, system_prompt
 from boss.roles.engineering import (
     SYSTEM_DESIGNER,
+    TESTER,
+    TESTS_SCHEMA,
     Design,
     DesignTask,
+    TestPlan,
+    Untestable,
+    coverage,
     design_schema,
     design_tasks,
+    design_text,
+    render_coverage,
     stories_text,
+    write_checks,
 )
-from boss.roles.stories import parse_stories, story_problems
+from boss.roles.stories import Stories, parse_stories, story_problems
 from boss.stream import Usage
+from boss.termsheet import CheckSpec
 
 IDEA = (
     "Create slug.py with slugify(text). Lower-case the text and join words with single hyphens.\n"
@@ -111,7 +120,7 @@ FAKE = f"""#!{sys.executable}
 import json, os, sys
 argv = sys.argv
 system = argv[argv.index("--system-prompt") + 1]
-role = "designer" if "system designer" in system else "tester"
+role = "designer" if system.startswith("You are the system designer") else "tester"
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({{"role": role, "argv": argv}}) + "\\n")
 print(os.environ["FAKE_" + role.upper()])
@@ -162,8 +171,8 @@ def design_of(cli, output, *, max_tasks=2, stories=STORIES):
     )
 
 
-def edited(path, value):
-    data = copy.deepcopy(DESIGN)
+def edited(path, value, base=DESIGN):
+    data = copy.deepcopy(base)
     target = data
     for key in path[:-1]:
         target = target[key]
@@ -378,7 +387,7 @@ def test_an_output_that_is_not_shaped_like_a_design_is_reported_not_crashed_on(
     assert not any("story" in p and "exactly one" in p for p in found)  # no cascade
 
 
-def test_every_problem_is_reported_at_once(cli):
+def test_every_designer_problem_is_reported_at_once(cli):
     data = edited(["tasks", 0, "paths"], ["../a.py"])
     data["tasks"][0]["brief"] = ""
     data["tasks"][1]["stories"] = ["S1", "S7"]
@@ -397,3 +406,394 @@ def test_a_single_task_design_is_fine_when_one_task_is_all_that_is_allowed(cli):
     }
     design, _ = design_of(cli, one, max_tasks=1)
     assert design.tasks[0].stories == ("S1", "S2")
+
+
+# --- tester: the call and the files ------------------------------------------------------------
+
+SLUG_JOIN = (
+    "from slug import slugify\n\ndef test_joins():\n"
+    "    assert slugify('Hi   there') == 'hi-there'\n"
+)
+SLUG_LOWER = "from slug import slugify\n\ndef test_lower():\n    assert slugify('ABC') == 'abc'\n"
+WRAP_WIDTH = (
+    "from wrap import wrap\n\ndef test_width():\n"
+    "    assert all(len(line) <= 5 for line in wrap('aa bb cc dd', 5))\n"
+)
+TESTS = {
+    "checks": [
+        {
+            "criteria": ["S1.1"],
+            "task": "t1",
+            "description": "words are joined with single hyphens",
+            "code": SLUG_JOIN,
+        },
+        {
+            "criteria": ["S1.2"],
+            "task": "t1",
+            "description": "the slug is lower case",
+            "code": SLUG_LOWER,
+        },
+        {
+            "criteria": ["S2.1"],
+            "task": "t2",
+            "description": "no line is longer than the width",
+            "code": WRAP_WIDTH,
+        },
+    ],
+    "untestable": [{"criterion": "S2.2", "reason": "not visible apart from S2.1"}],
+}
+
+
+def design_obj() -> Design:
+    return Design(tuple(design_task_of(t) for t in DESIGN["tasks"]))
+
+
+def checks_of(cli, output, *, design=None):
+    cli.tester(output)
+    return write_checks(
+        IDEA,
+        STORIES,
+        design or design_obj(),
+        cli.checks_dir,
+        env=cli.env,
+        model="haiku",
+        executable=cli.executable,
+    )
+
+
+def test_good_checks_become_files_and_a_plan_whose_ids_and_names_are_ours(cli):
+    plan, usage = checks_of(cli, TESTS)
+    assert usage == USAGE
+    assert [(c.id, c.file, c.task, c.criteria) for c in plan.checks] == [
+        ("c01", "test_c01.py", "t1", ("S1.1",)),
+        ("c02", "test_c02.py", "t1", ("S1.2",)),
+        ("c03", "test_c03.py", "t2", ("S2.1",)),
+    ]
+    assert plan.checks[0].description == "words are joined with single hyphens"
+    assert plan.untestable == (Untestable("S2.2", "not visible apart from S2.1"),)
+    assert (cli.checks_dir / "test_c01.py").read_text() == SLUG_JOIN
+    assert (cli.checks_dir / "test_c03.py").read_text() == WRAP_WIDTH
+    assert sorted(p.name for p in cli.checks_dir.iterdir()) == [f"test_c0{n}.py" for n in (1, 2, 3)]
+
+
+def test_the_tester_is_a_no_tools_call_that_sees_the_idea_stories_and_design(cli):
+    checks_of(cli, TESTS)
+    [call] = cli.calls
+    argv = call["argv"]
+    assert argv[argv.index("--tools") + 1] == ""
+    assert argv[argv.index("--system-prompt") + 1] == system_prompt(TESTER)
+    assert json.loads(argv[argv.index("--json-schema") + 1]) == TESTS_SCHEMA
+    assert argv[argv.index("--max-budget-usd") + 1] == "0.25"
+    prompt = argv[-1]
+    assert prompt.startswith("Idea:\nCreate slug.py")
+    assert stories_text(STORIES) in prompt and design_text(design_obj()) in prompt
+    assert prompt.endswith("Write at most 16 checks.")
+
+
+def test_the_design_is_shown_to_the_tester_with_files_stories_and_interfaces():
+    assert design_text(design_obj()).splitlines()[:4] == [
+        "t1: Create slug.py: lower-case the text and join its words with hyphens.",
+        "  owns: slug.py",
+        "  delivers: S1",
+        "  interface: slugify(text)",
+    ]
+
+
+def test_the_testers_spec_prompt_and_skills_ship_and_it_reports_to_the_designer():
+    assert TESTER.department == "engineering" and TESTER.reports_to == "system_designer"
+    assert registry()["tester"] is TESTER and TESTER.default_on is False
+    assert system_prompt(TESTER).startswith("You are the tester")
+    assert "tester/only-what-the-idea-states" in TESTER.skills and len(TESTER.skills) >= 2
+    assert TestPlan.__test__ is False
+
+
+def test_an_id_or_file_name_offered_by_the_model_is_never_used(cli, tmp_path):
+    hostile = copy.deepcopy(TESTS)
+    hostile["checks"][0] |= {"id": "../../evil", "file": "../evil.py"}
+    plan, _ = checks_of(cli, hostile)
+    assert [c.id for c in plan.checks] == ["c01", "c02", "c03"]
+    assert not (tmp_path / "evil.py").exists() and not (tmp_path.parent / "evil.py").exists()
+
+
+def test_sixteen_checks_are_allowed_and_a_criterion_may_have_several(cli):
+    many = copy.deepcopy(TESTS)
+    many["checks"] += [dict(many["checks"][0], criteria=["S1.1", "S1.2"]) for _ in range(13)]
+    plan, _ = checks_of(cli, many)
+    assert plan.checks[-1].id == "c16" and plan.checks[-1].criteria == ("S1.1", "S1.2")
+
+
+def test_a_failed_tester_call_raises_a_role_error_and_writes_nothing(cli):
+    login = RESULT | {"is_error": True, "api_error_status": 401, "terminal_reason": "api_error"}
+    with pytest.raises(RoleError) as info:
+        checks_of(cli, json.dumps(login))
+    assert info.value.outcome is Outcome.LOGIN and info.value.role == "tester"
+    assert not cli.checks_dir.exists()
+
+
+def test_a_directory_that_cannot_be_written_is_a_role_error_that_keeps_the_usage(cli, tmp_path):
+    (tmp_path / "blocker").write_text("a file, not a directory")
+    cli.tester(TESTS)
+    with pytest.raises(RoleError, match="cannot write the check files") as info:
+        write_checks(
+            IDEA,
+            STORIES,
+            design_obj(),
+            tmp_path / "blocker" / "checks",
+            env=cli.env,
+            model="haiku",
+            executable=cli.executable,
+        )
+    assert info.value.usage == USAGE and info.value.outcome is Outcome.COMPLETED
+
+
+# --- tester: the gate --------------------------------------------------------------------------
+
+
+def edited_tests(path, value):
+    return edited(path, value, base=TESTS)
+
+
+def rejected_by_tester(cli, output, **kwargs) -> list[str]:
+    with pytest.raises(RoleOutputError) as info:
+        checks_of(cli, output, **kwargs)
+    assert info.value.usage == USAGE and info.value.role == "tester"
+    return info.value.problems
+
+
+def three_checks_for_the_first_story():
+    checks = [
+        TESTS["checks"][0],
+        TESTS["checks"][1],
+        dict(TESTS["checks"][0], criteria=["S1.1"]),
+    ]
+    return TESTS | {"checks": checks}
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        (
+            edited_tests(["checks", 0, "criteria"], ["S1.1", "S9.9"]),
+            "check c01 cites unknown criterion 'S9.9'",
+        ),
+        (
+            edited_tests(["checks", 0, "task"], "t9"),
+            "check c01 belongs to unknown task 't9'",
+        ),
+        (
+            edited_tests(["checks", 2, "task"], "t1"),
+            "check c03 belongs to t1 but S2.1 is delivered by t2",
+        ),
+        (edited_tests(["checks", 0, "criteria"], []), "check c01 cites no criterion"),
+        (
+            edited_tests(["checks", 0, "criteria"], ["S1.1", "S1.1"]),
+            "check c01 cites a criterion twice",
+        ),
+        (edited_tests(["checks", 0, "description"], "  "), "check c01 has no description"),
+        (
+            edited_tests(["untestable"], []),
+            "criterion S2.2 has no check and is not listed untestable",
+        ),
+        (
+            edited_tests(
+                ["untestable"], TESTS["untestable"] + [{"criterion": "S1.1", "reason": "x"}]
+            ),
+            "S1.1 is covered by c01 and also listed untestable",
+        ),
+        (
+            edited_tests(["untestable"], TESTS["untestable"] * 2),
+            "S2.2 is listed untestable twice",
+        ),
+        (
+            edited_tests(["untestable"], [{"criterion": "S7.7", "reason": "x"}]),
+            "untestable names unknown criterion 'S7.7'",
+        ),
+        (
+            edited_tests(["untestable", 0, "reason"], " "),
+            "untestable S2.2 has no reason",
+        ),
+        (
+            edited_tests(["checks"], TESTS["checks"] * 6),
+            "needs 1 to 16 checks, has 18",
+        ),
+        (edited_tests(["checks"], []), "needs 1 to 16 checks, has 0"),
+        (
+            TESTS
+            | {
+                "checks": TESTS["checks"][:2],
+                "untestable": [
+                    {"criterion": "S2.1", "reason": "x"},
+                    {"criterion": "S2.2", "reason": "y"},
+                ],
+            },
+            "task t2 has no check, so its progress cannot be measured",
+        ),
+    ],
+    ids=[
+        "unknown-criterion",
+        "unknown-task",
+        "wrong-task",
+        "no-criterion",
+        "criterion-twice",
+        "no-description",
+        "uncovered",
+        "covered-and-untestable",
+        "untestable-twice",
+        "untestable-unknown",
+        "untestable-no-reason",
+        "too-many",
+        "none",
+        "task-without-check",
+    ],
+)
+def test_each_class_of_bad_checks_is_named_and_the_usage_is_kept(cli, output, expected):
+    assert expected in rejected_by_tester(cli, output)
+    assert not cli.checks_dir.exists() or not any(cli.checks_dir.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("def test_x(:\n    pass\n", "check c01 has a syntax error: line 1"),
+        ("from slug import slugify\n", "check c01 defines no test_ function"),
+        ("", "check c01 defines no test_ function"),
+    ],
+    ids=["syntax-error", "no-test", "empty"],
+)
+def test_a_check_file_that_is_not_a_pytest_file_is_rejected_and_removed(cli, code, expected):
+    found = rejected_by_tester(cli, edited_tests(["checks", 0, "code"], code))
+    assert any(p.startswith(expected) for p in found)
+    assert list(cli.checks_dir.iterdir()) == []  # the files written for the attempt are gone
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        ({"checks": "c"}, "checks must be a list"),
+        ({"checks": [], "untestable": "none"}, "untestable must be a list"),
+        (
+            edited_tests(["checks", 0, "criteria"], "S1.1"),
+            "check 1: criteria must be a list of text",
+        ),
+        (edited_tests(["checks", 1, "code"], 5), "check 2: code must be text"),
+        (edited_tests(["checks", 2, "task"], None), "check 3: task must be text"),
+        (edited_tests(["checks", 0, "code"], "x = '\ud800'"), "check 1: code is not valid text"),
+        (edited_tests(["untestable", 0, "reason"], 3), "untestable 1: reason must be text"),
+        (edited_tests(["checks", 0], "not an object"), "check 1: code must be text"),
+    ],
+    ids=[
+        "checks-not-list",
+        "untestable-not-list",
+        "criteria-text",
+        "code-number",
+        "task-none",
+        "lone-surrogate",
+        "reason-number",
+        "check-not-object",
+    ],
+)
+def test_output_not_shaped_like_checks_is_reported_and_nothing_is_gated_or_written(
+    cli, output, expected
+):
+    found = rejected_by_tester(cli, output)
+    assert expected in found
+    assert not any("has no check" in p for p in found)
+    assert not cli.checks_dir.exists()
+
+
+def test_every_tester_problem_is_reported_at_once(cli):
+    output = edited_tests(["checks", 0, "task"], "t2")  # wrong task for S1.1
+    output["checks"][1]["criteria"] = ["S4.4"]  # unknown, so S1.2 has no check either
+    output["untestable"] = []  # and S2.2 has none
+    assert sorted(rejected_by_tester(cli, output)) == [
+        "check c01 belongs to t2 but S1.1 is delivered by t1",
+        "check c02 cites unknown criterion 'S4.4'",
+        "criterion S1.2 has no check and is not listed untestable",
+        "criterion S2.2 has no check and is not listed untestable",
+    ]
+
+
+# --- the coverage matrix ---------------------------------------------------------------------
+
+
+def spec(check_id, criteria, task="t1"):
+    return CheckSpec(check_id, "d", f"test_{check_id}.py", task, tuple(criteria))
+
+
+HAND_WORKED = [
+    spec("c01", ["S1.1", "S1.2"]),
+    spec("c02", ["S1.2"]),
+    spec("c03", ["S2.1"], "t2"),
+]
+
+
+def test_coverage_maps_each_criterion_to_the_checks_that_cite_it_in_check_order():
+    assert coverage(STORIES, HAND_WORKED) == {
+        "S1.1": ("c01",),
+        "S1.2": ("c01", "c02"),
+        "S2.1": ("c03",),
+        "S2.2": (),
+    }
+    assert coverage(STORIES, HAND_WORKED[::-1])["S1.2"] == ("c02", "c01")
+    assert list(coverage(STORIES, HAND_WORKED)) == ["S1.1", "S1.2", "S2.1", "S2.2"]
+
+
+def test_coverage_ignores_criteria_the_stories_do_not_have_and_lists_uncovered_ones():
+    found = coverage(STORIES, [spec("c01", ["S9.9"])])
+    assert found == {"S1.1": (), "S1.2": (), "S2.1": (), "S2.2": ()}
+    assert coverage(STORIES, []) == found
+
+
+def test_the_matrix_has_one_line_per_criterion_and_a_summary_read_from_the_plan():
+    assert render_coverage(
+        STORIES, HAND_WORKED, [Untestable("S2.2", "not visible apart from S2.1")]
+    ).splitlines() == [
+        "S1.1 words are joined with single hyphens                  c01",
+        "S1.2 the slug is lower case                                c01, c02",
+        "S2.1 no line is longer than the width                      c03",
+        "S2.2 it breaks only at spaces                              "
+        "UNTESTABLE: not visible apart from S2.1",
+        "4 criteria: 3 covered, 1 untestable, 0 with no check",
+    ]
+
+
+def test_a_criterion_with_no_check_and_no_reason_is_shown_as_such_not_hidden():
+    lines = render_coverage(STORIES, HAND_WORKED[:1], []).splitlines()
+    assert lines[2].endswith("NO CHECK") and lines[3].endswith("NO CHECK")
+    assert lines[-1] == "4 criteria: 2 covered, 0 untestable, 2 with no check"
+
+
+def hostile_stories() -> Stories:
+    data = STORIES.to_data()
+    criteria = data["stories"][0]["criteria"]
+    criteria[0]["then"] = "\x1b[31mred\x1b[0m sk-ant-api03-" + "A" * 40
+    criteria[1]["then"] = "a\nb\t" + "long " * 200
+    return parse_stories(data)
+
+
+def test_hostile_model_text_is_made_safe_flat_and_narrow():
+    reason = "why\n\x1b]0;title\x07 " + "x" * 300 + "\u202e"
+    checks = [spec(f"c{n:02d}", ["S1.2"]) for n in range(1, 17)]
+    out = render_coverage(hostile_stories(), checks, [Untestable("S2.2", reason)])
+    lines = out.splitlines()
+    assert len(lines) == 5  # four criteria and the summary: no model newline made another line
+    assert all(len(line) < 100 for line in lines)
+    assert "\x1b" not in out and "\x07" not in out and "\u202e" not in out
+    assert lines[0].startswith("S1.1 \\x1b[31mred\\x1b[0m [REDACTED]")
+    assert "sk-ant-api03" not in out
+    assert lines[1].startswith("S1.2 a b long long") and "[cut]" in lines[1]
+    assert lines[1].endswith("c01, c02, c03, c04, c05, c06, c07, [cut]")
+    assert lines[3].endswith("[cut]") and "UNTESTABLE: why" in lines[3]
+
+
+def test_a_criterion_id_from_the_model_is_made_safe_too():
+    data = STORIES.to_data()
+    data["stories"][0]["criteria"][0]["id"] = "S1.1\x1b[2J"
+    out = render_coverage(parse_stories(data), [], [])
+    assert "\x1b" not in out and out.splitlines()[0].startswith("S1 [cut] words")
+
+
+def test_a_run_with_no_stories_has_an_empty_matrix():
+    assert render_coverage(Stories(()), [], []) == (
+        "0 criteria: 0 covered, 0 untestable, 0 with no check"
+    )
