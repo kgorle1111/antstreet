@@ -35,6 +35,13 @@ REQUIRED_TOPICS = (
     "same idea, model, tools and budget",
     "hidden checks",
     "descriptive only",
+    "ledger events",
+    "lifts a stop",
+    "new session id",
+    "charged at its cap",
+    "credible",
+    "sandbox that denies by default",
+    "precision on the reference",
 )
 
 
@@ -175,3 +182,14 @@ def test_the_defaults_quoted_in_the_log_are_the_defaults_in_the_code(text):
     assert f"workers hired ({run_limits.max_workers}," in entries["D22"]
     assert f"reserve (default ${budget.RESERVE_MICROS / 1e6:.2f}" in entries["D18"]
     assert f"cap of ${budget.MIN_SLICE_MICROS / 1e6:.3f}" in entries["D18"]
+
+
+def test_the_draft_baseline_quoted_in_the_log_is_the_one_in_the_method_document(text):
+    entry = {e["id"]: " ".join(e.values()) for e in parse(text)}["D36"]
+    method = " ".join(read(ROOT / "bench" / "METHOD.md").split())
+    assert "10 of 134 checks wrong, 38 of 65 mutants killed" in method
+    assert "4 of 134 wrong, 39 of 65 killed" in method
+    assert [round(100 * (134 - w) / 134) for w in (10, 4)] == [93, 97]
+    assert [round(100 * k / 65) for k in (38, 39)] == [58, 60]
+    assert "precision 93% and 97%" in entry and "recall 58% and 60%" in entry
+    assert "(10 and 4 of 134 wrong)" in entry and "(38 and 39 of 65)" in entry

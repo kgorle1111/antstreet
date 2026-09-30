@@ -18,6 +18,10 @@ proposed, effect not yet measured).
 | Probe P1 to P6 | One small paid call to the `claude` CLI (2.1.285, Haiku, subscription login) that answered one question. About $0.20 in all. Output saved as a fixture where it matters. | `tests/fixtures/` |
 | Pilot | The benchmark's 17 tasks, one run per task and arm, $0.40 per cell, before the fixes below. | Run notes; raw results are not committed |
 | Rerun | The firm arm alone on the same 17 tasks after the fixes, `--slice 0.20`, reserve $0.10. | Run notes; raw results are not committed |
+| Session probe | Small calls to CLI 2.1.285 made after P1 to P6. Starting a session with an id that was already in use failed with "Session ID ... is already in use"; resuming an id that was never created failed with "No conversation found". The output was not saved as a fixture. | D32 |
+| Review | An independent read of the code that reproduced a defect. The fix has a test that fails without it. | D34 |
+| Sandbox probes | macOS 26.6.2, 2026-09-30: the gate's own command run under candidate profiles, with attack scripts run with and without the sandbox. | [SANDBOX.md](SANDBOX.md) |
+| Draft baseline | The boss's saved drafts of the pilot and the rerun, scored with `python -m boss.bench.drafts --score-existing`. No spend. | D36 |
 | Test | A test in this repository, named with its path. | `tests/` |
 
 - Numbers marked pilot or rerun cannot be reproduced from this repository alone. The commands that
@@ -151,8 +155,8 @@ with a JSON schema.
 ### D10: A slice is the checkpoint, and spend is the difference of cumulative totals
 
 - Status: `in force`
-- Decision: A worker runs in slices: the first with `--session-id`, later ones with `--resume`,
-  each with `--max-budget-usd`. Between slices the gate runs and the rule decides. A slice's spend
+- Decision: A worker runs in slices: one that starts a session uses `--session-id` with a new id
+  (D32), later ones `--resume` it, each with `--max-budget-usd`. Between slices the gate runs and the rule decides. A slice's spend
   is the session total after it minus the total before. The CLI must be 2.1.277 or newer.
 - Why: Spend cannot be read reliably mid-run (output tokens are placeholders until a response
   ends) and a killed process leaves no result. Probe P4: from 2.1.277 a resumed call reports the
@@ -200,7 +204,8 @@ with a JSON schema.
 
 - Status: `in force`
 - Decision: The gate limits what it can (allowlisted environment, temporary `HOME`, a copy of the
-  workspace, a timeout that kills the process group) and the README says it is not a sandbox.
+  workspace, a timeout that kills the process group) and the README says it is not a container.
+  Since D35 an OS sandbox narrows this where the platform has one; there is still no container.
 - Why: Isolating the gate against code written to defeat it needs a container or VM; that is
   parked until ideas from untrusted sources are supported.
 - Rejected: Claiming the tool whitelist protects the machine. It limits the worker, not the code the
@@ -274,7 +279,8 @@ with a JSON schema.
 - Status: `in force`
 - Decision: A worker may list a failing check of its own task that it believes contradicts the idea,
   once, with a reason. A dispute never counts as passing. When disputed checks are all that still
-  fail, the task is set aside and shown in the report; the worker is not fired.
+  fail and the dispute is credible (D34), the worker is not fired: the investor is asked what to do
+  (D30).
 - Why: In the pilot the boss wrote wrong checks (`slugify("Version 2.0") == "version-20"`, and a typo)
   and correct workers stalled on them until fired. In the rerun 3 disputes were raised, all on
   checks the reference solution also fails; none of those workers was fired and all 3 cells passed
@@ -283,11 +289,12 @@ with a JSON schema.
   would let a worker earn a round by complaining. A second boss pass to audit the checks: see D26.
 - Evidence: `tests/test_rule.py::test_a_dispute_never_makes_a_check_pass_or_a_task_done`,
   `tests/test_firm.py::test_a_worker_disputing_its_only_failing_check_is_set_aside_not_fired`;
-  pilot and rerun. A set-aside task has no way back in this run: the investor's ruling is not built.
+  pilot and rerun. The investor's ruling is D30; a task that is set aside stays set aside for the
+  run.
 
 ### D20: A slice of unknown cost is charged at its cap when the round's money is counted
 
-- Status: `in force`
+- Status: `superseded by D33`
 - Decision: The ledger keeps the cost as unknown. The budget arithmetic counts a slice that did work
   and reported no cost (a crash, a kill at the timeout) as spent at its cap. An infrastructure
   failure did no work and is not charged.
@@ -416,3 +423,153 @@ with a JSON schema.
   per cell of $0.091 against $0.206. The firm did not beat one agent; the difference is inside the noise.
 - Evidence: `tests/test_bench_table.py::test_closing_line_always_present`,
   `tests/test_bench_table.py::test_wilson_known_values`, [../bench/METHOD.md](../bench/METHOD.md).
+
+### D30: The investor's rulings are ledger events; the approved term sheet is never edited
+
+- Status: `in force`
+- Decision: When a worker disputes a check or says it is blocked, the loop asks the investor. The
+  answer is a `ruled` event (actor `investor`): `dropped`, `kept` or `unblocked` with a note.
+  A dropped check is no longer run or counted, and unlock thresholds cap at what is left. A kept
+  check stands and the worker is told to satisfy it. A note goes into the worker's next brief.
+  Anything but a clear answer, or end of input, sets the task aside. `term_sheet.json` and the
+  check files stay as approved.
+- Why: The approval is bound to content hashes (D21). Editing the sheet to drop a check would void
+  the approval or need a second one, and it would erase who decided what. State is rebuilt from the
+  ledger anyway (D06), so the ruling is read the same way by the loop, the report and replay.
+  Only an `investor` event counts: a worker or the rule cannot rule.
+- Rejected: Editing the term sheet and approving again. Letting the rule or the worker drop a check.
+  Setting every escalated task aside for the run, which was the first form (D19).
+- Evidence: `tests/test_firm.py::test_the_investor_drops_a_disputed_check_and_the_task_is_done_without_it`,
+  `tests/test_firm.py::test_a_dropped_check_is_never_run_or_counted_again`,
+  `tests/test_firm.py::test_only_the_investors_ruling_counts`,
+  `tests/test_firm.py::test_anything_but_a_clear_ruling_sets_the_task_aside`,
+  `tests/test_state.py::test_a_dropped_check_counts_for_nothing_and_a_ruled_dispute_is_settled`.
+  Not measured: how often the investor's ruling is right. A task already set aside is not reopened.
+
+### D31: Resuming is an investor act that lifts a stop; approval, budget and limits are checked again
+
+- Status: `in force`
+- Decision: `boss resume` writes a `resumed` event (actor `investor`) when the run is stopped, then
+  calls the loop. A stop holds until such an event, and a later stop holds again. The configuration
+  comes from the run's `started` event, with no options to change it. An interrupted round stays
+  open and continues; a round closed below its unlock threshold stays locked. The approval, the
+  round's money and every hard limit are verified again as the loop goes.
+- Why: A stop used to be final, so a login that lapsed or a plan limit ended the run for good.
+  Lifting it is a decision about money, so it belongs to the investor and is on the record. Nothing
+  the loop does can lift its own limit. A resumed run that breaks a rule stops at once.
+- Rejected: Lifting stops inside the loop. Options on `resume` that loosen the run's own settings.
+  Treating a paused or interrupted round as closed, which was the first form: a resume then skipped
+  the unfinished task and asked to fund the next round.
+- Evidence: `tests/test_state.py::test_a_stop_holds_until_the_investor_resumes_and_a_later_stop_holds_again`,
+  `tests/test_cli.py::test_resume_continues_a_run_that_was_stopped_and_records_who_lifted_the_stop`,
+  `tests/test_cli.py::test_resume_uses_the_configuration_the_run_started_with`,
+  `tests/test_cli.py::test_resume_refuses_a_run_whose_checks_changed_and_spends_nothing`,
+  `tests/test_firm.py::test_a_paused_round_stays_open_and_a_resume_finishes_it`,
+  `tests/test_firm.py::test_a_round_that_closed_below_its_threshold_stays_locked_on_resume`.
+  A ledger with a torn last line cannot be resumed: `ledger.repair_torn_tail` exists and no command
+  calls it (B10).
+
+### D32: Every attempt that is not a proven resume starts a new session id
+
+- Status: `in force`
+- Decision: A worker's session id is chosen for each attempt and recorded on `slice_start`. A
+  session is resumed only after a slice in it got past infrastructure, which shows it exists. Any
+  other attempt gets a new id and the first brief again. `hired` carries no session.
+- Why: The id used to be fixed at hiring and reused until a slice worked. The session probe shows
+  the CLI refuses to start a session whose id is in use ("Session ID ... is already in use") and to
+  resume one that was never created ("No conversation found"). A run killed during a worker's
+  first slice could not be resumed: the retry failed before any output and the run stopped as not
+  isolated. After a kill the ledger cannot say whether the CLI created the session.
+- Rejected: Reusing the hired id. Always resuming, which fails when the session was never created.
+  Always starting anew, which drops a session's context after every slice.
+- Evidence: Session probe (CLI 2.1.285),
+  `tests/test_firm.py::test_an_attempt_interrupted_before_it_finished_is_started_again_under_a_new_session`,
+  `tests/test_firm.py::test_a_resumed_slice_that_was_interrupted_resumes_the_same_session_and_recovers_its_cost`,
+  `tests/test_state.py::test_a_session_is_resumable_only_after_a_slice_in_it_got_past_infrastructure`,
+  `tests/test_state.py::test_ledgers_from_before_per_slice_sessions_fall_back_to_the_hired_session`.
+  Open: a session that was resumable and is gone (B11).
+
+### D33: A slice that reported no cost, or never ended, is charged at its cap
+
+- Status: `in force`
+- Decision: The ledger keeps an unknown cost as unknown. The budget arithmetic counts as spent, at
+  its cap: a slice that did work and reported no cost (a crash, a kill at the timeout), and a
+  slice with a `slice_start` and no `slice_end` (the run was killed). A slice number started again
+  charges the first start as well. An infrastructure failure did no work and is not charged.
+- Why: Treating either as free lets a round fund such slices without the money running out: four
+  were funded against a $0.12 round. After a kill the real cost is unknown, and the cap is the most
+  the slice was allowed to spend before the one response the reserve covers.
+- Rejected: Charging nothing. Charging the round's whole remainder.
+- Evidence: `tests/test_budget.py::test_a_slice_of_unknown_cost_is_charged_at_its_cap`,
+  `tests/test_budget.py::test_unknown_cost_slices_cannot_be_funded_without_end`,
+  `tests/test_budget.py::test_a_slice_that_started_and_never_ended_is_charged_at_its_cap`,
+  `tests/test_budget.py::test_a_lost_slice_is_still_charged_after_the_same_slice_number_runs_again`,
+  `tests/test_firm.py::test_a_lost_slice_is_charged_to_the_round_at_its_cap`. If the lost slice's
+  session is resumed later, its cost is recovered and the cap is counted as well: too much, on
+  purpose (B14).
+
+### D34: A dispute protects a worker only when it is credible
+
+- Status: `in force`
+- Decision: `rule.decide` sets a task aside for the investor (instead of firing the worker) only
+  when every failing check is disputed and the disputed checks are at most half of the task's
+  checks. Otherwise the worker is judged as if it had disputed nothing. The disputes stay on the
+  ledger.
+- Why: Disputing costs a worker nothing (D19). An independent review reproduced a stalled worker
+  that dodged its firing by disputing every failing check. The boss's drafts had at most 3 wrong
+  checks in 8, so a claim that most of a task is wrong is not believed.
+- Rejected: Letting any dispute protect a worker, which was the first form (D19). Refusing
+  disputes, which would bring back the pilot's fired workers with correct code.
+- Evidence: `tests/test_rule.py::test_disputing_more_than_half_of_a_tasks_checks_protects_nothing`,
+  `tests/test_rule.py::test_exactly_half_of_a_tasks_checks_can_be_disputed`,
+  `tests/test_rule.py::test_a_dispute_does_not_excuse_the_other_failing_checks`,
+  `tests/test_firm.py::test_a_worker_that_disputes_everything_is_fired_and_replaced_like_any_stalled_worker`;
+  the review. The one-half line is a judgement from that count of 3 in 8, not a tuned value.
+
+### D35: The gate runs each check in an OS sandbox that denies by default
+
+- Status: `in force`
+- Decision: Where the platform has a working tool (`sandbox-exec` on macOS, `bwrap` on Linux), each
+  check runs under a profile that allows nothing but what an honest pytest run needs: no network,
+  writes only in the check's own temp folder, reads only that folder, the Python installation, and
+  time-zone and locale data. Paths are passed as parameters, never as profile text. A tool counts
+  as usable only if a probe of the real command (`python -I -B -c "import pytest"` under the real
+  profile) succeeds. `BOSS_GATE_SANDBOX` is `auto` (default), `require` or `off`; every result
+  says whether it ran sandboxed.
+- Why: The gate runs code a model wrote (D14). A deny-by-default profile is a list of what is
+  allowed, and that list can be complete; a list of what to deny cannot. Running the gate's own
+  command under `(deny default)` and adding rules until an honest check passed found the whole list
+  (SANDBOX.md). The probe of the real command catches a tool that exists but cannot start Python,
+  a nested sandbox, or a profile that an OS update made too tight. Overhead: about 9 ms (4%) a check.
+- Rejected: `(allow default)` plus denies, which leaves every Mach service reachable (the keychain
+  daemon answered, the clipboard was read, `open` and `osascript` ran). Trusting `--version` to
+  detect the tool. A container or VM, parked until ideas from untrusted sources are supported (D14).
+- Evidence: Sandbox probes; `tests/test_sandbox.py::test_a_tool_that_exists_but_fails_is_not_usable`,
+  `tests/test_gate_sandbox.py::test_a_tcp_connection_to_a_local_listener_is_denied_and_never_arrives`,
+  `tests/test_gate_sandbox.py::test_a_secret_outside_the_allowed_paths_cannot_be_read`,
+  `tests/test_gate_sandbox.py::test_a_hostile_directory_name_grants_that_directory_and_nothing_else`,
+  `tests/test_gate_sandbox.py::test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox`.
+  Limits: verified on macOS only; the `bwrap` argv has never been run (B50). A forged verdict is not
+  prevented (T12). The default `auto` runs unsandboxed when no tool works (T39).
+
+### D36: Boss checks are scored by precision on the reference and recall on known-wrong implementations
+
+- Status: `in force`
+- Decision: A draft's checks are scored without running a worker. Precision: the task's reference
+  must pass every check, and a check it fails is wrong. Recall: each known-wrong implementation (a
+  mutant) must fail a check the reference passes; a mutant that fails only wrong checks is not
+  counted as caught. `python -m boss.bench.drafts` drafts and scores; `--score-existing` scores
+  saved drafts for free.
+- Why: Wrong checks and checks that miss the idea were the pilot's failures, and a full worker run
+  costs too much to iterate a prompt on. Only the boss's call is paid: about $0.09 a draft.
+  Baseline on two past runs (17 drafts each): precision 93% and 97% of checks (10 and 4 of 134
+  wrong), recall 58% and 60% of mutants killed (38 and 39 of 65).
+- Rejected: Scoring only through worker runs: slow, costly, and it mixes in the worker's skill.
+  Counting a mutant as killed by a wrong check, which rejects everything and so detects nothing.
+- Evidence: `tests/test_bench_score.py::test_one_wrong_check_one_sound_killer_and_a_mutant_only_the_wrong_check_kills`,
+  `tests/test_bench_score.py::test_a_mutant_that_passes_every_check_survives_even_the_wrong_one`,
+  `tests/test_bench_mutants.py::test_a_mutant_that_passes_every_hidden_check_is_rejected`,
+  `tests/test_bench_drafts.py::test_hidden_checks_reference_and_mutants_never_reach_the_boss`;
+  Draft baseline; [../bench/METHOD.md](../bench/METHOD.md). Limits: 65 mutants, 23 taken from Haiku
+  runs; the baseline recall is biased down because 16 of those 23 were built against the drafts
+  being scored. Whether a better prompt raises these figures is not yet measured.
