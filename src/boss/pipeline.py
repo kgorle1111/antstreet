@@ -25,6 +25,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
+from boss.errors import Outcome
 from boss.firm import Advise, FirmConfig, FirmReport, config_data
 from boss.gate import Check, CheckStatus, GateError, run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events
@@ -33,6 +34,7 @@ from boss.roles import registry
 from boss.roles.advisory import advise_on_dispute, audit_checks, render_advice, render_audit
 from boss.roles.base import RoleError, RoleSpec, ledger_fields
 from boss.roles.critic import Finding, Review, findings_as_checks, review_product, write_check_files
+from boss.roles.delivery import USAGE_FILE, install_demo, write_demo
 from boss.roles.engineering import StagedDraftError, draft_staged, render_coverage, stories_text
 from boss.roles.product import StoryReview, review_stories, uncovered_fragments, write_stories
 from boss.roles.stories import Stories
@@ -58,6 +60,7 @@ _WHY = {
     "system_designer": "a design alone produces no checks",
 }
 YES = ("y", "yes", "a", "approve")
+_DEMO_DIR = "demo"  # the installed files, kept because every run of the firm rebuilds product/
 _STORIES_CHARS = 20_000
 
 
@@ -419,8 +422,8 @@ class Pipeline:
         review_cycles: int,
         fix_micros: int,
     ) -> FirmReport | int:
-        """The critic, on whatever was built. An int is an exit code: the fix round was
-        interrupted."""
+        """The critic, then the demo, on whatever was built. An int is an exit code: the fix
+        round was interrupted."""
         if not self.setup.roles or not self._built():
             return outcome
         if self._on("critic"):
@@ -428,6 +431,8 @@ class Pipeline:
             if isinstance(result, int):
                 return result
             sheet, outcome = result
+        if self._on("demo_writer") and outcome.all_passed:
+            self._demo(sheet)
         return outcome
 
     def _built(self) -> bool:
@@ -593,6 +598,60 @@ class Pipeline:
     def _remove(self, specs: Sequence[CheckSpec]) -> None:
         for spec in specs:
             (self.paths.checks / spec.file).unlink(missing_ok=True)
+
+    def _demo(self, sheet: TermSheet) -> None:
+        """A demo of the product, installed beside it, then a judgement of its usage note. Only
+        for a product that passes every check; once per build of the product."""
+        events = self._events()
+        since = _last_slice_end(events)
+        made = _calls(events[since:], "demo_writer")
+        installed = made[-1].data.get("result") == "ok" if made else False
+        if not made:
+            installed = self._write_demo(sheet)
+        elif installed:
+            self._reinstall()
+        judged = _calls(events[since:], "judge", rubric="usage")
+        usage_file = self.paths.product / USAGE_FILE
+        if self._on("judge") and installed and not judged and usage_file.is_file():
+            note = self._judge("usage", usage_file.read_text(encoding="utf-8"), sheet.idea, None)
+            if note is not None:
+                self.say("Judge's score of USAGE.md (advisory, gates nothing):\n" + note)
+
+    def _write_demo(self, sheet: TermSheet) -> bool:
+        product = self.paths.product
+
+        def make() -> tuple[Any, Usage]:
+            demo, usage = write_demo(
+                sheet.idea, product, self.paths.root / "demo_scratch", **self._call_args()
+            )
+            try:
+                files = install_demo(demo, product)
+                (self.paths.root / _DEMO_DIR).mkdir(exist_ok=True)
+                for path in files:
+                    shutil.copy2(path, self.paths.root / _DEMO_DIR / path.name)
+            except OSError as exc:  # the call was paid for: book it as such
+                raise RoleError(
+                    "demo_writer",
+                    f"the demo could not be installed: {exc}",
+                    Outcome.COMPLETED,
+                    usage,
+                ) from exc
+            return demo, usage
+
+        demo = self._call(_spec("demo_writer"), make, lambda d: {"detail": "installed in product/"})
+        if demo is not None:
+            self.say(f"Demo installed in {product}: {USAGE_FILE} says how to use the product.")
+        return demo is not None
+
+    def _reinstall(self) -> None:
+        saved = self.paths.root / _DEMO_DIR
+        if (self.paths.product / USAGE_FILE).exists() or not saved.is_dir():
+            return
+        try:
+            for path in saved.iterdir():
+                shutil.copy2(path, self.paths.product / path.name)
+        except OSError as exc:
+            self.say(f"The demo could not be put back in product/: {exc}")
 
     def _events(self) -> list[Event]:
         return read_events(self.paths.ledger)

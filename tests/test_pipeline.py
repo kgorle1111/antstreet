@@ -76,6 +76,11 @@ def answer(who):
     return scripted[min(n, len(scripted) - 1)] if isinstance(scripted, list) else scripted
 
 
+def calls_so_far(who):
+    path = os.path.join(folder, "n_" + who)
+    return int(open(path).read()) if os.path.exists(path) else 0
+
+
 def log(who, **extra):
     with open(os.path.join(folder, "calls.jsonl"), "a") as fh:
         fh.write(json.dumps({{"who": who, **extra}}) + "\\n")
@@ -111,7 +116,8 @@ if argv[argv.index("--output-format") + 1] == "json":   # the boss or a role
                       "structured_output": fill(scripted["out"], line)}})
 else:                                                    # a worker slice
     say({INIT!r})
-    if os.path.exists(os.path.join(folder, "interrupt")):
+    flag = os.path.join(folder, "interrupt")   # empty: every slice; a number: that slice only
+    if os.path.exists(flag) and open(flag).read() in ("", str(calls_so_far("worker"))):
         os.kill(os.getppid(), 2)  # Ctrl-C in the investor's terminal, mid-slice
         import time; time.sleep(30)
     step = answer("worker") or {{"files": {{"rev.py": {GOOD!r}}}}}
@@ -1254,3 +1260,242 @@ def test_resume_can_offer_the_fix_round_with_its_own_budget(fx):
     assert sheet["rounds"][1]["budget_micros"] == 250_000
     out = fx.run("resume", "--fix-budget", "0.01")
     assert out.code == EXIT_USAGE and "--fix-budget must be at least $0.105" in out.text
+
+
+# --- stage 3: a demo that ran, installed with the product --------------------------------------
+
+DEMO = {
+    "demo_code": "from rev import reverse\n\nprint(reverse('abc'))\n",
+    "steps": [{"says": "reverses the letters of abc", "quote": Q1}],
+    "usage": "Call reverse(s) with a string; it returns the string reversed.",
+}
+BAD_PRODUCT = "def reverse(s):\n    return s\n"
+
+
+def usage_file(fx):
+    return fx.run_dir / "product" / "USAGE.md"
+
+
+def test_the_demo_is_installed_beside_the_product_and_usage_md_holds_the_real_output(fx):
+    fx.set("demo_writer", ok(DEMO))
+    out = fx.fund("--roles", "demo_writer")
+    assert out.code == EXIT_OK
+    product = fx.run_dir / "product"
+    assert (product / "demo.py").read_text() == DEMO["demo_code"]
+    text = usage_file(fx).read_text()
+    assert DEMO["usage"] in text and "```text\ncba\n```" in text  # what the demo printed
+    assert "reverses the letters" not in text  # the model's claims about output are never shown
+    [call] = fx.role_calls("demo_writer")
+    assert call.actor == "role:demo_writer" and call_facts(call) == ("completed", "ok", 4_000)
+    assert f"Demo installed in {product}: USAGE.md says how to use the product." in out.text
+    assert fx.calls() == ["boss", "worker", "demo_writer"]
+    assert "rev.py" in fx.last_prompt("demo_writer")  # it was shown the product's source
+
+
+def test_the_demo_is_not_attempted_when_a_check_fails(fx):
+    fx.set("worker", {"files": {"rev.py": BAD_PRODUCT}})
+    fx.set("demo_writer", ok(DEMO))
+    out = fx.fund("--roles", "demo_writer")
+    assert out.code == EXIT_INCOMPLETE
+    assert fx.role_calls() == [] and "demo_writer" not in fx.calls() and not usage_file(fx).exists()
+    assert not (fx.run_dir / "product" / "demo.py").exists()
+
+
+def test_the_demo_is_not_attempted_when_the_fix_round_did_not_fix_it(fx):
+    critic_finds(fx, finding())
+    fx.set("worker", {"files": {"rev.py": BUGGY}})  # never fixes it
+    fx.set("demo_writer", ok(DEMO))
+    out = fx.fund("--roles", "critic,demo_writer")
+    assert out.code == EXIT_INCOMPLETE
+    assert len(approvals(fx)) == 2 and "demo_writer" not in fx.calls()
+    assert not usage_file(fx).exists()
+
+
+def test_the_demo_is_made_after_the_fix_round_and_shows_the_fixed_product(fx):
+    critic_finds(fx, finding())
+    demo = DEMO | {"demo_code": "from rev import reverse\n\nprint(reverse('abcdefg'))\n"}
+    fx.set("demo_writer", ok(demo))
+    out = fx.fund("--roles", "critic,demo_writer")
+    assert out.code == EXIT_OK
+    assert fx.calls() == ["boss", "worker", "critic", "worker", "demo_writer"]
+    assert "```text\ngfedcba\n```" in usage_file(fx).read_text()
+
+
+@pytest.mark.parametrize(
+    ("code", "why"),
+    [
+        ("from rev import reverse\n\nraise SystemExit(3)\n", "the demo exited 3"),
+        ("import subprocess\nprint(1)\n", "imports 'subprocess'"),
+        ("print('x'\n", "syntax error"),
+    ],
+    ids=["exits 3", "imports subprocess", "does not parse"],
+)
+def test_a_rejected_demo_is_one_line_saying_why_and_nothing_is_installed(fx, code, why):
+    fx.set("demo_writer", ok(DEMO | {"demo_code": code}))
+    out = fx.fund("--roles", "demo_writer")
+    assert out.code == EXIT_OK  # the product is fine; only the demo was refused
+    [call] = fx.role_calls("demo_writer")
+    assert call_facts(call) == ("completed", "failed", 4_000) and why in call.data["detail"]
+    line = told(out, "The demo_writer failed (")
+    assert why in line and "\n" not in line
+    assert not usage_file(fx).exists() and not (fx.run_dir / "product" / "demo.py").exists()
+
+
+def test_a_demo_call_that_fails_is_booked_and_said(fx):
+    fx.set("demo_writer", bad(0.003))
+    out = fx.fund("--roles", "demo_writer")
+    [call] = fx.role_calls("demo_writer")
+    assert call_facts(call) == ("api_error", "failed", 3_000)
+    assert "The demo_writer failed (" in out.text and not usage_file(fx).exists()
+
+
+def test_a_demo_never_replaces_a_file_the_product_already_has(fx):
+    fx.set("worker", {"files": {"rev.py": GOOD, "USAGE.md": "mine\n"}})
+    fx.set("demo_writer", ok(DEMO))
+    out = fx.fund("--roles", "demo_writer")
+    [call] = fx.role_calls("demo_writer")
+    assert call_facts(call) == ("not_called", "failed", 0) and "exists" in call.data["detail"]
+    assert usage_file(fx).read_text() == "mine\n" and "demo_writer" not in fx.calls()
+    assert out.code == EXIT_OK
+
+
+def test_the_judge_scores_usage_md_against_the_usage_rubric_and_says_it_is_uncalibrated(fx):
+    fx.set("demo_writer", ok(DEMO))
+    fx.set("judge", ok(judge_out("usage", 5)))
+    out = fx.fund("--roles", "demo_writer,judge")
+    assert "Judge's score of USAGE.md (advisory, gates nothing):" in out.text
+    uncalibrated = "(uncalibrated: advisory only, do not act on it)"
+    assert f"usage v1 by haiku: mean 5.0 of 5 {uncalibrated}" in out.text
+    [call] = fx.role_calls("judge")
+    assert call.data["rubric"] == "usage" and call.data["calibrated"] is False
+    assert f"<context>\n{IDEA}\n</context>" in fx.last_prompt("judge")
+    assert "cba" in fx.last_prompt("judge")  # it was shown the file, with the real output in it
+
+
+def test_no_judgement_of_usage_when_nothing_was_installed(fx):
+    fx.set("demo_writer", bad())
+    fx.set("judge", ok(judge_out("usage")))
+    fx.fund("--roles", "demo_writer,judge")
+    assert "judge" not in fx.calls()
+
+
+def test_a_demo_without_the_judge_role_is_not_judged(fx):
+    fx.set("demo_writer", ok(DEMO))
+    fx.set("judge", ok(judge_out("usage")))
+    fx.fund("--roles", "demo_writer")
+    assert fx.role_calls("judge") == [] and "judge" not in fx.calls()
+
+
+def test_a_failed_usage_judge_is_said_and_the_demo_stays(fx):
+    fx.set("demo_writer", ok(DEMO))
+    fx.set("judge", bad(0.002))
+    out = fx.fund("--roles", "demo_writer,judge")
+    assert "The judge failed (" in out.text and "mean" not in out.text
+    assert call_facts(fx.role_calls("judge")[0]) == ("api_error", "failed", 2_000)
+    assert usage_file(fx).exists()
+
+
+# --- resume: the demo is neither repeated nor lost ----------------------------------------------
+
+
+def test_resuming_a_finished_run_that_made_a_demo_adds_no_events_and_keeps_the_demo(fx):
+    fx.set("demo_writer", ok(DEMO))
+    fx.set("judge", ok(judge_out("usage")))
+    fx.fund("--roles", "demo_writer,judge")
+    before, calls, text = fx.events(), fx.calls(), usage_file(fx).read_text()
+    for _ in range(2):
+        out = fx.run("resume")
+        assert out.code == EXIT_OK
+        assert fx.events() == before and fx.calls() == calls
+        assert usage_file(fx).read_text() == text  # product/ was rebuilt; the demo came back
+        assert (fx.run_dir / "product" / "demo.py").read_text() == DEMO["demo_code"]
+    assert "Judge's score" not in out.text
+
+
+def test_a_refused_demo_is_not_asked_for_again_on_resume(fx):
+    fx.set("demo_writer", bad())
+    fx.fund("--roles", "demo_writer")
+    before = fx.events()
+    fx.set("demo_writer", ok(DEMO))
+    fx.run("resume")
+    assert fx.events() == before and not usage_file(fx).exists()
+
+
+def test_a_run_interrupted_before_the_demo_gets_it_on_resume(fx):
+    fx.set("demo_writer", ok(DEMO))
+    (fx.folder / "interrupt").write_text("")
+    assert fx.fund("--roles", "demo_writer").code == EXIT_INTERRUPTED
+    (fx.folder / "interrupt").unlink()
+    assert fx.run("resume").code == EXIT_OK and usage_file(fx).exists()
+    assert len(fx.role_calls("demo_writer")) == 1
+
+
+def test_an_interrupted_fix_round_continues_on_resume_without_a_second_critic(fx):
+    critic_finds(fx, finding())
+    fx.set("demo_writer", ok(DEMO))
+    (fx.folder / "interrupt").write_text("1")  # the second slice: the fix
+    out = fx.fund("--roles", "critic,demo_writer")
+    assert out.code == EXIT_INTERRUPTED and len(approvals(fx)) == 2
+    assert fx.calls() == ["boss", "worker", "critic"]
+    (fx.folder / "interrupt").unlink()
+    out = fx.run("resume")
+    assert out.code == EXIT_OK and asked(out, "Add these") == []
+    assert fx.calls() == ["boss", "worker", "critic", "worker", "demo_writer"]
+    assert product_verdicts(fx) == {"c01": "passed", "c02": "passed"} and usage_file(fx).exists()
+
+
+def test_a_second_review_cycle_on_resume_makes_a_new_demo_for_the_new_build(fx):
+    blank = "from rev import reverse\n\n\ndef test_blank():\n    assert reverse(' ') == ''\n"
+    stripped = "def reverse(s):\n    return s.strip()[::-1]\n"
+    fx.set("worker", [{"files": {"rev.py": v}} for v in (BUGGY, GOOD, stripped)])
+    fx.set("critic", [ok({"findings": [finding()]}), ok({"findings": [finding(blank, quote=Q2)]})])
+    later = DEMO | {"demo_code": "from rev import reverse\n\nprint(reverse(' xyz'))\n"}
+    fx.set("demo_writer", [ok(DEMO), ok(later)])
+    fx.fund("--roles", "critic,demo_writer")
+    assert fx.calls().count("demo_writer") == 1 and "cba" in usage_file(fx).read_text()
+    out = fx.run("resume", "--review-cycles", "2")
+    assert out.code == EXIT_OK
+    assert fx.calls() == [
+        "boss",
+        "worker",
+        "critic",
+        "worker",
+        "demo_writer",
+        "critic",
+        "worker",
+        "demo_writer",
+    ]
+    assert "```text\nzyx\n```" in usage_file(fx).read_text()  # the new build's demo, not the old
+
+
+# --- every role at once ------------------------------------------------------------------------
+
+
+def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
+    script_stage_1(fx, stories=STORIES)
+    fx.set("tester", ok(checks_out("S1.1", "S1.2", codes=(CHECK1, WRONG))))
+    fx.set("judge", [ok(judge_out("stories")), ok(judge_out("usage", 5))])
+    fx.set("consultant", ok(ADVICE))
+    disputing = {"files": {"rev.py": BUGGY}, "disputes": [DISPUTE]}
+    fx.set("worker", [disputing, {"files": {"rev.py": GOOD}}])
+    fx.set("critic", ok({"findings": [finding()]}))
+    fx.set("demo_writer", ok(DEMO))
+    out = fx.fund("--roles", "all", answers={"Task": "d"})
+    assert out.code == EXIT_OK
+    assert fx.calls() == [
+        "product_manager", "user_agent", "system_designer", "tester", "check_auditor", "judge",
+        "worker", "consultant", "critic", "worker", "demo_writer", "judge",
+    ]  # fmt: skip
+    assert {e.actor for e in fx.role_calls()} == {f"role:{n}" for n in registry()}
+    assert all(e.round == 0 and e.data["result"] == "ok" for e in fx.role_calls())
+    events = fx.events()
+    spent = {}
+    for e in events:
+        kind = e.actor.split(":")[0]
+        spent[kind] = spent.get(kind, 0) + (e.cost_micros or 0)
+    assert (spent["role"], spent["worker"], spent["boss"]) == (10 * 4_000, 12_000, 0)
+    assert sum(spent.values()) == 10 * 4_000 + 12_000
+    assert "  total        $0.0520" in out.text
+    kinds = [str(e.event) for e in events]
+    assert kinds.count("started") == 1 and kinds.count("approved") == 2
+    assert usage_file(fx).exists() and (fx.run_dir / "stories.json").exists()
