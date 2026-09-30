@@ -1,12 +1,15 @@
 """docs/ROLES.md stays true: what it names exists, its tables match the code, and each way it says
-to add a skill, a profile or a role works as written. It lists no specialist role by hand."""
+to add a skill, a profile or a role works as written. Its table of specialist roles is held to the
+pipeline that runs them."""
 
 import ast
 import dataclasses
+import inspect
 import re
 import subprocess
 import sys
 import types
+from pathlib import Path
 
 import pytest
 from docs_support import DOCS, ROOT, code_spans, read, section, table
@@ -19,16 +22,18 @@ from skills_support import (
     users,
 )
 
-from boss import firm
+from boss import cli, firm, pipeline
 from boss.boss import load_prompt
-from boss.firm import FirmConfig
+from boss.firm import FirmConfig, FirmReport
 from boss.roles import builders, org, registry
 from boss.roles.base import DEFAULT_ROLE_CAP_MICROS, DEPARTMENTS, RoleSpec
 from boss.roles.builders import PROFILES, WorkerProfile, builder_system_prompt, profile
+from boss.rundir import RunPaths
 from boss.skills import MAX_SKILL_CHARS, SkillError, all_skill_ids, load_skill, parse_skill
 from boss.termsheet import Task
 
 DOC = DOCS / "ROLES.md"
+HEADING = "How `boss fund --roles` reaches each role"
 BUILDER_SIDE = {p.name for p in PROFILES} | {"builder"}
 PATH = re.compile(r"(?:src|tests|docs|bench)/[^\s`]*")
 
@@ -72,11 +77,44 @@ def test_the_skill_table_names_each_shipped_builder_skill_once_with_the_failure_
     assert all(len(r) == 2 and r[1] for r in rows)
 
 
-def test_the_document_lists_no_specialist_role_and_says_where_the_list_comes_from(text):
-    for spec in registry().values():
-        assert f"`{spec.name}`" not in text, f"{spec.name} is listed by hand"
+# Where `boss fund --roles` runs each role: the method of `Pipeline` that books its call, and the
+# stage the document names for it. The table in ROLES.md must say exactly this.
+STAGES = {
+    "product_manager": ("_stories", "before approval"),
+    "user_agent": ("_user_agent", "before approval"),
+    "system_designer": ("_staged", "before approval"),
+    "tester": ("_staged", "before approval"),
+    "check_auditor": ("_audit", "before approval"),
+    "judge": ("_judge", "before approval and after the build"),
+    "consultant": ("advisor", "while a dispute is open"),
+    "critic": ("_critic", "after the build"),
+    "demo_writer": ("_write_demo", "after the build"),
+}
+REACHED_BY = {  # the entry point that reaches each method
+    "plan": ("_stories", "_user_agent", "_staged", "_audit", "_judge_stories"),
+    "after_build": ("_review", "_demo"),
+}
+
+
+def test_the_document_lists_each_specialist_role_once_with_the_stage_the_pipeline_runs_it_in(text):
+    rows = {r[0].strip("`"): r for r in table(section(text, HEADING))}
+    assert set(rows) == set(registry()) == set(STAGES), "the table and the registry differ"
+    for name, (method, stage) in STAGES.items():
+        assert rows[name][1] == stage, f"{name}: the document says {rows[name][1]!r}"
+        source = inspect.getsource(getattr(pipeline.Pipeline, method))
+        assert f'_spec("{name}")' in source, f"Pipeline.{method} does not call {name}"
+    for entry, methods in REACHED_BY.items():
+        source = inspect.getsource(getattr(pipeline.Pipeline, entry))
+        for method in methods:
+            assert f"self.{method}(" in source, f"Pipeline.{entry} no longer reaches {method}"
+    assert "self._judge(" in inspect.getsource(pipeline.Pipeline._judge_stories)
+    assert "self._judge(" in inspect.getsource(pipeline.Pipeline._demo)  # the usage note
+    assert "self._write_demo(" in inspect.getsource(pipeline.Pipeline._demo)
+    assert "self._critic(" in inspect.getsource(pipeline.Pipeline._review)
+    # the consultant's line reaches the loop through `run_firm(advise=...)`
+    assert "advise=advise" in inspect.getsource(cli._run)
+    assert "pipe.advisor(" in inspect.getsource(cli._build)
     assert "`render_org`" in text and "python -m boss.roles.org" in text
-    assert "This document does not say which specialist roles exist" in text
 
 
 def test_the_three_things_table_states_what_the_code_enforces(text):
@@ -259,7 +297,18 @@ def test_what_is_not_built_is_still_not_built(text):
     assert "profile" not in {f.name for f in dataclasses.fields(Task)}
     assert "profile" not in read(ROOT / "src" / "boss" / "boss.py")
     assert "Nothing assigns a profile to a task" in body
-    # No role is called by `boss fund`: the loop and the command import no role module.
+    assert "Nothing assigns a profile to a task" in body
+
+
+class _NoWrites:
+    def append(self, event):
+        raise AssertionError(f"a run with no roles wrote {event}")
+
+
+def test_roles_are_reached_only_through_the_pipeline_and_only_when_named(text):
+    body = section(text, "Not built")
+    # Only pipeline.py calls a role. The loop and the command import no role function: they take
+    # the registry, the profiles, the organisation chart and the builder prompt, nothing else.
     allowed = {
         "boss.roles.registry",
         "boss.roles.builders.PROFILES",
@@ -267,6 +316,31 @@ def test_what_is_not_built_is_still_not_built(text):
         "boss.roles.org.org_chart",
         "boss.roles.org.render_org",
     }
-    for module in sorted((ROOT / "src" / "boss").glob("*.py")):
-        assert _imports_of_roles(module) <= allowed, f"{module.name} now imports a role"
-    assert "No role is called by `boss fund`" in body
+    src = ROOT / "src" / "boss"
+    for module in sorted(src.glob("*.py")):
+        if module.name != "pipeline.py":
+            assert _imports_of_roles(module) <= allowed, f"{module.name} now imports a role"
+    called = {n.rsplit(".", 1)[1] for n in _imports_of_roles(src / "pipeline.py")}
+    for function in (
+        "write_stories", "review_stories", "draft_staged", "audit_checks", "advise_on_dispute",
+        "review_product", "write_demo",
+    ):  # fmt: skip
+        assert function in called, f"pipeline.py no longer calls {function}"
+    assert "from boss.roles.judge import judge_artifact" in read(src / "pipeline.py")
+    assert "No role is on unless `--roles` names it" in body
+    assert "`src/boss/pipeline.py` books their spend" in body
+    # Off unless named: no spec is on, the option defaults to none, and with no roles every part
+    # of the pipeline does nothing and writes nothing.
+    assert not any(spec.default_on for spec in registry().values())
+    fund = cli._parser()._subparsers._group_actions[0].choices["fund"]
+    assert {a.dest: a.default for a in fund._actions}["roles"] == ""
+    assert pipeline.parse_roles("", registry()) == ()
+    idle = pipeline.Pipeline(
+        pipeline.Setup((), "haiku", None), Path("."), RunPaths(Path(".")), _NoWrites(), "r",
+        {}, "claude", input, print,
+    )  # fmt: skip
+    idle.record_start(FirmConfig())
+    assert idle.advisor(None) is None  # type: ignore[arg-type]
+    finished = FirmReport(1, 1, None)
+    rerun = lambda sheet: pytest.fail("the loop ran again")  # noqa: E731
+    assert idle.after_build(None, finished, rerun, review_cycles=1, fix_micros=1) is finished  # type: ignore[arg-type]

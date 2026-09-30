@@ -24,8 +24,9 @@ Related: [LEDGER.md](LEDGER.md) (event schema), [CLI.md](CLI.md) (commands, run 
 - The loop (`firm.py`) is not an actor. It reads the ledger, asks the rule, and writes events.
 - Specialist roles (`src/boss/roles/`) are not in this table. Each is one model call with no tools,
   behind a gate in code, and its spend is booked as a `role_call` event under the actor
-  `role:<name>`. Every role is off by default and none is called by `boss fund`;
-  [ROLES.md](ROLES.md) says what each is and when one is switched on.
+  `role:<name>`. Every role is off unless `boss fund --roles` names it, and `pipeline.py` is the
+  only module that calls one; [ROLES.md](ROLES.md) says where each runs and when one is switched
+  on.
 - A worker profile (`boss fund --profile`) is the same worker with skills added to its prompt. It
   changes what the worker is told, not what it may do.
 
@@ -40,7 +41,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `boss.py` | The boss's one model call: command line, draft schema, turning a draft into a term sheet. | Take ids, file names, money or round plan from the model; give the boss a tool. |
 | `briefs.py` | What a worker is told: first brief, continuation after a gate run, reassignment brief, and the note about checks the investor added. | Call a model; present a worker's earlier words as instructions. |
 | `budget.py` | Round budgets, top-ups, remaining money, slice caps, the reserve, unlock test, round plan. Charges a slice that did work with no cost, or that never ended, at its cap. | Use floats; read a clock. |
-| `cli.py` | The `boss` command: parsing, validating counts and amounts, wiring, exit codes, `resume`, `roles`; the `--profile` and `--parallel` options. | Decide pass, fire or money itself. |
+| `cli.py` | The `boss` command: parsing, validating counts, amounts and role lists, wiring, exit codes, `resume`, `roles`; the `--profile`, `--parallel`, `--roles`, `--review-cycles` and `--fix-budget` options. | Decide pass, fire or money itself; call a role (it hands the pipeline to the loop). |
 | `doctor.py` | Preflight checks, each with a one-line fix: the gate sandbox, and with `--live` one real worker slice that tries to write outside its folder. | Raise on an expected failure; print an environment value. |
 | `errors.py` | Names the outcome of one CLI run from its stream signals. | Trust `subtype` alone. |
 | `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own. |
@@ -48,8 +49,9 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
 | `ledger.py` | The event schema, the exclusive appender, the reader, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0. |
 | `limits.py` | Hard run limits: spend ceiling, slices, workers, wall clock, and the size of a worker's folder. | Depend on the round budget or the rule. |
+| `pipeline.py` | The roles the investor chose, around the loop: before approval (stories, staged draft, audit, judge, notes under the sheet), while a dispute is open (the consultant's line), after the build (the critic and the fix round, the demo, the judge of the usage note). Booking every role call, the `started` event's `roles`, and what a resume still owes. | Decide anything: a note binds nothing, a proposal changes the run only when the investor says yes; record an amendment by anyone but the investor; call a role that was not chosen; write a role's model text to the screen unmade safe. |
 | `redact.py` | Masking secrets and control characters in text that is stored or shown (`safe_text`), in linear time. | Return text that still contains a matched secret. |
-| `report.py` | The board report, computed from events. | Read anything but events; fold an unknown cost into a total as 0. |
+| `report.py` | The board report, computed from events, including one line per `role_call`. | Read anything but events; fold an unknown cost into a total as 0. |
 | `retry.py` | Pure decisions on infrastructure failures: wait, pause, give up. | Sleep; read a clock; touch a process. |
 | `roles/__init__.py` | `registry()`: every role, collected from the `SPECS` of the modules in the package. | List a role by hand; accept two roles with one name. |
 | `roles/advisory.py` | The check auditor (an opinion on each check against the idea) and the consultant (an opinion on one disputed check). | Change a check or a ruling; accept an opinion whose quote is not a fragment of the idea. |
@@ -248,6 +250,32 @@ Values in code, checked by the test.
 | Checks in a draft | 1 to 8 | `boss.MAX_CHECKS` |
 | Oldest supported `claude` CLI | 2.1.277 | `worker.MIN_CLI_VERSION` |
 
+## The roles around the loop
+
+`boss fund --roles a,b` makes `cli.py` build a `Pipeline` (`pipeline.py`) and hand it to the loop.
+With no roles every method of it does nothing and writes nothing.
+
+1. **Before approval.** `Pipeline.plan` runs the product manager, then the user agent, then the
+   designer and the tester (`draft_staged`) in place of the boss's call, then the check auditor and
+   the judge of the stories. Each note is shown under the term sheet by `review_term_sheet`. A
+   failed product manager or staged draft falls back to the boss's own call (`draft_boss`, passed
+   in by `cli.py`). The approval covers the sheet and the check files only, so the notes do not
+   change its hashes.
+2. **While the loop runs.** `Pipeline.advisor` is the `advise` function `run_firm` calls before it
+   asks about a disputed check. It calls the consultant and returns one line, or nothing if the
+   call failed.
+3. **After the loop.** `Pipeline.after_build` runs only if something was built. The critic reviews
+   `product/`; its verified findings become checks for the task that owns the module they import,
+   plus a new last round. If the investor says yes, `pipeline.py` records an investor `approved` event
+   with `hashes`, `round` and `added_checks`, rewrites `term_sheet.json`, and `cli.py` runs the
+   loop again on the amended sheet. The demo writer and the judge of `USAGE.md` run only if
+   every required check passes.
+
+Every role call is booked as a `role_call` in round 0 by `Pipeline._book`, whether it worked or
+not. A failure is told to the investor and never read as "no findings". What a resume still owes
+is counted from `role_call` events: one critic call per review cycle, and one demo call and one
+usage judgement per build of the product (the last `slice_end`).
+
 ## Not built
 
 - Container isolation for the code the gate runs. An OS sandbox exists (`docs/SANDBOX.md`): run and
@@ -255,7 +283,5 @@ Values in code, checked by the test.
 - An investor ruling on a task that was already set aside. It stays set aside for the run,
   resumed or not.
 - A writer for `topped_up` and `denied` events. The budget code reads `topped_up`; nothing writes it.
-- A writer for an amendment, an investor `approved` event with `added_checks`. The loop reads one
-  and shows the added checks to the worker; no command writes one.
 - A reserve per model. There is one figure for all.
 - API-key (`--bare`) mode verified against the real CLI.

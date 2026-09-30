@@ -8,7 +8,7 @@ import re
 import pytest
 from docs_support import DOCS, ROOT, code_spans, money, read, section, table
 
-from boss import boss, budget, cli, firm, gate, limits, retry, rule, runner, worker
+from boss import boss, budget, cli, firm, gate, limits, pipeline, retry, rule, runner, worker
 from boss.bench import run as bench_run
 from boss.ledger import Event, EventType
 
@@ -153,13 +153,41 @@ def test_not_built_claims_are_still_true(text):
     # nothing writes topped_up (only the budget reads it) or denied
     assert _uses("DENIED") == [] and "`denied`" in body
     assert _uses("TOPPED_UP") == ["budget.py"] and "`topped_up`" in body
-    # nothing writes an amendment: only the loop reads `added_checks` (state.py names it in prose)
-    assert _callers("added_checks", skip=("state.py", "briefs.py", "critic.py")) == ["firm.py"]
-    assert "added_checks" in body and "no command writes one" in body
-    assert 'e.data.get("added_checks"' in read(SRC / "firm.py")
+    # the amendment is no longer a gap: it is written (see the test below), so it is not listed
+    assert "added_checks" not in body and "amendment" not in body
     # a set-aside task is never re-opened: state keeps it abandoned and the loop skips it
     assert "not state.tasks[task.id].abandoned" in read(SRC / "firm.py")
     assert "already set aside" in body
+
+
+def test_an_amendment_is_written_by_the_pipeline_only_after_the_investor_says_yes(text):
+    # Writers of `added_checks`: the pipeline, in `_amend`; readers: the loop (`firm.py`).
+    skip = ("state.py", "briefs.py", "critic.py")
+    assert _callers("added_checks", skip=skip) == ["firm.py", "pipeline.py"]
+    assert 'e.data.get("added_checks"' in read(SRC / "firm.py")
+    amend = inspect.getsource(pipeline.Pipeline._amend)
+    assert '"added_checks": [c.id for c in checks]' in amend
+    assert 'Recorder(self.ledger, self.run_id, n)("investor", EventType.APPROVED' in amend
+    assert "if answer not in YES:" in amend
+    assert amend.index("if answer not in YES:") < amend.index("EventType.APPROVED")
+    # the approval is recorded before the sheet on disk changes, so a crash between them leaves
+    # the old, still approved sheet, never one nobody approved
+    assert amend.index("EventType.APPROVED") < amend.index("TERM_SHEET_FILE")
+    body = section(text, "The roles around the loop")
+    assert "`added_checks`" in body and "investor `approved` event" in body
+
+
+def test_the_roles_section_names_real_methods_and_the_one_module_that_calls_roles(text):
+    body = section(text, "The roles around the loop")
+    methods = {s.split(".")[1] for s in code_spans(body) if re.fullmatch(r"Pipeline\.\w+", s)}
+    assert {"plan", "advisor", "after_build", "_book"} <= methods
+    for name in methods:
+        assert callable(getattr(pipeline.Pipeline, name)), f"Pipeline.{name} does not exist"
+    for name in ("draft_staged", "review_term_sheet", "run_firm", "draft_boss"):
+        assert f"`{name}`" in body
+    row = next(r for r in table(section(text, "Module map")) if r[0] == "`pipeline.py`")
+    assert "record_start" not in row[1] and "call a role that was not chosen" in row[2]
+    assert "`pipeline.py` is the" in section(text, "Roles")
 
 
 def test_what_the_document_no_longer_calls_missing_is_built_and_named(text):

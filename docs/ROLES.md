@@ -2,8 +2,9 @@
 
 What each is, how to add one, and when a role is switched on. `tests/test_docs_roles.py` fails
 when a profile or builder skill is missing here, when a file named here does not exist, and when a
-step below stops working. This document does not list the specialist roles: they are defined in
-code, and `render_org` prints them (see "See the whole organisation").
+step below stops working. The table in "How `boss fund --roles` reaches each role" is checked
+against the registry; what each role is for is in code, and `render_org` prints it (see "See the
+whole organisation").
 
 ## Three different things
 
@@ -14,7 +15,7 @@ code, and `render_org` prints them (see "See the whole organisation").
 | Tools | None | `Read`, `Write`, `Edit` in its own folder; no shell | Not applicable |
 | Produces | Data that must pass its gate | Files that the gate's checks run against | Text appended to a system prompt |
 | Paid for | A capped call, booked as a `role_call` event | Capped slices, like any worker | Its characters, on every call that loads it |
-| On by default | No | No: the builder prompt runs alone unless `boss fund --profile` names one | Loaded by whatever names it |
+| On by default | No: `boss fund --roles` turns it on | No: the builder prompt runs alone unless `boss fund --profile` names one | Loaded by whatever names it |
 
 ## What a role is
 
@@ -22,10 +23,11 @@ code, and `render_org` prints them (see "See the whole organisation").
   JSON schema. A role that needs to touch files is a worker, not a role.
 - **A gate.** `RoleSpec.gate` is one line naming the deterministic check its output must pass
   before anything uses it. A role drafts; code decides.
-- **Metered.** A call's spend is booked by whoever calls the role, as a `role_call` event under
-  the actor `role:<name>` (`ledger_fields` builds the fields). The call has a cap of `cap_micros`
+- **Metered.** A call's spend is booked by whoever calls the role (`src/boss/pipeline.py`), as a
+  `role_call` event under the actor `role:<name>` (`ledger_fields` builds the fields). The call has a cap of `cap_micros`
   (150,000 micro-dollars, $0.15, unless the spec says otherwise).
 - **Off by default.** `default_on` is `False` until a measurement says the role earns its cost.
+  A role runs only when `boss fund --roles` names it.
 - **Placed by two fields.** `department` is one of `product`, `engineering`, `quality`,
   `delivery` or `advisory`. `reports_to` is `boss` or the name of another role.
 
@@ -158,21 +160,85 @@ An unknown profile name is an error that lists the known ones:
   under its department.
 - A department with no role is left out of the chart and is not a problem.
 
+## How `boss fund --roles` reaches each role
+
+`boss fund --roles a,b,c` (or `--roles all`) names the roles to run. With no `--roles` nothing
+below happens, and the run, its ledger and its output are what they were before roles existed.
+`src/boss/pipeline.py` is the one module that calls a role's function. Every role call uses the
+boss's model (`--boss-model`) and thinking setting (`--boss-thinking`), and they are recorded on
+the `started` event, so `boss resume` calls roles the same way.
+
+| Role | Runs | You see | The code uses it for |
+|---|---|---|---|
+| `product_manager` | before approval | The stories, saved as `stories.json`, and "parts of your idea no acceptance criterion quotes" | The staged draft |
+| `user_agent` | before approval | A note marked as an opinion: what the stories miss or misread | Nothing |
+| `system_designer` | before approval | The tasks in the term sheet, with the tester's checks | The term sheet's tasks |
+| `tester` | before approval | The checks, each with the criteria it covers, and a coverage matrix | The term sheet's checks |
+| `check_auditor` | before approval | A note with one opinion per check | Nothing |
+| `judge` | before approval and after the build | A score of the stories, and a score of `USAGE.md`, each labelled uncalibrated unless a calibration covers it | Nothing |
+| `consultant` | while a dispute is open | One line, marked as an opinion, before the question on a disputed check | Nothing |
+| `critic` | after the build | Each verified finding and how many were rejected; if any, one question: add these checks and fund a fix round | Proposed checks, only if you say yes |
+| `demo_writer` | after the build | `demo.py` and `USAGE.md` in `product/`, only when every required check passes | Files added to the product |
+
+- **Nothing is decided by a role.** A note under the term sheet binds nothing: approval is of the
+  sheet and its check files, and their hashes are the same with or without the notes. A proposal
+  (the critic's checks) changes the run only when you answer yes, and your answer is an `approved`
+  event with `added_checks`.
+- **Roles that need another.** `user_agent` needs `product_manager`. `tester` needs
+  `product_manager` and `system_designer`, and `system_designer` needs `tester`, because a design
+  alone produces no checks. Anything else is a usage error that names what to change, before
+  anything is spent. `judge` with no stories or no demo has nothing to score and makes no call.
+- **Staged draft.** With `product_manager`, `system_designer` and `tester`, the term sheet comes
+  from `draft_staged` and the boss's own draft call is not made, so it is not paid for. With
+  `--rounds` above 1 the rounds are planned by story priority.
+- **A role that fails.** Its spend is booked whatever happened, you are told in one line, and the
+  run goes on without that role's output. A failed advisory role is a note that says it failed; it
+  is never shown as "no problems found". Two steps cannot go on without a role's output, so they
+  fall back to the boss's own draft and say so: a failed `product_manager` (there are no
+  stories), and a failed staged draft (the designer, the tester, or assembling the sheet). Every
+  paid call of a failed staged draft is booked under its own role, and a good output that was
+  thrown away is booked as `unused`.
+- **Fix round.** After the build the critic's findings are run by the gate on the product, and
+  each one that fails there is verified. Each is proposed as a check for the task that owns the
+  module its test imports (the only task, if there is one). A check that would pass on an empty
+  workspace is dropped with a line saying so. You are shown each check's code and asked once:
+  `--review-cycles` limits how many reviews there are, `--fix-budget` sets the new round's money,
+  and no question is asked when the run ended early. On yes, the amended sheet is validated,
+  approved in the ledger and written to `term_sheet.json`, and the loop runs again so a worker
+  fixes what was found.
+- **Demo.** Only for a product that passes every required check. The demo script is screened by
+  code, run inside the gate against a copy of the product, and `USAGE.md` holds what that run
+  printed, not what the model said it would.
+- **Resume.** A resumed run reads its roles from the ledger, does not repeat the stage before
+  approval, and does not repeat a critic review, a demo or a usage score the ledger already shows.
+- **What you can read afterwards.** `stories.json`, `critic-N/` (the tests the critic wrote),
+  `demo/` (the installed files, kept because `product/` is rebuilt on every run) and `demo_scratch/`
+  in the run folder; one line per role call in the report's Roles section; every call in the
+  ledger as `role_call`. Text a model wrote is made safe before you read it: control characters
+  visible, secrets masked, one line where a line is expected.
+- **Tests.** `tests/test_pipeline.py` runs all of this against one fake `claude` that plays the
+  boss, the worker and every role. For example
+  `tests/test_pipeline.py::test_every_role_end_to_end_and_the_ledger_adds_up`.
+
 ## Not built
 
-- No role is called by `boss fund`. The roles return data and usage to their caller and write
-  nothing; the code that calls them today is the benchmark's measurement tools and the judge's
-  own commands. `src/boss/firm.py` and `src/boss/cli.py` import only `registry`, `PROFILES`,
-  `org_chart`, `render_org` and `builder_system_prompt`.
+- No role is on unless `--roles` names it. The roles return data and usage to their caller and write
+  nothing; `src/boss/pipeline.py` books their spend. `src/boss/firm.py` and `src/boss/cli.py`
+  import only `registry`, `PROFILES`, `org_chart`, `render_org` and `builder_system_prompt` from
+  the roles package.
 - Nothing assigns a profile to a task. The investor picks one for the run; the boss does not pick
   one, and a task has no profile field.
-- No role has been measured to pay for its call, so every role is off. No judge calibration file
-  is in the repository.
+- No role has been measured to pay for its call, so none is on unless you name it. No judge
+  calibration file is in the repository.
+- A fix round goes after the last round of the term sheet. If the work finished early and later
+  rounds never opened, the loop asks you to fund those before it reaches the fix round.
+- Findings the critic made are not offered a second time if Ctrl-C ended the question; their tests
+  stay in `critic-N/`.
 - No measurement shows that any skill changes a worker's output. No benchmark cell has used a
   profile. Each skill answers a failure seen in the pilot and rerun or reasoned from a worker with no
   shell; none has been tested by an A/B run.
 - No token cost has been measured for a skill set. The 10,000-character cap is a bound, not a
   measurement.
 - The ledger records a role's skill ids, not their versions.
-- This document does not say which specialist roles exist or whether any is on: run the command
-  above.
+- The table above says where each role runs, not what it is worth: run the command above for each
+  role's purpose and gate.
