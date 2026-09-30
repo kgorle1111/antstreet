@@ -52,8 +52,11 @@ else:                                                    # a worker slice
     if os.environ.get("FAKE_BREAK"):  # only visible if the caller's environment leaks through
         code = "broken ="
     open("rev.py", "w").write(code)
+    reason = "wrote rev.py"
+    if os.path.exists(os.path.join(os.environ["HOME"], "fake_surrogate")):
+        reason += chr(0xD800)  # a lone surrogate: json.dumps escapes it, as the real CLI may
     say(result | {{"total_cost_usd": 0.006,
-                  "structured_output": {{"status": "done", "reason": "wrote rev.py"}}}})
+                  "structured_output": {{"status": "done", "reason": reason}}}})
 """
 
 
@@ -129,6 +132,17 @@ def test_callers_environment_does_not_reach_the_worker(boss):
     # The fake writes a broken product if it can see this variable; the allowlist must drop it.
     code, _ = boss("fund", "Reverse a string.", "--budget", "0.50", FAKE_BREAK="1")
     assert code == EXIT_OK
+
+
+def test_a_lone_surrogate_in_a_workers_reason_does_not_break_the_report(boss):
+    (boss.project.parent / "fake_surrogate").write_text("")
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50")
+    assert code == EXIT_OK
+    [run_dir] = boss.runs()
+    (run_dir / "report.md").read_text(encoding="utf-8")  # written, and valid UTF-8
+    ends = [e for e in events_of_run(boss) if e.event is EventType.SLICE_END]
+    reasons = [e.data["status"]["reason"] for e in ends]
+    assert "wrote rev.py\ufffd" in reasons  # kept, visibly replaced, not dropped
 
 
 def test_report_and_status_read_the_latest_run(boss):

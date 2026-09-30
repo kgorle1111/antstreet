@@ -7,6 +7,7 @@ CLI adds event types between versions. Money and outcome come only from the fina
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,9 @@ from typing import Any
 from boss.errors import RunSignals
 
 MICROS_PER_USD = 1_000_000
+# json.loads joins an escaped surrogate pair into one character, so any surrogate left is a lone
+# one: valid JSON, but text that no UTF-8 file, report or check can hold.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +47,7 @@ class StreamReader:
         if not line.strip():
             return
         try:
-            event = json.loads(line)
+            event = _valid_text(json.loads(line))
         except (ValueError, RecursionError):  # not only JSONDecodeError: int digit limit, nesting
             self.malformed_lines += 1
             return
@@ -124,3 +128,15 @@ def _cost_micros(result: dict[str, Any], has_model_usage: bool) -> int | None:
         return round(cost * MICROS_PER_USD)
     except (ValueError, OverflowError):  # NaN, or a figure too large to scale (1e308)
         return None
+
+
+def _valid_text(value: Any) -> Any:
+    """Every string in a parsed event, with each lone surrogate replaced by U+FFFD: the same
+    replacement the runner applies to undecodable output, applied once here for every reader."""
+    if isinstance(value, str):
+        return _LONE_SURROGATE.sub("\ufffd", value)
+    if isinstance(value, list):
+        return [_valid_text(v) for v in value]
+    if isinstance(value, dict):
+        return {_valid_text(k): _valid_text(v) for k, v in value.items()}
+    return value

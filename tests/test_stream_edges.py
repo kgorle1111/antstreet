@@ -170,3 +170,33 @@ def test_an_infinite_cost_is_unknown_not_a_crash():
 def test_malformed_model_usage_degrades_instead_of_raising(model_usage):
     usage = reader(result(total_cost_usd=1, modelUsage=model_usage)).usage()
     assert usage.cost_micros in (None, 1_000_000)
+
+
+# A lone surrogate is valid JSON ("\ud800") but no UTF-8 file can hold it; it reached report.md
+# and check files through the status reason and structured output before this was fixed.
+LONE = (
+    '{"type": "result", "subtype": "success", "structured_output": '
+    '{"status": "done", "reason": "x\\ud800y", "k\\udfff": ["\\udc00"]}}'
+)
+
+
+def test_a_lone_surrogate_anywhere_in_an_event_becomes_a_replacement_character():
+    output = reader(LONE).result["structured_output"]
+    assert output == {"status": "done", "reason": "x�y", "k�": ["�"]}
+    json.dumps(output, ensure_ascii=False).encode("utf-8")  # writable anywhere now
+
+
+def test_a_proper_surrogate_pair_is_one_character_and_is_kept():
+    r = reader('{"type": "result", "structured_output": {"reason": "ok \\ud83d\\ude00"}}')
+    assert r.result["structured_output"]["reason"] == "ok \U0001f600"
+
+
+def test_numbers_booleans_and_nulls_pass_through_untouched():
+    event = {"type": "result", "structured_output": {"n": 1.5, "b": True, "z": None, "l": [1]}}
+    assert reader(event).result == event
+
+
+def test_nesting_past_the_limit_is_malformed_not_a_crash():
+    deep = '{"type": "result", "x": ' + "[" * 100_000 + "]" * 100_000 + "}"
+    r = reader(deep)
+    assert r.result is None and r.malformed_lines == 1
