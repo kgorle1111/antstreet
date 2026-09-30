@@ -64,13 +64,24 @@ def review_term_sheet(
     path = run_dir / TERM_SHEET_FILE
     path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
     while True:
-        say(render(sheet, checks_dir))
+        shown = render(sheet, checks_dir)
+        say(shown)
         try:
             answer = ask("[a]pprove, [r]eject, or [e]dit files and re-check? ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             answer = "r"
         if answer in ("a", "approve"):
-            approved = dataclasses.replace(sheet, approved_by_investor=True)
+            # Approval binds to what is on disk now, and only if the investor has seen exactly that.
+            try:
+                current = _load_valid(path, checks_dir)
+            except TermSheetError as exc:
+                say(_problems_text("The term sheet does not validate", exc))
+                continue
+            if render(current, checks_dir) != shown:
+                say("The term sheet or a check changed since it was shown; review it again.")
+                sheet = current
+                continue
+            approved = dataclasses.replace(current, approved_by_investor=True)
             path.write_text(approved.to_json())
             ledger.append(
                 Event(
@@ -110,20 +121,24 @@ def _reload_after_edit(
         return sheet
     while True:
         try:
-            edited = dataclasses.replace(
-                TermSheet.from_json(path.read_text()), approved_by_investor=False
-            )
-            validate(edited, checks_dir)
-            return edited
+            return _load_valid(path, checks_dir)
         except TermSheetError as exc:
-            say(
-                "The edited term sheet does not validate:\n"
-                + "\n".join(f"  - {p}" for p in exc.problems)
-            )
+            say(_problems_text("The edited term sheet does not validate", exc))
             try:
                 ask("Fix the files, then press Enter to re-check. ")
             except (EOFError, KeyboardInterrupt):
                 return sheet
+
+
+def _load_valid(path: Path, checks_dir: Path) -> TermSheet:
+    """The term sheet as it is on disk, never approved, or TermSheetError."""
+    sheet = dataclasses.replace(TermSheet.from_json(path.read_text()), approved_by_investor=False)
+    validate(sheet, checks_dir)
+    return sheet
+
+
+def _problems_text(headline: str, exc: TermSheetError) -> str:
+    return f"{headline}:\n" + "\n".join(f"  - {p}" for p in exc.problems)
 
 
 def render(sheet: TermSheet, checks_dir: Path) -> str:

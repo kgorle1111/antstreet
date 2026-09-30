@@ -13,7 +13,7 @@ from boss.approval import (
     review_term_sheet,
 )
 from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, validate
+from boss.termsheet import CheckSpec, Round, Task, TermSheet
 
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 C02 = "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n"
@@ -121,19 +121,27 @@ def test_end_of_input_while_fixing_an_invalid_edit_returns_to_the_menu(session, 
     assert [e.event for e in session.events()] == [EventType.STOPPED]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="approval.py:review_term_sheet approves without re-validating: a check edited since "
-    "the last validation (here one that passes on an empty workspace) is hashed and approved",
-)
 def test_a_check_broken_since_the_last_validation_cannot_be_approved(session, checks):
     def break_then_approve():
         (checks / "test_c02.py").write_text("def test_x():\n    pass\n")
         return "a"
 
-    approved = session.review([break_then_approve])
-    if approved is not None:
-        validate(approved, checks)  # raises TermSheetError: c02 passes on an empty workspace
+    assert session.review([break_then_approve, "r"]) is None
+    assert any("check c02 passes on an empty workspace" in s for s in session.said)
+    assert [e.event for e in session.events()] == [EventType.STOPPED]
+
+
+def test_a_file_edited_since_it_was_shown_is_shown_again_and_approved_as_it_is_on_disk(session):
+    def edit_idea():
+        raw = json.loads(session.sheet_file.read_text())
+        raw["idea"] = "Reverse any string."
+        session.sheet_file.write_text(json.dumps(raw))
+        return "a"
+
+    approved = session.review([edit_idea, "a"])
+    assert approved.idea == "Reverse any string."
+    assert sum(s.startswith("TERM SHEET") for s in session.said) == 2
+    assert TermSheet.from_json(session.sheet_file.read_text()) == approved
 
 
 def test_edit_that_leaves_invalid_json_is_reported_then_recovered(session):
