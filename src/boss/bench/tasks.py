@@ -27,7 +27,7 @@ from boss.termsheet import CheckSpec, check_file_problems
 
 MIN_HIDDEN_CHECKS = 5
 DIFFICULTIES = ("easy", "medium", "hard")
-_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
+_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}\Z")
 _META_KEYS = {"id", "title", "difficulty"}
 
 
@@ -158,6 +158,7 @@ def task_set_hash(tasks: list[BenchTask]) -> str:
     for task in sorted(tasks, key=lambda t: t.id):
         for path in sorted(task.root.rglob("*")):
             if path.is_file() and "__pycache__" not in path.parts:
-                digest.update(str(path.relative_to(task.root.parent)).encode())
-                digest.update(path.read_bytes())
+                # Length-prefixed, so where a name ends and its content begins is unambiguous.
+                for part in (str(path.relative_to(task.root.parent)).encode(), path.read_bytes()):
+                    digest.update(len(part).to_bytes(8, "big") + part)
     return digest.hexdigest()[:16]

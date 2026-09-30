@@ -24,7 +24,7 @@ from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
 from boss.errors import INFRASTRUCTURE
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
-from boss.gate import run_gate
+from boss.gate import Check, run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
@@ -53,12 +53,14 @@ def run_cell(
         return CellResult.load(out / "result.json")
     out.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
+    wrong_checks = None
     if arm == "single":
         workspace, events = _run_single(task, out, environ, model, budget_micros)
     else:
         workspace, events = _run_firm(
             task, out, environ, model, boss_model, budget_micros, firm_args
         )
+        wrong_checks = _wrong_checks(task, workspace.parent / "checks")
 
     hidden = _score(task, workspace)
     passed = all(status == "passed" for status in hidden.values())
@@ -86,6 +88,7 @@ def run_cell(
         failure_class=failure,
         duration_s=round(time.monotonic() - start, 1),
         firm_args=" ".join(firm_args) if arm == "firm" else "",
+        wrong_checks=wrong_checks,
     )
     result.save(out)
     return result
@@ -156,6 +159,18 @@ def _score(task: BenchTask, workspace: Path) -> dict[str, str]:
     if not workspace.is_dir():
         return {c.id: "failed" for c in checks}
     return {r.check_id: str(r.status) for r in run_gate(workspace, task.hidden_dir, checks)}
+
+
+def _wrong_checks(task: BenchTask, checks_dir: Path) -> int | None:
+    """How many of the boss's checks the reference solution fails. None if no draft was written.
+
+    Scoring only: the reference is copied by the gate into a temp folder, as for hidden checks.
+    """
+    files = sorted(p.name for p in checks_dir.glob("test_*.py")) if checks_dir.is_dir() else []
+    if not files:
+        return None
+    checks = [Check(name.removesuffix(".py").removeprefix("test_"), name) for name in files]
+    return sum(not r.passed for r in run_gate(task.reference_dir, checks_dir, checks))
 
 
 def _outcome(events: Sequence[Event]) -> str:

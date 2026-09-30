@@ -135,3 +135,16 @@ def test_a_firing_note_summarises_the_evidence_in_one_phrase():
         "round 1: rule fired (after=3 slices, 2 without progress, 1/2 checks passing, "
         "reason=no progress, task=t1, worker=w1)"
     )
+
+
+def test_disputed_checks_get_their_own_section_for_the_investor():
+    data = {"task": "t1", "check": "c01", "reason": "idea says X", "worker": "w1", "slice": 1}
+    disputed = [*EVENTS, ev("worker:w1", EventType.DISPUTED, data=data)]
+    report = build_report(disputed)
+    assert [(d.check, d.worker, d.reason) for d in report.disputes] == [
+        ("c01", "w1", "idea says X")
+    ]
+    text = render_report(report)
+    assert "Disputed checks (yours to rule on; a disputed check never counts as passing)" in text
+    assert '  c01 by w1: "idea says X"' in text
+    assert "Disputed checks" not in render_report(build_report(EVENTS))

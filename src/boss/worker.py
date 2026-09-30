@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from boss.ledger import Billing
+from boss.redact import safe_text
 
 CLI = "claude"
 # From 2.1.277 a resumed session reports cumulative totals, which slice accounting depends on.
@@ -27,11 +28,24 @@ STATUS_SCHEMA = {
     "properties": {
         "status": {"type": "string", "enum": ["done", "continuing", "blocked"]},
         "reason": {"type": "string"},
+        # Checks the worker believes contradict the investor's request. Optional.
+        "disputed_checks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"check": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["check", "reason"],
+            },
+        },
     },
     "required": ["status", "reason"],
 }
+MAX_DISPUTE_REASON_CHARS = 300
+MAX_REASON_CHARS = 500
+_STATUSES = frozenset(STATUS_SCHEMA["properties"]["status"]["enum"])
 _ENV_ALLOWLIST = ("HOME", "PATH", "USER", "LANG", "TMPDIR", "CLAUDE_CONFIG_DIR")
 _API_KEY_VAR = "ANTHROPIC_API_KEY"
+_THINKING_VAR = "MAX_THINKING_TOKENS"  # read by the CLI; 0 turns extended thinking off
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +91,15 @@ def worker_env(env: Mapping[str, str]) -> dict[str, str]:
     return {k: env[k] for k in keep if env.get(k)}
 
 
+def with_thinking(env: Mapping[str, str], tokens: int | None) -> dict[str, str]:
+    """`env` with the CLI's thinking budget set. None leaves the CLI's own default."""
+    if tokens is None:
+        return dict(env)
+    if type(tokens) is not int or tokens < 0:
+        raise ValueError(f"thinking tokens must be a non-negative int, got {tokens!r}")
+    return {**env, _THINKING_VAR: str(tokens)}
+
+
 def build_command(spec: SliceSpec, *, api_key: bool) -> list[str]:
     """Exact argv for one slice. Pure: no I/O, so the whole contract is pinned by a unit test."""
     # --bare needs an API key and skips all user config; --safe-mode does the same for a
@@ -96,6 +119,39 @@ def build_command(spec: SliceSpec, *, api_key: bool) -> list[str]:
     if spec.append_system_prompt:
         argv += ["--append-system-prompt", spec.append_system_prompt]
     return [*argv, spec.prompt]
+
+
+def disputed_checks(status: Mapping[str, Any] | None, allowed: Collection[str]) -> dict[str, str]:
+    """Check id -> reason for each check the worker disputes in its status report.
+
+    The report is model output, so nothing in it is trusted: an entry that is malformed, repeats
+    a check, gives no reason, or names a check outside `allowed` is dropped, and every reason is
+    made safe to show and cut to a fixed length before it can reach the ledger.
+    """
+    raw = (status or {}).get("disputed_checks")
+    found: dict[str, str] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        check, reason = item.get("check"), item.get("reason")
+        if not isinstance(check, str) or check not in allowed or check in found:
+            continue
+        if isinstance(reason, str) and reason.strip():
+            found[check] = safe_text(reason.strip(), limit=MAX_DISPUTE_REASON_CHARS)
+    return found
+
+
+def clean_status(status: object) -> dict[str, str] | None:
+    """The worker's self-report reduced to what the ledger keeps: its status word, and its reason
+    with secrets masked, control characters made visible and a bounded length. Everything else in
+    the report is model output of unbounded size and is dropped. None when there is no report."""
+    if not isinstance(status, dict):
+        return None
+    word, reason = status.get("status"), status.get("reason")
+    return {
+        "status": word if isinstance(word, str) and word in _STATUSES else "none",
+        "reason": safe_text(reason, limit=MAX_REASON_CHARS) if isinstance(reason, str) else "",
+    }
 
 
 class IsolationError(Exception):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from boss import handoff
@@ -16,9 +16,16 @@ FEEDBACK_TAIL_CHARS = 1_200
 
 
 def task_prompt(sheet: TermSheet, task: Task, checks_dir: Path) -> str:
-    """The first brief: the task, the files it owns, and every check that task will face."""
+    """The first brief: the investor's idea word for word, then the boss's reading of it (the
+    task, the files it owns, and every check that task will face).
+
+    The idea comes first and is named the source of truth because the boss's brief is a lossy
+    paraphrase: in the pilot, workers given only the brief followed it where it dropped a rule.
+    """
     parts = [
-        f"Task {task.id}: {task.brief}",
+        "The investor asked for this. It is the source of truth; it is quoted word for word:\n"
+        f"{_fenced(sheet.idea)}",
+        f"Your task ({task.id}), as the boss wrote it: {task.brief}",
         f"Files you own: {', '.join(task.paths)}",
         "After you stop, an independent gate runs these checks against your files. "
         "You cannot run them yourself.",
@@ -26,13 +33,25 @@ def task_prompt(sheet: TermSheet, task: Task, checks_dir: Path) -> str:
     for check in sheet.checks:
         if check.task == task.id:
             code = (checks_dir / check.file).read_text(encoding="utf-8").rstrip()
-            parts.append(f"--- {check.file}: {check.description}\n{code}")
+            parts.append(f"--- check {check.id} ({check.file}): {check.description}\n{code}")
     parts.append("When you stop, report your status.")
     return "\n\n".join(parts)
 
 
-def continuation_prompt(results: Sequence[CheckResult]) -> str:
-    """The brief for a later slice: which checks pass now, and the gate's output for the rest."""
+def _fenced(text: str) -> str:
+    """Quote text so its own lines cannot be mistaken for the brief around it."""
+    return "\n".join(f"> {line}".rstrip() for line in text.strip().splitlines())
+
+
+def continuation_prompt(
+    results: Sequence[CheckResult],
+    disputed: Collection[str] = (),
+    denied_tools: Sequence[str] = (),
+    example_path: str = "module.py",
+) -> str:
+    """The brief for a later slice: which checks pass now, the gate's output for the rest, which
+    of the failing ones this worker has already disputed, and what to do about refused tool
+    calls (a worker that names a path outside its folder tends to give up as "blocked")."""
     passing = sorted(r.check_id for r in results if r.passed)
     parts = [
         "Continue your task. After your last slice the gate ran your checks.",
@@ -42,6 +61,19 @@ def continuation_prompt(results: Sequence[CheckResult]) -> str:
         if not r.passed:
             tail = redact(r.output_tail[-FEEDBACK_TAIL_CHARS:]).strip()
             parts.append(f"Failing: {r.check_id} ({r.detail})\n{tail}")
+    open_disputes = sorted(set(disputed) - set(passing))
+    if open_disputes:
+        parts.append(
+            f"You disputed: {', '.join(open_disputes)}. The investor will rule on those; "
+            "do not bend your code to them."
+        )
+    if denied_tools:
+        parts.append(
+            f"In your last slice your {', '.join(denied_tools)} calls were refused because they "
+            "named a path outside your folder. Nothing is wrong with your permissions: the "
+            "current folder is your whole workspace. Use relative paths, for example "
+            f"`{example_path}`, and do the work again."
+        )
     parts.append("Fix what is failing. When you stop, report your status.")
     return "\n\n".join(parts)
 

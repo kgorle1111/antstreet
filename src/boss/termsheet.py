@@ -17,8 +17,8 @@ from typing import Any
 
 from boss.gate import Check, CheckStatus, run_gate
 
-_CHECK_FILE_RE = re.compile(r"^test_[A-Za-z0-9_]+\.py$")
-_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+_CHECK_FILE_RE = re.compile(r"^test_[A-Za-z0-9_]+\.py\Z")
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}\Z")
 
 
 class TermSheetError(Exception):
@@ -103,11 +103,19 @@ class TermSheet:
                 rounds=tuple(Round(**_fields(r, Round)) for r in raw["rounds"]),
                 checks=tuple(CheckSpec(**_fields(c, CheckSpec)) for c in raw["checks"]),
                 tasks=tuple(
-                    Task(**_fields(t, Task) | {"paths": tuple(t["paths"])}) for t in raw["tasks"]
+                    Task(**_fields(t, Task) | {"paths": tuple(as_list(t["paths"]))})
+                    for t in raw["tasks"]
                 ),
             )
         except (ValueError, KeyError, TypeError) as exc:
             raise TermSheetError([f"not a valid term sheet: {exc}"]) from exc
+
+
+def as_list(value: object) -> list[Any]:
+    # tuple("rev.py") would silently become ("r", "e", "v", ...); insist on a JSON array.
+    if not isinstance(value, list):
+        raise TypeError(f"expected a list, got {type(value).__name__}")
+    return value
 
 
 def _fields(raw: Any, cls: type, nested: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -251,8 +259,14 @@ def check_file_problems(check: CheckSpec, checks_dir: Path) -> list[str]:
     path = checks_dir / check.file
     if not path.is_file():
         return [f"check {check.id} file {check.file} does not exist"]
+    # The gate resolves symlinks and refuses any that leave the directory; say so here, early.
+    if not path.resolve().is_relative_to(checks_dir.resolve()):
+        return [f"check {check.id} file {check.file} points outside the checks directory"]
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=check.file)
+        # utf-8-sig: a BOM is legal for python and pytest, so it must not reach the parser as text.
+        tree = ast.parse(path.read_bytes().decode("utf-8-sig"), filename=check.file)
+    except UnicodeDecodeError as exc:
+        return [f"check {check.id} is not valid UTF-8: {exc.reason} at byte {exc.start}"]
     except SyntaxError as exc:
         return [f"check {check.id} has a syntax error: line {exc.lineno}: {exc.msg}"]
     if not _defines_a_test(tree):

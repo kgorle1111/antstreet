@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -241,3 +242,53 @@ def test_main_empty_folder_returns_1(tmp_path: Path, capsys: pytest.CaptureFixtu
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no results found" in captured.err
+
+
+def firm_cell(wrong: int | None, total: int = 8, **over: object) -> CellResult:
+    return cell(arm="firm", visible_passed=total, visible_total=total, wrong_checks=wrong, **over)
+
+
+def test_wrong_checks_are_summed_over_the_cells_where_they_were_measured() -> None:
+    results = [
+        firm_cell(0, task="t1"),
+        firm_cell(3, task="t2"),
+        firm_cell(1, total=7, task="t3"),
+        firm_cell(None, task="t4"),  # an older result: not measured, so not counted as zero
+    ]
+    [firm] = summarize(results)
+    assert (firm.wrong_checks, firm.boss_checks, firm.wrong_check_cells) == (4, 23, 2)
+    assert (
+        "Wrong boss checks: 4 of 23 checks failed on the reference solution, in 2 drafts."
+        in render_table(results)
+    )
+
+
+def test_no_wrong_check_line_when_nothing_was_measured_or_for_the_single_arm() -> None:
+    [firm] = summarize([firm_cell(None)])
+    assert (firm.wrong_checks, firm.boss_checks, firm.wrong_check_cells) == (None, None, None)
+    assert "Wrong boss checks" not in render_table([firm_cell(None)])
+    [single] = summarize(single_set())
+    assert single.wrong_checks is None
+    assert "Wrong boss checks" not in render_table(single_set())
+
+
+def test_an_infrastructure_cell_does_not_add_to_the_wrong_check_count() -> None:
+    results = [
+        firm_cell(1, task="t1"),
+        firm_cell(5, task="t2", hidden={}, failure_class="infrastructure"),
+    ]
+    [firm] = summarize(results)
+    assert (firm.wrong_checks, firm.boss_checks) == (1, 8)
+
+
+def test_results_written_before_the_wrong_check_field_still_load(tmp_path: Path) -> None:
+    old = firm_cell(None)
+    old.save(tmp_path)
+    raw = json.loads((tmp_path / "result.json").read_text())
+    del raw["wrong_checks"]
+    (tmp_path / "result.json").write_text(json.dumps(raw))
+    assert CellResult.load(tmp_path / "result.json").wrong_checks is None
+    raw["wrong_checks"] = "two"
+    (tmp_path / "result.json").write_text(json.dumps(raw))
+    with pytest.raises(ValueError, match="wrong_checks"):
+        CellResult.load(tmp_path / "result.json")

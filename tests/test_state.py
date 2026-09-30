@@ -131,3 +131,21 @@ def test_a_replacement_that_never_ran_does_not_discard_its_predecessors_passing_
     ]
     task = run_state(better, ["t1"]).tasks["t1"]
     assert (task.best, task.passing) == ("w2", frozenset({"c01", "c02"}))
+
+
+def test_disputes_are_attached_to_the_slice_they_were_raised_in():
+    def dispute(actor, check_id, **placed) -> Event:
+        data = {"task": "t1", "check": check_id, "reason": "contradicts the idea"} | placed
+        return ev(f"worker:{actor}", EventType.DISPUTED, data=data)
+
+    events = [
+        *EVENTS,
+        dispute("w1", "c02", worker="w1", slice=1),
+        dispute("w1", "c09", worker="w1", slice=3),
+        dispute("w2", "c03", worker="w2", slice=1),
+        dispute("w1", "c05"),  # no worker or slice: cannot be placed, so it is ignored
+    ]
+    history = slice_history(events)
+    assert [r.disputed for r in history["w1"]] == [{"c02"}, frozenset(), {"c09"}]
+    assert [r.disputed for r in history["w2"]] == [{"c03"}]
+    assert all(r.disputed == frozenset() for r in slice_history(EVENTS)["w1"])

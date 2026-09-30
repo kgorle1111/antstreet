@@ -17,8 +17,8 @@ from typing import Any
 
 from boss.errors import Outcome, classify
 from boss.stream import StreamReader, Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
-from boss.worker import CLI, usd, uses_api_key
+from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, as_list, validate
+from boss.worker import CLI, usd, uses_api_key, with_thinking
 
 TERM_SHEET_PROMPT = "term_sheet_v1.md"
 MULTI_TASK_PROMPT = "term_sheet_v2.md"  # used when the boss may split the work
@@ -129,8 +129,12 @@ def draft_term_sheet(
     timeout_s: float = DEFAULT_TIMEOUT_S,
     executable: str = CLI,
     max_tasks: int = 1,
+    thinking_tokens: int | None = None,
 ) -> Draft:
     """Ask the boss for checks and up to max_tasks tasks; write the check files, return a sheet.
+
+    `thinking_tokens` caps the model's extended thinking (0 turns it off). Thinking was most of a
+    draft's cost in the pilot: four drafts averaged $0.086 with it and $0.031 without.
 
     Raises BossError if the call fails or returns unusable output, and InvalidDraftError (listing
     every problem) if the draft does not validate. Both carry the call's usage for the ledger.
@@ -151,7 +155,7 @@ def draft_term_sheet(
         api_key=uses_api_key(env),
     )
     argv[0] = executable
-    output = _call(argv, env, timeout_s)
+    output = _call(argv, with_thinking(env, thinking_tokens), timeout_s)
     sheet = _sheet_from_output(output, idea.strip(), budget_micros, checks_dir, max_tasks)
     try:
         validate(sheet, checks_dir)
@@ -177,6 +181,13 @@ def _call(argv: list[str], env: Mapping[str, str], timeout_s: float) -> StreamRe
             raise BossError(
                 f"boss call exceeded {timeout_s}s", Outcome.TIMEOUT, Usage(None, 0, 0, 0)
             ) from None
+        except OSError as exc:
+            # Never started, so nothing was spent, but we cannot prove it: cost stays unknown.
+            raise BossError(
+                f"cannot run {argv[0]!r} ({exc.strerror or exc}); run `boss doctor`",
+                Outcome.CRASHED,
+                Usage(None, 0, 0, 0),
+            ) from exc
     reader = StreamReader()
     reader.feed(proc.stdout)
     outcome = classify(reader.signals())
@@ -193,9 +204,9 @@ def _sheet_from_output(
         raise _unusable("no structured output", output)
     try:
         tasks = tuple(
-            Task(t["id"], t["brief"], tuple(_as_list(t["paths"]))) for t in _as_list(draft["tasks"])
+            Task(t["id"], t["brief"], tuple(as_list(t["paths"]))) for t in as_list(draft["tasks"])
         )
-        raw_checks = _as_list(draft["checks"])
+        raw_checks = as_list(draft["checks"])
     except (KeyError, TypeError) as exc:
         raise _unusable(f"missing or malformed field: {exc}", output) from exc
     if not 1 <= len(tasks) <= max_tasks:
@@ -226,10 +237,3 @@ def _sheet_from_output(
 
 def _unusable(why: str, output: StreamReader) -> BossError:
     return BossError(f"unusable draft: {why}", Outcome.COMPLETED, output.usage())
-
-
-def _as_list(value: object) -> list[Any]:
-    # tuple("rev.py") would silently become ("r", "e", "v", ...); insist on a JSON array.
-    if not isinstance(value, list):
-        raise TypeError(f"expected a list, got {type(value).__name__}")
-    return value

@@ -73,11 +73,24 @@ def test_planted_conftest_cannot_force_a_pass(dirs):
     assert gate(dirs).status is CheckStatus.FAILED
 
 
+# What a worker-planted pytest.py would run if the gate let it start: it finds the report path in
+# the command line, writes a report claiming two passing tests, and exits 0. A gate that loads it
+# reports PASSED for the wrong product below; only the real pytest can say FAILED.
+FORGE = """
+import os, sys
+argv = getattr(sys, "orig_argv", sys.argv)
+path = next(a.split("=", 1)[1] for a in argv if a.startswith("--junitxml="))
+open(path, "w").write('<testsuite tests="2" failures="0" errors="0" skipped="0"/>')
+os._exit(0)
+"""
+
+
 def test_shadow_pytest_module_in_workspace_is_not_imported(dirs):
     product(dirs, "def reverse(s):\n    return s\n")
-    (dirs[0] / "pytest.py").write_text("import sys\nsys.exit(0)\n")
-    (dirs[0] / "sitecustomize.py").write_text("import os\nos._exit(0)\n")
-    assert gate(dirs).status is CheckStatus.FAILED
+    (dirs[0] / "pytest.py").write_text(FORGE)
+    result = gate(dirs)
+    assert result.status is CheckStatus.FAILED, result.detail
+    assert result.detail == "pytest exited 1"  # the real pytest ran the real check and it failed
 
 
 def test_hard_exit_zero_during_import_is_not_a_pass(dirs):

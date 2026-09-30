@@ -64,13 +64,24 @@ def review_term_sheet(
     path = run_dir / TERM_SHEET_FILE
     path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
     while True:
-        say(render(sheet, checks_dir))
+        shown = render(sheet, checks_dir)
+        say(shown)
         try:
             answer = ask("[a]pprove, [r]eject, or [e]dit files and re-check? ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             answer = "r"
         if answer in ("a", "approve"):
-            approved = dataclasses.replace(sheet, approved_by_investor=True)
+            # Approval binds to what is on disk now, and only if the investor has seen exactly that.
+            try:
+                current = _load_valid(path, checks_dir)
+            except TermSheetError as exc:
+                say(_problems_text("The term sheet does not validate", exc))
+                continue
+            if render(current, checks_dir) != shown:
+                say("The term sheet or a check changed since it was shown; review it again.")
+                sheet = current
+                continue
+            approved = dataclasses.replace(current, approved_by_investor=True)
             path.write_text(approved.to_json())
             ledger.append(
                 Event(
@@ -92,6 +103,8 @@ def review_term_sheet(
                     data={"reason": "term sheet rejected"},
                 )
             )
+            # An investor edit may have set the flag; only an approval is allowed to leave it set.
+            path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
             say("Rejected. Nothing was funded.")
             return None
         if answer in ("e", "edit"):
@@ -110,20 +123,28 @@ def _reload_after_edit(
         return sheet
     while True:
         try:
-            edited = dataclasses.replace(
-                TermSheet.from_json(path.read_text()), approved_by_investor=False
-            )
-            validate(edited, checks_dir)
-            return edited
+            return _load_valid(path, checks_dir)
         except TermSheetError as exc:
-            say(
-                "The edited term sheet does not validate:\n"
-                + "\n".join(f"  - {p}" for p in exc.problems)
-            )
+            say(_problems_text("The edited term sheet does not validate", exc))
             try:
                 ask("Fix the files, then press Enter to re-check. ")
             except (EOFError, KeyboardInterrupt):
                 return sheet
+
+
+def _load_valid(path: Path, checks_dir: Path) -> TermSheet:
+    """The term sheet as it is on disk, never approved, or TermSheetError."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise TermSheetError([f"cannot read {path}: {exc}"]) from exc
+    sheet = dataclasses.replace(TermSheet.from_json(text), approved_by_investor=False)
+    validate(sheet, checks_dir)
+    return sheet
+
+
+def _problems_text(headline: str, exc: TermSheetError) -> str:
+    return f"{headline}:\n" + "\n".join(f"  - {p}" for p in exc.problems)
 
 
 def render(sheet: TermSheet, checks_dir: Path) -> str:
@@ -140,10 +161,18 @@ def render(sheet: TermSheet, checks_dir: Path) -> str:
     for task in sheet.tasks:
         lines += [f"\nTask {task.id} (owns {', '.join(task.paths)}):", f"  {task.brief}"]
     for check in sheet.checks:
-        code = (checks_dir / check.file).read_text(encoding="utf-8").rstrip()
+        code = _check_text(checks_dir / check.file)
         lines += [
             f"\nCheck {check.id} [{check.task}] {check.description}",
             f"--- {checks_dir / check.file}",
             code,
         ]
     return "\n".join(lines)
+
+
+def _check_text(path: Path) -> str:
+    """Display text only; the gate, not this, decides what a check means."""
+    try:
+        return path.read_bytes().decode("utf-8-sig", errors="replace").rstrip()
+    except OSError as exc:
+        return f"<unreadable: {exc}>"

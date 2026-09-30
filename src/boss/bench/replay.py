@@ -2,6 +2,9 @@
 
 Each worker's recorded history is walked one slice at a time through the rule; the first FIRE
 verdict is the firing point and every later recorded slice is spend the policy would have saved.
+The walk stops without a firing at the first ESCALATE (blocked, refusal): live, that task is set
+aside for the investor and the worker is never funded again, so nothing after it is a saving.
+RETRY (an infrastructure slice) is uncounted and the walk goes on, as the live worker does.
 Unknown slice costs count as 0 on both sides of the saving, so saved and total are lower bounds.
 A false firing needs a later slice that passes a check no slice up to the firing point had passed.
 """
@@ -16,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from boss import rule
-from boss.ledger import Event, EventType, read_events
+from boss.ledger import Event, EventType, LedgerError, read_events
 from boss.report import dollars
 from boss.rule import Decision, FiringPolicy, SliceRecord, Verdict
 from boss.state import slice_history
@@ -68,7 +71,10 @@ def replay_worker(
     decide: Decide,
 ) -> WorkerReplay:
     for n in range(1, len(history) + 1):
-        if decide(checks, history[:n], policy).decision is not Decision.FIRE:
+        decision = decide(checks, history[:n], policy).decision
+        if decision is Decision.ESCALATE:
+            break
+        if decision is not Decision.FIRE:
             continue
         before, later = history[:n], history[n:]
         passed_before = frozenset().union(*(r.passing for r in before))
@@ -143,7 +149,13 @@ def main(argv: Sequence[str] | None = None, decide: Decide = rule.decide) -> int
     except ValueError as exc:
         parser.error(str(exc))
 
-    runs = [read_events(p) for p in sorted(args.results_dir.rglob("ledger.jsonl"))]
+    runs = []
+    for path in sorted(args.results_dir.rglob("ledger.jsonl")):
+        try:
+            runs.append(read_events(path))
+        except (LedgerError, OSError, UnicodeDecodeError) as exc:
+            print(f"cannot read ledger {path}: {exc}", file=sys.stderr)
+            return 1
     runs = [events for events in runs if any(e.event is EventType.SLICE_END for e in events)]
     if not runs:
         print(f"no ledger with slice data under {args.results_dir}", file=sys.stderr)

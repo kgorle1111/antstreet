@@ -12,7 +12,10 @@ dependencies = ["pytest>=8"]
 boss = "boss.cli:main"
 
 [dependency-groups]
-dev = ["ruff>=0.6"]
+dev = [
+    "pytest-cov>=7.1.0",
+    "ruff>=0.6",
+]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]
@@ -29,3 +32,10 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.coverage.run]
+source = ["src/boss"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = ['if __name__ == "__main__":', "raise NotImplementedError"]

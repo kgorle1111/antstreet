@@ -1,8 +1,11 @@
+import random
+
 import pytest
 
 from boss.budget import (
-    HEADROOM,
     MIN_SLICE_MICROS,
+    RESERVE_MICROS,
+    min_round_budget,
     next_slice_cap,
     plan_rounds,
     remaining,
@@ -76,11 +79,72 @@ def test_remaining_subtracts_spend_and_counts_top_ups() -> None:
     assert remaining(sheet(), events, 2) == 399_000
 
 
-def test_unknown_cost_does_not_reduce_remaining_but_is_counted() -> None:
-    events = [ev(1, cost=100_000), ev(1, cost=None), ev(1, cost=None)]
-    assert remaining(sheet(), events, 1) == 500_000
-    spend = round_spend(events, 1)
-    assert (spend.cost_micros, spend.unknown_cost_events) == (100_000, 2)
+def start(n: int, cap: object, round_n: int = 1) -> Event:
+    return ev(round_n, EventType.SLICE_START, slice=n, cap_micros=cap)
+
+
+def end(n: int, cost: int | None, outcome: str = "crashed", round_n: int = 1) -> Event:
+    return ev(round_n, cost=cost, slice=n, outcome=outcome)
+
+
+def test_a_slice_of_unknown_cost_is_charged_at_its_cap() -> None:
+    events = [start(1, 40_000), end(1, 100_000), start(2, 30_000), end(2, None)]
+    assert remaining(sheet(), events, 1) == 600_000 - 100_000 - 30_000
+    spend = round_spend(events, 1)  # the ledger's own total still says "unknown", not 30,000
+    assert (spend.cost_micros, spend.unknown_cost_events) == (100_000, 1)
+
+
+def test_unknown_cost_slices_cannot_be_funded_without_end() -> None:
+    # Found by the threat model: four crashed slices were funded against a $0.12 round, because
+    # an unknown cost left the round's remaining budget untouched.
+    events: list[Event] = []
+    funded = 0
+    while (cap := next_slice_cap(remaining(sheet(), events, 1), slice_micros=200_000)) is not None:
+        funded += 1
+        events += [start(funded, cap), end(funded, None)]
+    assert (
+        funded == 3
+    )  # 600,000: caps of 200,000, 200,000 and 100,000, then only the reserve is left
+    assert remaining(sheet(), events, 1) == 100_000
+
+
+@pytest.mark.parametrize("outcome", ["login", "rate_limited", "usage_limit", "api_error"])
+def test_an_infrastructure_failure_of_unknown_cost_is_not_charged(outcome: str) -> None:
+    events = [start(1, 40_000), end(1, None, outcome)]
+    assert remaining(sheet(), events, 1) == 600_000
+
+
+@pytest.mark.parametrize("outcome", ["crashed", "timeout", "completed", "capped", None])
+def test_any_other_slice_of_unknown_cost_is_charged(outcome: str | None) -> None:
+    events = [
+        start(1, 40_000),
+        ev(1, cost=None, slice=1, **({"outcome": outcome} if outcome else {})),
+    ]
+    assert remaining(sheet(), events, 1) == 560_000
+
+
+def test_unknown_cost_charges_match_each_slice_to_its_own_start() -> None:
+    other = Event(
+        run="r",
+        round=1,
+        actor="worker:b",
+        event=EventType.SLICE_START,
+        data={"slice": 1, "cap_micros": 90_000},
+    )
+    events = [
+        start(1, 40_000),
+        other,  # another worker's slice 1: its cap is not this worker's
+        end(1, None),
+        start(2, 70_000, round_n=2),
+        end(2, None, round_n=2),  # another round
+        end(9, None),  # no recorded start: nothing to charge
+        start(3, "lots"),
+        end(3, None),  # malformed cap: nothing to charge
+        start(4, 25_000),
+        end(4, 0),  # a known cost of zero is not unknown
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 40_000
+    assert remaining(sheet(), events, 2) == 400_000 - 70_000
 
 
 def test_remaining_negative_after_overshoot() -> None:
@@ -93,65 +157,85 @@ def test_remaining_missing_round_raises() -> None:
 
 
 def test_defaults() -> None:
-    assert HEADROOM == 0.25
+    # Measured on Haiku: a slice capped at $0.030 spent $0.099, so one response is about $0.10.
+    assert RESERVE_MICROS == 100_000
     assert MIN_SLICE_MICROS == 5_000
 
 
-def test_cap_is_slice_when_plenty_remains() -> None:
+def test_cap_is_the_slice_when_plenty_remains() -> None:
     assert next_slice_cap(1_000_000, slice_micros=40_000) == 40_000
+    assert next_slice_cap(10**12, slice_micros=40_000, reserve_micros=0) == 40_000
 
 
-def test_cap_exactly_fitting_the_slice() -> None:
-    assert next_slice_cap(50_000, slice_micros=40_000) == 40_000  # 40_000 * 1.25 == 50_000
+def test_cap_boundary_where_the_slice_just_fits_above_the_reserve() -> None:
+    assert next_slice_cap(140_000, slice_micros=40_000) == 40_000
+    assert next_slice_cap(139_999, slice_micros=40_000) == 39_999
 
 
-def test_cap_one_micro_short_of_fitting_the_slice() -> None:
-    assert next_slice_cap(49_999, slice_micros=40_000) == 39_999  # 39_999 * 1.25 = 49_998.75
-
-
-def test_cap_shrinks_to_what_remaining_allows() -> None:
-    assert next_slice_cap(20_000, slice_micros=40_000) == 16_000
-
-
-def test_cap_never_exceeds_the_slice() -> None:
-    assert next_slice_cap(10**12, slice_micros=40_000) == 40_000
-    assert next_slice_cap(10**12, slice_micros=40_000, headroom=0.0) == 40_000
+def test_cap_shrinks_to_what_is_left_above_the_reserve() -> None:
+    assert next_slice_cap(120_000, slice_micros=40_000) == 20_000
 
 
 def test_cap_boundary_at_min_cap() -> None:
-    assert next_slice_cap(6_250, slice_micros=40_000) == 5_000  # 5_000 * 1.25 == 6_250
-    assert next_slice_cap(6_249, slice_micros=40_000) is None  # cap would be 4_999
+    assert next_slice_cap(105_000, slice_micros=40_000) == 5_000
+    assert next_slice_cap(104_999, slice_micros=40_000) is None
 
 
-def test_cap_none_below_min_cap_times_headroom() -> None:
-    assert next_slice_cap(6_000, slice_micros=40_000) is None
+def test_no_slice_is_funded_out_of_the_reserve() -> None:
+    assert next_slice_cap(100_000, slice_micros=40_000) is None
     assert next_slice_cap(0, slice_micros=40_000) is None
-
-
-def test_cap_none_when_overshot() -> None:
     assert next_slice_cap(-50_000, slice_micros=40_000) is None
 
 
-def test_cap_headroom_zero_uses_all_remaining() -> None:
-    assert next_slice_cap(12_345, slice_micros=40_000, headroom=0.0) == 12_345
-    assert next_slice_cap(4_999, slice_micros=40_000, headroom=0.0) is None
+def test_reserve_zero_uses_all_that_remains() -> None:
+    assert next_slice_cap(12_345, slice_micros=40_000, reserve_micros=0) == 12_345
+    assert next_slice_cap(4_999, slice_micros=40_000, reserve_micros=0) is None
 
 
-def test_cap_custom_headroom_and_min_cap() -> None:
-    assert next_slice_cap(3_000, slice_micros=40_000, headroom=0.5, min_cap=2_000) == 2_000
-    assert next_slice_cap(2_999, slice_micros=40_000, headroom=0.5, min_cap=2_000) is None
+def test_custom_reserve_and_min_cap() -> None:
+    assert next_slice_cap(9_000, slice_micros=40_000, reserve_micros=7_000, min_cap=2_000) == 2_000
+    assert next_slice_cap(8_999, slice_micros=40_000, reserve_micros=7_000, min_cap=2_000) is None
 
 
-def test_cap_negative_headroom_rejected() -> None:
-    with pytest.raises(ValueError, match="headroom"):
-        next_slice_cap(10_000, slice_micros=5_000, headroom=-0.1)
+def test_negative_reserve_is_rejected() -> None:
+    with pytest.raises(ValueError, match="reserve_micros"):
+        next_slice_cap(10_000, slice_micros=5_000, reserve_micros=-1)
 
 
-def test_cap_is_the_largest_that_fits() -> None:
-    for remaining_micros in range(6_250, 50_000, 37):
-        cap = next_slice_cap(remaining_micros, slice_micros=40_000)
-        assert cap is not None
-        assert cap * 1.25 <= remaining_micros < (cap + 1) * 1.25
+def test_min_round_budget_is_the_smallest_budget_that_funds_a_slice() -> None:
+    assert min_round_budget() == 105_000
+    assert next_slice_cap(min_round_budget(), slice_micros=40_000) == MIN_SLICE_MICROS
+    assert next_slice_cap(min_round_budget() - 1, slice_micros=40_000) is None
+    smallest = min_round_budget(30_000, min_cap=1_000)
+    assert smallest == 31_000
+    assert next_slice_cap(smallest, slice_micros=9_000, reserve_micros=30_000, min_cap=1_000)
+
+
+def test_a_round_never_exceeds_its_budget_when_each_overshoot_fits_the_reserve() -> None:
+    # The property the reserve exists for. Every slice spends its cap plus an overshoot of up to
+    # one reserve (the worst case: the CLI notices the cap one response late, every time).
+    rng = random.Random(20260930)
+    for _ in range(2_000):
+        budget = rng.randrange(1, 2_000_000)
+        slice_micros = rng.randrange(5_000, 400_000)
+        reserve = rng.randrange(0, 200_000)
+        spent = 0
+        while (
+            cap := next_slice_cap(budget - spent, slice_micros=slice_micros, reserve_micros=reserve)
+        ) is not None:
+            assert MIN_SLICE_MICROS <= cap <= slice_micros
+            spent += cap + rng.choice((0, reserve, rng.randrange(0, reserve + 1)))
+            assert spent <= budget
+        assert budget - spent < reserve + MIN_SLICE_MICROS  # it stopped only when it had to
+
+
+def test_a_percentage_headroom_would_not_have_held_the_budget() -> None:
+    # The rule this replaced: cap = remaining / 1.25. With the measured one-response overshoot
+    # ($0.069 over a $0.030 cap) it breaks the budget; the fixed reserve does not.
+    budget, overshoot = 40_000, 69_000
+    old_cap = int(budget / 1.25)
+    assert old_cap + overshoot > budget
+    assert next_slice_cap(budget, slice_micros=30_000) is None  # too small to fund safely
 
 
 def test_unlocked_thresholds() -> None:

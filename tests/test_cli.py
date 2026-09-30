@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK, main
+from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK, EXIT_USAGE, main
 from boss.ledger import EventType, read_events, total
 
 CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
@@ -30,6 +30,8 @@ say = lambda e: print(json.dumps(e), flush=True)
 result = {{"type": "result", "subtype": "success", "is_error": False,
           "terminal_reason": "completed", "modelUsage": {USAGE!r}, "session_id": "s-1"}}
 if argv[argv.index("--output-format") + 1] == "json":   # the boss drafting a term sheet
+    thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
+    open(os.path.join(os.environ["HOME"], "boss_thinking.txt"), "w").write(thinking)
     say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
 else:                                                    # a worker slice
     say({INIT!r})
@@ -140,6 +142,60 @@ def test_bad_budget_is_a_usage_error(boss, budget, capsys):
         boss("fund", "x", "--budget", budget)
     assert info.value.code == 2
     assert "budget" in capsys.readouterr().err
+
+
+def test_a_budget_too_small_for_one_slice_is_refused_before_anything_is_spent(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.104999")
+    assert code == EXIT_USAGE
+    assert "cannot fund one worker slice" in output and "at least $0.105" in output
+    assert not (boss.project / ".boss").exists()  # no run folder, no boss call, no ledger
+
+
+def test_the_budget_check_is_per_round(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.20", "--rounds", "2")
+    assert code == EXIT_USAGE and "over 2 round(s)" in output
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.21", "--rounds", "2")
+    assert code == EXIT_OK
+
+
+def test_reserve_option_reaches_the_slice_cap(boss):
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.05", "--reserve", "0.01")
+    assert code == EXIT_OK
+    [start] = [e for e in read_events(boss.runs()[0] / "ledger.jsonl") if e.event == "slice_start"]
+    assert start.data["cap_micros"] == 40_000  # 0.05 budget - 0.01 reserve, under the 0.10 slice
+
+
+def test_boss_thinking_option_reaches_the_boss_call_and_the_ledger(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--boss-thinking", "0")
+    assert (boss.project.parent / "boss_thinking.txt").read_text() == "0"
+    [call] = [e for e in read_events(boss.runs()[0] / "ledger.jsonl") if e.event == "boss_call"]
+    assert call.data["thinking_tokens"] == 0
+    boss("fund", "Reverse a string.", "--budget", "0.50")
+    assert (boss.project.parent / "boss_thinking.txt").read_text() == "unset"
+
+
+@pytest.mark.parametrize("bad", ["-1", "1.5", "lots"])
+def test_bad_boss_thinking_is_a_usage_error(boss, bad, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "x", "--budget", "0.50", "--boss-thinking", bad)
+    assert info.value.code == 2
+    assert "whole number of tokens" in capsys.readouterr().err
+
+
+def test_max_minutes_stops_the_run_and_the_report_says_why(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9")
+    assert code == EXIT_INCOMPLETE
+    assert "Ended early: stopped:" in output and "wall clock elapsed; the run limit is" in output
+    events = read_events(boss.runs()[0] / "ledger.jsonl")
+    assert [e for e in events if e.event == "slice_start"] == []  # stopped before any spend
+
+
+@pytest.mark.parametrize("bad", ["0", "-5", "soon", "inf", "nan"])
+def test_bad_max_minutes_is_a_usage_error(boss, bad, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "x", "--budget", "0.50", "--max-minutes", bad)
+    assert info.value.code == 2
+    assert "positive number of minutes" in capsys.readouterr().err
 
 
 def test_help_lists_every_command(capsys):

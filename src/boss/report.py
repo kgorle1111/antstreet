@@ -20,6 +20,14 @@ _NOTABLE = (
     EventType.ERROR,
     EventType.STOPPED,
 )
+# The ledger does not constrain `data`, and a report is how a damaged run gets inspected: an event
+# missing these keys is listed in the notes as incomplete, never indexed and never dropped silently.
+_REQUIRED = {
+    EventType.CHECK_RESULT: ("check", "status"),
+    EventType.ROUND_CLOSED: ("passed", "total", "unlocked"),
+    EventType.HIRED: ("worker",),
+    EventType.DISPUTED: ("check",),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +49,13 @@ class WorkerLine:
 
 
 @dataclass(frozen=True, slots=True)
+class DisputeLine:
+    check: str
+    worker: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class RoundLine:
     n: int
     passed: int
@@ -57,6 +72,7 @@ class Report:
     rounds: list[RoundLine] = field(default_factory=list)
     checks: list[CheckLine] = field(default_factory=list)
     workers: list[WorkerLine] = field(default_factory=list)
+    disputes: list[DisputeLine] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -70,6 +86,8 @@ def build_report(events: Sequence[Event]) -> Report:
     latest_check: dict[str, CheckLine] = {}
     rounds: list[RoundLine] = []
     for e in events:
+        if _missing(e):
+            continue
         if e.event is EventType.CHECK_RESULT:
             line = CheckLine(e.data["check"], e.data["status"], e.data.get("detail", ""))
             latest_check[line.check] = line  # a later gate run supersedes an earlier one
@@ -84,13 +102,30 @@ def build_report(events: Sequence[Event]) -> Report:
         rounds=rounds,
         checks=[latest_check[k] for k in sorted(latest_check)],
         workers=_workers(events),
-        notes=[_note(e) for e in events if e.event in _NOTABLE],
+        disputes=[
+            DisputeLine(e.data["check"], e.data.get("worker", ""), e.data.get("reason", ""))
+            for e in events
+            if e.event is EventType.DISPUTED and not _missing(e)
+        ],
+        notes=[_note(e) for e in events if e.event in _NOTABLE]
+        + [_incomplete_note(e) for e in events if _missing(e)],
+    )
+
+
+def _missing(event: Event) -> list[str]:
+    return [k for k in _REQUIRED.get(event.event, ()) if k not in event.data]
+
+
+def _incomplete_note(event: Event) -> str:
+    return (
+        f"round {event.round}: {event.actor} {event.event} is incomplete "
+        f"(missing {', '.join(_missing(event))}); left out of the sections above"
     )
 
 
 def _workers(events: Sequence[Event]) -> list[WorkerLine]:
     lines = []
-    for hired in (e for e in events if e.event is EventType.HIRED):
+    for hired in (e for e in events if e.event is EventType.HIRED and not _missing(e)):
         name = hired.data["worker"]
         ends = [e for e in events if e.event is EventType.SLICE_END and e.actor == f"worker:{name}"]
         last = ends[-1].data if ends else {}
@@ -154,6 +189,9 @@ def render_report(report: Report) -> str:
         )
     if not report.workers:
         out.append("  none hired")
+    if report.disputes:
+        out += ["", "Disputed checks (yours to rule on; a disputed check never counts as passing)"]
+        out += [f'  {d.check} by {d.worker}: "{d.reason}"' for d in report.disputes]
     if report.notes:
         out += ["", "Notes"] + [f"  {n}" for n in report.notes]
     return "\n".join(out) + "\n"

@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
-from fractions import Fraction
 
+from boss.errors import INFRASTRUCTURE
 from boss.ledger import Event, EventType, Totals, total
 from boss.termsheet import Round, TermSheet
 
-# The CLI can overshoot a slice cap by one response; a recorded probe overshot by 32% on a tiny cap.
-HEADROOM = 0.25
+# The CLI checks a slice's cap only between model responses, so a slice can overshoot by one whole
+# response whatever the cap is: measured on Haiku, a $0.030 cap spent $0.099. The reserve is that
+# one response, held back from every cap. A percentage of the cap cannot cover it.
+# kn: one figure for every model; make it per-model when workers run on larger ones.
+RESERVE_MICROS = 100_000
 MIN_SLICE_MICROS = 5_000
+_INFRASTRUCTURE = frozenset(str(outcome) for outcome in INFRASTRUCTURE)
 
 
 def _round(sheet: TermSheet, round_n: int) -> Round:
@@ -39,27 +42,53 @@ def round_spend(events: Sequence[Event], round_n: int) -> Totals:
 
 
 def remaining(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
-    """Negative after an overshoot. Events with unknown cost are not subtracted."""
-    return round_budget(sheet, events, round_n) - round_spend(events, round_n).cost_micros
+    """What the round can still spend. Negative after an overshoot.
+
+    A slice that did work but reported no cost (a crash, a kill at the timeout) is charged at its
+    cap: treating it as free would let a round fund such slices without end. An infrastructure
+    failure (login, rate limit) reported no cost because it did no work, so it is not charged.
+    """
+    spent = round_spend(events, round_n).cost_micros + _unknown_slice_charges(events, round_n)
+    return round_budget(sheet, events, round_n) - spent
+
+
+def _unknown_slice_charges(events: Sequence[Event], round_n: int) -> int:
+    caps: dict[tuple[str, object], object] = {}
+    charged = 0
+    for e in events:
+        if e.round != round_n:
+            continue
+        key = (e.actor, e.data.get("slice"))
+        if e.event is EventType.SLICE_START:
+            caps[key] = e.data.get("cap_micros")
+        elif e.event is EventType.SLICE_END and e.cost_micros is None:
+            cap = caps.get(key)
+            if e.data.get("outcome") not in _INFRASTRUCTURE and type(cap) is int and cap > 0:
+                charged += cap
+    return charged
 
 
 def next_slice_cap(
     remaining_micros: int,
     *,
     slice_micros: int,
-    headroom: float = HEADROOM,
+    reserve_micros: int = RESERVE_MICROS,
     min_cap: int = MIN_SLICE_MICROS,
 ) -> int | None:
-    """Largest cap <= slice_micros that still fits `remaining_micros` after a `headroom` overshoot.
+    """Largest cap <= slice_micros that leaves `reserve_micros` of the round unspent.
 
-    None when that cap is below `min_cap`: a slice that small cannot do useful work.
+    A slice that overshoots its cap by at most the reserve therefore never takes the round past
+    its budget. None when that cap is below `min_cap`: the round cannot fund another slice.
     """
-    if headroom < 0:
-        raise ValueError(f"headroom must be non-negative, got {headroom!r}")
-    # Fraction(headroom) is the float's exact value, so the floor carries no rounding error.
-    fits = math.floor(Fraction(remaining_micros) / (1 + Fraction(headroom)))
-    cap = min(slice_micros, fits)
+    if reserve_micros < 0:
+        raise ValueError(f"reserve_micros must be non-negative, got {reserve_micros!r}")
+    cap = min(slice_micros, remaining_micros - reserve_micros)
     return cap if cap >= min_cap else None
+
+
+def min_round_budget(reserve_micros: int = RESERVE_MICROS, min_cap: int = MIN_SLICE_MICROS) -> int:
+    """The smallest round budget that can fund one slice."""
+    return reserve_micros + min_cap
 
 
 def unlocked(sheet: TermSheet, round_n: int, passing_checks: int) -> bool:

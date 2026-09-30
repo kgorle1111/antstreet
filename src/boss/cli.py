@@ -1,7 +1,8 @@
 """Command line: `boss fund`, `boss report`, `boss status`, `boss doctor`.
 
 Exit codes: 0 every check passed (or the command succeeded), 1 stopped or failed, 2 usage error
-(argparse), 3 the round closed without every check passing.
+(argparse, or a budget too small to fund one slice), 3 the round closed without every check
+passing.
 """
 
 from __future__ import annotations
@@ -20,19 +21,20 @@ from pathlib import Path
 from boss import __version__
 from boss.approval import review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
-from boss.budget import plan_rounds
+from boss.budget import MIN_SLICE_MICROS, RESERVE_MICROS, min_round_budget, plan_rounds
 from boss.firm import DEFAULT_SLICE_MICROS, DEFAULT_WORKER_MODEL, FirmConfig, run_firm
 from boss.ledger import EventType, LedgerWriter, read_events
+from boss.limits import RunLimits
 from boss.report import build_report, dollars, render_report
 from boss.rule import FiringPolicy
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
 from boss.stream import Usage
-from boss.worker import CLI, IsolationError, billing_mode, worker_env
+from boss.worker import CLI, IsolationError, billing_mode, usd, worker_env
 
 RUNS_DIR = Path(".boss") / "runs"
 EXECUTABLE_VAR = "BOSS_CLAUDE_BIN"  # override the `claude` binary, e.g. for tests
-EXIT_OK, EXIT_FAILED, EXIT_INCOMPLETE = 0, 1, 3
+EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_INCOMPLETE = 0, 1, 2, 3
 
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
@@ -78,11 +80,25 @@ def _parser() -> argparse.ArgumentParser:
     fund.add_argument(
         "--slice", type=usd_arg, default=DEFAULT_SLICE_MICROS, help="dollars per worker slice"
     )
+    fund.add_argument(
+        "--reserve",
+        type=usd_arg,
+        default=RESERVE_MICROS,
+        help="dollars held back from every slice cap: what one response of the worker model costs",
+    )
     fund.add_argument("--max-tasks", type=int, default=1, help="most tasks the boss may split into")
     fund.add_argument("--max-slices", type=int, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=int, default=FiringPolicy().stall_slices)
+    fund.add_argument(
+        "--max-minutes", type=_minutes_arg, help="stop the run after this much wall-clock time"
+    )
     fund.add_argument("--no-firing", action="store_true", help="keep funding stalled workers")
     fund.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
+    fund.add_argument(
+        "--boss-thinking",
+        type=_tokens_arg,
+        help="thinking tokens the boss may use per call; 0 turns thinking off (default: the CLI's)",
+    )
 
     for name, text in (
         ("report", "print the board report for a run"),
@@ -105,10 +121,34 @@ def usd_arg(text: str) -> int:
     return int(micros)
 
 
+def _minutes_arg(text: str) -> float:
+    try:
+        minutes = float(text)
+    except ValueError:
+        minutes = 0.0
+    if not 0 < minutes < float("inf"):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a positive number of minutes")
+    return minutes
+
+
+def _tokens_arg(text: str) -> int:
+    if not text.isdecimal():
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of tokens")
+    return int(text)
+
+
 def _fund(
     args: argparse.Namespace, project: Path, environ: Mapping[str, str], ask: Ask, say: Say
 ) -> int:
     env, executable = worker_env(environ), environ.get(EXECUTABLE_VAR, CLI)
+    needed = min_round_budget(args.reserve)
+    if args.budget // max(args.rounds, 1) < needed:  # refused before anything is spent
+        say(
+            f"${usd(args.budget)} over {max(args.rounds, 1)} round(s) cannot fund one worker "
+            f"slice: a round needs at least ${usd(needed)} (${usd(args.reserve)} reserve plus a "
+            f"${usd(MIN_SLICE_MICROS)} slice). Raise --budget or lower --reserve."
+        )
+        return EXIT_USAGE
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
     paths = RunPaths(project / RUNS_DIR / run_id)
     paths.root.mkdir(parents=True)
@@ -125,7 +165,12 @@ def _fund(
                 tokens_out=usage.tokens_out,
                 tokens_cached=usage.tokens_cached,
                 billing=billing_mode(env),
-                data={"purpose": "term_sheet", "model": args.boss_model, "outcome": outcome},
+                data={
+                    "purpose": "term_sheet",
+                    "model": args.boss_model,
+                    "thinking_tokens": args.boss_thinking,
+                    "outcome": outcome,
+                },
             )
 
         try:
@@ -137,6 +182,7 @@ def _fund(
                 model=args.boss_model,
                 executable=executable,
                 max_tasks=args.max_tasks,
+                thinking_tokens=args.boss_thinking,
             )
         except BossError as exc:
             boss_spend(exc.usage, str(exc.outcome))
@@ -160,8 +206,10 @@ def _fund(
         config = FirmConfig(
             model=args.model,
             slice_micros=args.slice,
+            reserve_micros=args.reserve,
             policy=FiringPolicy(stall_slices=args.stall_slices, max_slices=args.max_slices),
             firing=not args.no_firing,
+            limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
         )
         try:
             outcome = run_firm(
