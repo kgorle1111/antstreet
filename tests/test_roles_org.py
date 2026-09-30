@@ -94,12 +94,14 @@ def test_a_role_node_carries_its_purpose_gate_skills_and_switch():
     assert find(org_chart(reg(role("tester")), ()), "tester").default_on is False
 
 
-def test_profiles_hang_under_engineering_and_only_the_generalist_is_on_by_default():
-    chart = org_chart(reg(role("dev", department="engineering")), PROFILES)
+def test_profiles_hang_under_engineering_and_only_the_loops_default_is_on():
+    chart = org_chart(reg(role("dev", department="engineering")), PROFILES, "generalist")
     engineering = find(chart, "engineering")
     assert [c.name for c in engineering.children] == ["dev", *[p.name for p in PROFILES]]
     on = {n.name for n in walk(chart) if n.kind == "profile" and n.default_on}
     assert on == {"generalist"}
+    none_on = org_chart(reg(role("dev", department="engineering")), PROFILES)
+    assert not any(n.default_on for n in walk(none_on) if n.kind == "profile")
     node = find(chart, "ai_engineer")
     assert node.skills == PROFILES[2].skills and node.suited_to == PROFILES[2].suited_to
 
@@ -167,7 +169,7 @@ def test_the_render_shows_purpose_gate_skills_and_default_for_every_role_and_pro
         role("tester", skills=("builder/exact-names", "builder/trace-by-hand")),
         role("pm", department="product", default_on=True),
     )
-    text = render_org(org_chart(specs, PROFILES[:2]))
+    text = render_org(org_chart(specs, PROFILES[:2], "generalist"))
     assert text.endswith("\n") and "\t" not in text
     assert text.splitlines()[0].startswith("investor  ")
     assert "boss  drafts the tasks and the checks" in text
@@ -238,3 +240,11 @@ def test_the_module_prints_the_firm_and_defines_no_roles(capsys):
     assert org.main() == 0
     out = capsys.readouterr().out
     assert out.startswith("investor") and "generalist" in out and out.endswith("\n")
+
+
+def test_no_profile_is_on_unless_the_loop_uses_it_without_being_asked():
+    chart = render_org(org_chart({}, PROFILES))
+    assert "on by default" not in chart and "generalist  [profile, off by default]" in chart
+    chosen = render_org(org_chart({}, PROFILES, "backend_engineer"))
+    assert "backend_engineer  [profile, on by default]" in chosen
+    assert "generalist  [profile, off by default]" in chosen

@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from boss.roles.base import DEPARTMENTS, RoleSpec
-from boss.roles.builders import DEFAULT_PROFILE, WorkerProfile
+from boss.roles.builders import WorkerProfile
 
 BOSS = "boss"
 INVESTOR = "investor"
@@ -66,7 +66,11 @@ def _cycles(registry: Mapping[str, RoleSpec]) -> set[tuple[str, ...]]:
     return found
 
 
-def org_chart(registry: Mapping[str, RoleSpec], profiles: Sequence[WorkerProfile]) -> OrgNode:
+def org_chart(
+    registry: Mapping[str, RoleSpec],
+    profiles: Sequence[WorkerProfile],
+    default_profile: str | None = None,
+) -> OrgNode:
     """The tree of the firm. A broken org raises OrgError with every problem and is not drawn."""
     problems = org_problems(registry)
     if problems:
@@ -91,7 +95,7 @@ def org_chart(registry: Mapping[str, RoleSpec], profiles: Sequence[WorkerProfile
     for department in DEPARTMENTS:
         members = [role(n) for n in reports.get(BOSS, ()) if registry[n].department == department]
         if department == "engineering":
-            members += [_profile_node(p) for p in profiles]
+            members += [_profile_node(p, default_profile) for p in profiles]
         if members:
             departments.append(OrgNode(department, "department", children=tuple(members)))
     boss = OrgNode(
@@ -108,7 +112,7 @@ def org_chart(registry: Mapping[str, RoleSpec], profiles: Sequence[WorkerProfile
     )
 
 
-def _profile_node(profile: WorkerProfile) -> OrgNode:
+def _profile_node(profile: WorkerProfile, default_profile: str | None) -> OrgNode:
     return OrgNode(
         profile.name,
         "profile",
@@ -116,7 +120,9 @@ def _profile_node(profile: WorkerProfile) -> OrgNode:
         BUILDER_GATE,
         profile.skills,
         profile.suited_to,
-        default_on=profile.name == DEFAULT_PROFILE,
+        # A profile is on only if the loop uses it without being asked: none is, until one
+        # is measured to earn its tokens.
+        default_on=profile.name == default_profile,
     )
 
 
@@ -148,10 +154,11 @@ def render_org(root: OrgNode) -> str:
 
 def main() -> int:
     """`python -m boss.roles.org`: print the firm as it is defined right now."""
+    from boss.firm import FirmConfig
     from boss.roles import registry
     from boss.roles.builders import PROFILES
 
-    print(render_org(org_chart(registry(), PROFILES)), end="")
+    print(render_org(org_chart(registry(), PROFILES, FirmConfig().profile)), end="")
     return 0
 
 

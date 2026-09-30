@@ -349,12 +349,34 @@ def test_a_ledger_damaged_in_the_middle_is_reported_not_repaired(boss):
     assert ledger.read_text() == before
 
 
+def test_roles_prints_the_organisation(boss):
+    code, output = boss("roles")
+    assert code == EXIT_OK
+    assert output.splitlines()[0].startswith("investor  ")
+    assert "generalist  [profile, off by default]" in output and "skills: builder/" in output
+
+
+def test_profile_option_reaches_the_workers_prompt_and_the_ledger(boss):
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.50", "--profile", "generalist")
+    assert code == EXIT_OK
+    hired = next(e for e in events_of_run(boss) if e.event is EventType.HIRED)
+    assert hired.data["profile"] == "generalist"
+
+
+def test_an_unknown_profile_is_a_usage_error(boss, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "x", "--budget", "0.50", "--profile", "wizard")
+    assert info.value.code == 2 and "invalid choice" in capsys.readouterr().err
+
+
 def test_help_lists_every_command(capsys):
     with pytest.raises(SystemExit) as info:
         main(["--help"])
     assert info.value.code == 0
     out = capsys.readouterr().out
-    assert all(command in out for command in ("fund", "resume", "report", "status", "doctor"))
+    assert all(
+        command in out for command in ("fund", "resume", "report", "status", "roles", "doctor")
+    )
 
 
 def test_doctor_reports_failures_with_a_nonzero_exit(boss):

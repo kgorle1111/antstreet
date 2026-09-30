@@ -45,6 +45,9 @@ from boss.ledger import (
 )
 from boss.limits import RunLimits
 from boss.report import build_report, dollars, render_report
+from boss.roles import registry
+from boss.roles.builders import PROFILES
+from boss.roles.org import org_chart, render_org
 from boss.rule import FiringPolicy
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
@@ -75,6 +78,9 @@ def main(
         return _fund(args, project, environ, ask, say)
     if args.command == "resume":
         return _resume(args, project, environ, ask, say)
+    if args.command == "roles":
+        say(render_org(org_chart(registry(), PROFILES, FirmConfig().profile)).rstrip("\n"))
+        return EXIT_OK
     if args.command == "doctor":
         return _doctor(args, project, environ, say)
     return _show(args, project, say)
@@ -113,6 +119,11 @@ def _parser() -> argparse.ArgumentParser:
         "--max-tasks", type=_count_arg, default=1, help="most tasks the boss may split into"
     )
     fund.add_argument(
+        "--profile",
+        choices=[p.name for p in PROFILES],
+        help="worker profile: skills added to the builder's prompt (default: none)",
+    )
+    fund.add_argument(
         "--parallel",
         type=_count_arg,
         default=1,
@@ -138,6 +149,9 @@ def _parser() -> argparse.ArgumentParser:
     ):
         shown = sub.add_parser(name, parents=[common], help=text)
         shown.add_argument("run", nargs="?", help="run id (default: the latest)")
+    sub.add_parser(
+        "roles", parents=[common], help="print the organisation: roles, profiles, skills"
+    )
     doctor = sub.add_parser("doctor", parents=[common], help="check that this machine can run boss")
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
     return parser
@@ -254,6 +268,7 @@ def _fund(
             policy=FiringPolicy(stall_slices=args.stall_slices, max_slices=args.max_slices),
             firing=not args.no_firing,
             parallel=args.parallel,
+            profile=args.profile,
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
         )
         outcome = _run(sheet, paths, ledger, run_id, env, executable, config, ask, say)

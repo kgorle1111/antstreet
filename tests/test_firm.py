@@ -1314,3 +1314,33 @@ def test_the_slice_limit_counts_every_slice_of_a_wave(paths):
     # Two slices, then the limit allows one more: the next wave is cut to a single slice.
     assert len(events_of(paths, EventType.SLICE_START)) == 3
     assert rule_stops(paths) == ["3 slices started; the run limit is 3"]
+
+
+# Worker profiles: the same worker with more skills in its prompt. Off unless asked for.
+
+
+def test_a_worker_gets_the_bare_builder_prompt_unless_a_profile_is_chosen(paths):
+    worker = Script(step(GOOD, "done"))
+    run(paths, worker)
+    assert worker.specs[0].append_system_prompt == load_prompt("builder_v3.md")
+    assert events_of(paths, EventType.HIRED)[0].data["profile"] is None
+
+
+def test_a_chosen_profile_adds_its_skills_to_every_slice_and_is_recorded(paths):
+    from boss.roles.builders import builder_system_prompt
+
+    worker = Script(step(HALF), step(GOOD, "done"))
+    run(paths, worker, config=FirmConfig(profile="backend_engineer"))
+    expected = builder_system_prompt("backend_engineer")
+    assert [s.append_system_prompt for s in worker.specs] == [expected, expected]
+    assert expected.startswith(load_prompt("builder_v3.md")) and "validate" in expected.lower()
+    assert events_of(paths, EventType.HIRED)[0].data["profile"] == "backend_engineer"
+    [started] = events_of(paths, EventType.STARTED)
+    assert started.data["config"]["profile"] == "backend_engineer"  # a resume keeps it
+
+
+def test_an_unknown_profile_stops_the_run_before_any_spend(paths):
+    worker = Script(step(GOOD, "done"))
+    with pytest.raises(ValueError, match="wizard"):
+        run(paths, worker, config=FirmConfig(profile="wizard"))
+    assert worker.specs == [] and events_of(paths, EventType.SLICE_START) == []

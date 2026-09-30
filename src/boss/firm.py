@@ -25,6 +25,7 @@ from boss.errors import INFRASTRUCTURE
 from boss.gate import Check, CheckResult, run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events
 from boss.redact import safe_text
+from boss.roles.builders import builder_system_prompt
 from boss.rule import Decision, FiringPolicy, Verdict, decide
 from boss.rundir import Recorder, RunPaths, assemble_product, slice_end_fields
 from boss.runner import SliceRun, run_slice
@@ -59,6 +60,9 @@ class FirmConfig:
     firing: bool = True  # False: a stalled worker keeps being funded (the benchmark's control arm)
     limits: limits.RunLimits = field(default_factory=limits.RunLimits)
     parallel: int = 1  # tasks worked on at once; each task still has one worker at a time
+    # A worker profile (roles.builders): skills appended to the builder prompt. None is the
+    # bare prompt, the default until a profile is measured to be worth its tokens.
+    profile: str | None = None
 
 
 def config_data(config: FirmConfig) -> dict[str, Any]:
@@ -435,7 +439,8 @@ class _Firm:
             data = {"task": task.id, "from": current, "to": name}
             record("boss", EventType.REASSIGNED, data=data)
         hired = {"worker": name, "task": task.id, "model": self.config.model}
-        record("boss", EventType.HIRED, data=hired | {"prompt": BUILDER_PROMPT})
+        hired |= {"prompt": BUILDER_PROMPT, "profile": self.config.profile}
+        record("boss", EventType.HIRED, data=hired)
         return name
 
     def _first_prompt(self, task: Task, worker: str, state: RunState) -> str:
@@ -451,6 +456,11 @@ class _Firm:
             gate_results=self.run_gate(task, old),
             kept=self.paths.workspace(worker) / handoff.PREVIOUS_DIR,
         )
+
+    def _builder_prompt(self) -> str:
+        if self.config.profile is None:
+            return load_prompt(BUILDER_PROMPT)
+        return builder_system_prompt(self.config.profile, BUILDER_PROMPT)
 
     def _prepare(self, task: Task, worker: str, cap: int) -> _Pending:
         """Everything a slice needs, decided before its start is recorded. Writes nothing."""
@@ -481,7 +491,7 @@ class _Firm:
             prompt=prompt,
             model=self.config.model,
             cap_micros=cap,
-            append_system_prompt=load_prompt(BUILDER_PROMPT),
+            append_system_prompt=self._builder_prompt(),
         )
         number = ws.slices + 1
         start = {"slice": number, "task": task.id, "cap_micros": cap, "session": session}
