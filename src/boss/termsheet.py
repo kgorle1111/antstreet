@@ -11,6 +11,7 @@ import json
 import re
 import tempfile
 from dataclasses import asdict, dataclass, fields
+from itertools import combinations, product
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -208,7 +209,40 @@ def _ownership_problems(sheet: TermSheet) -> list[str]:
             pure = PurePosixPath(path)
             if pure.is_absolute() or ".." in pure.parts or not path.strip():
                 p.append(f"task {task.id} path {path!r} must stay inside the workspace")
+    return p + _overlap_problems(sheet)
+
+
+def _overlap_problems(sheet: TermSheet) -> list[str]:
+    """One line per pair of tasks that own the same path or a path and its parent directory.
+
+    Paths that leave the workspace are skipped here; _ownership_problems already reports them.
+    """
+    p: list[str] = []
+    for a, b in combinations(sheet.tasks, 2):
+        for path_a, path_b in product(_inside(a), _inside(b)):
+            pure_a, pure_b = PurePosixPath(path_a), PurePosixPath(path_b)
+            if _contains(pure_a, pure_b):
+                p.append(f"tasks {a.id} and {b.id} both own {path_a}")
+                break
+            if _contains(pure_b, pure_a):
+                p.append(f"tasks {a.id} and {b.id} both own {path_b}")
+                break
     return p
+
+
+def _inside(task: Task) -> list[str]:
+    return [
+        path
+        for path in task.paths
+        if path.strip()
+        and not PurePosixPath(path).is_absolute()
+        and ".." not in PurePosixPath(path).parts
+    ]
+
+
+def _contains(parent: PurePosixPath, child: PurePosixPath) -> bool:
+    """True if child is parent or lies under it; the root path "." contains everything."""
+    return parent == child or parent == PurePosixPath(".") or parent in child.parents
 
 
 def check_file_problems(check: CheckSpec, checks_dir: Path) -> list[str]:
