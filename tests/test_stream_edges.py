@@ -151,29 +151,17 @@ def test_a_null_model_usage_with_a_positive_cost_still_reports_the_cost():
     assert reader(result(total_cost_usd=1, modelUsage=None)).usage() == Usage(1_000_000, 0, 0, 0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="stream.py:_cost_micros: NaN passes the `< 0` guard and round() raises ValueError",
-)
 def test_a_nan_cost_is_unknown_not_a_crash():
     # json.loads accepts the bare token NaN, so a hostile or buggy CLI can send it.
     r = reader('{"type": "result", "total_cost_usd": NaN, "modelUsage": {"m": {}}}')
     assert r.usage().cost_micros is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="stream.py:_cost_micros: Infinity passes the guard and round() raises OverflowError",
-)
 def test_an_infinite_cost_is_unknown_not_a_crash():
     r = reader('{"type": "result", "total_cost_usd": Infinity, "modelUsage": {"m": {}}}')
     assert r.usage().cost_micros is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="stream.py:StreamReader.usage: modelUsage that is not a dict of dicts raises",
-)
 @pytest.mark.parametrize(
     "model_usage",
     [[1], {"m": 3}, {"m": {"inputTokens": "many"}}, {"m": {"inputTokens": None}}],
