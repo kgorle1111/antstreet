@@ -84,7 +84,8 @@ class WorkerState:
 class TaskState:
     task: str
     workers: tuple[str, ...]  # in hiring order; the last one is current
-    passing: frozenset[str]  # checks passing in the current worker's latest gate run
+    best: str | None  # the worker whose latest gated slice passes the most checks
+    passing: frozenset[str]  # checks passing in the best worker's latest gate run
     abandoned: bool
 
     @property
@@ -132,11 +133,18 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
     abandoned = {str(e.data.get("task")) for e in events if e.event is EventType.ABANDONED}
     tasks = {}
     for task, names in by_task.items():
-        records = history.get(names[-1], []) if names else []
+        # A replacement that did worse, or never ran, must not discard its predecessor's work:
+        # the task's result is the best worker's, with later workers winning ties.
+        best, passing = None, frozenset[str]()
+        for name in names:
+            latest = _latest_gated(history.get(name, []))
+            if best is None or len(latest) >= len(passing):
+                best, passing = name, latest
         tasks[task] = TaskState(
             task=task,
             workers=tuple(names),
-            passing=_latest_gated(records),
+            best=best,
+            passing=passing,
             abandoned=task in abandoned,
         )
     return RunState(

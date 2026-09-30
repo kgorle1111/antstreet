@@ -52,7 +52,7 @@ class Recorder:
 
 
 def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None:
-    """Copy each task's files from its current worker's workspace into product/.
+    """Copy each task's files from its best worker's workspace into product/.
 
     Tasks own disjoint paths (validated on the term sheet), so the copies cannot collide.
     """
@@ -60,7 +60,7 @@ def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None
         shutil.rmtree(paths.product)
     paths.product.mkdir(parents=True)
     for task in sheet.tasks:
-        worker = state.tasks[task.id].current
+        worker = state.tasks[task.id].best
         if worker is None:
             continue
         source = paths.workspace(worker)

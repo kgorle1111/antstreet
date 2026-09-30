@@ -134,14 +134,14 @@ class _Firm:
             task = self._next_task(state)
             if task is None:
                 return None
+            left = budget.remaining(self.sheet, self.events(), round_.n)
+            cap = budget.next_slice_cap(left, slice_micros=self.config.slice_micros)
+            if cap is None:  # checked before hiring, so nobody is hired into an empty round
+                self.say(f"Round {round_.n} is out of budget (${usd(max(left, 0))} left).")
+                return None
             worker = self._current_worker(task, state, record)
             if worker is None:
                 continue  # the task was just abandoned; pick the next one
-            left = budget.remaining(self.sheet, self.events(), round_.n)
-            cap = budget.next_slice_cap(left, slice_micros=self.config.slice_micros)
-            if cap is None:
-                self.say(f"Round {round_.n} is out of budget (${usd(max(left, 0))} left).")
-                return None
             stop = self._slice(task, worker, cap, record)
             if stop:
                 return stop

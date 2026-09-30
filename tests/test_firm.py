@@ -309,3 +309,16 @@ def test_board_report_agrees_with_the_run_and_the_ledger(paths):
     assert [c.status for c in board.checks] == ["passed", "passed"]
     assert (board.rounds[0].passed, board.rounds[0].unlocked) == (report.passed, True)
     assert board.workers[0].slices == 2
+
+
+def test_a_fired_workers_progress_survives_when_nothing_is_left_for_a_replacement(paths):
+    # 304,000 funds three slices that each spend 100,000, leaving 4,000: below the 5,000
+    # minimum slice, so the stalled worker is fired with no money to replace it.
+    s = sheet(rounds=(Round(1, 304_000, 2),))
+    worker = Script(*[step(HALF, cost=100_000)] * 3)
+    report, _ = run(paths, worker, s)
+    assert len(events_of(paths, EventType.FIRED)) == 1
+    assert events_of(paths, EventType.HIRED)[-1].data["worker"] == "w1"
+    assert (report.passed, report.total) == (1, 2)
+    assert (paths.product / "rev.py").read_text() == HALF
+    assert events_of(paths, EventType.ROUND_CLOSED)[0].data["passed"] == 1

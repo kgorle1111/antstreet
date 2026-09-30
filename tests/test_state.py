@@ -74,7 +74,8 @@ def test_run_state_is_rebuilt_from_events_alone():
     assert state.tasks["t1"].workers == ("w1",)
     assert state.tasks["t1"].passing == frozenset({"c01", "c02"})
     assert state.tasks["t2"].workers == ("w2", "w3") and state.tasks["t2"].current == "w3"
-    assert state.tasks["t2"].passing == frozenset()
+    assert state.tasks["t2"].passing == frozenset() and state.tasks["t2"].best == "w3"
+    assert state.tasks["t1"].best == "w1"
     assert state.tasks["t9"].abandoned and state.tasks["t9"].current is None
     assert state.workers["w2"].fired and not state.workers["w1"].fired
     assert (state.workers["w1"].slices, state.workers["w3"].slices) == (3, 0)
@@ -109,3 +110,24 @@ def test_session_total_is_the_last_known_cumulative_figure():
     assert run_state(events, ["t1"]).workers["w1"].session_total_micros == 12_000
     stopped = [*events, ev("boss", EventType.STOPPED, data={"reason": "x"})]
     assert run_state(stopped, ["t1"]).stopped
+
+
+def test_a_replacement_that_never_ran_does_not_discard_its_predecessors_passing_checks():
+    events = [
+        ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1", "session": "a"}),
+        slice_end("w1", 1, 5_000),
+        check("w1", 1, "c01", "passed"),
+        check("w1", 1, "c02", "failed"),
+        ev("rule", EventType.FIRED, data={"worker": "w1", "task": "t1", "reason": "no progress"}),
+        ev("boss", EventType.HIRED, data={"worker": "w2", "task": "t1", "session": "b"}),
+    ]
+    task = run_state(events, ["t1"]).tasks["t1"]
+    assert (task.current, task.best, task.passing) == ("w2", "w1", frozenset({"c01"}))
+    better = [
+        *events,
+        slice_end("w2", 1, 5_000),
+        check("w2", 1, "c01", "passed"),
+        check("w2", 1, "c02", "passed"),
+    ]
+    task = run_state(better, ["t1"]).tasks["t1"]
+    assert (task.best, task.passing) == ("w2", frozenset({"c01", "c02"}))
