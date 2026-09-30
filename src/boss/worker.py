@@ -32,6 +32,7 @@ STATUS_SCHEMA = {
 }
 _ENV_ALLOWLIST = ("HOME", "PATH", "USER", "LANG", "TMPDIR", "CLAUDE_CONFIG_DIR")
 _API_KEY_VAR = "ANTHROPIC_API_KEY"
+_THINKING_VAR = "MAX_THINKING_TOKENS"  # read by the CLI; 0 turns extended thinking off
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +76,15 @@ def worker_env(env: Mapping[str, str]) -> dict[str, str]:
     """Allowlisted environment for a worker: enough to find the CLI and its login, nothing else."""
     keep = [*_ENV_ALLOWLIST, _API_KEY_VAR] if uses_api_key(env) else _ENV_ALLOWLIST
     return {k: env[k] for k in keep if env.get(k)}
+
+
+def with_thinking(env: Mapping[str, str], tokens: int | None) -> dict[str, str]:
+    """`env` with the CLI's thinking budget set. None leaves the CLI's own default."""
+    if tokens is None:
+        return dict(env)
+    if type(tokens) is not int or tokens < 0:
+        raise ValueError(f"thinking tokens must be a non-negative int, got {tokens!r}")
+    return {**env, _THINKING_VAR: str(tokens)}
 
 
 def build_command(spec: SliceSpec, *, api_key: bool) -> list[str]:

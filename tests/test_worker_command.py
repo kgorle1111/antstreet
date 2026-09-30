@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from boss.ledger import Billing
-from boss.worker import SliceSpec, billing_mode, build_command, usd, worker_env
+from boss.worker import SliceSpec, billing_mode, build_command, usd, with_thinking, worker_env
 
 SID = UUID("12345678-1234-5678-1234-567812345678")
 SCHEMA = (
@@ -100,6 +100,25 @@ def test_worker_env_keeps_only_the_allowlist():
         "CLAUDECODE": "1",
     }
     assert worker_env(parent) == {"HOME": "/home/u", "PATH": "/usr/bin", "USER": "u"}
+
+
+def test_thinking_budget_is_set_without_touching_the_callers_env():
+    env = {"HOME": "/h"}
+    assert with_thinking(env, None) == {"HOME": "/h"}
+    assert with_thinking(env, 0) == {"HOME": "/h", "MAX_THINKING_TOKENS": "0"}
+    assert with_thinking(env, 4096)["MAX_THINKING_TOKENS"] == "4096"
+    assert env == {"HOME": "/h"}
+    assert with_thinking(env, None) is not env
+
+
+@pytest.mark.parametrize("bad", [-1, 1.5, "0", True])
+def test_thinking_budget_must_be_a_non_negative_int(bad):
+    with pytest.raises(ValueError, match="thinking tokens"):
+        with_thinking({}, bad)
+
+
+def test_an_inherited_thinking_budget_is_dropped_by_the_allowlist():
+    assert "MAX_THINKING_TOKENS" not in worker_env({"HOME": "/h", "MAX_THINKING_TOKENS": "0"})
 
 
 def test_api_key_is_passed_through_only_when_set_and_decides_billing():

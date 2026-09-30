@@ -90,6 +90,11 @@ def _parser() -> argparse.ArgumentParser:
     fund.add_argument("--stall-slices", type=int, default=FiringPolicy().stall_slices)
     fund.add_argument("--no-firing", action="store_true", help="keep funding stalled workers")
     fund.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
+    fund.add_argument(
+        "--boss-thinking",
+        type=_tokens_arg,
+        help="thinking tokens the boss may use per call; 0 turns thinking off (default: the CLI's)",
+    )
 
     for name, text in (
         ("report", "print the board report for a run"),
@@ -110,6 +115,12 @@ def usd_arg(text: str) -> int:
     if micros <= 0 or micros != micros.to_integral_value():
         raise argparse.ArgumentTypeError("budget must be positive, with at most 6 decimal places")
     return int(micros)
+
+
+def _tokens_arg(text: str) -> int:
+    if not text.isdecimal():
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of tokens")
+    return int(text)
 
 
 def _fund(
@@ -140,7 +151,12 @@ def _fund(
                 tokens_out=usage.tokens_out,
                 tokens_cached=usage.tokens_cached,
                 billing=billing_mode(env),
-                data={"purpose": "term_sheet", "model": args.boss_model, "outcome": outcome},
+                data={
+                    "purpose": "term_sheet",
+                    "model": args.boss_model,
+                    "thinking_tokens": args.boss_thinking,
+                    "outcome": outcome,
+                },
             )
 
         try:
@@ -152,6 +168,7 @@ def _fund(
                 model=args.boss_model,
                 executable=executable,
                 max_tasks=args.max_tasks,
+                thinking_tokens=args.boss_thinking,
             )
         except BossError as exc:
             boss_spend(exc.usage, str(exc.outcome))

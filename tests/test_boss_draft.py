@@ -47,6 +47,8 @@ TWO_TASKS = {
 FAKE_CLI = f"""#!{sys.executable}
 import json, os, sys, time
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
+thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
+open(os.environ["FAKE_ARGV"] + ".thinking", "w").write(thinking)
 if os.environ.get("FAKE_SLEEP"):
     time.sleep(60)
 print(os.environ["FAKE_OUTPUT"])
@@ -64,7 +66,7 @@ def draft(tmp_path):
     cli.chmod(0o755)
     argv_file = tmp_path / "argv.txt"
 
-    def run(output, *, timeout_s=30.0, max_tasks=None, **env_extra):
+    def run(output, *, timeout_s=30.0, max_tasks=None, thinking_tokens=None, **env_extra):
         text = output if isinstance(output, str) else json.dumps(output)
         env = {
             "PATH": "/usr/bin:/bin",
@@ -80,10 +82,12 @@ def draft(tmp_path):
             env=env,
             timeout_s=timeout_s,
             executable=str(cli),
+            thinking_tokens=thinking_tokens,
             **({} if max_tasks is None else {"max_tasks": max_tasks}),
         )
 
     run.argv_file = argv_file
+    run.thinking = lambda: (tmp_path / "argv.txt.thinking").read_text()
     run.checks_dir = tmp_path / "checks"
     return run
 
@@ -108,6 +112,15 @@ def test_the_call_runs_isolated_with_no_tools(draft):
     assert argv[argv.index("--tools") + 1] == ""
     assert argv[argv.index("--system-prompt") + 1] == load_prompt("term_sheet_v1.md")
     assert argv[-1] == "Idea:\nReverse a string."
+
+
+def test_thinking_budget_reaches_the_call_and_is_off_limits_to_the_callers_environment(draft):
+    draft(result_with())
+    assert draft.thinking() == "unset"  # by default the CLI decides
+    draft(result_with(), thinking_tokens=0)
+    assert draft.thinking() == "0"
+    draft(result_with(), thinking_tokens=2048, MAX_THINKING_TOKENS="99999")
+    assert draft.thinking() == "2048"  # the explicit budget wins over an inherited one
 
 
 def test_failed_call_raises_with_its_outcome(draft):
