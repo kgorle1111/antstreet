@@ -25,7 +25,15 @@ from pathlib import Path
 from typing import Any
 
 from boss import cli
-from boss.bench.drafts import CHECKS_DIR, DRAFT_FILE, SCORED, DraftCell, _md, _pct
+from boss.bench.drafts import (
+    CHECKS_DIR,
+    DRAFT_FILE,
+    SCORED,
+    DraftCell,
+    _md,
+    _pct,
+    save_rejected,
+)
 from boss.bench.results import cell_dir, load_results
 from boss.bench.score import _wrong_ids, draft_checks
 from boss.bench.table import MIXED_WARNING, wilson_interval
@@ -298,6 +306,7 @@ def run_audit(
         cell = _cell(
             target, settings, ids, REJECTED if rejected else FAILED, exc.usage, detail, exc.outcome
         )
+        save_rejected(folder, exc)
     else:
         cell = _cell(target, settings, ids, AUDITED, usage, "", Outcome.COMPLETED, audit, wrong)
     cell.save(folder)
