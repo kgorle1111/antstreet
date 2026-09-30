@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from boss import budget, handoff, retry
-from boss.approval import require_approval
+from boss.approval import NotApprovedError, require_approval
 from boss.boss import load_prompt
 from boss.briefs import continuation_prompt, reassignment_brief, task_prompt
 from boss.errors import INFRASTRUCTURE
@@ -83,6 +83,9 @@ class _Firm:
         return [Check(c.id, c.file) for c in self.sheet.checks if c.task == task.id]
 
     def run_gate(self, task: Task, worker: str) -> list[CheckResult]:
+        # Check files are read from disk on every gate run, so the approval is verified on
+        # every gate run: a check edited mid-run never produces a recorded result.
+        require_approval(self.events(), self.sheet, self.paths.checks)
         return self.gate(self.paths.workspace(worker), self.paths.checks, self.checks_of(task))
 
     def run(self) -> FirmReport:
@@ -151,7 +154,12 @@ class _Firm:
             worker = self._current_worker(task, state, record)
             if worker is None:
                 continue  # the task was just abandoned; pick the next one
-            stop = self._slice(task, worker, cap, record)
+            try:
+                stop = self._slice(task, worker, cap, record)
+            except NotApprovedError:
+                reason = "the term sheet or a check changed after the investor approved it"
+                record("rule", EventType.STOPPED, data={"reason": reason})
+                return f"stopped: {reason}"
             if stop:
                 return stop
 
@@ -205,6 +213,7 @@ class _Firm:
         # kn: a session exists once any slice got past infrastructure; resuming a session that was
         # never created would fail, so until then every attempt starts the session again.
         started = any(r.outcome not in INFRASTRUCTURE for r in history)
+        require_approval(self.events(), self.sheet, self.paths.checks)  # before any spend
         disputed = frozenset().union(*(r.disputed for r in history))
         if started:
             prompt = continuation_prompt(self.run_gate(task, worker), disputed)

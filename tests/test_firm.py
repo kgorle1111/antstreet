@@ -6,6 +6,7 @@ from boss.approval import NotApprovedError, content_hashes
 from boss.boss import load_prompt
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
+from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total
 from boss.report import build_report
 from boss.rule import FiringPolicy
@@ -91,7 +92,9 @@ def paths(tmp_path):
     return p
 
 
-def run(paths, worker, s=None, *, approved=True, answers=(), config=None, sleeps=None):
+def run(
+    paths, worker, s=None, *, approved=True, answers=(), config=None, sleeps=None, gate=run_gate
+):
     s = s or sheet()
     replies = iter(answers)
     said = []
@@ -116,6 +119,7 @@ def run(paths, worker, s=None, *, approved=True, answers=(), config=None, sleeps
             ask=ask,
             say=said.append,
             slice_runner=worker,
+            gate=gate,
             sleep=(sleeps if sleeps is not None else []).append,
         )
     return report, said
@@ -460,3 +464,71 @@ def test_disputes_survive_a_resume_and_reach_the_board_report(paths):
     assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "disputed"
     text = build_report(read_events(paths.ledger))
     assert [(d.check, d.reason) for d in text.disputes] == [("c01", "idea says raise")]
+
+
+# Approval is bound to the check files' content and verified every time they are used.
+
+
+class Tampering:
+    """Wraps a scripted worker; edits a check file on disk after the chosen slice."""
+
+    def __init__(self, worker, check_file, after_slice=1):
+        self.worker, self.check_file, self.after_slice = worker, check_file, after_slice
+
+    def __call__(self, spec, workspace, log_path, *, env):
+        result = self.worker(spec, workspace, log_path, env=env)
+        if len(self.worker.specs) == self.after_slice:
+            self.check_file.write_text("def test_anything():\n    pass\n")
+        return result
+
+
+def test_a_check_edited_mid_run_stops_the_run_and_its_result_is_never_recorded(paths):
+    # The edited c01 would pass on anything. Without the control the gate would record a pass.
+    worker = Script(step(HALF, cost=30_000), step(HALF))
+    report, _ = run(paths, Tampering(worker, paths.checks / "test_c01.py"))
+    assert report.stopped == (
+        "stopped: the term sheet or a check changed after the investor approved it"
+    )
+    assert report.passed == 0 and events_of(paths, EventType.CHECK_RESULT) == []
+    [stop] = events_of(paths, EventType.STOPPED)
+    assert stop.actor == "rule"
+    assert len(worker.specs) == 1  # nothing more is funded
+    assert total(read_events(paths.ledger)).cost_micros == 30_000  # the slice is still on the books
+
+
+def test_a_check_edited_between_slices_stops_the_run_before_the_next_slice_is_paid_for(paths):
+    def gate_then_tamper(workspace, checks_dir, checks):
+        results = run_gate(workspace, checks_dir, checks)
+        (checks_dir / "test_c02.py").write_text("def test_anything():\n    pass\n")
+        return results
+
+    worker = Script(step(BAD), step(GOOD, "done"))
+    report, _ = run(paths, worker, gate=gate_then_tamper)
+    assert report.stopped.startswith("stopped: the term sheet or a check changed")
+    assert len(worker.specs) == 1  # slice 2 was never spawned
+    assert len(events_of(paths, EventType.CHECK_RESULT)) == 2  # slice 1's honest results stand
+
+
+def test_a_new_worker_is_never_briefed_from_a_check_edited_after_approval(paths):
+    # The first brief quotes the check files from disk. The second task's check is edited after
+    # the first task was gated, so its worker must not be spawned on the edited text.
+    def gate_then_tamper(workspace, checks_dir, checks):
+        results = run_gate(workspace, checks_dir, checks)
+        (checks_dir / "test_c03.py").write_text("def test_anything():\n    pass\n")
+        return results
+
+    worker = Script(step(GOOD, "done"), step("def shout(s):\n    return s\n", name="up.py"))
+    report, _ = run(paths, worker, sheet(two_tasks=True), gate=gate_then_tamper)
+    assert report.stopped.startswith("stopped: the term sheet or a check changed")
+    assert len(worker.specs) == 1
+    assert (report.passed, report.total) == (2, 3)  # the first task's honest passes stand
+
+
+def test_a_resumed_run_stays_stopped_after_tampering_even_if_the_check_is_restored(paths):
+    original = (paths.checks / "test_c01.py").read_text()
+    worker = Script(step(HALF), step(GOOD, "done"))
+    run(paths, Tampering(worker, paths.checks / "test_c01.py"))
+    (paths.checks / "test_c01.py").write_text(original)
+    resumed = Script(step(GOOD, "done"))
+    report, _ = run(paths, resumed)
+    assert report.stopped == "stopped earlier" and resumed.specs == []
