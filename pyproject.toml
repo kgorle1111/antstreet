@@ -4,13 +4,14 @@ name = "boss"
 version = "0.0.1"
 description = "Fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
 requires-python = ">=3.12"
-dependencies = []
+# The gate runs term-sheet checks with pytest, so it is needed at runtime, not only in development.
+dependencies = ["pytest>=8"]
 
 [project.scripts]
 boss = "boss.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["ruff>=0.6"]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

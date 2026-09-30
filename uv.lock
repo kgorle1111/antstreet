@@ -6,20 +6,20 @@ requires-python = ">=3.12"
 name = "boss"
 version = "0.0.1"
 source = { editable = "." }
+dependencies = [
+    { name = "pytest" },
+]
 
 [package.dev-dependencies]
 dev = [
-    { name = "pytest" },
     { name = "ruff" },
 ]
 
 [package.metadata]
+requires-dist = [{ name = "pytest", specifier = ">=8" }]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.6" },
-]
+dev = [{ name = "ruff", specifier = ">=0.6" }]
 
 [[package]]
 name = "colorama"
