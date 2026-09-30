@@ -25,7 +25,14 @@ from boss.rundir import Recorder, RunPaths, assemble_product, slice_end_fields
 from boss.runner import SliceRun, run_slice
 from boss.state import RunState, run_state, slice_history
 from boss.termsheet import Round, Task, TermSheet
-from boss.worker import IsolationError, SliceSpec, billing_mode, disputed_checks, usd
+from boss.worker import (
+    IsolationError,
+    SliceSpec,
+    billing_mode,
+    clean_status,
+    disputed_checks,
+    usd,
+)
 
 BUILDER_PROMPT = "builder_v2.md"
 DEFAULT_WORKER_MODEL = "haiku"
@@ -276,7 +283,7 @@ class _Firm:
         history = slice_history(self.events())[worker]
         needed = frozenset(c.id for c in self.checks_of(task))
         verdict = decide(needed, history, self.config.policy)
-        last_reason = (run.status or {}).get("reason")
+        last_reason = (clean_status(run.status) or {}).get("reason")
         if verdict.decision is Decision.RETRY:
             return self._infrastructure(run, history, record)
         if verdict.decision is Decision.ESCALATE:

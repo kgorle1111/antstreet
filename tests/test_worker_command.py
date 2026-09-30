@@ -6,9 +6,11 @@ import pytest
 from boss.ledger import Billing
 from boss.worker import (
     MAX_DISPUTE_REASON_CHARS,
+    MAX_REASON_CHARS,
     SliceSpec,
     billing_mode,
     build_command,
+    clean_status,
     disputed_checks,
     usd,
     with_thinking,
@@ -199,4 +201,35 @@ def test_a_dispute_reason_is_redacted_and_cut_before_it_can_reach_the_ledger():
         {"disputed_checks": [dispute("c01", f"key {secret} " + "x" * 1_000)]}, {"c01"}
     ).values()
     assert secret not in reason and "[REDACTED]" in reason
-    assert len(reason) == MAX_DISPUTE_REASON_CHARS
+    assert len(reason) == MAX_DISPUTE_REASON_CHARS and reason.endswith(" [cut]")
+
+
+def test_a_dispute_reason_cannot_carry_terminal_escapes():
+    [reason] = disputed_checks(
+        {"disputed_checks": [dispute("c01", "\x1b]0;pwned\x07 wrong")]}, {"c01"}
+    ).values()
+    assert reason == "\\x1b]0;pwned\\x07 wrong"
+
+
+def test_clean_status_keeps_the_status_word_and_a_safe_bounded_reason():
+    secret = "sk-ant-" + "a" * 40
+    raw = {
+        "status": "done",
+        "reason": f"\x1b[31mred\x1b[0m key {secret} " + "y" * 2_000,
+        "disputed_checks": [{"check": "c01", "reason": "z" * 10_000}],
+        "anything": {"else": True},
+    }
+    cleaned = clean_status(raw)
+    assert set(cleaned) == {"status", "reason"} and cleaned["status"] == "done"
+    assert cleaned["reason"].startswith("\\x1b[31mred\\x1b[0m key [REDACTED] ")
+    assert len(cleaned["reason"]) == MAX_REASON_CHARS and secret not in cleaned["reason"]
+
+
+@pytest.mark.parametrize("raw", [None, "done", ["done"], 7])
+def test_clean_status_of_no_report_is_none(raw):
+    assert clean_status(raw) is None
+
+
+@pytest.mark.parametrize("word", ["finished", "", None, 5, ["done"]])
+def test_an_unknown_status_word_is_none_not_trusted(word):
+    assert clean_status({"status": word, "reason": 9}) == {"status": "none", "reason": ""}

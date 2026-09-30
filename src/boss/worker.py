@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from boss.ledger import Billing
-from boss.redact import redact
+from boss.redact import safe_text
 
 CLI = "claude"
 # From 2.1.277 a resumed session reports cumulative totals, which slice accounting depends on.
@@ -41,6 +41,8 @@ STATUS_SCHEMA = {
     "required": ["status", "reason"],
 }
 MAX_DISPUTE_REASON_CHARS = 300
+MAX_REASON_CHARS = 500
+_STATUSES = frozenset(STATUS_SCHEMA["properties"]["status"]["enum"])
 _ENV_ALLOWLIST = ("HOME", "PATH", "USER", "LANG", "TMPDIR", "CLAUDE_CONFIG_DIR")
 _API_KEY_VAR = "ANTHROPIC_API_KEY"
 _THINKING_VAR = "MAX_THINKING_TOKENS"  # read by the CLI; 0 turns extended thinking off
@@ -124,7 +126,7 @@ def disputed_checks(status: Mapping[str, Any] | None, allowed: Collection[str]) 
 
     The report is model output, so nothing in it is trusted: an entry that is malformed, repeats
     a check, gives no reason, or names a check outside `allowed` is dropped, and every reason is
-    redacted and cut to a fixed length before it can reach the ledger.
+    made safe to show and cut to a fixed length before it can reach the ledger.
     """
     raw = (status or {}).get("disputed_checks")
     found: dict[str, str] = {}
@@ -135,8 +137,21 @@ def disputed_checks(status: Mapping[str, Any] | None, allowed: Collection[str]) 
         if not isinstance(check, str) or check not in allowed or check in found:
             continue
         if isinstance(reason, str) and reason.strip():
-            found[check] = redact(reason.strip())[:MAX_DISPUTE_REASON_CHARS]
+            found[check] = safe_text(reason.strip(), limit=MAX_DISPUTE_REASON_CHARS)
     return found
+
+
+def clean_status(status: object) -> dict[str, str] | None:
+    """The worker's self-report reduced to what the ledger keeps: its status word, and its reason
+    with secrets masked, control characters made visible and a bounded length. Everything else in
+    the report is model output of unbounded size and is dropped. None when there is no report."""
+    if not isinstance(status, dict):
+        return None
+    word, reason = status.get("status"), status.get("reason")
+    return {
+        "status": word if isinstance(word, str) and word in _STATUSES else "none",
+        "reason": safe_text(reason, limit=MAX_REASON_CHARS) if isinstance(reason, str) else "",
+    }
 
 
 class IsolationError(Exception):

@@ -11,7 +11,7 @@ from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total
 from boss.limits import RunLimits
-from boss.report import build_report
+from boss.report import build_report, render_report
 from boss.rule import FiringPolicy
 from boss.rundir import RunPaths
 from boss.runner import SliceRun
@@ -614,3 +614,27 @@ def test_a_run_stopped_by_a_limit_stays_stopped_when_resumed(paths):
     resumed = Script(step(GOOD, "done"))
     report, _ = run(paths, resumed)
     assert report.stopped == "stopped earlier" and resumed.specs == []
+
+
+def test_a_workers_words_are_made_safe_before_they_reach_the_ledger_or_the_report(paths):
+    secret = "sk-ant-" + "k" * 40
+
+    class Chatty(Script):
+        def __call__(self, spec, workspace, log_path, *, env):
+            run = super().__call__(spec, workspace, log_path, env=env)
+            run.status["reason"] = f"\x1b]0;pwned\x07 blocked by {secret}"
+            run.status["junk"] = "x" * 100_000
+            return run
+
+    run(paths, Chatty(step(None, "blocked")))
+    ledger_text = paths.ledger.read_text()
+    assert secret not in ledger_text and "\x1b" not in ledger_text
+    assert len(ledger_text) < 20_000  # the 100,000 characters of junk were not kept
+    [end] = events_of(paths, EventType.SLICE_END)
+    assert end.data["status"] == {
+        "status": "blocked",
+        "reason": "\\x1b]0;pwned\\x07 blocked by [REDACTED]",
+    }
+    assert events_of(paths, EventType.BLOCKED)[0].data["reason"] == end.data["status"]["reason"]
+    report = render_report(build_report(read_events(paths.ledger)))
+    assert secret not in report and "\x1b" not in report

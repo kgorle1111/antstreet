@@ -12,6 +12,7 @@ from boss.ledger import Event, EventType, LedgerWriter
 from boss.runner import SliceRun
 from boss.state import RunState
 from boss.termsheet import TermSheet
+from boss.worker import clean_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +97,7 @@ def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int)
             "slice": number,
             "task": task,
             "outcome": str(run.outcome),
-            "status": run.status,
+            "status": clean_status(run.status),
             "session_total_micros": total,
             "exit_code": run.exit_code,
             "denials": len(run.denials),
