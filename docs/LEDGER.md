@@ -77,15 +77,21 @@ Example:
 
 ### `role_call`
 
-- Actor: `role:<name>`; one of `role:product_manager`, `role:user_agent`, `role:system_designer`, `role:tester`, `role:check_auditor`, `role:consultant`, `role:critic`, `role:demo_writer`, `role:judge`
-- Round: always 0, so a role call is outside every round's budget and outside the run's spend
-  ceiling, like `boss_call`.
-- Written by `Pipeline._book` in `pipeline.py` for every call a chosen role makes, whether it
-  worked, failed or was refused before it was made. It builds the cost, tokens, billing and first
-  keys with `ledger_fields` from `roles/base.py` and adds `result` and `detail`. `boss report`
-  reads these events for its Roles section.
+- Actor: `role:<name>`; one of `role:product_manager`, `role:user_agent`, `role:system_designer`, `role:tester`, `role:check_auditor`, `role:consultant`, `role:critic`, `role:demo_writer`, `role:judge`, `role:examiner`
+- Two writers, both building the cost, tokens, billing and first keys with `ledger_fields` from
+  `roles/base.py`, which books the spend whether the call worked or not:
+  - `Pipeline._book` in `pipeline.py`, for every call a role chosen with `--roles` makes, whether
+    it worked, failed or was refused before it was made. Round 0, so the call is outside every
+    round's budget and outside the run's spend ceiling, like `boss_call`. It adds `result` and
+    `detail`.
+  - `run_examiner` in `roles/examiner.py`, for the examiner. Round 1, before the investor
+    approves, so the call counts in that round's spend and against its budget; it is skipped
+    (cost 0, outcome `skipped`) when round 1 could not then fund a worker slice. It adds
+    `requested`, `kept` and `problems`. No command calls `run_examiner` yet: `boss fund` has no
+    `--held-out` option.
+- `boss report` reads these events for its Roles section.
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
-  for a call refused before it was made (`outcome` `not_called`). Billing is `api` or
+  for a call that was not made (`outcome` `not_called` or `skipped`). Billing is `api` or
   `subscription`. The report's spend line for the actor comes from these events.
 
 | Key | Type | Meaning |
@@ -94,7 +100,7 @@ Example:
 | `model` | str | The model the call used. |
 | `prompt` | str | The prompt file the role runs under. |
 | `skills` | list | The skill ids appended to that prompt, in order. Empty if none. |
-| `outcome` | str | How the call ended: an outcome name such as `completed`, `api_error`, `timeout` or `crashed`; `not_called` when it was refused before any call (an unusable request, for example a file that already exists). `completed` is also used for a paid call whose output failed the role's gate. |
+| `outcome` | str | How the call ended: an outcome name such as `completed`, `api_error`, `timeout` or `crashed`; `not_called` when the pipeline refused it before any call (an unusable request, for example a file that already exists); `skipped` when the examiner was not called because round 1 could not then fund a worker slice. `completed` is also used for a paid call whose output failed the role's gate. `completed` is also used for a paid call whose output failed the role's gate. |
 | `result` | str | What became of the output: `ok` (used), `failed` (the call failed or its output failed the gate; nothing was used) or `unused` (a good output thrown away because a later stage of the staged draft failed). |
 | `detail` | str | One line, made safe to show. The reason for a failure or an `unused` result; for `ok`, a short count such as `1 verified, 0 rejected`. |
 | `check` | str | The disputed check's id. Only on a consultant's call. |
@@ -103,6 +109,12 @@ Example:
 | `cycle` | int | Which review this was, from 1. Only on a critic's call that worked. |
 | `rubric` | str | The rubric id, `stories` or `usage`. Only on a judge's call. |
 | `calibrated` | bool | Whether a calibration covered the judge. Only on a judge call that worked. |
+| `requested` | int | The examiner's events only: how many held-out checks were asked for (`FirmConfig.held_out`). |
+| `kept` | int | The examiner's events only: how many passed its gate and were stored in `held_out/`. 0 means the run goes on without held-out checks, and the report says so. |
+| `problems` | list | The examiner's events only: why nothing was kept, one line each, at most 10 lines of 300 characters. Empty when checks were kept. A refused output is saved whole in the run folder as `examiner_refused.json`. |
+
+`requested`, `kept` and `problems` are on the examiner's events only; `result` and `detail` on
+the pipeline's only.
 
 `pipeline.py` counts these events to decide what a resumed run still owes: one critic call per
 review cycle, one demo call per build of the product (after the last `slice_end`), and one judge

@@ -51,6 +51,43 @@ whole organisation").
 - A judge's scores are labelled `uncalibrated` until that comparison meets its bar, and
   `require_calibrated` refuses to hand an uncalibrated one to code that would act on it.
 
+## Held-out checks and the examiner
+
+Workers see the checks they are graded on. In the last benchmark 12 of 36 firm runs passed every
+visible check and then failed a hidden one a person wrote (B52 in [BACKLOG.md](BACKLOG.md)). The
+examiner is the role that closes that gap: a separate call that writes checks the workers never
+see, which are run once, on the assembled `product/`. It is off by default; `FirmConfig.held_out`
+says how many to ask for (0 is off, up to 8), and `boss fund` has no option for it yet.
+
+- **What it sees.** The investor's idea, and the public names the product must expose: the paths
+  each task owns, the modules and names the visible check files import, and the names the task
+  briefs put in backticks (`public_names` in `src/boss/roles/examiner.py`). Names only.
+- **What it never sees.** A visible check's body, description or file name. Independence from the
+  checks the workers are graded on is the point, so `tests/test_roles_examiner.py::test_no_visible_check_body_description_or_file_name_reaches_the_examiner`
+  pins it.
+- **Its gate**, all in code (`examine`, then `held_out.problems`): exactly the asked number of
+  checks; every `source` quote a fragment of the idea of at least 8 characters (the rule
+  `roles/advisory.py` uses, `is_fragment`); ids `h01`.. unique and not a visible check's; every
+  file parses and defines a `test_` function; every check fails on an empty workspace (the same
+  run `termsheet.validate` makes for the visible checks, `empty_checks_problems`). A refused
+  output raises `RoleOutputError` carrying the output, and `run_examiner` saves it as
+  `examiner_refused.json` in the run folder.
+- **Where they live.** The run folder's `held_out/`, with a `manifest.json`: beside `checks/`, never
+  in a workspace, a brief, a prompt or `product/`.
+- **The one human gate.** The investor reads every held-out check with the term sheet, and their
+  content hashes go into the `approved` event as `held_out_hashes`. A check that is wrong fails a
+  correct product, and boss-written checks were wrong 3 to 5 percent of the time, so nothing
+  unreviewed may decide a verdict. Editing a held-out file after approval stops the run like
+  editing a visible check.
+- **The verdict.** `_gate_product` also runs them on `product/` and records `check_result` events
+  with `scope: held_out`. The report shows the two results apart, and a run passes only when both
+  do. They never enter a per-worker decision: the firing rule does not see them.
+- **When it fails.** `run_examiner` is called once, after the boss drafts and before the investor
+  approves. If its call fails, its output is refused, or round 1 could not then fund a worker
+  slice, the investor is told, the ledger says so (`role_call` with `kept` 0 and the `problems`),
+  the report says so, and the run goes on without held-out checks. Its spend is booked in round 1
+  like any role's and counts against that round's budget.
+
 ## What a worker profile is
 
 - The same worker, the same three tools, the same base prompt (`builder_v3.md`), the same gate.
@@ -223,9 +260,10 @@ the `started` event, so `boss resume` calls roles the same way.
 ## Not built
 
 - No role is on unless `--roles` names it. The roles return data and usage to their caller and write
-  nothing; `src/boss/pipeline.py` books their spend. `src/boss/firm.py` and `src/boss/cli.py`
-  import only `registry`, `PROFILES`, `org_chart`, `render_org` and `builder_system_prompt` from
-  the roles package.
+  nothing, except the examiner's `run_examiner`, which books its own call and stores its checks
+  (no command calls it yet); `src/boss/pipeline.py` books the other roles' spend.
+  `src/boss/firm.py` and `src/boss/cli.py` import only `registry`, `PROFILES`, `org_chart`,
+  `render_org` and `builder_system_prompt` from the roles package.
 - Nothing assigns a profile to a task. The investor picks one for the run; the boss does not pick
   one, and a task has no profile field.
 - No role has been measured to pay for its call, so none is on unless you name it. No judge
