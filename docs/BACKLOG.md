@@ -54,15 +54,15 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|---|
 | B28 | Measure check quality without worker runs: precision on the reference, recall on known-wrong implementations | Nothing measured coverage | done: feat(bench): evaluate boss drafts without running workers, with feat(bench): score a draft's checks for precision and recall |
 | B29 | Boss thinking off: measure wrong checks and coverage with it | Costs about $0.50 per 17 drafts | open |
-| B30 | A second pass that audits each check against the idea | Needs B28 to be judged | building: the check auditor is built and gated (`src/boss/roles/advisory.py`) and `src/boss/bench/audit.py` scores its flags against the reference; `boss fund` does not call it and no scored run is recorded |
-| B31 | User stories with acceptance criteria, and a check traced to every criterion | Part of the roles work | building: stories, acceptance criteria, `CheckSpec.criteria` and a tester whose checks must cover every criterion are built (`src/boss/roles/stories.py`, `product.py`, `engineering.py`); `boss fund` does not call them |
+| B30 | A second pass that audits each check against the idea | Needs B28 to be judged | building: the check auditor is built and gated (`src/boss/roles/advisory.py`), `boss fund --roles check_auditor` shows its opinion of each check under the term sheet, and `src/boss/bench/audit.py` scores its flags against the reference; no scored run is recorded |
+| B31 | User stories with acceptance criteria, and a check traced to every criterion | Part of the roles work | building: stories, acceptance criteria, `CheckSpec.criteria` and a tester whose checks must cover every criterion are built (`src/boss/roles/stories.py`, `product.py`, `engineering.py`) and `boss fund --roles product_manager,system_designer,tester` builds the term sheet from them; no scored run compares that sheet with the boss's own |
 
 ## Roles
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
 | B32 | Role registry: each role's prompt, tools, output schema, gate and budget in one place | New scope | done: `RoleSpec` and `call_role` in `src/boss/roles/base.py`, `registry()` in `src/boss/roles/__init__.py`, `boss roles`; a role's output schema stays in its own module |
-| B33 | Product manager (stories), user agent, system designer, tester, critic, judge, demo writer, consultant | New scope; each default-off until it earns its cost | building: all eight are built, each behind a gate and off by default (`src/boss/roles/`); `boss fund` calls none and none has been measured |
+| B33 | Product manager (stories), user agent, system designer, tester, critic, judge, demo writer, consultant | New scope; each default-off until it earns its cost | building: all nine are built, each behind a gate and off unless `boss fund --roles` names it (`src/boss/pipeline.py`: before approval, during a dispute, after the build); none has been measured |
 | B34 | Skills: versioned prompt modules per role, with tests | New scope | done: `src/boss/skills/` (the loader and 36 skill files), `tests/test_skills_quality.py` |
 | B35 | Judge calibration against the investor's labels before its verdicts count | A judge is advisory until calibrated | building: the harness is built (`python -m boss.roles.judge calibrate`, `require_calibrated`); no calibration file exists, so every judgement is `uncalibrated` |
 
@@ -110,3 +110,11 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B53 | Staff by need: one worker by default, more only when the design splits into tasks with separate files, or when a worker is fired or stuck | The firm cost 2.4x per cell and took 2.8x the time for 69% against 63%, within the noise. A model's guess at "complexity" is not a signal the gate can check | open: measure as a third arm before it becomes the default |
 | B54 | An external benchmark: NL2Repo-Bench, its easy tasks first (spec in, Python library out, graded by upstream tests the agent never sees) | Needs an adapter and network blocking for the workers; no published cost per task, so one task is measured before any more | open |
 | B55 | pass^k and time per cell in the table | Asked for with B54 | done: `bench/table.py` shows the median time per cell and the tasks passed on every run |
+
+## Roles in `boss fund`, added later
+
+| Id | Item | Why it was deferred | Status |
+|---|---|---|---|
+| B56 | Offer the critic's findings again after Ctrl-C at the fix question; `pipeline.py` kn: a cycle counts once its critic call is booked, so findings left unanswered by a Ctrl-C are not offered again | The investor's answer is not on the ledger, so a resume cannot tell a no from an interruption | open: record the answer as an event, then count a cycle only once it is answered |
+| B57 | Give the fix round the place of the first round that never opened; `pipeline.py` kn: the fix round goes after every round, so a sheet whose later rounds never opened | The round loop's own rule asks the investor to fund the unopened rounds first, and changing an approved sheet's rounds is the investor's decision | open |
+| B58 | `tests/test_pipeline.py::test_resume_can_offer_the_fix_round_with_its_own_budget` failed once in a full-suite run and passed in 70 reruns, 40 of them with six other test processes running; the cause is not known | The failing output was not kept, and the failure did not come back | open: the next failure's output decides; run the suite with `-rf` and keep it |
