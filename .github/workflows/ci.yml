@@ -40,5 +40,9 @@ jobs:
         run: uv run ruff format --check .
 
       # No model calls and no secrets: the live test is skipped unless BOSS_LIVE=1.
+      # The coverage floor (line + branch over src/boss) is 2 points below the 98.58% measured
+      # when the gate was added, rounded down: 96. That leaves room for normal work and still
+      # catches a real drop. Only ever raise it: when total coverage settles 2+ points above it,
+      # move it up to (total - 2).
       - name: Test
-        run: uv run pytest
+        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=96

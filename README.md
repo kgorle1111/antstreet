@@ -81,6 +81,7 @@ Limits you should know:
 
 ```bash
 uv run pytest                 # unit tests, no model calls
+uv run pytest --cov --cov-report=term-missing   # same, with line and branch coverage of src/boss
 uv run ruff check . && uv run ruff format --check .
 BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py   # one real run, a few cents
 ```
