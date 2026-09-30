@@ -22,7 +22,7 @@ BANNED_PHRASES = (
 
 # The most skill text one role or profile may carry. At about 4 characters a token this is 2,500
 # tokens on every call, eight times the 1,252-character base builder prompt. The largest shipped
-# set is about 8,300 characters: the cap leaves room for one more skill, not for two.
+# set is about 8,400 characters: the cap leaves room for one more skill, not for two.
 MAX_COMBINED_CHARS = 10_000
 
 
