@@ -203,14 +203,22 @@ def test_a_capped_call_reports_the_cost_it_did_incur(draft):
     assert info.value.usage.cost_micros == COST
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="boss.py:_call lets subprocess.run's FileNotFoundError escape when the claude "
-    "executable is missing, so cli.py (which catches only BossError) shows a traceback",
-)
 def test_a_missing_executable_is_a_boss_error_the_caller_can_record(draft, tmp_path):
     with pytest.raises(BossError):
         draft(result_with(), executable=str(tmp_path / "no-such-claude"))
+
+
+def test_an_unstartable_executable_names_itself_points_at_doctor_and_has_unknown_cost(
+    draft, tmp_path
+):
+    plain_file = tmp_path / "not-executable"
+    plain_file.write_text("#!/bin/sh\n")
+    for executable in (str(tmp_path / "no-such-claude"), str(plain_file)):
+        with pytest.raises(BossError) as info:
+            draft(result_with(), executable=executable)
+        assert executable in str(info.value)
+        assert "boss doctor" in str(info.value)
+        assert info.value.usage.cost_micros is None
 
 
 # --- arguments and prompt --------------------------------------------------------------------

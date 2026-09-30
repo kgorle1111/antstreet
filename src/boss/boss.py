@@ -181,6 +181,13 @@ def _call(argv: list[str], env: Mapping[str, str], timeout_s: float) -> StreamRe
             raise BossError(
                 f"boss call exceeded {timeout_s}s", Outcome.TIMEOUT, Usage(None, 0, 0, 0)
             ) from None
+        except OSError as exc:
+            # Never started, so nothing was spent, but we cannot prove it: cost stays unknown.
+            raise BossError(
+                f"cannot run {argv[0]!r} ({exc.strerror or exc}); run `boss doctor`",
+                Outcome.CRASHED,
+                Usage(None, 0, 0, 0),
+            ) from exc
     reader = StreamReader()
     reader.feed(proc.stdout)
     outcome = classify(reader.signals())
