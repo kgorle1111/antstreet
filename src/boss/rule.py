@@ -47,7 +47,7 @@ class FiringPolicy:
         for name in ("stall_slices", "max_slices"):
             value = getattr(self, name)
             if type(value) is not int or value < 1:  # True and 2.0 are not counts
-                raise ValueError(f"{name} must be a whole number of at least 1, got {value!r}")
+                raise ValueError(f"{name} must be at least 1, as a whole number; got {value!r}")
 
 
 @dataclass(frozen=True, slots=True)
