@@ -6,14 +6,19 @@ Every flag here was verified by a recorded probe against CLI 2.1.285 unless mark
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import re
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from boss.ledger import Billing
 
 CLI = "claude"
+# From 2.1.277 a resumed session reports cumulative totals, which slice accounting depends on.
+MIN_CLI_VERSION = (2, 1, 277)
 WORKER_TOOLS = ("Read", "Write", "Edit")
+SCHEMA_TOOL = "StructuredOutput"  # added by the CLI whenever --json-schema is set
 # Path rules keep reads and writes inside the workspace; a bare `Write` wrote outside it (probe P5).
 # No Bash: allowing even `pytest` lets a worker run any code it writes. The gate runs tests instead.
 WORKER_TOOL_RULES = " ".join(f"{tool}(./**)" for tool in WORKER_TOOLS)
@@ -91,3 +96,56 @@ def build_command(spec: SliceSpec, *, api_key: bool) -> list[str]:
     if spec.append_system_prompt:
         argv += ["--append-system-prompt", spec.append_system_prompt]
     return [*argv, spec.prompt]
+
+
+class IsolationError(Exception):
+    """The worker did not start in the configuration we launched. Never the worker's fault."""
+
+
+def isolation_violations(
+    init: Mapping[str, Any] | None,
+    *,
+    hook_events: int,
+    expected_tools: Collection[str] = (*WORKER_TOOLS, SCHEMA_TOOL),
+) -> list[str]:
+    """Compare the CLI's `system/init` event with what we launched. Empty list = isolated.
+
+    Plugins are not checked: under --safe-mode the CLI still lists installed plugins, but their
+    hooks do not run (probe P2). Hooks are checked by counting hook events, which precede init.
+    """
+    if init is None:
+        return ["no system/init event arrived"]
+    problems: list[str] = []
+    tools = init.get("tools")
+    if not isinstance(tools, list):
+        problems.append("init has no tools list")
+    elif set(tools) != set(expected_tools):
+        extra, missing = set(tools) - set(expected_tools), set(expected_tools) - set(tools)
+        problems.append(f"tools differ: extra={sorted(extra)} missing={sorted(missing)}")
+    if init.get("mcp_servers") != []:
+        problems.append(f"MCP servers present: {init.get('mcp_servers')!r}")
+    if init.get("permissionMode") != "dontAsk":
+        problems.append(f"permission mode is {init.get('permissionMode')!r}, expected 'dontAsk'")
+    if hook_events:
+        problems.append(f"{hook_events} hook event(s) ran")
+    version = _parse_version(init.get("claude_code_version"))
+    if version is None or version < MIN_CLI_VERSION:
+        minimum = ".".join(map(str, MIN_CLI_VERSION))
+        problems.append(f"CLI version {init.get('claude_code_version')!r} is below {minimum}")
+    return problems
+
+
+def require_isolation(
+    init: Mapping[str, Any] | None,
+    *,
+    hook_events: int,
+    expected_tools: Collection[str] = (*WORKER_TOOLS, SCHEMA_TOOL),
+) -> None:
+    problems = isolation_violations(init, hook_events=hook_events, expected_tools=expected_tools)
+    if problems:
+        raise IsolationError("; ".join(problems))
+
+
+def _parse_version(raw: object) -> tuple[int, ...] | None:
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", str(raw or ""))
+    return tuple(int(part) for part in match.groups()) if match else None
