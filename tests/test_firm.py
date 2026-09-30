@@ -315,6 +315,7 @@ def test_rate_limit_is_waited_out_and_never_counts_against_the_worker(paths):
     assert len(sleeps) == 2 and sleeps[1] <= 120
     assert events_of(paths, EventType.FIRED) == []
     assert [s.resume for s in worker.specs] == [False, False, False]
+    assert len({s.session_id for s in worker.specs}) == 3  # a fresh session id per attempt
     assert len(events_of(paths, EventType.CHECK_RESULT)) == 2
 
 
@@ -679,3 +680,53 @@ def test_blocked_without_a_refused_call_still_goes_to_the_investor(paths):
     assert len(worker.specs) == 2
     assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "blocked"
     assert "refused" in worker.specs[1].prompt
+
+
+# Sessions. Probe (CLI 2.1.285): starting a session with an id that is already in use fails, and
+# resuming one that was never created fails. So an id is used to start exactly once.
+
+
+def test_an_attempt_interrupted_before_it_finished_is_started_again_under_a_new_session(paths):
+    first = Script(KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        run(paths, first)
+    resumed = Script(step(GOOD, "done", cost=7_000))
+    report, _ = run(paths, resumed)
+    assert report.all_passed
+    [spec] = resumed.specs
+    assert spec.resume is False and spec.session_id != first.specs[0].session_id
+    assert "> Reverse a string." in spec.prompt  # the first brief again, not a continuation
+    starts = events_of(paths, EventType.SLICE_START)
+    assert [e.data["slice"] for e in starts] == [1, 1]
+    assert [e.data["session"] for e in starts] == [
+        str(first.specs[0].session_id),
+        str(spec.session_id),
+    ]
+    assert len(events_of(paths, EventType.HIRED)) == 1
+
+
+def test_a_lost_slice_is_charged_to_the_round_at_its_cap(paths):
+    # 305,000 funds a 100,000 slice that is interrupted, then another; the lost one is counted at
+    # its cap, so after the second (100,000 spent) only the reserve and 5,000 are left.
+    s = sheet(rounds=(Round(1, 305_000, 2),))
+    with pytest.raises(KeyboardInterrupt):
+        run(paths, Script(KeyboardInterrupt()), s)
+    worker = Script(step(HALF, cost=100_000), step(HALF, cost=1_000), step(GOOD, "done"))
+    run(paths, worker, s)
+    caps = [e.data["cap_micros"] for e in events_of(paths, EventType.SLICE_START)]
+    assert caps == [100_000, 100_000, 5_000]
+    assert len(worker.specs) == 2
+
+
+def test_a_resumed_slice_that_was_interrupted_resumes_the_same_session_and_recovers_its_cost(paths):
+    first = Script(step(HALF, cost=5_000), KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        run(paths, first)
+    resumed = Script(step(GOOD, "done", cost=7_000))
+    # The interrupted slice spent 2,000 that was never reported; the session's running total
+    # carries it, so it lands on the next slice of that session.
+    resumed.totals = {str(first.specs[0].session_id): 5_000 + 2_000}
+    run(paths, resumed)
+    [spec] = resumed.specs
+    assert spec.resume is True and spec.session_id == first.specs[0].session_id
+    assert [e.cost_micros for e in events_of(paths, EventType.SLICE_END)] == [5_000, 9_000]

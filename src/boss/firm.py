@@ -213,9 +213,8 @@ class _Firm:
             handoff.prepare_workspace(self.paths.workspace(current), self.paths.workspace(name))
             data = {"task": task.id, "from": current, "to": name}
             record("boss", EventType.REASSIGNED, data=data)
-        hired = {"worker": name, "task": task.id, "session": str(uuid.uuid4())}
-        hired |= {"model": self.config.model, "prompt": BUILDER_PROMPT}
-        record("boss", EventType.HIRED, data=hired)
+        hired = {"worker": name, "task": task.id, "model": self.config.model}
+        record("boss", EventType.HIRED, data=hired | {"prompt": BUILDER_PROMPT})
         return name
 
     def _first_prompt(self, task: Task, worker: str, state: RunState) -> str:
@@ -237,26 +236,28 @@ class _Firm:
         ws = state.workers[worker]
         actor, number = f"worker:{worker}", ws.slices + 1
         history = slice_history(self.events()).get(worker, [])
-        # kn: a session exists once any slice got past infrastructure; resuming a session that was
-        # never created would fail, so until then every attempt starts the session again.
-        started = any(r.outcome not in INFRASTRUCTURE for r in history)
         require_approval(self.events(), self.sheet, self.paths.checks)  # before any spend
         disputed = frozenset().union(*(r.disputed for r in history))
-        if started:
+        # A session is resumed only once the ledger proves it exists (state._live_session). Any
+        # other attempt gets a new id: the CLI refuses one that is already in use (probe, CLI
+        # 2.1.285), and an interrupted attempt leaves no record of whether it created its session.
+        resume = ws.session is not None
+        session = ws.session or str(uuid.uuid4())
+        if resume:
             prompt = continuation_prompt(
                 self.run_gate(task, worker), disputed, history[-1].denied_tools, task.paths[0]
             )
         else:
             prompt = self._first_prompt(task, worker, state)
         spec = SliceSpec(
-            session_id=uuid.UUID(ws.session),
-            resume=started,
+            session_id=uuid.UUID(session),
+            resume=resume,
             prompt=prompt,
             model=self.config.model,
             cap_micros=cap,
             append_system_prompt=load_prompt(BUILDER_PROMPT),
         )
-        start = {"slice": number, "task": task.id, "cap_micros": cap}
+        start = {"slice": number, "task": task.id, "cap_micros": cap, "session": session}
         record(actor, EventType.SLICE_START, data=start)
         try:
             run = self.slice_runner(

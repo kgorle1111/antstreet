@@ -79,7 +79,7 @@ def test_run_state_is_rebuilt_from_events_alone():
     assert state.tasks["t9"].abandoned and state.tasks["t9"].current is None
     assert state.workers["w2"].fired and not state.workers["w1"].fired
     assert (state.workers["w1"].slices, state.workers["w3"].slices) == (3, 0)
-    assert state.workers["w3"].session == "s3"
+    assert state.workers["w3"].session is None  # no slice has proved the session exists
     assert state.closed_rounds == frozenset({1})
     assert state.approved_rounds == frozenset({1, 2})
     assert state.passing_total() == 2 and not state.stopped
@@ -149,3 +149,60 @@ def test_disputes_are_attached_to_the_slice_they_were_raised_in():
     assert [r.disputed for r in history["w1"]] == [{"c02"}, frozenset(), {"c09"}]
     assert [r.disputed for r in history["w2"]] == [{"c03"}]
     assert all(r.disputed == frozenset() for r in slice_history(EVENTS)["w1"])
+
+
+def start(worker, n, session=None) -> Event:
+    data = {"slice": n, "task": "t1", "cap_micros": 1} | ({"session": session} if session else {})
+    return ev(f"worker:{worker}", EventType.SLICE_START, data=data)
+
+
+def ended(worker, n, total, outcome="completed") -> Event:
+    data = {"slice": n, "outcome": outcome, "session_total_micros": total}
+    return ev(f"worker:{worker}", EventType.SLICE_END, cost_micros=1, data=data)
+
+
+def worker_of(*events):
+    hired = ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1"})
+    return run_state([hired, *events], ["t1"]).workers["w1"]
+
+
+def test_a_session_is_resumable_only_after_a_slice_in_it_got_past_infrastructure():
+    assert worker_of().session is None
+    assert worker_of(start("w1", 1, "a")).session is None  # interrupted: it may not exist
+    assert worker_of(start("w1", 1, "a"), ended("w1", 1, None, "rate_limited")).session is None
+    failed = worker_of(start("w1", 1, "a"), ended("w1", 1, 7_000, "api_error"))
+    assert (failed.session, failed.session_total_micros) == (None, 0)  # its total is not carried
+    done = worker_of(start("w1", 1, "a"), ended("w1", 1, 5_000))
+    assert (done.session, done.session_total_micros) == ("a", 5_000)
+
+
+def test_the_live_session_is_the_last_one_that_worked_and_its_total_is_its_own():
+    w = worker_of(
+        start("w1", 1, "a"),
+        ended("w1", 1, None, "api_error"),
+        start("w1", 1, "b"),  # a new attempt, a new session
+        ended("w1", 1, 4_000),
+        start("w1", 2, "b"),
+        ended("w1", 2, 9_000),
+        start("w1", 3, "b"),
+        ended("w1", 3, None, "rate_limited"),  # a failed resume does not lose the session
+        start("w1", 4, "b"),  # interrupted resume
+    )
+    assert (w.session, w.session_total_micros, w.slices) == ("b", 9_000, 4)
+
+
+def test_a_total_reported_by_an_abandoned_session_is_not_carried_into_the_next():
+    w = worker_of(
+        start("w1", 1, "a"),
+        ended("w1", 1, 7_000, "api_error"),  # spent, then failed: session a is not resumed
+        start("w1", 1, "b"),
+        ended("w1", 1, 2_000),
+    )
+    assert (w.session, w.session_total_micros) == ("b", 2_000)
+
+
+def test_ledgers_from_before_per_slice_sessions_fall_back_to_the_hired_session():
+    hired = ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1", "session": "old"})
+    events = [hired, start("w1", 1), ended("w1", 1, 3_000)]
+    w = run_state(events, ["t1"]).workers["w1"]
+    assert (w.session, w.session_total_micros) == ("old", 3_000)

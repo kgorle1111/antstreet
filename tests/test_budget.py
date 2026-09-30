@@ -133,7 +133,7 @@ def test_unknown_cost_charges_match_each_slice_to_its_own_start() -> None:
     )
     events = [
         start(1, 40_000),
-        other,  # another worker's slice 1: its cap is not this worker's
+        other,  # another worker's slice 1, never ended: its own lost slice
         end(1, None),
         start(2, 70_000, round_n=2),
         end(2, None, round_n=2),  # another round
@@ -143,8 +143,26 @@ def test_unknown_cost_charges_match_each_slice_to_its_own_start() -> None:
         start(4, 25_000),
         end(4, 0),  # a known cost of zero is not unknown
     ]
-    assert remaining(sheet(), events, 1) == 600_000 - 40_000
+    assert remaining(sheet(), events, 1) == 600_000 - 40_000 - 90_000
     assert remaining(sheet(), events, 2) == 400_000 - 70_000
+
+
+def test_a_slice_that_started_and_never_ended_is_charged_at_its_cap() -> None:
+    # The run was interrupted mid-slice: what it spent was never reported.
+    assert remaining(sheet(), [start(1, 40_000)], 1) == 560_000
+    assert remaining(sheet(), [start(1, 40_000), end(1, 12_000)], 1) == 588_000
+
+
+def test_a_lost_slice_is_still_charged_after_the_same_slice_number_runs_again() -> None:
+    events = [start(1, 40_000), start(1, 30_000), end(1, 10_000)]
+    assert remaining(sheet(), events, 1) == 600_000 - 40_000 - 10_000
+    twice_lost = [start(1, 40_000), start(1, 30_000)]
+    assert remaining(sheet(), twice_lost, 1) == 600_000 - 40_000 - 30_000
+
+
+def test_a_failed_infrastructure_attempt_is_not_charged_when_the_slice_runs_again() -> None:
+    events = [start(1, 40_000), end(1, None, "rate_limited"), start(1, 40_000), end(1, 9_000)]
+    assert remaining(sheet(), events, 1) == 600_000 - 9_000
 
 
 def test_remaining_negative_after_overshoot() -> None:

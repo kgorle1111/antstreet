@@ -3,8 +3,8 @@ loop, offline replay and resume all read a run the same way.
 
 Ledger data contract for stage 2 (keys inside each event's `data`):
 
-    hired        boss        {worker, task, session, model, prompt}
-    slice_start  worker:<w>  {slice, task, cap_micros}
+    hired        boss        {worker, task, model, prompt}
+    slice_start  worker:<w>  {slice, task, cap_micros, session}
     slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, denied_tools, ...}
                              with the event's cost_micros = this slice's own spend
     check_result gate        {check, task, status, detail, worker, slice}
@@ -83,9 +83,9 @@ def fired_workers(events: Sequence[Event]) -> set[str]:
 class WorkerState:
     name: str
     task: str
-    session: str
+    session: str | None  # the session to resume; None until a slice has got past infrastructure
     slices: int  # finished slices, infrastructure ones included
-    session_total_micros: int  # the CLI's cumulative total for the session after the last slice
+    session_total_micros: int  # the CLI's cumulative total for that session; 0 without one
     fired: bool
 
 
@@ -124,18 +124,13 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
     for e in events:
         if e.event is EventType.HIRED and "worker" in e.data:
             name, task = str(e.data["worker"]), str(e.data.get("task", ""))
-            totals = [
-                x.data.get("session_total_micros")
-                for x in events
-                if x.event is EventType.SLICE_END and worker_name(x.actor) == name
-            ]
-            known = [t for t in totals if isinstance(t, int)]
+            session, session_total = _live_session(events, name, e.data.get("session"))
             workers[name] = WorkerState(
                 name=name,
                 task=task,
-                session=str(e.data.get("session", "")),
+                session=session,
                 slices=len(history.get(name, [])),
-                session_total_micros=known[-1] if known else 0,
+                session_total_micros=session_total,
                 fired=name in fired,
             )
             by_task.setdefault(task, []).append(name)
@@ -167,6 +162,35 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
         ),
         stopped=any(e.event is EventType.STOPPED for e in events),
     )
+
+
+def _live_session(
+    events: Sequence[Event], worker: str, hired_session: object
+) -> tuple[str | None, int]:
+    """The session a worker's next slice should resume, and the CLI's cumulative cost for it.
+
+    Every attempt that is not a resume starts a new session id, recorded on its slice_start: the
+    CLI refuses an id that is already in use, and an interrupted or failed attempt may or may not
+    have created one. A session is resumed only once a slice in it got past infrastructure, which
+    proves it exists. Ledgers written before slice_start carried a session fall back to the one
+    recorded at hiring.
+    """
+    fallback = str(hired_session) if hired_session else None
+    live: str | None = None
+    total, attempt = 0, fallback
+    for e in events:
+        if worker_name(e.actor) != worker:
+            continue
+        if e.event is EventType.SLICE_START:
+            attempt = str(e.data.get("session") or fallback or "") or None
+        elif e.event is EventType.SLICE_END:
+            worked = Outcome(e.data.get("outcome", Outcome.CRASHED)) not in INFRASTRUCTURE
+            if worked and attempt != live:
+                live, total = attempt, 0
+            known = e.data.get("session_total_micros")
+            if attempt == live and isinstance(known, int):
+                total = known
+    return live, total
 
 
 def _latest_gated(records: Sequence[SliceRecord]) -> frozenset[str]:

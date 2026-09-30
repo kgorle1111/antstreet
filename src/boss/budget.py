@@ -45,27 +45,35 @@ def remaining(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
     """What the round can still spend. Negative after an overshoot.
 
     A slice that did work but reported no cost (a crash, a kill at the timeout) is charged at its
-    cap: treating it as free would let a round fund such slices without end. An infrastructure
+    cap, and so is a slice that started and never reported an end (the run was interrupted):
+    treating either as free would let a round fund such slices without end. An infrastructure
     failure (login, rate limit) reported no cost because it did no work, so it is not charged.
+
+    Call this between slices only: a slice still running looks like one that never ended.
     """
     spent = round_spend(events, round_n).cost_micros + _unknown_slice_charges(events, round_n)
     return round_budget(sheet, events, round_n) - spent
 
 
 def _unknown_slice_charges(events: Sequence[Event], round_n: int) -> int:
-    caps: dict[tuple[str, object], object] = {}
+    unfinished: dict[tuple[str, object], int] = {}  # slices started and not yet ended, by cap
     charged = 0
     for e in events:
         if e.round != round_n:
             continue
         key = (e.actor, e.data.get("slice"))
         if e.event is EventType.SLICE_START:
-            caps[key] = e.data.get("cap_micros")
-        elif e.event is EventType.SLICE_END and e.cost_micros is None:
-            cap = caps.get(key)
-            if e.data.get("outcome") not in _INFRASTRUCTURE and type(cap) is int and cap > 0:
+            charged += unfinished.pop(key, 0)  # the same slice started again: the first was lost
+            cap = e.data.get("cap_micros")
+            unfinished[key] = cap if type(cap) is int and cap > 0 else 0
+        elif e.event is EventType.SLICE_END:
+            cap = unfinished.pop(key, 0)
+            if e.cost_micros is None and e.data.get("outcome") not in _INFRASTRUCTURE:
                 charged += cap
-    return charged
+    # kn: if the lost slice's session is later resumed, the CLI's cumulative total recovers its
+    # real cost and the cap is counted as well. Over-counting after an interruption is the safe
+    # side.
+    return charged + sum(unfinished.values())
 
 
 def next_slice_cap(
