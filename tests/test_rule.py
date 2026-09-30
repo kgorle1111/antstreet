@@ -15,8 +15,9 @@ def rec(
     outcome: Outcome = Outcome.COMPLETED,
     status: str = "continuing",
     cost: int | None = 100,
+    disputed: set[str] | frozenset[str] = frozenset(),
 ) -> SliceRecord:
-    return SliceRecord(n, cost, outcome, status, frozenset(passing))
+    return SliceRecord(n, cost, outcome, status, frozenset(passing), frozenset(disputed))
 
 
 def run(*history: SliceRecord, policy: FiringPolicy = POLICY) -> Verdict:
@@ -43,6 +44,7 @@ def test_done_on_first_slice() -> None:
         "passing": ["a", "b", "c"],
         "best": ["a", "b", "c"],
         "missing": [],
+        "disputed": [],
         "spent_micros": 250,
         "unknown_cost_slices": 0,
     }
@@ -242,6 +244,7 @@ def test_evidence_shape_and_json() -> None:
         "passing": ["a", "b"],
         "best": ["a", "b"],
         "missing": ["c"],
+        "disputed": [],
         "spent_micros": 100,
         "unknown_cost_slices": 1,
     }
@@ -256,3 +259,57 @@ def test_firing_policy_rejects_values_below_one(kwargs: dict[str, int]) -> None:
 
 def test_firing_policy_accepts_one() -> None:
     assert FiringPolicy(stall_slices=1, max_slices=1).max_slices == 1
+
+
+# Disputed checks. Pilot finding: the boss wrote wrong checks, and correct workers stalled on
+# them until the rule fired them. A dispute sends the check to the investor instead.
+
+
+def test_a_worker_whose_only_failing_check_is_disputed_is_escalated_not_fired() -> None:
+    v = run(rec(1, {"a", "b"}), rec(2, {"a", "b"}), rec(3, {"a", "b"}, disputed={"c"}))
+    assert (v.decision, v.reason) == (Decision.ESCALATE, "disputed")
+    assert v.evidence["disputed"] == ["c"] and v.evidence["stalled_slices"] == 2
+    undisputed = run(rec(1, {"a", "b"}), rec(2, {"a", "b"}), rec(3, {"a", "b"}))
+    assert (undisputed.decision, undisputed.reason) == (Decision.FIRE, "no progress")
+
+
+def test_a_dispute_never_makes_a_check_pass_or_a_task_done() -> None:
+    v = run(rec(1, disputed={"a", "b", "c"}))
+    assert v.decision is Decision.ESCALATE
+    assert v.evidence["passing"] == [] and v.evidence["missing"] == ["a", "b", "c"]
+
+
+def test_a_dispute_does_not_excuse_the_other_failing_checks() -> None:
+    assert run(rec(1, {"a"}, disputed={"c"})).decision is Decision.CONTINUE
+    stalled = run(rec(1, {"a"}, disputed={"c"}), rec(2, {"a"}), rec(3, {"a"}))
+    assert (stalled.decision, stalled.reason) == (Decision.FIRE, "no progress")
+    assert stalled.evidence["disputed"] == ["c"]
+
+
+def test_a_dispute_stands_in_later_slices_until_its_check_passes() -> None:
+    later = run(rec(1, {"a"}, disputed={"c"}), rec(2, {"a", "b"}))
+    assert (later.decision, later.reason) == (Decision.ESCALATE, "disputed")
+    withdrawn = run(rec(1, {"a"}, disputed={"c"}), rec(2, {"a", "c"}))
+    assert withdrawn.decision is Decision.CONTINUE and withdrawn.evidence["disputed"] == []
+    done = run(rec(1, {"a"}, disputed={"c"}), rec(2, {"a", "b", "c"}))
+    assert done.decision is Decision.DONE
+
+
+def test_a_dispute_of_a_check_outside_the_task_counts_for_nothing() -> None:
+    v = run(rec(1, {"a", "b"}, disputed={"zzz"}), rec(2, {"a", "b"}), rec(3, {"a", "b"}))
+    assert (v.decision, v.reason) == (Decision.FIRE, "no progress")
+    assert v.evidence["disputed"] == []
+
+
+def test_infrastructure_and_blocked_are_decided_before_a_dispute() -> None:
+    retry = run(rec(1, {"a", "b"}, outcome=Outcome.RATE_LIMITED, disputed={"c"}))
+    assert retry.decision is Decision.RETRY
+    blocked = run(rec(1, {"a", "b"}, status="blocked", disputed={"c"}))
+    assert (blocked.decision, blocked.reason) == (Decision.ESCALATE, "blocked")
+
+
+def test_a_dispute_is_decided_before_the_slice_limit() -> None:
+    policy = FiringPolicy(stall_slices=9, max_slices=1)
+    v = run(rec(1, {"a", "b"}, disputed={"c"}), policy=policy)
+    assert (v.decision, v.reason) == (Decision.ESCALATE, "disputed")
+    assert run(rec(1, {"a", "b"}), policy=policy).reason == "slice limit"

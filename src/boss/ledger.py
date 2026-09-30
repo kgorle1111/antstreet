@@ -24,6 +24,7 @@ class EventType(StrEnum):
     SLICE_END = "slice_end"
     CHECK_RESULT = "check_result"
     BLOCKED = "blocked"
+    DISPUTED = "disputed"  # a worker says a check contradicts the idea; the investor rules on it
     FIRED = "fired"
     ABANDONED = "abandoned"  # a task nobody will work on further in this run
     REASSIGNED = "reassigned"

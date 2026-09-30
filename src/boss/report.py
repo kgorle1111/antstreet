@@ -41,6 +41,13 @@ class WorkerLine:
 
 
 @dataclass(frozen=True, slots=True)
+class DisputeLine:
+    check: str
+    worker: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class RoundLine:
     n: int
     passed: int
@@ -57,6 +64,7 @@ class Report:
     rounds: list[RoundLine] = field(default_factory=list)
     checks: list[CheckLine] = field(default_factory=list)
     workers: list[WorkerLine] = field(default_factory=list)
+    disputes: list[DisputeLine] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -84,6 +92,11 @@ def build_report(events: Sequence[Event]) -> Report:
         rounds=rounds,
         checks=[latest_check[k] for k in sorted(latest_check)],
         workers=_workers(events),
+        disputes=[
+            DisputeLine(e.data["check"], e.data.get("worker", ""), e.data.get("reason", ""))
+            for e in events
+            if e.event is EventType.DISPUTED
+        ],
         notes=[_note(e) for e in events if e.event in _NOTABLE],
     )
 
@@ -154,6 +167,9 @@ def render_report(report: Report) -> str:
         )
     if not report.workers:
         out.append("  none hired")
+    if report.disputes:
+        out += ["", "Disputed checks (yours to rule on; a disputed check never counts as passing)"]
+        out += [f'  {d.check} by {d.worker}: "{d.reason}"' for d in report.disputes]
     if report.notes:
         out += ["", "Notes"] + [f"  {n}" for n in report.notes]
     return "\n".join(out) + "\n"

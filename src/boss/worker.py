@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from boss.ledger import Billing
+from boss.redact import redact
 
 CLI = "claude"
 # From 2.1.277 a resumed session reports cumulative totals, which slice accounting depends on.
@@ -27,9 +28,19 @@ STATUS_SCHEMA = {
     "properties": {
         "status": {"type": "string", "enum": ["done", "continuing", "blocked"]},
         "reason": {"type": "string"},
+        # Checks the worker believes contradict the investor's request. Optional.
+        "disputed_checks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"check": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["check", "reason"],
+            },
+        },
     },
     "required": ["status", "reason"],
 }
+MAX_DISPUTE_REASON_CHARS = 300
 _ENV_ALLOWLIST = ("HOME", "PATH", "USER", "LANG", "TMPDIR", "CLAUDE_CONFIG_DIR")
 _API_KEY_VAR = "ANTHROPIC_API_KEY"
 _THINKING_VAR = "MAX_THINKING_TOKENS"  # read by the CLI; 0 turns extended thinking off
@@ -106,6 +117,26 @@ def build_command(spec: SliceSpec, *, api_key: bool) -> list[str]:
     if spec.append_system_prompt:
         argv += ["--append-system-prompt", spec.append_system_prompt]
     return [*argv, spec.prompt]
+
+
+def disputed_checks(status: Mapping[str, Any] | None, allowed: Collection[str]) -> dict[str, str]:
+    """Check id -> reason for each check the worker disputes in its status report.
+
+    The report is model output, so nothing in it is trusted: an entry that is malformed, repeats
+    a check, gives no reason, or names a check outside `allowed` is dropped, and every reason is
+    redacted and cut to a fixed length before it can reach the ledger.
+    """
+    raw = (status or {}).get("disputed_checks")
+    found: dict[str, str] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        check, reason = item.get("check"), item.get("reason")
+        if not isinstance(check, str) or check not in allowed or check in found:
+            continue
+        if isinstance(reason, str) and reason.strip():
+            found[check] = redact(reason.strip())[:MAX_DISPUTE_REASON_CHARS]
+    return found
 
 
 class IsolationError(Exception):

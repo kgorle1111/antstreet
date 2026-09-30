@@ -25,7 +25,7 @@ from boss.rundir import Recorder, RunPaths, assemble_product, slice_end_fields
 from boss.runner import SliceRun, run_slice
 from boss.state import RunState, run_state, slice_history
 from boss.termsheet import Round, Task, TermSheet
-from boss.worker import IsolationError, SliceSpec, billing_mode, usd
+from boss.worker import IsolationError, SliceSpec, billing_mode, disputed_checks, usd
 
 BUILDER_PROMPT = "builder_v2.md"
 DEFAULT_WORKER_MODEL = "haiku"
@@ -205,8 +205,9 @@ class _Firm:
         # kn: a session exists once any slice got past infrastructure; resuming a session that was
         # never created would fail, so until then every attempt starts the session again.
         started = any(r.outcome not in INFRASTRUCTURE for r in history)
+        disputed = frozenset().union(*(r.disputed for r in history))
         if started:
-            prompt = continuation_prompt(self.run_gate(task, worker))
+            prompt = continuation_prompt(self.run_gate(task, worker), disputed)
         else:
             prompt = self._first_prompt(task, worker, state)
         spec = SliceSpec(
@@ -230,10 +231,16 @@ class _Firm:
         fields = slice_end_fields(run, number, task.id, ws.session_total_micros)
         record(actor, EventType.SLICE_END, billing=billing_mode(self.env), **fields)
         if run.outcome not in INFRASTRUCTURE:
-            for r in self.run_gate(task, worker):
+            results = self.run_gate(task, worker)
+            for r in results:
                 data = {"check": r.check_id, "task": task.id, "status": str(r.status)}
                 data |= {"detail": r.detail, "worker": worker, "slice": number}
                 record("gate", EventType.CHECK_RESULT, data=data)
+            # Only a check of this task that fails right now can be disputed, and only once.
+            open_to_dispute = {r.check_id for r in results if not r.passed} - disputed
+            for check, reason in disputed_checks(run.status, open_to_dispute).items():
+                data = {"task": task.id, "check": check, "reason": reason}
+                record(actor, EventType.DISPUTED, data=data | {"worker": worker, "slice": number})
         return self._act(task, worker, run, record)
 
     def _act(self, task: Task, worker: str, run: SliceRun, record: Recorder) -> str | None:
@@ -244,10 +251,16 @@ class _Firm:
         if verdict.decision is Decision.RETRY:
             return self._infrastructure(run, history, record)
         if verdict.decision is Decision.ESCALATE:
-            blocked = {"task": task.id, "reason": last_reason}
-            record(f"worker:{worker}", EventType.BLOCKED, data=blocked)
-            # kn: a blocked task is abandoned for this run; asking the investor what to do with it
-            # comes with the interactive round prompt.
+            if verdict.reason == "disputed":
+                checks = ", ".join(verdict.evidence["disputed"])
+                self.say(
+                    f"Task {task.id} is set aside: its worker disputes {checks}. See the report."
+                )
+            else:
+                blocked = {"task": task.id, "reason": last_reason}
+                record(f"worker:{worker}", EventType.BLOCKED, data=blocked)
+            # kn: an escalated task is set aside for this run; asking the investor to rule on it
+            # (drop the check, keep it, unblock) comes with the interactive round prompt.
             record("boss", EventType.ABANDONED, data={"task": task.id, "reason": verdict.reason})
         elif verdict.decision is Decision.FIRE and (
             self.config.firing or verdict.reason == "slice limit"

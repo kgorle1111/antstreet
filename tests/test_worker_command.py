@@ -4,12 +4,23 @@ from uuid import UUID
 import pytest
 
 from boss.ledger import Billing
-from boss.worker import SliceSpec, billing_mode, build_command, usd, with_thinking, worker_env
+from boss.worker import (
+    MAX_DISPUTE_REASON_CHARS,
+    SliceSpec,
+    billing_mode,
+    build_command,
+    disputed_checks,
+    usd,
+    with_thinking,
+    worker_env,
+)
 
 SID = UUID("12345678-1234-5678-1234-567812345678")
 SCHEMA = (
     '{"type":"object","properties":{"status":{"type":"string",'
-    '"enum":["done","continuing","blocked"]},"reason":{"type":"string"}},'
+    '"enum":["done","continuing","blocked"]},"reason":{"type":"string"},'
+    '"disputed_checks":{"type":"array","items":{"type":"object","properties":'
+    '{"check":{"type":"string"},"reason":{"type":"string"}},"required":["check","reason"]}}},'
     '"required":["status","reason"]}'
 )
 
@@ -135,3 +146,57 @@ def test_api_key_is_passed_through_only_when_set_and_decides_billing():
 )
 def test_usd_formatting_is_exact_and_trimmed(micros, expected):
     assert usd(micros) == expected
+
+
+def dispute(check, reason="contradicts the idea"):
+    return {"check": check, "reason": reason}
+
+
+def test_disputed_checks_are_read_from_the_status_report():
+    status = {"status": "continuing", "reason": "r", "disputed_checks": [dispute("c02", " why ")]}
+    assert disputed_checks(status, {"c01", "c02"}) == {"c02": "why"}
+
+
+def test_a_status_without_disputes_has_none():
+    assert disputed_checks(None, {"c01"}) == {}
+    assert disputed_checks({"status": "done", "reason": "r"}, {"c01"}) == {}
+
+
+def test_only_allowed_checks_can_be_disputed_and_each_only_once():
+    status = {"disputed_checks": [dispute("c01", "first"), dispute("c99"), dispute("c01", "again")]}
+    assert disputed_checks(status, {"c01"}) == {"c01": "first"}
+    assert disputed_checks(status, set()) == {}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "c01",
+        {"check": "c01", "reason": "r"},
+        ["c01"],
+        [None],
+        [{"check": "c01"}],
+        [{"reason": "r"}],
+        [{"check": "c01", "reason": ""}],
+        [{"check": "c01", "reason": "   "}],
+        [{"check": "c01", "reason": 5}],
+        [{"check": ["c01"], "reason": "r"}],
+        [{"check": 1, "reason": "r"}],
+    ],
+)
+def test_malformed_disputes_are_dropped_without_raising(raw):
+    assert disputed_checks({"disputed_checks": raw}, {"c01", 1}) == {}
+
+
+def test_a_malformed_dispute_does_not_hide_a_valid_one_beside_it():
+    status = {"disputed_checks": [None, {"check": "c01"}, dispute("c02")]}
+    assert disputed_checks(status, {"c01", "c02"}) == {"c02": "contradicts the idea"}
+
+
+def test_a_dispute_reason_is_redacted_and_cut_before_it_can_reach_the_ledger():
+    secret = "sk-ant-" + "a" * 40
+    [reason] = disputed_checks(
+        {"disputed_checks": [dispute("c01", f"key {secret} " + "x" * 1_000)]}, {"c01"}
+    ).values()
+    assert secret not in reason and "[REDACTED]" in reason
+    assert len(reason) == MAX_DISPUTE_REASON_CHARS

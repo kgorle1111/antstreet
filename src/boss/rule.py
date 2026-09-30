@@ -2,7 +2,9 @@
 
 Pure and deterministic, so the same function runs live and in offline replay. It never sees model
 output: only what each slice cost, how it ended, and which of the task's checks passed after it.
-Infrastructure failures and blocked workers are never counted against a worker.
+Infrastructure failures and blocked workers are never counted against a worker, and a worker
+whose only failing checks are ones it disputes is sent to the investor, not fired: in the pilot
+the boss wrote wrong checks, and correct workers stalled on them until the rule fired them.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ class Decision(StrEnum):
     CONTINUE = "continue"  # fund another slice
     DONE = "done"  # every check of the task passes
     FIRE = "fire"  # stop funding this worker
-    ESCALATE = "escalate"  # the investor must decide (blocked, refusal)
+    ESCALATE = "escalate"  # the investor must decide (blocked, refusal, disputed checks)
     RETRY = "retry"  # infrastructure problem: run the slice again later, uncounted
 
 
@@ -32,6 +34,7 @@ class SliceRecord:
     outcome: Outcome
     status: str  # the worker's self-report: "done", "continuing", "blocked" or "none"
     passing: frozenset[str]  # ids of the task's checks that pass after this slice
+    disputed: frozenset[str] = frozenset()  # checks the worker disputed in this slice
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,8 +68,10 @@ def decide(
 
     latest = history[-1]
     seen: set[str] = set()
+    raised: set[str] = set()
     counted = stalled = spent = unknown = 0
     for record in history:
+        raised |= record.disputed
         if record.outcome not in INFRASTRUCTURE:
             counted += 1
             stalled = 0 if record.passing - seen else stalled + 1
@@ -76,12 +81,15 @@ def decide(
         else:
             spent += record.cost_micros
 
+    # A dispute stands only while its check fails, and never makes a check count as passing.
+    disputed = (raised & task_checks) - latest.passing
     evidence: dict[str, Any] = {
         "counted_slices": counted,
         "stalled_slices": stalled,
         "passing": sorted(latest.passing),
         "best": sorted(seen),
         "missing": sorted(task_checks - latest.passing),
+        "disputed": sorted(disputed),
         "spent_micros": spent,
         "unknown_cost_slices": unknown,
     }
@@ -97,6 +105,8 @@ def decide(
         return verdict(Decision.ESCALATE, "blocked")
     if latest.outcome is Outcome.REFUSAL:
         return verdict(Decision.ESCALATE, "refusal")
+    if disputed and task_checks - latest.passing <= disputed:
+        return verdict(Decision.ESCALATE, "disputed")
     if counted >= policy.max_slices:
         return verdict(Decision.FIRE, "slice limit")
     if stalled >= policy.stall_slices:

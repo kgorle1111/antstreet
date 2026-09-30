@@ -110,3 +110,12 @@ def test_continuation_redacts_secrets_and_keeps_only_the_tail_of_the_output():
     assert secret not in prompt
     assert "START" not in prompt and prompt.count("x") < FEEDBACK_TAIL_CHARS
     assert "END" in prompt
+
+
+def test_continuation_names_open_disputes_and_drops_one_whose_check_now_passes():
+    results = [result("c01"), result("c02", CheckStatus.PASSED, "1 passed"), result("c03")]
+    prompt = continuation_prompt(results, disputed={"c03", "c02"})
+    assert "You disputed: c03. The investor will rule on those" in prompt
+    assert "Failing: c03" in prompt  # a disputed check is still shown as failing
+    assert "You disputed" not in continuation_prompt(results)
+    assert "You disputed" not in continuation_prompt(results, disputed={"c02"})

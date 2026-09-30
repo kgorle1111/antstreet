@@ -40,7 +40,7 @@ def sheet(rounds=None, two_tasks=False) -> TermSheet:
 
 
 class Script:
-    """A scripted worker. Each step is (file name, source or None, status, outcome, slice cost)."""
+    """A scripted worker. Each step is (file, source or None, status, outcome, cost, disputes)."""
 
     def __init__(self, *steps):
         self.steps = list(steps)
@@ -52,7 +52,7 @@ class Script:
         step = self.steps.pop(0)
         if isinstance(step, BaseException):
             raise step
-        name, code, status, outcome, cost = step
+        name, code, status, outcome, cost, disputes = step
         if code is not None:
             (workspace / name).write_text(code)
         session = str(spec.session_id)
@@ -63,7 +63,8 @@ class Script:
         return SliceRun(
             outcome=outcome,
             usage=Usage(self.totals.get(session) if cost is not None else None, 10, 5, 0),
-            status={"status": status, "reason": f"scripted {status}"},
+            status={"status": status, "reason": f"scripted {status}"}
+            | ({"disputed_checks": disputes} if disputes else {}),
             session_id=session,
             exit_code=0,
             duration_s=0.1,
@@ -71,8 +72,14 @@ class Script:
         )
 
 
-def step(code, status="continuing", outcome=Outcome.COMPLETED, cost=10_000, name="rev.py"):
-    return (name, code, status, outcome, cost)
+def step(
+    code, status="continuing", outcome=Outcome.COMPLETED, cost=10_000, name="rev.py", disputes=()
+):
+    return (name, code, status, outcome, cost, list(disputes))
+
+
+def dispute(check, reason="the idea says otherwise"):
+    return {"check": check, "reason": reason}
 
 
 @pytest.fixture
@@ -358,3 +365,98 @@ def test_a_fired_workers_progress_survives_when_nothing_is_left_for_a_replacemen
     assert (report.passed, report.total) == (1, 2)
     assert (paths.product / "rev.py").read_text() == HALF
     assert events_of(paths, EventType.ROUND_CLOSED)[0].data["passed"] == 1
+
+
+# Disputed checks: a worker that believes a check is wrong sends it to the investor.
+
+
+def test_a_worker_disputing_its_only_failing_check_is_set_aside_not_fired(paths):
+    worker = Script(step(HALF, disputes=[dispute("c01")]), step(GOOD, "done"))
+    report, said = run(paths, worker)
+    [disputed] = events_of(paths, EventType.DISPUTED)
+    assert disputed.actor == "worker:w1"
+    assert disputed.data == {
+        "task": "t1",
+        "check": "c01",
+        "reason": "the idea says otherwise",
+        "worker": "w1",
+        "slice": 1,
+    }
+    assert events_of(paths, EventType.FIRED) == [] and events_of(paths, EventType.BLOCKED) == []
+    [aside] = events_of(paths, EventType.ABANDONED)
+    assert aside.data == {"task": "t1", "reason": "disputed"}
+    assert len(worker.specs) == 1  # no second slice is funded, and nobody replaces the worker
+    assert "Task t1 is set aside: its worker disputes c01. See the report." in said
+
+
+def test_disputing_a_check_never_counts_it_as_passing_or_unlocks_a_round(paths):
+    s = sheet(rounds=(Round(1, 250_000, 2), Round(2, 250_000, 2)))
+    report, said = run(paths, Script(step(HALF, "done", disputes=[dispute("c01")])), s)
+    assert (report.passed, report.total) == (1, 2) and not report.all_passed
+    assert report.stopped == "round 1 closed below its unlock threshold"
+    [closed] = events_of(paths, EventType.ROUND_CLOSED)
+    assert closed.data == {"passed": 1, "total": 2, "unlocked": False}
+    assert not any(line.startswith("Round 2") for line in said)
+
+
+def test_disputing_everything_earns_nothing(paths):
+    worker = Script(step(None, disputes=[dispute("c01"), dispute("c02")]), step(GOOD, "done"))
+    report, _ = run(paths, worker)
+    assert report.passed == 0 and len(worker.specs) == 1
+    assert [e.data["check"] for e in events_of(paths, EventType.DISPUTED)] == ["c01", "c02"]
+
+
+def test_a_dispute_does_not_stop_work_on_the_other_checks(paths):
+    # c01 is disputed while c02 still fails, so the worker is funded again; its next brief names
+    # the dispute, and repeating the dispute does not record it twice.
+    worker = Script(
+        step(BAD, disputes=[dispute("c01")]),
+        step(HALF, disputes=[dispute("c01", "still wrong")]),
+        step(GOOD, "done"),
+    )
+    report, _ = run(paths, worker)
+    assert len(worker.specs) == 2
+    assert "You disputed: c01." in worker.specs[1].prompt
+    assert [e.data["slice"] for e in events_of(paths, EventType.DISPUTED)] == [1]
+    assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "disputed"
+    assert report.passed == 1
+
+
+def test_only_a_failing_check_of_the_workers_own_task_can_be_disputed(paths):
+    # c02 passes, c03 belongs to the other task, c77 does not exist: none of them is recorded,
+    # so the worker is judged as if it had disputed nothing.
+    disputes = [dispute("c02"), dispute("c03"), dispute("c77")]
+    worker = Script(
+        step(HALF, disputes=disputes),
+        step(HALF, disputes=disputes),
+        step(HALF, disputes=disputes),
+        step(GOOD, "done"),
+        step("def shout(s):\n    return s.upper() + '!'\n", "done", name="up.py"),
+    )
+    report, _ = run(paths, worker, sheet(two_tasks=True))
+    assert events_of(paths, EventType.DISPUTED) == []
+    assert events_of(paths, EventType.FIRED)[0].data["reason"] == "no progress"
+    assert report.all_passed
+
+
+def test_a_disputed_check_that_later_passes_finishes_the_task(paths):
+    worker = Script(step(BAD, disputes=[dispute("c01")]), step(GOOD, "done"))
+    report, _ = run(paths, worker)
+    assert report.all_passed
+    assert events_of(paths, EventType.ABANDONED) == []
+
+
+def test_disputes_survive_a_resume_and_reach_the_board_report(paths):
+    first = Script(step(BAD, disputes=[dispute("c01", "idea says raise")]), KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        run(paths, first)
+    # The run is resumed from the ledger alone: the dispute is still known, the worker is
+    # funded again for c02, and its brief names the dispute.
+    assert events_of(paths, EventType.ABANDONED) == []
+    worker = Script(step(HALF))
+    worker.totals = dict(first.totals)
+    run(paths, worker)
+    assert "You disputed: c01." in worker.specs[0].prompt
+    assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "disputed"
+    text = build_report(read_events(paths.ledger))
+    assert [(d.check, d.reason) for d in text.disputes] == [("c01", "idea says raise")]

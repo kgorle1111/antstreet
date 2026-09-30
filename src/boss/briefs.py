@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 
 from boss import handoff
@@ -43,8 +43,9 @@ def _fenced(text: str) -> str:
     return "\n".join(f"> {line}".rstrip() for line in text.strip().splitlines())
 
 
-def continuation_prompt(results: Sequence[CheckResult]) -> str:
-    """The brief for a later slice: which checks pass now, and the gate's output for the rest."""
+def continuation_prompt(results: Sequence[CheckResult], disputed: Collection[str] = ()) -> str:
+    """The brief for a later slice: which checks pass now, the gate's output for the rest, and
+    which of the failing ones this worker has already disputed."""
     passing = sorted(r.check_id for r in results if r.passed)
     parts = [
         "Continue your task. After your last slice the gate ran your checks.",
@@ -54,6 +55,12 @@ def continuation_prompt(results: Sequence[CheckResult]) -> str:
         if not r.passed:
             tail = redact(r.output_tail[-FEEDBACK_TAIL_CHARS:]).strip()
             parts.append(f"Failing: {r.check_id} ({r.detail})\n{tail}")
+    open_disputes = sorted(set(disputed) - set(passing))
+    if open_disputes:
+        parts.append(
+            f"You disputed: {', '.join(open_disputes)}. The investor will rule on those; "
+            "do not bend your code to them."
+        )
     parts.append("Fix what is failing. When you stop, report your status.")
     return "\n\n".join(parts)
 

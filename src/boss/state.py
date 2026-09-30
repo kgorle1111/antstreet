@@ -11,6 +11,7 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
     fired        rule        {worker, task, reason, evidence}
     reassigned   boss        {task, from, to}
     blocked      worker:<w>  {task, reason}
+    disputed     worker:<w>  {task, check, reason, worker, slice}
     round_closed boss        {passed, total, unlocked}
 """
 
@@ -38,6 +39,12 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
             if e.data.get("status") == "passed":
                 passing[key].add(str(e.data["check"]))
 
+    disputed: dict[tuple[str, int], set[str]] = {}
+    for e in events:
+        if e.event is EventType.DISPUTED and "worker" in e.data and "slice" in e.data:
+            key = (str(e.data["worker"]), int(e.data["slice"]))
+            disputed.setdefault(key, set()).add(str(e.data["check"]))
+
     history: dict[str, list[SliceRecord]] = {}
     for e in events:
         worker = worker_name(e.actor)
@@ -52,6 +59,7 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
                 outcome=Outcome(e.data.get("outcome", Outcome.CRASHED)),
                 status=str(status),
                 passing=frozenset(passing.get((worker, number), set())),
+                disputed=frozenset(disputed.get((worker, number), set())),
             )
         )
     return history
