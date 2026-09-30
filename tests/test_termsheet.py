@@ -111,8 +111,9 @@ def test_check_file_problems(checks_dir):
 
 
 def test_test_class_counts_as_a_test(checks_dir):
+    # A Test* class with no tests comes first; detection must keep looking.
     (checks_dir / "test_c02.py").write_text(
-        "from rev import reverse\n\nclass TestHelpers:\n    pass\n\n"  # a Test* class with no tests first
+        "from rev import reverse\n\nclass TestHelpers:\n    pass\n\n"
         "class TestRev:\n    def test_empty(self):\n        assert reverse('') == ''\n"
     )
     validate(sheet(), checks_dir)
