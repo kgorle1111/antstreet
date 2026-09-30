@@ -73,7 +73,8 @@ def cwd(tmp_path: Path) -> Path:
 
 
 def by_name(checks: list[DoctorCheck]) -> dict[str, DoctorCheck]:
-    assert [c.name for c in checks] == NAMES
+    # The path-rules canary is an extra live call, present only after a live login succeeded.
+    assert [c.name for c in checks if c.name != "worker path rules"] == NAMES
     return {c.name: c for c in checks}
 
 
