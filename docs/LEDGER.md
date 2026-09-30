@@ -7,7 +7,8 @@ read state from it and from nothing else.
 `tests/test_docs_ledger.py` runs the code (a scripted firm with the real gate, and the real CLI
 against a fake `claude`) and fails if it writes an event type, an actor, a `data` key or a value
 type that this file does not document. The example line under each event was produced by that
-run.
+run, except for the three types that no code writes (`role_call`, `topped_up`, `denied`): those
+are built with the code that reads or would write them.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 
@@ -16,11 +17,12 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 - Append-only. One writer at a time (exclusive lock; a second writer is refused).
 - Each event is validated before it is written, then flushed to disk.
 - A line that is not a valid event makes reading fail with the file name and line number.
-  A torn last line counts: `ledger.repair_torn_tail` cuts it (only when every earlier line is
-  valid), but no command calls it yet.
+  A torn last line counts. `boss resume` calls `ledger.repair_torn_tail` before it reads the file:
+  it cuts an incomplete last line (only when every earlier line is valid) and says what it removed.
+  No other command repairs: `boss report` and `boss status` report a torn ledger as damaged.
 - The version `v` must be the integer 1: `true` and `1.0` make the line corrupt.
 - Keys are sorted. Timestamps are UTC ISO 8601.
-- `state.py`'s docstring lists the `data` contract for twelve event types. This file is the
+- `state.py`'s docstring lists the `data` contract for thirteen event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
 
 ## Top-level fields
@@ -29,8 +31,8 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 |---|---|---|
 | `v` | int | Always 1. The ledger format version. |
 | `run` | str | The run id, for example `20260930T101500Z-3fa9c1`. Never empty. |
-| `round` | int | 0 for events before any round (the boss's call, the first approval, a rejection, `started`); 1 and up for the round the event belongs to. Money is summed per round. |
-| `actor` | str | Who wrote it: `boss`, `gate`, `rule`, `investor`, or `worker:<name>` such as `worker:w1`. Any other value is refused. |
+| `round` | int | 0 for events before any round (the boss's call, the first approval, a rejection, `started`); 1 and up for the round the event belongs to. Money is summed per round, across every actor. |
+| `actor` | str | Who wrote it: `boss`, `gate`, `rule`, `investor`, `worker:<name>` such as `worker:w1`, or `role:<name>` such as `role:critic` (lower case letters and `_`, starting with a letter). Any other value is refused. |
 | `event` | str | One of the event types below. |
 | `cost_micros` | int or null | Estimated cost in millionths of a dollar. `null` means unknown, which is never the same as 0. Default 0. |
 | `tokens_in` | int | Input tokens, cache creation included. Default 0. |
@@ -42,7 +44,8 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 
 - Counts and costs are non-negative integers. A bool is refused.
 - Costs are the CLI's client-side estimates, not a bill.
-- Only `boss_call` and `slice_end` carry a cost or tokens. `error` carries a cost of `null`.
+- Only `boss_call`, `role_call` and `slice_end` carry a cost or tokens. `error` carries a cost of
+  `null`.
 
 ## Events
 
@@ -72,6 +75,35 @@ Example:
 {"actor": "boss", "billing": "subscription", "cost_micros": 4000, "data": {"model": "haiku", "outcome": "completed", "purpose": "term_sheet", "thinking_tokens": null}, "event": "boss_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:35.110818+00:00", "v": 1}
 ```
 
+### `role_call`
+
+- Actor: `role:<name>`, for example `role:critic`
+- Round: whatever the caller's recorder holds; 0 before the first round.
+- No code writes this event today. `roles/base.py` has the writer's helper, `ledger_fields`, which
+  returns the cost, tokens, billing and `data` for a recorder call
+  (`record(spec.actor, EventType.ROLE_CALL, **ledger_fields(...))`). Only tests call it: no
+  command, `boss fund` included, calls a role yet. The helper books the spend whether the call
+  worked or not.
+- Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one.
+  Billing is `api` or `subscription`. Like every event, it counts in its round's spend.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `role` | str | The role's name, the part of the actor after `role:`. |
+| `model` | str | The model the call used. |
+| `prompt` | str | The prompt file the role runs under. |
+| `skills` | list | The skill ids appended to that prompt, in order. Empty if none. |
+| `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose output failed the role's gate. |
+
+`ledger_fields` takes more keyword arguments and stores them in `data` beside these; none is
+defined yet.
+
+Example, built with `ledger_fields` to show the shape the helper returns:
+
+```json
+{"actor": "role:critic", "billing": "subscription", "cost_micros": 12000, "data": {"model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"]}, "event": "role_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 900, "tokens_out": 400, "ts": "2026-09-30T17:18:40.925838+00:00", "v": 1}
+```
+
 ### `started`
 
 - Actor: `boss` (the loop)
@@ -97,11 +129,15 @@ Config keys:
 | `limits.max_slices` | int | Slices started in the whole run. |
 | `limits.max_workers` | int | Workers hired in the whole run. |
 | `limits.max_seconds` | float or null | Wall clock of one invocation, in seconds; `null` means no limit. |
+| `limits.max_workspace_bytes` | int | Most bytes a worker's folder or the assembled product may hold. The gate copies the folder for every check, so a larger one is not gated. |
+| `parallel` | int | Tasks worked on at once (`--parallel`). Each task still has one worker at a time. |
+| `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
+| `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example:
 
 ```json
-{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16}, "model": "haiku", "policy": {"max_slices": 6, "stall_slices": 2}, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:37.284144+00:00", "v": 1}
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
 ```
 
 ### `resumed`
@@ -128,6 +164,7 @@ Example:
 - Actor: `boss` (the loop)
 - Round: the current round
 - Written by `firm.py` when a task needs a worker: its first, or a replacement.
+- The profile is recorded by name, not its skills: the prompt file is the builder prompt either way.
 - `hired` carries no session id. Ledgers written before the `session` key moved to `slice_start`
   had one here; a resume falls back to it.
 
@@ -137,11 +174,12 @@ Example:
 | `task` | str | The task id. |
 | `model` | str | The worker model. |
 | `prompt` | str | The builder prompt file the worker runs under. |
+| `profile` | str or null | The worker profile in force (`started`'s `config.profile`); `null` for none. |
 
 Example:
 
 ```json
-{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"model": "haiku", "prompt": "builder_v3.md", "task": "t1", "worker": "w1"}, "event": "hired", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:25.685263+00:00", "v": 1}
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"model": "haiku", "profile": null, "prompt": "builder_v3.md", "task": "t1", "worker": "w1"}, "event": "hired", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680759+00:00", "v": 1}
 ```
 
 ### `slice_start`
@@ -149,7 +187,8 @@ Example:
 - Actor: `worker:<name>`
 - Round: the current round
 - Written by `firm.py` after the cap is fixed and the approval verified, before the CLI starts.
-  The benchmark's single arm writes it with `cap_micros` only.
+  The benchmark's single arm (`bench/run.py`, actor `worker:solo`) writes it with `slice`,
+  `cap_micros` and `session` only, and no `task`.
 - A `slice_start` with no `slice_end` after it (the run was killed) is charged to its round at its
   `cap_micros`. The same slice number started again means the first was lost, and is charged too.
 
@@ -173,8 +212,8 @@ Example:
 - Written by `firm.py` when the CLI process ends, whatever the outcome.
 - Cost and tokens: this slice's own spend, the difference between the CLI's cumulative session
   totals; `null` if unknown. Billing is `api` or `subscription`.
-- The benchmark's single arm writes it with `outcome` and `status` only, and `status` there is the
-  worker's report as received, not cleaned.
+- The benchmark's single arm writes it with `slice`, `outcome` and `status` only. `status` there
+  is cleaned the same way.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -204,6 +243,15 @@ Example:
 - If the run was killed after a slice ended and before its results were written, the loop gates
   that slice on resume and writes them then.
 - The gate also runs to build the next brief; those runs are not recorded.
+- Two scopes. A result of a worker's slice carries `worker` and `slice`. A result with
+  `scope` `product` is the verdict on the assembled `product/` folder, where the tasks' files
+  meet. `firm.py` writes it whenever `run_firm` ends after at least one slice (a finished run, a
+  stop or a pause), for each required check that has no product verdict after the last
+  `slice_end`; running a finished run again adds nothing. It is not written when the product
+  folder is over the size limit or the approval no longer matches. It carries no `worker` and no
+  `slice`, and its round is that of the last `slice_end`. The state rebuild ignores it (it reads
+  only results with a `worker` and a `slice`); the report lets it supersede the earlier result of
+  the same check, so the report shows the product's figure.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -211,13 +259,18 @@ Example:
 | `task` | str | The task id. |
 | `status` | str | `passed`, `failed` or `timeout`. The only source of "passed". |
 | `detail` | str | Why: the pytest exit code, or the count of passed tests. |
-| `worker` | str | The worker whose files were checked. |
-| `slice` | int | The slice after which the gate ran. |
+| `worker` | str | The worker whose files were checked. Absent when `scope` is `product`. |
+| `slice` | int | The slice after which the gate ran. Absent when `scope` is `product`. |
+| `scope` | str | Always `product`. Present only on a verdict on the assembled product; absent on a worker's result. |
 
-Example:
+Examples:
 
 ```json
 {"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "pytest exited 1", "slice": 1, "status": "failed", "task": "t1", "worker": "w1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:26.170363+00:00", "v": 1}
+```
+
+```json
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "1 passed", "scope": "product", "status": "passed", "task": "t1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:50.832951+00:00", "v": 1}
 ```
 
 ### `blocked`
@@ -388,18 +441,28 @@ Example:
 ### `approved`
 
 - Actor: `investor`
-- Two forms, both by the investor:
+- Three forms, all by the investor:
   - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`.
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
+  - An amendment: the investor approves more checks and a round added to an approved term sheet.
+    It carries `hashes` of the amended term sheet and its check files, `round` (the round the
+    amendment added) and `added_checks`. `firm.py` reads it: a worker is told about an added check
+    of its own task, and only an `investor` event counts. No code in `src/` writes this form yet
+    (`critic.findings_as_checks` only proposes checks and writes nothing), so this file has no
+    example of it; `tests/test_firm.py` builds it by hand.
 - A missing `round` counts as round 1 when the state is rebuilt, so the first approval opens
   round 1.
 - `require_approval` accepts only an `approved` event by `investor` whose `hashes` equal the hashes
-  of the term sheet and check files now on disk.
+  of the term sheet and check files now on disk. After an amendment, the amendment's `hashes` are
+  the ones that match.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file. Present in the first form only. |
-| `round` | int | The round funded. Present in the second form only. |
+| `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file. Present in the first form, and in an amendment. |
+| `round` | int | The round funded. Present in the second form, and in an amendment. |
+
+`added_checks`, the third form's list of the check ids it added, is not in the table: no run of
+the code writes it, and the tests fail on a table key that no run writes.
 
 Examples:
 
@@ -431,8 +494,11 @@ Example, built with the `Event` class to show the shape the budget code accepts:
 
 - Actor: `boss` (the loop)
 - Round: the current round
-- Written by `firm.py` when the plan's usage limit is reached. The run ends; the round stays open
-  and `boss resume` continues it.
+- Written by `firm.py` in two cases. A slice ended because the plan's usage limit was reached
+  (`reason` `plan usage limit reached`), or a slice reported a plan window at or over
+  `config.plan_pause_at` while work is left (`reason` names the window and its percentage), so the
+  next slice is not lost to the limit. The run ends; the round stays open and `boss resume`
+  continues it.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -455,7 +521,8 @@ Example:
   - `investor`, by `approval.py`: the term sheet was rejected (round 0).
   - `investor`, by `firm.py`: a later round was not funded.
   - `rule`, by `firm.py`: a hard run limit was reached, or the term sheet or a check no longer
-    matches the approval.
+    matches the approval, or a worker's folder is over the size limit (the gate would copy it for
+    every check).
   - `boss`, by `firm.py`: the worker did not start isolated, or an infrastructure failure the
     loop will not retry (login lost, or attempts used up).
 
