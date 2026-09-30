@@ -182,3 +182,19 @@ def test_the_schema_asks_for_everything_the_parser_needs():
 def test_a_fragment_is_a_normalised_piece_of_the_normalised_idea(quote, expected):
     assert is_fragment(quote, IDEA) is expected
     assert normalise(" A\tB \n c ") == "a b c"
+
+
+def test_the_shared_quote_helpers_agree_with_the_story_gate():
+    from boss.roles.stories import MIN_SOURCE_CHARS, fragment_problem, is_quote_of
+
+    good, short, invented = "join words with single hyphens", "hyphens", "strip every emoji first"
+    assert is_quote_of(good, IDEA) and fragment_problem(good, IDEA) is None
+    assert is_quote_of("JOIN  words\nwith single hyphens", IDEA)
+    assert not is_quote_of(short, IDEA)
+    assert fragment_problem(short, IDEA) == f"must quote at least {MIN_SOURCE_CHARS} characters"
+    assert not is_quote_of(invented, IDEA)
+    assert fragment_problem(invented, IDEA) == (
+        "is not a fragment of the idea: 'strip every emoji first'"
+    )
+    for quote in (good, short, invented, ""):
+        assert is_quote_of(quote, IDEA) is (fragment_problem(quote, IDEA) is None)

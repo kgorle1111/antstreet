@@ -202,6 +202,21 @@ def is_fragment(quote: str, idea: str, *, min_chars: int = 1) -> bool:
     return len(needle) >= max(1, min_chars) and needle in normalise(idea)
 
 
+def is_quote_of(quote: str, idea: str) -> bool:
+    """True if `quote` is a fragment of `idea` at least MIN_SOURCE_CHARS long: the rule
+    `story_problems` applies to a criterion's source, for every other role's quotes."""
+    return is_fragment(quote, idea, min_chars=MIN_SOURCE_CHARS)
+
+
+def fragment_problem(quote: str, idea: str) -> str | None:
+    """Why `quote` is not a usable word-for-word fragment of `idea`, or None if it is."""
+    if len(normalise(quote)) < MIN_SOURCE_CHARS:
+        return f"must quote at least {MIN_SOURCE_CHARS} characters"
+    if not is_fragment(quote, idea):
+        return f"is not a fragment of the idea: {quote!r}"
+    return None
+
+
 def _text(item: object, key: str) -> str:
     value = item[key]  # type: ignore[index]
     if not isinstance(value, str):
