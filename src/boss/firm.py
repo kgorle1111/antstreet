@@ -70,6 +70,9 @@ class FirmConfig:
     # A worker profile (roles.builders): skills appended to the builder prompt. None is the
     # bare prompt, the default until a profile is measured to be worth its tokens.
     profile: str | None = None
+    # Pause the run once a slice reports a plan window this full (a fraction), instead of running
+    # into the limit mid-slice and losing that slice. None turns the pause off.
+    plan_pause_at: float | None = 0.95
 
 
 def config_data(config: FirmConfig) -> dict[str, Any]:
@@ -393,7 +396,19 @@ class _Firm:
                 return self._tampered(record)
             self._status_line(pending.task, pending.worker, pending.number, record.round)
             stop = self._act(pending.task, pending.worker, record, run) or stop
-        return stop
+        return stop or self._plan_pressure([run for _, run in finished], record)
+
+    def _plan_pressure(self, runs: Sequence[SliceRun], record: Recorder) -> str | None:
+        """Pause while there is still work and the plan is nearly used up."""
+        if self.config.plan_pause_at is None or self._next_task(self.state()) is None:
+            return None
+        for run in runs:
+            pause = retry.plan_pressure(run.rate_limit, threshold=self.config.plan_pause_at)
+            if pause is not None:
+                data = {"reason": pause.reason, "until_epoch": pause.until_epoch}
+                record("boss", EventType.PAUSED, data=data)
+                return f"paused: {pause.reason}"
+        return None
 
     def _tampered(self, record: Recorder) -> str:
         reason = "the term sheet or a check changed after the investor approved it"

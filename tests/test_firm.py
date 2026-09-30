@@ -1553,3 +1553,54 @@ def test_only_the_investors_approval_makes_a_worker_be_told_of_added_checks(path
     resumed.totals = dict(first.totals)
     run(paths, resumed)
     assert "The investor approved more checks" not in resumed.specs[0].prompt
+
+
+# Plan pressure: stop before the plan's window runs out, not in the middle of a slice.
+
+
+class NearLimit(Script):
+    """A scripted worker whose slices report how full the plan's five-hour window is."""
+
+    def __init__(self, used, *steps):
+        super().__init__(*steps)
+        self.used = list(used)
+
+    def __call__(self, spec, workspace, log_path, *, env):
+        run = super().__call__(spec, workspace, log_path, env=env)
+        window = {"utilization": self.used.pop(0), "resetsAt": 1_900_000_000}
+        return dataclasses.replace(run, rate_limit={"unifiedWindows": {"five_hour": window}})
+
+
+def test_the_run_pauses_when_a_slice_reports_the_plan_nearly_used_up(paths):
+    worker = NearLimit([0.5, 0.96, 0.2], step(BAD), step(HALF), step(GOOD, "done"))
+    report, _ = run(paths, worker, config=FirmConfig(policy=PATIENT))
+    assert len(worker.specs) == 2
+    assert report.stopped == "paused: five_hour window at 96% of the plan limit"
+    [paused] = events_of(paths, EventType.PAUSED)
+    assert paused.data == {
+        "reason": "five_hour window at 96% of the plan limit",
+        "until_epoch": 1_900_000_000,
+    }
+    assert events_of(paths, EventType.ROUND_CLOSED) == []  # the round stays open for a resume
+    resumed = NearLimit([0.2], step(GOOD, "done"))
+    resumed.totals = dict(worker.totals)
+    report, _ = run(paths, resumed, config=FirmConfig(policy=PATIENT))
+    assert report.all_passed and resumed.specs[0].resume is True
+
+
+def test_no_pause_when_the_work_is_finished_or_the_threshold_is_not_reached(paths):
+    done = NearLimit([0.99], step(GOOD, "done"))
+    report, _ = run(paths, done)
+    assert report.all_passed and events_of(paths, EventType.PAUSED) == []
+
+
+def test_the_plan_pause_can_be_moved_or_turned_off(paths):
+    worker = NearLimit([0.96, 0.97], step(HALF), step(GOOD, "done"))
+    report, _ = run(paths, worker, config=FirmConfig(plan_pause_at=None))
+    assert report.all_passed and events_of(paths, EventType.PAUSED) == []
+
+
+def test_a_lower_threshold_pauses_sooner(paths):
+    worker = NearLimit([0.6], step(HALF), step(GOOD, "done"))
+    report, _ = run(paths, worker, config=FirmConfig(plan_pause_at=0.5))
+    assert report.stopped.startswith("paused: five_hour window at 60%") and len(worker.specs) == 1

@@ -67,7 +67,7 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
             SliceRecord(
                 slice=number,
                 cost_micros=e.cost_micros,
-                outcome=Outcome(e.data.get("outcome", Outcome.CRASHED)),
+                outcome=_outcome(e),
                 status=str(status),
                 passing=frozenset(passing.get((worker, number), set())) - dropped,
                 disputed=frozenset(disputed.get((worker, number), set())),
@@ -75,6 +75,18 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
             )
         )
     return history
+
+
+def _outcome(event: Event) -> Outcome:
+    """A slice's outcome. One this version does not know (a ledger written by a newer one) is
+    refused by name: guessing would decide a firing or a charge on a guess."""
+    raw = event.data.get("outcome", Outcome.CRASHED)
+    try:
+        return Outcome(raw)
+    except ValueError:
+        raise ValueError(
+            f"slice_end of {event.actor} has an outcome this version does not know: {raw!r}"
+        ) from None
 
 
 def worker_tasks(events: Sequence[Event]) -> dict[str, str]:
@@ -216,7 +228,7 @@ def _live_session(
             # The CLI's own result for the slice is the proof: it carries the session's total.
             # A slice that crashed or was killed before reporting proves nothing.
             known = e.data.get("session_total_micros")
-            worked = Outcome(e.data.get("outcome", Outcome.CRASHED)) not in INFRASTRUCTURE
+            worked = _outcome(e) not in INFRASTRUCTURE
             if worked and isinstance(known, int) and attempt != live:
                 live, total = attempt, 0
             if attempt == live and isinstance(known, int):

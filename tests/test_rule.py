@@ -344,3 +344,11 @@ def test_blocked_after_a_refused_tool_call_is_not_escalated() -> None:
         Decision.FIRE,
         "no progress",
     )
+
+
+@pytest.mark.parametrize("bad", [True, 2.0, "2", None])
+def test_firing_policy_counts_must_be_whole_numbers(bad) -> None:
+    with pytest.raises(ValueError, match="whole number"):
+        FiringPolicy(stall_slices=bad)
+    with pytest.raises(ValueError, match="whole number"):
+        FiringPolicy(max_slices=bad)

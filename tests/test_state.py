@@ -273,3 +273,14 @@ def test_a_slice_that_crashed_without_reporting_does_not_prove_its_session_exist
     assert timed_out.session is None
     reported = worker_of(start("w1", 1, "a"), ended("w1", 1, 0, "capped"))
     assert (reported.session, reported.session_total_micros) == ("a", 0)
+
+
+def test_an_outcome_this_version_does_not_know_is_refused_by_name():
+    import pytest
+
+    hired = ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1"})
+    events = [hired, slice_end("w1", 1, 5_000, outcome="teleported")]
+    with pytest.raises(ValueError, match="worker:w1 has an outcome this version does not know"):
+        slice_history(events)
+    with pytest.raises(ValueError, match="'teleported'"):
+        run_state(events, ["t1"])

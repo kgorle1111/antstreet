@@ -12,14 +12,14 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|---|
 | B01 | The investor rules on a disputed check inside a run (drop it, keep it, set the task aside) | Needed the interactive prompt | done: feat(firm): the investor rules on disputed checks and blocked tasks |
 | B02 | The investor unblocks a blocked task with a note, inside a run | Same prompt as B01 | done: feat(firm): the investor rules on disputed checks and blocked tasks |
-| B03 | Run every check on `product/` after assembly and report that result | Only matters with several tasks | building |
-| B04 | Parallel workers for tasks that own disjoint paths | Sequential was enough for one task | open |
-| B05 | One-line status after every slice (spend against budget, checks passing, worker) | Not needed for correctness | open |
+| B03 | Run every check on `product/` after assembly and report that result | Only matters with several tasks | done: feat(firm): the final verdict is the gate's result on the assembled product |
+| B04 | Parallel workers for tasks that own disjoint paths | Sequential was enough for one task | done: feat(firm): work on several tasks at once |
+| B05 | One-line status after every slice (spend against budget, checks passing, worker) | Not needed for correctness | done: feat(firm): the final verdict is the gate's result on the assembled product (status line) |
 | B06 | `boss topup`: add money to a round; a locked round can be reopened by the investor | Top-up events are read by `budget.py`, nothing writes them | open |
-| B07 | Pause before a plan limit is hit (plan pressure), not only after | `retry.plan_pressure` exists, the loop does not call it | open |
+| B07 | Pause before a plan limit is hit (plan pressure), not only after | `retry.plan_pressure` exists, the loop does not call it | done: feat(firm): pause before the plan limit is hit |
 | B08 | A replacement worker inherits its predecessor's disputes | Disputes are per worker today | open |
 | B09 | The refusal brief names the real reason for each refused tool call | It assumes a path outside the folder; true for every case seen | open |
-| B10 | Tolerate a torn final ledger line on resume; `ledger.py` kn: a torn final line after a hard kill also raises | Failing closed was the safe first step | building: feat(ledger): repair a torn final line added `repair_torn_tail`; no command calls it yet, so a torn tail still blocks `boss resume` |
+| B10 | Tolerate a torn final ledger line on resume; `ledger.py` kn: a torn final line after a hard kill also raises | Failing closed was the safe first step | done: fix(cli): resume repairs a torn ledger line |
 | B11 | Recover when a session to resume no longer exists ("No conversation found") | Only happens if the CLI's session store is cleared between runs | open |
 
 ## Money
@@ -86,12 +86,12 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 
 | Id | Item | Status |
 |---|---|---|
-| B42 | `state.slice_history` raises on an outcome it does not know (a ledger from a newer version) | open |
+| B42 | `state.slice_history` raises on an outcome it does not know (a ledger from a newer version) | done: fix(state): an unknown slice outcome is refused by name |
 | B43 | `ledger.Event.from_json` accepts `"v": true` as version 1 | done: fix(ledger): a version must be the integer 1 |
 | B44 | `errors.classify`: an `errors` field that is an int raises TypeError | done: fix(errors): classify never raises on malformed signals |
 | B45 | `retry.infra_action` overflows for an attempt number over about 1000 | done: fix(retry): backoff and plan pressure hold for any input |
 | B46 | `retry.plan_pressure` assumes utilisation is a fraction, not a percentage | done: fix(retry): backoff and plan pressure hold for any input |
-| B47 | `FiringPolicy` accepts bool and float | open |
+| B47 | `FiringPolicy` accepts bool and float | done: fix(rule): the firing policy's counts must be whole numbers |
 | B48 | `redact` masks some ordinary text (a word containing `sk-` followed by 20 characters; `max_tokens: 1000000`) | open |
 | B49 | The early budget check refuses `--budget 0.30 --rounds 3` even when the boss would draft fewer checks than rounds | open |
 
