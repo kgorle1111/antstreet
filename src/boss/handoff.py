@@ -20,7 +20,7 @@ from boss.rule import SliceRecord, Verdict
 from boss.runner import FORBIDDEN_WORKSPACE_ENTRIES
 
 PREVIOUS_DIR = "previous_attempt"
-_SKIPPED_NAMES = frozenset(
+SKIPPED_NAMES = frozenset(
     {*FORBIDDEN_WORKSPACE_ENTRIES, "__pycache__", ".pytest_cache", PREVIOUS_DIR}
 )
 _TRUNCATED = "[notes truncated]"
@@ -74,10 +74,10 @@ def prepare_workspace(previous: Path, new: Path) -> list[str]:
         raise ValueError(f"{new} exists and is not an empty directory")
     relative: list[Path] = []
     for root, dirs, files in os.walk(previous):  # followlinks=False: symlinked dirs stay unread
-        dirs[:] = [d for d in dirs if d not in _SKIPPED_NAMES]
+        dirs[:] = [d for d in dirs if d not in SKIPPED_NAMES]
         for name in files:
             path = Path(root, name)
-            if name not in _SKIPPED_NAMES and path.is_file() and not path.is_symlink():
+            if name not in SKIPPED_NAMES and path.is_file() and not path.is_symlink():
                 relative.append(path.relative_to(previous))
     new.mkdir(parents=True, exist_ok=True)
     for rel in relative:

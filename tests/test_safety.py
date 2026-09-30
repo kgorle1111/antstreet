@@ -349,6 +349,80 @@ def test_product_assembly_skips_symlinks(tmp_path):
     assert copied == ["rev.py"]
 
 
+def two_task_product(tmp_path, first: dict[str, str], second: dict[str, str], paths2=("up.py",)):
+    sheet = TermSheet(
+        "x",
+        100_000,
+        (Round(1, 100_000, 2),),
+        (CheckSpec("c01", "d", "test_c01.py", "t1"), CheckSpec("c02", "d", "test_c02.py", "t2")),
+        (Task("t1", "b", ("rev.py",)), Task("t2", "b", tuple(paths2))),
+    )
+    paths = RunPaths(tmp_path / "run")
+    for worker, files in (("w1", first), ("w2", second)):
+        for name, text in files.items():
+            target = paths.workspace(worker) / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+    state = RunState(
+        workers={},
+        tasks={
+            "t1": TaskState("t1", ("w1",), "w1", frozenset({"c01"}), False),
+            "t2": TaskState("t2", ("w2",), "w2", frozenset({"c02"}), False),
+        },
+        closed_rounds=frozenset(),
+        approved_rounds=frozenset(),
+        stopped=False,
+    )
+    assemble_product(paths, sheet, state)
+    return {
+        p.relative_to(paths.product).as_posix(): p.read_text()
+        for p in paths.product.rglob("*")
+        if p.is_file()
+    }
+
+
+def test_a_worker_cannot_replace_a_file_another_task_owns(tmp_path):
+    product = two_task_product(tmp_path, {"rev.py": RIGHT}, {"up.py": "UP", "rev.py": "CLOBBER"})
+    assert product == {"rev.py": RIGHT, "up.py": "UP"}
+
+
+def test_the_owner_wins_even_when_it_is_assembled_after_the_intruder(tmp_path):
+    product = two_task_product(tmp_path, {"rev.py": RIGHT, "up.py": "CLOBBER"}, {"up.py": "UP"})
+    assert product == {"rev.py": RIGHT, "up.py": "UP"}
+
+
+def test_a_file_nobody_owns_comes_from_the_first_task_that_has_it(tmp_path):
+    product = two_task_product(
+        tmp_path,
+        {"rev.py": RIGHT, "util.py": "FIRST"},
+        {"up.py": "UP", "util.py": "SECOND", "extra.py": "ONLY"},
+    )
+    assert product == {"rev.py": RIGHT, "up.py": "UP", "util.py": "FIRST", "extra.py": "ONLY"}
+
+
+def test_an_owned_folder_covers_everything_under_it(tmp_path):
+    product = two_task_product(
+        tmp_path,
+        {"rev.py": RIGHT, "pkg/deep/mod.py": "CLOBBER"},
+        {"pkg/deep/mod.py": "MINE", "pkg/__init__.py": ""},
+        paths2=("pkg",),
+    )
+    assert product == {"rev.py": RIGHT, "pkg/deep/mod.py": "MINE", "pkg/__init__.py": ""}
+
+
+def test_agent_config_caches_and_old_attempts_never_reach_the_product(tmp_path):
+    junk = {
+        ".claude/settings.json": "{}",
+        "sub/.claude/settings.json": "{}",
+        "sub/.mcp.json": "{}",
+        "__pycache__/rev.cpython-312.pyc": "x",
+        "previous_attempt/rev.py": "OLD",
+        "sub/kept.py": "KEPT",
+    }
+    product = two_task_product(tmp_path, {"rev.py": RIGHT, **junk}, {"up.py": "UP"})
+    assert product == {"rev.py": RIGHT, "up.py": "UP", "sub/kept.py": "KEPT"}
+
+
 # --- environment and model output at the trust boundaries ------------------------------------
 
 FAKE_CLAUDE = f"""#!{sys.executable}

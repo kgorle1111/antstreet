@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from boss.handoff import PREVIOUS_DIR
+from boss.handoff import SKIPPED_NAMES
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.runner import SliceRun
 from boss.state import RunState
@@ -54,22 +54,33 @@ class Recorder:
 def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None:
     """Copy each task's files from its best worker's workspace into product/.
 
-    Tasks own disjoint paths (validated on the term sheet), so the copies cannot collide.
+    A file inside a task's paths always comes from that task's worker. A file no task owns (a
+    helper a worker added) comes from the first task that has it. So a worker can never replace
+    a file another task's checks passed on, whatever it writes in its own workspace.
     """
     if paths.product.exists():
         shutil.rmtree(paths.product)
     paths.product.mkdir(parents=True)
+    owned = [(task.id, PurePosixPath(path)) for task in sheet.tasks for path in task.paths]
+
+    def owner(relative: PurePosixPath) -> str | None:
+        return next((t for t, p in owned if p == relative or p in relative.parents), None)
+
     for task in sheet.tasks:
         worker = state.tasks[task.id].best
         if worker is None:
             continue
         source = paths.workspace(worker)
         for path in sorted(source.rglob("*")):
-            relative = path.relative_to(source)
-            if path.is_file() and not path.is_symlink() and PREVIOUS_DIR not in relative.parts:
-                target = paths.product / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(path, target)
+            relative = PurePosixPath(path.relative_to(source).as_posix())
+            if not path.is_file() or path.is_symlink() or SKIPPED_NAMES & set(relative.parts):
+                continue
+            target = paths.product / relative
+            belongs_to = owner(relative)
+            if belongs_to not in (None, task.id) or (belongs_to is None and target.exists()):
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
 
 
 def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int) -> dict[str, Any]:
