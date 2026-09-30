@@ -232,13 +232,12 @@ def test_a_run_that_ends_with_failing_checks_exits_three_and_says_why(tmp_path):
     assert EventType.ROUND_CLOSED in [e.event for e in read_events(run_dir / "ledger.jsonl")]
 
 
-def test_a_blank_idea_raises_a_value_error_and_leaves_an_empty_run_folder(tmp_path):
-    # Documented as not fixed. If this starts failing because the CLI now says something useful,
-    # update the note under `boss fund` in docs/CLI.md.
-    with pytest.raises(ValueError, match="idea must be non-empty"):
-        run_cli(tmp_path, ["fund", " ", "--budget", "0.50"])
-    [run_dir] = list((tmp_path / "project" / ".boss" / "runs").iterdir())
-    assert (run_dir / "ledger.jsonl").read_text() == ""
+def test_a_blank_idea_is_a_usage_error_and_creates_no_run_folder(tmp_path):
+    for idea in (" ", "", " -x"):
+        code, run_dir, said = run_cli(tmp_path, ["fund", idea, "--budget", "0.50"])
+        assert code == cli.EXIT_USAGE and run_dir is None
+        assert "The idea must be some text" in " ".join(said)
+    assert not (tmp_path / "project" / ".boss").exists()
 
 
 def test_doctor_exit_codes(tmp_path):

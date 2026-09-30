@@ -26,8 +26,9 @@ Every command also accepts `-h` and `--help`.
 
 Argument: `idea`, what to build, in plain words.
 
-- A blank idea, or one that starts with `-`, is refused with a Python `ValueError`, not a usage
-  message, after the run folder and an empty ledger were created. Nothing is spent. Not fixed yet.
+- A blank idea, or one whose first non-blank character is `-` (it would read as an option), is
+  refused with a message and exit 2. No run folder is made and nothing is spent. To give an idea
+  that starts with `-`, put some other word first.
 - `--rounds`, `--max-tasks`, `--max-slices` and `--stall-slices` must be whole numbers of 1 or
   more. `--max-minutes` must be a positive number. `--boss-thinking` must be a whole number. Any
   other value is a usage error (exit 2) before anything is spent.
@@ -145,7 +146,7 @@ check trusts `claude auth status`, which can report a login the API then rejects
 |---|---|
 | `0` | `fund`, `resume`: every check passed. `report`, `status`, `doctor`: success. |
 | `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
-| `2` | Usage error: bad or missing arguments, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
 | `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume`. |
 
