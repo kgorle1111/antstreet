@@ -178,11 +178,6 @@ def test_edit_with_wrong_typed_json_field_is_reported_not_raised(session):
     assert any("budget_micros must be" in s for s in session.said)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="approval.py:_reload_after_edit only catches TermSheetError; a term_sheet.json that "
-    "is missing when the investor presses Enter raises FileNotFoundError and aborts the review",
-)
 def test_deleted_term_sheet_file_during_an_edit_is_reported_not_raised(session):
     def delete():
         session.sheet_file.unlink()

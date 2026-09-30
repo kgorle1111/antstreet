@@ -132,7 +132,11 @@ def _reload_after_edit(
 
 def _load_valid(path: Path, checks_dir: Path) -> TermSheet:
     """The term sheet as it is on disk, never approved, or TermSheetError."""
-    sheet = dataclasses.replace(TermSheet.from_json(path.read_text()), approved_by_investor=False)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise TermSheetError([f"cannot read {path}: {exc}"]) from exc
+    sheet = dataclasses.replace(TermSheet.from_json(text), approved_by_investor=False)
     validate(sheet, checks_dir)
     return sheet
 
