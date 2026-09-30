@@ -49,7 +49,7 @@ Argument: `idea`, what to build, in plain words.
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
-| `--max-minutes` | none | Stop the run after this many minutes of wall clock. Checked before each slice, so a slice in progress can run past it. |
+| `--max-minutes` | none | Stop the run after this many minutes of wall clock, counted from the start of this `fund` or `resume`. Checked before each slice, so a slice in progress can run past it. |
 | `--no-firing` | off | Keep funding stalled workers. A worker is still fired at the slice limit. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
 | `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. |
@@ -62,8 +62,9 @@ What it asks you:
 - `Round N: X/Y checks pass. Fund $Z more? [y]es / [n]o` before each round after the first. End
   of input counts as no.
 
-Limits that are not options: a run stops at 60 slices or 16 workers, or when spend passes the sum of
-its round budgets plus one reserve per round. See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
+Limits that are not options: a run stops at 60 slices or 16 workers, when spend passes the sum of
+its round budgets plus one reserve per round, or when a worker's folder passes 200 MiB (the gate
+copies it for every check). See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
 
 A budget per round below one reserve plus $0.005 is refused before anything is spent.
 
@@ -92,17 +93,20 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   run keeps its own slice, reserve, firing and limit settings. There are no options to change them.
 - Running it is your decision to lift a stop: it prints why the run stopped and writes `resumed`.
   The approval, the budget and every hard limit are checked again as the loop goes, so a lifted
-  stop can stop again at once (a wall-clock limit that is already over does).
+  stop can stop again at once. The wall-clock limit (`--max-minutes`) counts from the start of
+  each `resume`, so a resumed run gets the whole time again.
 - An interrupted round continues. A round that closed below its unlock threshold stays locked. A
   task that was set aside stays set aside.
 - A slice that started and never ended is charged to its round at its cap. If the last slice was
   never gated, or a firing or a question to you was owed, it is done first.
 - On a run that already finished it changes nothing and prints the report.
-- Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; the run never
-  got as far as hiring (start again with `boss fund`); the term sheet or a check no longer matches
-  your approval.
-- A ledger whose last line was cut by a hard kill cannot be read. `ledger.repair_torn_tail` repairs
-  it, but nothing calls it yet, so the line has to be removed by hand.
+- Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; a damaged
+  ledger; the run never got as far as hiring (start again with `boss fund`); the term sheet or a
+  check no longer matches your approval.
+- A ledger whose last line was cut by a hard kill is repaired first: the cut line is removed and
+  `resume` prints it. A ledger damaged anywhere else is refused.
+- If another `boss` process is still writing the run's ledger, `resume` ends with a Python
+  traceback (`LedgerLockedError`), not a message. Nothing is changed. Not fixed yet.
 - Exit codes are those of `boss fund`.
 
 ## `boss report`
@@ -145,22 +149,29 @@ It reads the code only. It makes no model call, reads no run and writes nothing.
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder; `.boss/` inside it must be writable. |
-| `--live` | off | Verify the login with one real call: model `haiku`, cap $0.05, 120 s. |
+| `--live` | off | Verify the login with one real call: model `haiku`, cap $0.05, 120 s. If that works, make a second real call to test the worker path rules (see below): model `haiku`, cap $0.05, 120 s. Both are paid, at most $0.10 by their caps. |
 
 Checks, in order: Python 3.12 or newer; a POSIX system; `pytest` importable; the `claude` binary on
-`PATH`; its version is 2.1.277 or newer; the login; a writable `.boss/`; the gate sandbox. The
+`PATH`; its version is 2.1.277 or newer; the login; the worker path rules (only with `--live`, and
+only when the login check passed); a writable `.boss/`; the gate sandbox. The
 sandbox line names the tool found (`sandbox-exec` or `bwrap`). With no working tool it is a warning
 with the fix, not a failure, and the exit code stays 0. It fails under `BOSS_GATE_SANDBOX=require`
 or for a value that is not `auto`, `require` or `off`. See [SANDBOX.md](SANDBOX.md). Without `--live` the login
 check trusts `claude auth status`, which can report a login the API then rejects. With an
 `ANTHROPIC_API_KEY` set and no `--live`, the login check passes without a call.
 
+The worker path rules check runs one real worker slice, isolated as a run would, and asks the
+worker to write a file outside its own folder. It passes when the write was refused. It fails when
+the file appears, when the worker did not start isolated, or when the call could not run. If the
+worker did not try the write, it passes with a warning (`inconclusive`) and the exit code stays 0:
+run `--live` again. The other checks make no paid call. The two costs are the CLI's estimates.
+
 ## Exit codes of `boss`
 
 | Code | Meaning |
 |---|---|
 | `0` | `fund`, `resume`: every check passed. `report`, `status`, `roles`, `doctor`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
 | `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume`. |
