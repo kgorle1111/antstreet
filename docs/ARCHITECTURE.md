@@ -70,7 +70,8 @@ benchmark's single agent).
 1. `cli` refuses, with exit 2, a budget per round below one reserve plus one minimum slice.
 2. It creates `.boss/runs/<id>/` and opens `ledger.jsonl` with an exclusive lock.
 3. The boss is called once. Its check code is written to `checks/`. The call is recorded as
-   `boss_call` in round 0, also when it fails or its draft is invalid.
+   `boss_call` in round 0, outside every round's budget, also when it fails or its draft is
+   invalid.
 4. The draft is validated: structure, then every check run on an empty workspace. Any problem
    ends the run (`stopped`, exit 1).
 5. With `--rounds N` above 1, the round plan is replaced by an equal split.

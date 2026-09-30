@@ -42,6 +42,47 @@ def money(micros: int) -> str:
     return f"${whole}.{frac.ljust(2, '0')}"
 
 
+def expected_default(action) -> str | None:
+    """How a document writes an argparse option's default; None when it is not a value to check."""
+    import argparse
+
+    from boss import cli
+
+    if action.required:
+        return "required"
+    default = action.default
+    if default in (None, "", argparse.SUPPRESS) or default is False:
+        return None
+    if isinstance(action, argparse._StoreTrueAction):
+        return None
+    if action.type is cli.usd_arg:
+        return money(default)
+    if isinstance(default, list):
+        return " ".join(map(str, default))
+    return str(default)
+
+
+def captured_parser(entry):
+    """The argparse parser a `main` builds, caught the moment it is asked to parse."""
+    import argparse
+
+    from _pytest.monkeypatch import MonkeyPatch
+
+    class Captured(Exception):
+        pass
+
+    def spy(self, *args, **kwargs):
+        raise Captured(self)
+
+    with MonkeyPatch.context() as patch:
+        patch.setattr(argparse.ArgumentParser, "parse_args", spy)
+        try:
+            entry([])
+        except Captured as caught:
+            return caught.args[0]
+    raise AssertionError("main did not build a parser")
+
+
 def code_spans(text: str) -> list[str]:
     return re.findall(r"`([^`\n]+)`", text)
 

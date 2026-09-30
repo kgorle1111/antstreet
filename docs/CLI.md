@@ -31,7 +31,7 @@ Argument: `idea`, what to build, in plain words.
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
-| `--budget` | required | Total budget in dollars, such as `0.50` or `$0.50`. Positive, at most 6 decimals. |
+| `--budget` | required | Budget for the funding rounds in dollars, such as `0.50` or `$0.50`. Positive, at most 6 decimals. The boss's own drafting call is charged on top of it. |
 | `--model` | `haiku` | Worker model. |
 | `--rounds` | `1` | Funding rounds to split the budget into. With more than one, the budget splits equally (the earliest rounds take any remainder), the count is capped at the number of checks, and each round after the first needs your yes. |
 | `--slice` | `$0.10` | Dollars a worker may spend in one slice, before the gate looks again. |

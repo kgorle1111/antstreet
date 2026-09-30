@@ -4,7 +4,17 @@ import argparse
 import re
 
 import pytest
-from docs_support import DOCS, ROOT, fake_claude, money, read, run_cli, section, table
+from docs_support import (
+    DOCS,
+    ROOT,
+    captured_parser,
+    expected_default,
+    fake_claude,
+    read,
+    run_cli,
+    section,
+    table,
+)
 
 from boss import cli, worker
 from boss.bench import replay
@@ -20,22 +30,6 @@ HELP = {"-h", "--help"}
 CLAUDE_FLAGS = {"--bare", "--safe-mode"}
 
 
-class _Captured(Exception):
-    pass
-
-
-def captured_parser(monkeypatch, entry):
-    """The parser a `main` builds, caught at the moment it is asked to parse."""
-
-    def spy(self, *args, **kwargs):
-        raise _Captured(self)
-
-    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", spy)
-    with pytest.raises(_Captured) as caught:
-        entry([])
-    return caught.value.args[0]
-
-
 @pytest.fixture(scope="module")
 def parsers() -> dict[str, argparse.ArgumentParser]:
     """Every documented command, by the name used in the document's headings."""
@@ -47,17 +41,11 @@ def parsers() -> dict[str, argparse.ArgumentParser]:
 
 @pytest.fixture(scope="module")
 def bench_parsers() -> dict[str, argparse.ArgumentParser]:
-    from _pytest.monkeypatch import MonkeyPatch
-
-    found = {}
-    for name, entry in (
-        ("python -m boss.bench.run", bench_run.main),
-        ("python -m boss.bench.table", bench_table.main),
-        ("python -m boss.bench.replay", replay.main),
-    ):
-        with MonkeyPatch.context() as mp:
-            found[name] = captured_parser(mp, entry)
-    return found
+    return {
+        "python -m boss.bench.run": captured_parser(bench_run.main),
+        "python -m boss.bench.table": captured_parser(bench_table.main),
+        "python -m boss.bench.replay": captured_parser(replay.main),
+    }
 
 
 @pytest.fixture(scope="module")
@@ -79,21 +67,6 @@ def positionals(parser: argparse.ArgumentParser) -> list[str]:
         for a in parser._actions
         if not a.option_strings and not isinstance(a, argparse._SubParsersAction)
     ]
-
-
-def expected_default(action: argparse.Action) -> str | None:
-    if action.required:
-        return "required"
-    default = action.default
-    if default in (None, "", argparse.SUPPRESS) or default is False:
-        return None
-    if isinstance(action, argparse._StoreTrueAction):
-        return None
-    if action.type is cli.usd_arg:
-        return money(default)
-    if isinstance(default, list):
-        return " ".join(map(str, default))
-    return str(default)
 
 
 def all_parsers(parsers, bench_parsers):
