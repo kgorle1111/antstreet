@@ -11,7 +11,15 @@ from dataclasses import dataclass, field
 
 from boss.ledger import Event, EventType, Totals, total, totals_by
 
-_NOTABLE = (EventType.FIRED, EventType.BLOCKED, EventType.ERROR, EventType.STOPPED)
+_NOTABLE = (
+    EventType.FIRED,
+    EventType.REASSIGNED,
+    EventType.ABANDONED,
+    EventType.BLOCKED,
+    EventType.PAUSED,
+    EventType.ERROR,
+    EventType.STOPPED,
+)
 
 
 @dataclass(frozen=True, slots=True)
