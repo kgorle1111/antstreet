@@ -166,6 +166,16 @@ def test_event_without_a_version_is_corruption(path):
         read_events(path)
 
 
+@pytest.mark.parametrize("version", [True, 1.0, "1", [1], None])
+def test_a_version_that_is_not_the_int_one_is_corruption(path, version):
+    record = json.loads(ev().to_json())
+    record["v"] = version
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(record) + "\n")
+    with pytest.raises(LedgerCorruptError, match="not a v1 ledger event"):
+        read_events(path)
+
+
 def test_wrong_typed_field_is_corruption_not_a_crash(path):
     record = json.loads(ev().to_json())
     record["cost_micros"] = "12"

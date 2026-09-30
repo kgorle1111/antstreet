@@ -117,7 +117,9 @@ class Event:
             raw = json.loads(line)
         except RecursionError:  # a deeply nested line is corrupt, not a crash
             raise ValueError("line nested too deeply") from None
-        if not isinstance(raw, dict) or raw.pop("v", None) != LEDGER_VERSION:
+        version = raw.pop("v", None) if isinstance(raw, dict) else None
+        # exact int: True == 1 and 1.0 == 1 must not pass as a version.
+        if type(version) is not int or version != LEDGER_VERSION:
             raise ValueError(f"not a v{LEDGER_VERSION} ledger event")
         expected = {f.name for f in fields(cls)}
         if set(raw) != expected:
