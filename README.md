@@ -65,6 +65,7 @@ with failing checks.
   the CLI reports anything else.
 - A pass needs pytest to exit 0 and a test report showing at least one test and no failures.
 - Costs are the CLI's client-side estimates, not a bill. Unknown costs are shown as unknown.
+- The [threat model](docs/THREAT_MODEL.md) lists each threat, its control, the test that proves it, and what is accepted.
 
 Limits you should know:
 
