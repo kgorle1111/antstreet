@@ -21,11 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from boss.firm import FirmConfig, config_data
+from boss.firm import Advise, FirmConfig, config_data
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import safe_text
 from boss.roles import registry
-from boss.roles.advisory import audit_checks, render_audit
+from boss.roles.advisory import advise_on_dispute, audit_checks, render_advice, render_audit
 from boss.roles.base import RoleError, RoleSpec, ledger_fields
 from boss.roles.engineering import StagedDraftError, draft_staged, render_coverage, stories_text
 from boss.roles.product import StoryReview, review_stories, uncovered_fragments, write_stories
@@ -365,6 +365,34 @@ class Pipeline:
         text = self._judge("stories", stories_text(stories), idea, notes)
         if text is not None:
             notes.append("Judge's score of the stories (advisory, gates nothing):\n" + text)
+
+    # --- stage 2: while the loop runs --------------------------------------------------------
+
+    def advisor(self, sheet: TermSheet) -> Advise | None:
+        """What `run_firm` asks for one line before it puts a dispute to the investor."""
+        if not self._on("consultant"):
+            return None
+        by_id = {c.id: c for c in sheet.checks}
+
+        def advise(check_id: str, worker_reason: str) -> str | None:
+            check = by_id.get(check_id)
+            if check is None:
+                return None
+            advice = self._call(
+                _spec("consultant"),
+                lambda: advise_on_dispute(
+                    sheet.idea,
+                    check.description,
+                    (self.paths.checks / check.file).read_text(encoding="utf-8"),
+                    worker_reason,
+                    **self._call_args(),
+                ),
+                lambda a: {"detail": f"{a.recommendation} {check_id}"},
+                check=check_id,
+            )
+            return None if advice is None else render_advice(advice)
+
+        return advise
 
 
 def _render_review(review: StoryReview) -> str:

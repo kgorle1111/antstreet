@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 
 from boss.boss import load_prompt
-from boss.cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE, main
+from boss.cli import EXIT_FAILED, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
 from boss.firm import FirmConfig
 from boss.ledger import EventType, read_events
-from boss.pipeline import RolesError, parse_roles
+from boss.pipeline import RolesError, Setup, parse_roles, recorded_setup
 from boss.roles import registry
 from boss.roles.base import system_prompt
 from boss.roles.judge import Calibration, CaseResult, judge_identity, load_rubric
@@ -455,6 +455,8 @@ def test_the_chosen_roles_are_on_the_started_event_the_config_stays_as_it_was(fx
     [started] = fx.events(EventType.STARTED)
     roles = {"names": ["check_auditor"], "model": "sonnet", "thinking_tokens": 0}
     assert started.data["roles"] == roles
+    assert recorded_setup(fx.events()) == Setup(("check_auditor",), "sonnet", 0)
+    assert recorded_setup([]) is None
     assert set(started.data["config"]) == {f.name for f in dataclasses.fields(FirmConfig)}
 
 
@@ -817,3 +819,94 @@ def test_the_report_total_is_the_boss_plus_every_role_plus_every_worker(fx):
     assert "  total        $0.0300" in out.text
     for role in STAGE_1:
         assert f"  role:{role}" in out.text and "$0.0040" in out.text
+
+
+# --- stage 2: a consultant's line before the investor rules on a dispute -----------------------
+
+WRONG = "from rev import reverse\n\n\ndef test_same():\n    assert reverse('ab') == 'ab'\n"
+DISPUTE = {"check": "c02", "reason": "the idea says reverse, and this check wants the same string"}
+
+
+def with_a_wrong_check(fx):
+    """The boss drafts one right check and one that contradicts the idea; the worker passes the
+    first and disputes the second, so the investor is asked to rule."""
+    wrong = {"description": "leaves ab as it is", "task": "t1", "code": WRONG}
+    fx.set("boss", ok(BOSS_DRAFT | {"checks": [*BOSS_DRAFT["checks"], wrong]}))
+    fx.set("worker", {"files": {"rev.py": GOOD}, "disputes": [DISPUTE]})
+
+
+def test_the_consultants_line_is_shown_before_the_dispute_question(fx):
+    with_a_wrong_check(fx)
+    fx.set("consultant", ok(ADVICE))
+    out = fx.fund("--roles", "consultant", answers={"Task": "d"})
+    assert out.code == EXIT_OK
+    line = "consultant's opinion, unverified: drop this check (confidence medium)"
+    assert out.index("say", line) < out.index("ask", "Task t1: w1 disputes check c02")
+    assert f'idea: "{Q2}" | why: the idea is silent' in out.text
+    [call] = fx.role_calls("consultant")
+    assert call.actor == "role:consultant" and call_facts(call) == ("completed", "ok", 4_000)
+    assert call.data["check"] == "c02" and call.data["detail"] == "drop c02" and call.round == 0
+    prompt = fx.last_prompt("consultant")
+    assert "assert reverse('ab') == 'ab'" in prompt and DISPUTE["reason"] in prompt
+    assert IDEA in prompt and "leaves ab as it is" in prompt
+    kinds = [e.event for e in fx.events()]
+    assert kinds.index(EventType.ROLE_CALL) < kinds.index(EventType.RULED)
+    [ruled] = fx.events(EventType.RULED)
+    assert ruled.actor == "investor" and ruled.data["ruling"] == "dropped"  # the investor decided
+
+
+def test_a_consultant_that_fails_does_not_block_the_ruling_and_the_investor_is_told(fx):
+    with_a_wrong_check(fx)
+    fx.set("consultant", bad(0.003))
+    out = fx.fund("--roles", "consultant", answers={"Task": "d"})
+    assert out.code == EXIT_OK
+    [call] = fx.role_calls("consultant")
+    assert call_facts(call) == ("api_error", "failed", 3_000) and call.data["check"] == "c02"
+    told_at = out.index("say", "The consultant failed (")
+    assert told_at < out.index("ask", "Task t1: w1 disputes check c02")
+    assert "consultant's opinion" not in out.text
+    assert fx.events(EventType.RULED)[0].data["ruling"] == "dropped"
+
+
+def test_a_consultant_whose_quote_is_not_in_the_idea_is_a_failed_consultant(fx):
+    with_a_wrong_check(fx)
+    fx.set("consultant", ok(ADVICE | {"quote": "the idea says nothing of the kind"}, cost=0.005))
+    out = fx.fund("--roles", "consultant", answers={"Task": "d"})
+    [call] = fx.role_calls("consultant")
+    assert call_facts(call) == ("completed", "failed", 5_000)
+    assert "consultant's opinion" not in out.text and "The consultant failed (" in out.text
+    assert out.code == EXIT_OK
+
+
+def test_without_the_consultant_a_dispute_goes_straight_to_the_investor(fx):
+    with_a_wrong_check(fx)
+    out = fx.fund(answers={"Task": "d"})
+    assert out.code == EXIT_OK and "consultant" not in fx.calls() and "Asking the" not in out.text
+    assert fx.role_calls() == [] and "opinion" not in out.text
+
+
+def test_the_consultant_is_not_called_when_nothing_is_disputed(fx):
+    fx.set("consultant", ok(ADVICE))
+    out = fx.fund("--roles", "consultant")
+    assert out.code == EXIT_OK and fx.role_calls() == [] and "consultant" not in fx.calls()
+
+
+def test_resume_takes_its_roles_from_the_ledger_and_does_not_run_stage_one_again(fx):
+    script_stage_1(fx)
+    fx.set("tester", ok(checks_out("S1.1", "S1.2", codes=(CHECK1, WRONG))))
+    fx.set("consultant", ok(ADVICE))
+    (fx.folder / "interrupt").write_text("")
+    roles = "product_manager,system_designer,tester,consultant"
+    out = fx.fund("--roles", roles)
+    assert out.code == EXIT_INTERRUPTED
+    before = fx.calls()
+    assert before == ["product_manager", "system_designer", "tester"]
+    (fx.folder / "interrupt").unlink()
+    fx.set("worker", {"files": {"rev.py": GOOD}, "disputes": [DISPUTE]})
+    out = fx.run("resume", answers={"Task": "d"})
+    assert out.code == EXIT_OK
+    assert fx.calls()[:3] == before  # no product manager, designer or tester again
+    assert fx.calls().count("consultant") == 1
+    assert out.index("say", "consultant's opinion, unverified") < out.index("ask", "Task t1:")
+    [started] = fx.events(EventType.STARTED)
+    assert started.data["roles"]["names"] == sorted(roles.split(","))

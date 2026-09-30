@@ -32,6 +32,7 @@ from boss.budget import MIN_SLICE_MICROS, RESERVE_MICROS, min_round_budget, plan
 from boss.firm import (
     DEFAULT_SLICE_MICROS,
     DEFAULT_WORKER_MODEL,
+    Advise,
     FirmConfig,
     FirmReport,
     run_firm,
@@ -46,7 +47,7 @@ from boss.ledger import (
     repair_torn_tail,
 )
 from boss.limits import RunLimits
-from boss.pipeline import Pipeline, RolesError, Setup, parse_roles
+from boss.pipeline import Pipeline, RolesError, Setup, parse_roles, recorded_setup
 from boss.report import build_report, dollars, render_report
 from boss.roles import registry
 from boss.roles.builders import PROFILES
@@ -301,7 +302,8 @@ def _fund(
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
         )
         pipe.record_start(config)
-        outcome = _run(sheet, paths, ledger, run_id, env, executable, config, ask, say)
+        advise = pipe.advisor(sheet)
+        outcome = _run(sheet, paths, ledger, run_id, env, executable, config, ask, say, advise)
     return _finish(paths, outcome, say)
 
 
@@ -315,6 +317,7 @@ def _run(
     config: FirmConfig | None,
     ask: Ask,
     say: Say,
+    advise: Advise | None = None,
 ) -> FirmReport | int:
     """Run (or continue) the firm. An exit code instead of a report when it could not finish."""
     cancel = threading.Event()  # set on Ctrl-C, so slices running in other threads stop too
@@ -330,6 +333,7 @@ def _run(
             say=say,
             slice_runner=functools.partial(run_slice, executable=executable, stop=cancel),
             cancel=cancel,
+            advise=advise,
         )
     except IsolationError as exc:
         say(f"Stopped: the worker did not start isolated ({exc}). Run `boss doctor`.")
@@ -394,13 +398,17 @@ def _resume_run(run: str, project: Path, environ: Mapping[str, str], ask: Ask, s
         say(f"Run {run} never got as far as hiring; start again with `boss fund`.")
         return EXIT_FAILED
     env, executable = worker_env(environ), environ.get(EXECUTABLE_VAR, CLI)
+    # The roles a run was started with are on its ledger; a run without any resumes without any.
+    setup = recorded_setup(events) or Setup((), DEFAULT_MODEL, None)
     with LedgerWriter(paths.ledger) as ledger:
+        pipe = Pipeline(setup, project, paths, ledger, run, env, executable, ask, say)
         stops = [e for e in events if e.event is EventType.STOPPED]
         if run_state(events, [t.id for t in sheet.tasks]).stopped:
             say(f"Run {run} was stopped: {stops[-1].data.get('reason', 'no reason recorded')}")
             Recorder(ledger, run, events[-1].round)("investor", EventType.RESUMED)
         say(f"Resuming run {run}...")
-        outcome = _run(sheet, paths, ledger, run, env, executable, None, ask, say)
+        advise = pipe.advisor(sheet)
+        outcome = _run(sheet, paths, ledger, run, env, executable, None, ask, say, advise)
     return _finish(paths, outcome, say)
 
 
