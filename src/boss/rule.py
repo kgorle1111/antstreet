@@ -108,7 +108,11 @@ def decide(
         return verdict(Decision.ESCALATE, "blocked")
     if latest.outcome is Outcome.REFUSAL:
         return verdict(Decision.ESCALATE, "refusal")
-    if disputed and task_checks - latest.passing <= disputed:
+    # Disputing costs a worker nothing, so it protects only a credible claim: every other check
+    # passes, and no more than half of the task's checks are called wrong (the boss's drafts had
+    # at most 3 wrong checks in 8). Otherwise the worker is judged as if it had disputed nothing.
+    credible = 0 < 2 * len(disputed) <= len(task_checks)
+    if credible and task_checks - latest.passing <= disputed:
         return verdict(Decision.ESCALATE, "disputed")
     if counted >= policy.max_slices:
         return verdict(Decision.FIRE, "slice limit")

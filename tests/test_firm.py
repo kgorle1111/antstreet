@@ -424,11 +424,14 @@ def test_disputing_a_check_never_counts_it_as_passing_or_unlocks_a_round(paths):
     assert not any(line.startswith("Round 2") for line in said)
 
 
-def test_disputing_everything_earns_nothing(paths):
-    worker = Script(step(None, disputes=[dispute("c01"), dispute("c02")]), step(GOOD, "done"))
+def test_a_worker_that_disputes_everything_is_fired_and_replaced_like_any_stalled_worker(paths):
+    everything = [dispute("c01"), dispute("c02")]
+    worker = Script(step(None, disputes=everything), step(None), step(GOOD, "done"))
     report, _ = run(paths, worker)
-    assert report.passed == 0 and len(worker.specs) == 1
     assert [e.data["check"] for e in events_of(paths, EventType.DISPUTED)] == ["c01", "c02"]
+    assert events_of(paths, EventType.FIRED)[0].data["reason"] == "no progress"
+    assert events_of(paths, EventType.ABANDONED) == []
+    assert report.all_passed  # the replacement did the work the first worker disputed away
 
 
 def test_a_dispute_does_not_stop_work_on_the_other_checks(paths):
