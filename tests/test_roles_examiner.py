@@ -276,6 +276,14 @@ REFUSED = {
         "code must be 1 to 20000 characters",
     ),
     "empty code": (lambda c: c[0].update(code="  \n"), "code must be 1 to 20000 characters"),
+    "code with a lone surrogate": (
+        lambda c: c[0].update(code="# \ud800\nfrom rev import reverse\ndef test_a():\n    pass\n"),
+        "check 'h01': code is not valid text",
+    ),
+    "code with a null byte": (
+        lambda c: c[0].update(code="from rev import reverse\n\x00\ndef test_a():\n    pass\n"),
+        "check h01 has a syntax error",
+    ),
     "a check with a missing field": (
         lambda c: c[0].pop("source"),
         "check 1: needs a text id, source and code",
@@ -433,3 +441,11 @@ def test_a_folder_that_cannot_be_written_is_booked_and_leaves_nothing_half_writt
     assert "cannot write the held-out checks" in call.data["problems"][0]
     assert not paths.held_out.exists()  # never a half-written folder
     assert said[0].startswith("No held-out checks: they could not be written")
+
+
+def test_the_spend_is_booked_even_when_the_refused_output_cannot_be_saved(fake, paths):
+    paths.examiner_refused.mkdir()  # a folder where the evidence file goes
+    output = mutated(REFUSED["an ungrounded quote"][0])
+    kept, said, [call] = run(fake, paths, output)
+    assert kept is False and call.cost_micros == 20_000 and call.data["kept"] == 0
+    assert said[0].startswith("No held-out checks:")

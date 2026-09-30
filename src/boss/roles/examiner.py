@@ -12,6 +12,7 @@ on without held-out checks. The investor approves what is stored (`approval.revi
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import re
 import shutil
@@ -189,11 +190,22 @@ def _parse(
             problems.append(f"{name}: source must be a fragment of the idea, word for word")
         if not code.strip() or len(code) > MAX_CODE_CHARS:
             problems.append(f"{name}: code must be 1 to {MAX_CODE_CHARS} characters")
+        if not _is_text(code):
+            problems.append(f"{name}: code is not valid text (it cannot be written as UTF-8)")
         entries.append(
             (held_out.HeldOutCheck(check_id, held_out.file_name(check_id), source), code)
         )
     problems += held_out.id_problems([c.id for c, _ in entries])
     return entries, problems
+
+
+def _is_text(code: str) -> bool:
+    """A lone surrogate in model output cannot be written to a file; found before any write."""
+    try:
+        code.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _file_problems(
@@ -255,9 +267,10 @@ def run_examiner(
         )
     except RoleError as exc:
         problems = exc.problems if isinstance(exc, RoleOutputError) else [str(exc)]
+        book(exc.usage, str(exc.outcome), 0, problems)  # the spend first: nothing below may lose it
         if isinstance(exc, RoleOutputError) and exc.data is not None:
-            paths.examiner_refused.write_text(json.dumps(exc.data, indent=2), encoding="utf-8")
-        book(exc.usage, str(exc.outcome), 0, problems)
+            with contextlib.suppress(OSError):  # evidence, best effort
+                paths.examiner_refused.write_text(json.dumps(exc.data, indent=2), encoding="utf-8")
         say(f"No held-out checks: the examiner's output was not usable ({problems[0]}).")
         return False
     try:
