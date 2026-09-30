@@ -30,6 +30,8 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "duration_s": (int, float),
     "firm_args": str,
     "wrong_checks": (int, _NONE),
+    "held_out_passed": (int, _NONE),
+    "held_out_total": (int, _NONE),
 }
 
 
@@ -54,6 +56,12 @@ class CellResult:
     # Firm only: boss-written checks that the task's reference solution fails. Such a check
     # demands something the idea does not; None when not measured (older results, single arm).
     wrong_checks: int | None = None
+    # Firm only, and only when the run had held-out checks: how many of them the assembled product
+    # passed, out of how many. A check the run did not get to grade counts as not passed. Compared
+    # with `hidden`, they tell whether a held-out failure predicts a hidden-check failure. None
+    # when the run had none (older results, the single arm, no `--held-out`).
+    held_out_passed: int | None = None
+    held_out_total: int | None = None
 
     def __post_init__(self) -> None:
         if self.arm not in ARMS:
@@ -62,6 +70,15 @@ class CellResult:
             raise ValueError(f"unknown failure class {self.failure_class!r}")
         if self.passed and self.failure_class is not None:
             raise ValueError("a passing cell cannot have a failure class")
+        held = (self.held_out_passed, self.held_out_total)
+        if (held[0] is None) != (held[1] is None):
+            raise ValueError(
+                "held_out_passed and held_out_total are recorded together or not at all"
+            )
+        if held[0] is not None and held[1] is not None and not 0 <= held[0] <= held[1]:
+            raise ValueError(
+                f"held_out_passed {held[0]} must be between 0 and held_out_total {held[1]}"
+            )
 
     @property
     def hidden_passed(self) -> int:

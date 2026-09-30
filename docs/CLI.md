@@ -218,6 +218,7 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 | `--boss-model` | `haiku` | Boss model, firm arm. |
 | `--only` | all tasks | Task ids to run. |
 | `--firm-args` | none | Extra `boss fund` options for the firm arm, in one quoted string. Recorded in every result. |
+| `--held-out` | `0` | Held-out checks for the firm arm to ask the examiner for, 0 to 8; 0 is off. It adds `--held-out N` to the firm arm's `boss fund` (`boss fund` has no such option yet, so a cell with it fails until that option is added) and records `held_out_passed` and `held_out_total` in each firm result. The single arm ignores it. |
 | `--jobs` | `2` | Cells to run at once. |
 | `--dry-run` | off | Print the cells and the task set hash, then exit. |
 

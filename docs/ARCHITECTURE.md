@@ -82,7 +82,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `bench/drafts.py` | Drafting checks per task, with the boss's one call or the three-role staged draft, and scoring each draft (`python -m boss.bench.drafts`). | Start a worker; show the boss a hidden check, the reference or a mutant. |
 | `bench/replay.py` | Replaying a firing policy over recorded ledgers, offline. | Call a model; use a different rule from the live one; walk past DONE or ESCALATE. |
 | `bench/results.py` | One benchmark cell's result record and its load checks. | Accept a wrongly typed field. |
-| `bench/run.py` | Running benchmark cells through the single and firm arms. | Copy hidden checks or the reference into a workspace or a prompt. |
+| `bench/run.py` | Running benchmark cells through the single and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
 | `bench/score.py` | Scoring a draft's checks (precision on the reference, recall on the mutants) and a critic's verified findings against the reference. | Spend money; count a mutant killed only by a wrong check as caught. |
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
