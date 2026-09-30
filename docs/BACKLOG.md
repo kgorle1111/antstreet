@@ -101,3 +101,12 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|---|
 | B50 | Run the Linux (`bwrap`) sandbox on a Linux host, then tighten its root to an allowlist; `sandbox.py` kn: root read-only with /home, /root, /tmp and /run hidden; not run on this machine | No `bwrap` on the machine it was written on; `docs/SANDBOX.md` step 1 is the check | open |
 | B51 | Show `sandboxed` in `boss report` | The flag is on every check result and in `boss doctor`; the report does not print it yet (T39) | open |
+
+## Measurement and staffing, added later
+
+| Id | Item | Why it was deferred | Status |
+|---|---|---|---|
+| B52 | Held-out checks: a tester with no contact with the workers writes checks the workers never see, run only at the final product gate | In the final run 12 of 36 firm cells passed every visible check and failed a hidden one. The visible checks stay the spec; the held-out ones decide the verdict | open |
+| B53 | Staff by need: one worker by default, more only when the design splits into tasks with separate files, or when a worker is fired or stuck | The firm cost 2.4x per cell and took 2.8x the time for 69% against 63%, within the noise. A model's guess at "complexity" is not a signal the gate can check | open: measure as a third arm before it becomes the default |
+| B54 | An external benchmark: NL2Repo-Bench, its easy tasks first (spec in, Python library out, graded by upstream tests the agent never sees) | Needs an adapter and network blocking for the workers; no published cost per task, so one task is measured before any more | open |
+| B55 | pass^k and time per cell in the table | Asked for with B54 | done: `bench/table.py` shows the median time per cell and the tasks passed on every run |
