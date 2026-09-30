@@ -16,6 +16,7 @@ from boss.firm import FirmConfig, FirmReport, config_data, config_from_data, run
 from boss.gate import run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total
 from boss.limits import RunLimits
+from boss.report import build_report, render_report
 from boss.roles.examiner import run_examiner
 from boss.rule import FiringPolicy
 from boss.rundir import RunPaths
@@ -473,6 +474,9 @@ def test_examiner_review_approval_and_grading_in_one_run(paths, examiner_env):
     assert call.actor == "role:examiner" and call.data["kept"] == 2
     [approval] = events_of(paths, EventType.APPROVED)
     assert set(approval.data["held_out_hashes"]) == {"manifest.json", "test_h01.py", "test_h02.py"}
+    shown = render_report(build_report(read_events(paths.ledger)))
+    assert "Held-out checks: 1 of 2 passed on the product; the workers never saw them." in shown
+    assert "  h02  failed" in shown and "role:examiner" in shown
 
 
 def test_the_examiners_spend_is_booked_and_shrinks_the_first_slices_cap(paths, examiner_env):
@@ -499,6 +503,9 @@ def test_an_examiner_that_fails_is_recorded_and_the_run_goes_on_without_held_out
     assert not paths.held_out.exists()
     assert len(worker.specs) == 1
     assert (report.held_out_passed, report.held_out_total) == (0, 0) and report.all_passed
+    shown = render_report(build_report(read_events(paths.ledger)))
+    assert "Held-out checks: none. The examiner's call ended" in shown
+    assert "the run went on without them." in shown
 
 
 def test_an_examiner_output_the_gate_refuses_is_recorded_and_the_run_goes_on(paths, examiner_env):
@@ -508,4 +515,6 @@ def test_an_examiner_output_the_gate_refuses_is_recorded_and_the_run_goes_on(pat
     assert call.data["kept"] == 0 and "fragment of the idea" in call.data["problems"][0]
     assert call.cost_micros == 20_000  # the refused output was paid for
     assert report.all_passed and not paths.held_out.exists()
+    shown = render_report(build_report(read_events(paths.ledger)))
+    assert "Held-out checks: none. The examiner's output was not kept: " in shown
     assert json.loads(paths.examiner_refused.read_text()) == bad

@@ -20,6 +20,7 @@ from boss.gate import Check
 from boss.termsheet import CheckSpec, check_file_problems, empty_checks_problems
 
 SCOPE = "held_out"  # the `scope` of a held-out `check_result` event
+EXAMINER_ACTOR = "role:examiner"  # the ledger actor of the role that writes them
 MAX_HELD_OUT = 8  # each is a pytest run on the product, and the investor reads every one
 MANIFEST = "manifest.json"
 _ID = re.compile(r"h\d{2}\Z")

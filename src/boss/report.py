@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from boss.held_out import EXAMINER_ACTOR, MANIFEST
+from boss.held_out import SCOPE as HELD_OUT_SCOPE
 from boss.ledger import Event, EventType, Totals, total, totals_by
 from boss.redact import safe_text
 
@@ -89,6 +91,11 @@ class Report:
     disputes: list[DisputeLine] = field(default_factory=list)
     roles: list[RoleLine] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    held_out: list[CheckLine] = field(
+        default_factory=list
+    )  # graded on the product, apart from checks
+    held_out_written: int = 0  # held-out checks the investor approved
+    held_out_summary: str | None = None  # the one line about them; None for a run that never asked
 
 
 def build_report(events: Sequence[Event]) -> Report:
@@ -99,16 +106,22 @@ def build_report(events: Sequence[Event]) -> Report:
         raise ValueError(f"ledger mixes runs: {sorted(runs)}")
 
     latest_check: dict[str, CheckLine] = {}
+    latest_held_out: dict[str, CheckLine] = {}
     rounds: list[RoundLine] = []
     for e in events:
         if _missing(e):
             continue
         if e.event is EventType.CHECK_RESULT:
             line = CheckLine(e.data["check"], e.data["status"], e.data.get("detail", ""))
-            latest_check[line.check] = line  # a later gate run supersedes an earlier one
+            # A later gate run supersedes an earlier one; a held-out result is never a visible
+            # check's, whatever id it carries.
+            held = e.data.get("scope") == HELD_OUT_SCOPE
+            (latest_held_out if held else latest_check)[line.check] = line
         elif e.event is EventType.ROUND_CLOSED:
             rounds.append(RoundLine(e.round, e.data["passed"], e.data["total"], e.data["unlocked"]))
 
+    held_out = [latest_held_out[k] for k in sorted(latest_held_out)]
+    written, summary = _held_out_summary(events, held_out)
     return Report(
         run=events[0].run,
         approved=any(e.event is EventType.APPROVED and e.actor == "investor" for e in events),
@@ -135,7 +148,71 @@ def build_report(events: Sequence[Event]) -> Report:
         ],
         notes=[_note(e) for e in events if e.event in _NOTABLE]
         + [_incomplete_note(e) for e in events if _missing(e)],
+        held_out=held_out,
+        held_out_written=written,
+        held_out_summary=summary,
     )
+
+
+def _held_out_summary(
+    events: Sequence[Event], graded: Sequence[CheckLine]
+) -> tuple[int, str | None]:
+    """How many held-out checks the investor approved, and the one line the report says about
+    them: their result, or why a run that asked for them has none. None when it never asked."""
+    hashes = [
+        e.data["held_out_hashes"]
+        for e in events
+        if e.event is EventType.APPROVED
+        and e.actor == "investor"
+        and isinstance(e.data.get("held_out_hashes"), dict)
+    ]
+    written = len([k for k in hashes[-1] if k != MANIFEST]) if hashes else 0
+    calls = [e for e in events if e.event is EventType.ROLE_CALL and e.actor == EXAMINER_ACTOR]
+    started = next((e for e in events if e.event is EventType.STARTED), None)
+    config = started.data.get("config") if started else None
+    requested = config.get("held_out") if isinstance(config, dict) else 0
+    count = max(written, len(graded))
+    if count:
+        passed = sum(c.status == "passed" for c in graded)
+        unseen = "the workers never saw them"
+        if not graded:
+            done = (
+                f"{count} approved, none graded on the product (the run ended before its verdict)"
+            )
+        elif len(graded) < count:
+            done = f"{passed} of {count} passed on the product ({count - len(graded)} not graded)"
+        else:
+            done = f"{passed} of {count} passed on the product"
+        return written, f"Held-out checks: {done}; {unseen}."
+    if calls:
+        return 0, _examiner_summary(calls[-1])
+    if isinstance(requested, int) and not isinstance(requested, bool) and requested > 0:
+        return 0, (
+            f"Held-out checks: {requested} were requested, but no examiner call is recorded; "
+            "the run had none."
+        )
+    return 0, None
+
+
+def _examiner_summary(call: Event) -> str:
+    """Why an examiner call left the run with no held-out checks. Its reasons are model text and
+    exception text, so they pass `safe_text` on one line."""
+    problems = call.data.get("problems")
+    first = problems[0] if isinstance(problems, list) and problems else ""
+    why = _detail(str(first)) or "no reason recorded"
+    outcome = str(call.data.get("outcome", "unknown"))
+    if call.data.get("kept"):
+        return (
+            f"Held-out checks: the examiner wrote {_detail(str(call.data['kept']))}, but the "
+            "investor's approval does not cover them; none ran."
+        )
+    if outcome == "skipped":
+        what = f"The examiner was not called ({why})"
+    elif outcome == "completed":
+        what = f"The examiner's output was not kept: {why}"
+    else:
+        what = f"The examiner's call ended {_detail(outcome)}: {why}"
+    return f"Held-out checks: none. {what}; the run went on without them."
 
 
 def _missing(event: Event) -> list[str]:
@@ -200,6 +277,10 @@ def render_report(report: Report) -> str:
     out += [f"  {c.check}  {c.status:<8} {_detail(c.detail)}" for c in report.checks] or [
         "  none run"
     ]
+
+    if report.held_out_summary:
+        out += ["", report.held_out_summary]
+        out += [f"  {c.check}  {c.status:<8} {_detail(c.detail)}" for c in report.held_out]
 
     out += ["", "Spend (estimated by the CLI, not a bill)"]
     for actor in sorted(report.by_actor):
