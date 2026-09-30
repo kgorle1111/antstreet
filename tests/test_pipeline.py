@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from boss.boss import load_prompt
-from boss.cli import EXIT_FAILED, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
+from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
 from boss.firm import FirmConfig
 from boss.ledger import EventType, read_events
 from boss.pipeline import RolesError, Setup, parse_roles, recorded_setup
@@ -116,6 +116,7 @@ else:                                                    # a worker slice
         import time; time.sleep(30)
     step = answer("worker") or {{"files": {{"rev.py": {GOOD!r}}}}}
     log("worker")
+    open(os.path.join(folder, "last_worker.txt"), "w").write(argv[-1])
     for name, text in step["files"].items():
         open(name, "w").write(text)
     cum = os.path.join(folder, "cum")   # the CLI reports a session's cumulative cost
@@ -274,8 +275,8 @@ class Fx:
             for prefix, queue in replies.items():
                 if prompt.startswith(prefix):
                     reply = queue.pop(0) if len(queue) > 1 else queue[0]
-                    if reply is EOFError:
-                        raise EOFError
+                    if reply in (EOFError, KeyboardInterrupt):
+                        raise reply
                     return reply
             raise AssertionError(f"unexpected question {prompt!r}")
 
@@ -910,3 +911,346 @@ def test_resume_takes_its_roles_from_the_ledger_and_does_not_run_stage_one_again
     assert out.index("say", "consultant's opinion, unverified") < out.index("ask", "Task t1:")
     [started] = fx.events(EventType.STARTED)
     assert started.data["roles"]["names"] == sorted(roles.split(","))
+
+
+# --- stage 3: a critic's verified findings can become an investor-approved fix round -----------
+
+BUGGY = "def reverse(s):\n    return s[::-1] if len(s) < 5 else s\n"
+LONG = "from rev import reverse\n\n\ndef test_long():\n    assert reverse('abcdef') == 'fedcba'\n"
+LENIENT = (
+    "def test_long():\n    try:\n        from rev import reverse\n    except ImportError:\n"
+    "        return\n    assert reverse('abcdef') == 'fedcba'\n"
+)  # fails on the product, but passes when there is no product at all
+PASSES = "from rev import reverse\n\n\ndef test_short():\n    assert reverse('ab') == 'ba'\n"
+CLAIM = "reverse leaves strings of five or more characters as they are"
+QUESTION = "Add these 1 checks and fund a fix round of $0.3? [y]es / [n]o "
+
+
+def finding(code=LONG, *, severity="high", claim=CLAIM, quote=Q1):
+    return {"severity": severity, "claim": claim, "quote": quote, "test_code": code}
+
+
+def critic_finds(fx, *findings, cost=0.004):
+    """The worker delivers a product the approved check misses; the critic's tests are `findings`;
+    a second slice, if one is funded, fixes the product."""
+    fx.set("worker", [{"files": {"rev.py": BUGGY}}, {"files": {"rev.py": GOOD}}])
+    fx.set("critic", ok({"findings": list(findings)}, cost=cost))
+
+
+def approvals(fx):
+    return fx.events(EventType.APPROVED)
+
+
+def asked(out, start):
+    return [t for k, t in out.transcript if k == "ask" and t.startswith(start)]
+
+
+def product_verdicts(fx):
+    results = fx.events(EventType.CHECK_RESULT)
+    return {e.data["check"]: e.data["status"] for e in results if e.data.get("scope") == "product"}
+
+
+def test_a_verified_finding_the_investor_approves_is_fixed_by_a_worker_and_recorded(fx):
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic")
+    assert out.code == EXIT_OK
+    assert f"Critic verified a finding (high): {CLAIM}" in out.text
+    assert (
+        "Critic: 1 finding(s) verified by running their tests on the product, 0 rejected."
+        in out.text
+    )
+    [call] = fx.role_calls("critic")
+    assert call.actor == "role:critic" and call_facts(call) == ("completed", "ok", 4_000)
+    assert (call.data["verified"], call.data["rejected"], call.round) == (1, 0, 0)
+    # the investor reads the check they are asked to approve, then is asked once
+    shown = out.index("say", "Check c02 [t1]")
+    assert shown < out.index("ask", QUESTION) < out.index("say", "Approved. Funding a worker")
+    assert "assert reverse('abcdef') == 'fedcba'" in out.text
+    assert asked(out, "Add these") == [QUESTION]
+    # the amendment: the investor's approval of exactly the amended sheet, adding c02, in round 2
+    first, amendment = approvals(fx)
+    assert amendment.actor == "investor" and amendment.round == 2
+    assert set(amendment.data) == {"hashes", "round", "added_checks"}
+    assert amendment.data["round"] == 2 and amendment.data["added_checks"] == ["c02"]
+    assert set(amendment.data["hashes"]) == {"term_sheet", "test_c01.py", "test_c02.py"}
+    assert amendment.data["hashes"]["test_c01.py"] == first.data["hashes"]["test_c01.py"]
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    assert sheet["approved_by_investor"] is True and sheet["budget_micros"] == 500_000 + 300_000
+    assert [c["id"] for c in sheet["checks"]] == ["c01", "c02"]
+    assert sheet["checks"][1]["description"] == CLAIM and sheet["checks"][1]["task"] == "t1"
+    rounds = [(r["n"], r["budget_micros"], r["unlock_checks"]) for r in sheet["rounds"]]
+    assert rounds == [(1, 500_000, 1), (2, 300_000, 2)]
+    assert (fx.run_dir / "checks" / "test_c02.py").read_text() == LONG
+    # a worker was funded, told of the new check, and fixed the product
+    assert fx.calls() == ["boss", "worker", "critic", "worker"]
+    assert (fx.run_dir / "product" / "rev.py").read_text() == GOOD
+    assert "--- check c02" in (fx.folder / "last_worker.txt").read_text()
+    assert product_verdicts(fx) == {"c01": "passed", "c02": "passed"}
+    assert fx.events(EventType.SLICE_END)[-1].round == 2
+    assert "w1 slice 2 on t1: 2/2 checks pass; round 2 has spent" in out.text
+    assert "  c02  passed" in out.text and asked(out, "Round") == []  # the amendment funded it
+
+
+@pytest.mark.parametrize("answer", ["y", "yes", "a", "approve", " YES "])
+def test_every_way_the_firm_accepts_a_yes_is_a_yes_here(fx, answer):
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic", answers={"Add these": answer})
+    assert out.code == EXIT_OK and len(approvals(fx)) == 2
+
+
+@pytest.mark.parametrize("answer", ["n", "no", "", "maybe", EOFError])
+def test_anything_but_a_yes_is_a_no_and_the_findings_stay_in_the_report(fx, answer):
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic", answers={"Add these": answer})
+    assert out.code == EXIT_OK  # the product already passes every approved check
+    assert "No fix round. The findings are in the report only." in out.text
+    assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
+    assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    assert len(sheet["checks"]) == 1 and len(sheet["rounds"]) == 1
+    assert sheet["budget_micros"] == 500_000
+    assert fx.role_calls("critic")[0].data["verified"] == 1  # on the ledger, so in the report
+
+
+def test_ctrl_c_at_the_question_is_an_interruption_and_a_resume_does_not_ask_again(fx):
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic", answers={"Add these": KeyboardInterrupt})
+    assert out.code == EXIT_INTERRUPTED and "continue with `boss resume" in out.text
+    assert len(approvals(fx)) == 1 and len(fx.role_calls("critic")) == 1
+    before = fx.events()
+    out = fx.run("resume")  # the findings are not offered again: they wait in the critic-1 folder
+    assert out.code == EXIT_OK and asked(out, "Add these") == [] and fx.events() == before
+
+
+def test_review_cycles_zero_reports_the_findings_and_asks_nothing(fx):
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic", "--review-cycles", "0")
+    assert out.code == EXIT_OK and f"Critic verified a finding (high): {CLAIM}" in out.text
+    assert "--review-cycles is 0" in out.text and asked(out, "Add these") == []
+    assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
+
+
+def test_one_review_cycle_means_the_critic_is_not_asked_again_after_the_fix_round(fx):
+    critic_finds(fx, finding())
+    fx.fund("--roles", "critic")
+    assert fx.calls().count("critic") == 1 and len(fx.role_calls("critic")) == 1
+
+
+def test_two_review_cycles_let_the_critic_look_again_after_the_first_fix(fx):
+    critic_finds(fx, finding())
+    fx.set("critic", [ok({"findings": [finding()]}), ok({"findings": []})])
+    out = fx.fund("--roles", "critic", "--review-cycles", "2")
+    assert out.code == EXIT_OK and fx.calls().count("critic") == 2
+    assert [e.data["cycle"] for e in fx.role_calls("critic")] == [1, 2]
+    assert "Critic: 0 finding(s) verified" in out.text
+    assert len(approvals(fx)) == 2 and len(asked(out, "Add these")) == 1  # nothing new to add
+
+
+def test_a_finding_whose_check_would_pass_on_an_empty_workspace_is_dropped_with_a_line(fx):
+    critic_finds(fx, finding(LENIENT, claim="a lenient test"), finding())
+    out = fx.fund("--roles", "critic")
+    assert out.code == EXIT_OK
+    dropped = "Finding not proposed as a check (a lenient test): it does not fail on an empty"
+    assert dropped in out.text
+    assert asked(out, "Add these") == [QUESTION]  # one check, not two
+    assert approvals(fx)[1].data["added_checks"] == ["c03"]  # c02 was the dropped one
+    assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == [
+        "test_c01.py",
+        "test_c03.py",
+    ]
+    assert (
+        json.loads((fx.run_dir / "term_sheet.json").read_text())["rounds"][1]["unlock_checks"] == 2
+    )
+
+
+def test_when_every_finding_is_dropped_there_is_no_question_and_no_new_round(fx):
+    critic_finds(fx, finding(LENIENT))
+    out = fx.fund("--roles", "critic")
+    assert out.code == EXIT_OK and asked(out, "Add these") == []
+    assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
+    assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
+
+
+@pytest.mark.parametrize(
+    "findings", [[], [finding(PASSES)]], ids=["no findings", "the test passes on the product"]
+)
+def test_no_verified_finding_means_no_question(fx, findings):
+    critic_finds(fx, *findings)
+    out = fx.fund("--roles", "critic")
+    assert out.code == EXIT_OK
+    said = f"Critic: 0 finding(s) verified by running their tests on the product, {len(findings)}"
+    said += " rejected."
+    assert said in out.text
+    [call] = fx.role_calls("critic")
+    assert call_facts(call) == ("completed", "ok", 4_000) and call.data["verified"] == 0
+    assert call.data["rejected"] == len(findings) and asked(out, "Add these") == []
+    assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
+
+
+def test_the_critic_is_told_which_checks_pass_and_reads_the_product(fx):
+    critic_finds(fx)
+    fx.fund("--roles", "critic")
+    prompt = fx.last_prompt("critic")
+    assert "- reverses a word" in prompt and "File: rev.py" in prompt and BUGGY.strip() in prompt
+
+
+def test_a_critic_that_fails_is_booked_said_and_the_run_is_unchanged(fx):
+    fx.set("critic", bad(0.003))
+    out = fx.fund("--roles", "critic")
+    assert out.code == EXIT_OK
+    [call] = fx.role_calls("critic")
+    assert call_facts(call) == ("api_error", "failed", 3_000)
+    assert "The critic failed (" in out.text and "Critic: " not in out.text
+    assert asked(out, "Add these") == []
+
+
+def test_the_critic_is_not_run_when_nothing_was_built(fx):
+    fx.set("critic", ok({"findings": []}))
+    out = fx.fund("--roles", "critic", "--max-minutes", "1e-9")
+    assert out.code == EXIT_INCOMPLETE and fx.role_calls() == [] and "critic" not in fx.calls()
+
+
+def test_a_run_that_ended_early_reports_the_findings_and_offers_no_fix_round(fx):
+    fx.set("worker", {"files": {"rev.py": "def reverse(s):\n    return s\n"}})
+    fx.set("critic", ok({"findings": [finding()]}))
+    out = fx.fund("--roles", "critic", "--budget", "0.12", "--slice", "0.005")
+    reason = "round 1 closed below its unlock threshold"
+    assert out.code == EXIT_INCOMPLETE and f"Ended early: {reason}" in out.text
+    assert "Critic verified a finding (high)" in out.text
+    assert f"The run ended early ({reason}): no fix round is offered." in out.text
+    assert asked(out, "Add these") == [] and len(approvals(fx)) == 1
+
+
+def test_the_fix_budget_is_what_the_new_round_is_funded_with(fx):
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic", "--fix-budget", "0.2")
+    assert out.code == EXIT_OK
+    assert asked(out, "Add these") == [
+        "Add these 1 checks and fund a fix round of $0.2? [y]es / [n]o "
+    ]
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    assert sheet["rounds"][1]["budget_micros"] == 200_000 and sheet["budget_micros"] == 700_000
+
+
+def test_the_default_fix_budget_is_two_slices_and_a_reserve_from_the_runs_options(fx):
+    critic_finds(fx, finding())
+    fx.fund("--roles", "critic", "--slice", "0.06", "--reserve", "0.02")
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    assert sheet["rounds"][1]["budget_micros"] == 2 * 60_000 + 20_000
+
+
+@pytest.mark.parametrize("small", ["0.104999", "0.01"])
+def test_a_fix_budget_below_one_slice_and_a_reserve_is_refused_before_anything_is_spent(fx, small):
+    out = fx.fund("--roles", "critic", "--fix-budget", small)
+    assert out.code == EXIT_USAGE and "--fix-budget must be at least $0.105" in out.text
+    assert not (fx.project / ".boss").exists() and fx.calls() == []
+
+
+def test_the_smallest_fix_budget_is_one_reserve_and_one_minimum_slice(fx):
+    out = fx.fund("--roles", "critic", "--reserve", "0.01", "--fix-budget", "0.014")
+    assert out.code == EXIT_USAGE and "at least $0.015" in out.text and fx.calls() == []
+    fx.set("critic", ok({"findings": []}))
+    out = fx.fund("--roles", "critic", "--reserve", "0.01", "--fix-budget", "0.015")
+    assert out.code == EXIT_OK
+
+
+@pytest.mark.parametrize("bad_cycles", ["-1", "1.5", "many"])
+def test_review_cycles_is_a_whole_number(fx, bad_cycles, capsys):
+    with pytest.raises(SystemExit) as info:
+        fx.fund("--review-cycles", bad_cycles)
+    assert info.value.code == 2 and "whole number of 0 or more" in capsys.readouterr().err
+
+
+def two_tasks(fx, finding_code):
+    """Two tasks: t1 owns rev.py, t2 owns util.py; a helper no task owns comes with the first."""
+    util_check = "from util import shout\n\n\ndef test_shout():\n    assert shout('a') == 'A'\n"
+    draft = {
+        "tasks": [
+            {"id": "t1", "brief": "Create rev.py with reverse(s).", "paths": ["rev.py"]},
+            {"id": "t2", "brief": "Create util.py with shout(s).", "paths": ["util.py"]},
+        ],
+        "checks": [
+            {"description": "reverses a word", "task": "t1", "code": CHECK1},
+            {"description": "shouts a letter", "task": "t2", "code": util_check},
+        ],
+    }
+    helper = "def h():\n    return 1\n"
+    fx.set("boss", ok(draft))
+    fx.set(
+        "worker",
+        [
+            {"files": {"rev.py": GOOD, "helpers.py": helper}},
+            {"files": {"util.py": "def shout(s):\n    return s[:1].upper() + s[1:]\n"}},
+            {"files": {"util.py": "def shout(s):\n    return s.upper()\n"}},
+        ],
+    )
+    fx.set("critic", ok({"findings": [finding(finding_code, claim="a claim about the code")]}))
+
+
+def test_the_new_check_belongs_to_the_task_that_owns_the_module_its_test_imports(fx):
+    two_tasks(fx, "from util import shout\n\n\ndef test_all():\n    assert shout('ab') == 'AB'\n")
+    out = fx.fund("--roles", "critic", "--max-tasks", "2")
+    assert out.code == EXIT_OK
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    tasks = [(c["id"], c["task"]) for c in sheet["checks"]]
+    assert tasks == [("c01", "t1"), ("c02", "t2"), ("c03", "t2")]
+    assert fx.events(EventType.SLICE_END)[-1].actor == "worker:w2"  # t2's worker fixed it
+    assert any("Check c03 [t2]" in line for line in out.said)
+
+
+def test_a_finding_no_task_owns_is_not_proposed(fx):
+    two_tasks(fx, "from helpers import h\n\n\ndef test_h():\n    assert h() == 2\n")
+    out = fx.fund("--roles", "critic", "--max-tasks", "2")
+    assert out.code == EXIT_OK and asked(out, "Add these") == []
+    assert (
+        "Finding not proposed (a claim about the code): no task owns the module its test"
+        in out.text
+    )
+    assert len(approvals(fx)) == 1 and not (fx.run_dir / "checks" / "test_c03.py").exists()
+
+
+# --- resume: stage 3 is not repeated ------------------------------------------------------------
+
+
+def test_resuming_a_finished_run_that_used_the_critic_adds_no_events_and_no_calls(fx):
+    critic_finds(fx, finding())
+    fx.fund("--roles", "critic")
+    before, calls = fx.events(), fx.calls()
+    for _ in range(2):
+        out = fx.run("resume")
+        assert out.code == EXIT_OK and "c02  passed" in out.text
+        assert fx.events() == before and fx.calls() == calls
+    assert asked(out, "Add these") == []
+
+
+def test_resuming_after_the_investor_said_no_does_not_ask_again(fx):
+    critic_finds(fx, finding())
+    fx.fund("--roles", "critic", answers={"Add these": "n"})
+    before = fx.events()
+    out = fx.run("resume")
+    assert out.code == EXIT_OK and fx.events() == before and asked(out, "Add these") == []
+
+
+def test_a_run_interrupted_before_stage_three_gets_its_critic_on_resume_exactly_once(fx):
+    critic_finds(fx, finding())
+    (fx.folder / "interrupt").write_text("")
+    out = fx.fund("--roles", "critic")
+    assert out.code == EXIT_INTERRUPTED and fx.role_calls() == []
+    (fx.folder / "interrupt").unlink()
+    out = fx.run("resume")
+    assert out.code == EXIT_OK and len(fx.role_calls("critic")) == 1 and len(approvals(fx)) == 2
+    before = fx.events()
+    fx.run("resume")
+    assert fx.events() == before
+
+
+def test_resume_can_offer_the_fix_round_with_its_own_budget(fx):
+    critic_finds(fx, finding())
+    (fx.folder / "interrupt").write_text("")
+    fx.fund("--roles", "critic")
+    (fx.folder / "interrupt").unlink()
+    fx.run("resume", "--fix-budget", "0.25")
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    assert sheet["rounds"][1]["budget_micros"] == 250_000
+    out = fx.run("resume", "--fix-budget", "0.01")
+    assert out.code == EXIT_USAGE and "--fix-budget must be at least $0.105" in out.text

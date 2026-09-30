@@ -13,29 +13,37 @@ With no roles chosen every method is a no-op, and the run is the run `boss fund`
 
 from __future__ import annotations
 
+import ast
+import dataclasses
 import functools
 import json
 import shutil
+import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from boss.firm import Advise, FirmConfig, config_data
-from boss.ledger import Event, EventType, LedgerWriter
+from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
+from boss.firm import Advise, FirmConfig, FirmReport, config_data
+from boss.gate import Check, CheckStatus, GateError, run_gate
+from boss.ledger import Event, EventType, LedgerWriter, read_events
 from boss.redact import safe_text
 from boss.roles import registry
 from boss.roles.advisory import advise_on_dispute, audit_checks, render_advice, render_audit
 from boss.roles.base import RoleError, RoleSpec, ledger_fields
+from boss.roles.critic import Finding, Review, findings_as_checks, review_product, write_check_files
 from boss.roles.engineering import StagedDraftError, draft_staged, render_coverage, stories_text
 from boss.roles.product import StoryReview, review_stories, uncovered_fragments, write_stories
 from boss.roles.stories import Stories
 from boss.rundir import Recorder, RunPaths
 from boss.stream import Usage
-from boss.termsheet import TermSheet
+from boss.termsheet import CheckSpec, Round, TermSheet, TermSheetError, validate
+from boss.worker import usd
 
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
+Rerun = Callable[[TermSheet], FirmReport | int]  # run the firm again on an amended sheet
 
 # A role that cannot work without another's output, and why. `system_designer` alone would pay
 # for a design that produces no checks.
@@ -49,6 +57,7 @@ _WHY = {
     "tester": "it writes checks for the stories and the design",
     "system_designer": "a design alone produces no checks",
 }
+YES = ("y", "yes", "a", "approve")
 _STORIES_CHARS = 20_000
 
 
@@ -74,6 +83,11 @@ def parse_roles(text: str, known: Iterable[str]) -> tuple[str, ...]:
     if problems:
         raise RolesError("\n".join(problems))
     return tuple(sorted(names))
+
+
+def default_fix_budget(config: FirmConfig) -> int:
+    """Two slices and one reserve: what one worker needs to fix a handful of findings."""
+    return 2 * config.slice_micros + config.reserve_micros
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +407,239 @@ class Pipeline:
             return None if advice is None else render_advice(advice)
 
         return advise
+
+    # --- stage 3: after the workers finish ---------------------------------------------------
+
+    def after_build(
+        self,
+        sheet: TermSheet,
+        outcome: FirmReport,
+        rerun: Rerun,
+        *,
+        review_cycles: int,
+        fix_micros: int,
+    ) -> FirmReport | int:
+        """The critic, on whatever was built. An int is an exit code: the fix round was
+        interrupted."""
+        if not self.setup.roles or not self._built():
+            return outcome
+        if self._on("critic"):
+            result = self._review(sheet, outcome, rerun, review_cycles, fix_micros)
+            if isinstance(result, int):
+                return result
+            sheet, outcome = result
+        return outcome
+
+    def _built(self) -> bool:
+        return any(p.is_file() for p in self.paths.product.rglob("*"))
+
+    def _review(
+        self, sheet: TermSheet, outcome: FirmReport, rerun: Rerun, cycles: int, fix_micros: int
+    ) -> tuple[TermSheet, FirmReport] | int:
+        # The ledger counts the cycles: a resumed run finds them there and adds none.
+        while len(_calls(self._events(), "critic")) < max(1, cycles):
+            review = self._critic(sheet)
+            if review is None or not review.verified:
+                break
+            if cycles == 0:
+                self.say(
+                    "--review-cycles is 0: the findings are in the report, no fix round is offered."
+                )
+                break
+            if outcome.stopped:
+                self.say(f"The run ended early ({outcome.stopped}): no fix round is offered.")
+                break
+            amended = self._amend(sheet, review, fix_micros)
+            if amended is None:
+                break
+            result = rerun(amended)
+            if isinstance(result, int):
+                return result
+            sheet, outcome = amended, result
+        return sheet, outcome
+
+    def _critic(self, sheet: TermSheet) -> Review | None:
+        cycle = len(_calls(self._events(), "critic")) + 1
+        review = self._call(
+            _spec("critic"),
+            lambda: review_product(
+                sheet.idea,
+                self.paths.product,
+                self._passing(sheet),
+                self.paths.root / f"critic-{cycle}",
+                **self._call_args(),
+            ),
+            lambda r: {
+                "detail": f"{len(r.verified)} verified, {len(r.rejected)} rejected",
+                "verified": len(r.verified),
+                "rejected": len(r.rejected),
+                "cycle": cycle,
+            },
+        )
+        if review is not None:
+            for f in review.verified:
+                self.say(f"Critic verified a finding ({f.severity}): {f.claim}")
+            self.say(
+                f"Critic: {len(review.verified)} finding(s) verified by running their tests on the "
+                f"product, {len(review.rejected)} rejected."
+            )
+        return review
+
+    def _passing(self, sheet: TermSheet) -> list[str]:
+        """Descriptions of the checks that pass on the assembled product, from the ledger."""
+        events = self._events()
+        last = _last_slice_end(events)
+        passed = {
+            e.data.get("check")
+            for e in events[last:]
+            if e.event is EventType.CHECK_RESULT
+            and e.data.get("scope") == "product"
+            and e.data.get("status") == "passed"
+        }
+        return [c.description for c in sheet.checks if c.id in passed]
+
+    def _amend(self, sheet: TermSheet, review: Review, fix_micros: int) -> TermSheet | None:
+        """The sheet the investor is asked to approve: the verified findings as checks, and a new
+        last round that funds a worker to fix them. Records the approval when the investor says
+        yes; the checks it wrote are removed again when the sheet is not approved."""
+        checks = self._proposed(sheet, review)
+        if not checks:
+            return None
+        n = len(sheet.rounds) + 1
+        amended = dataclasses.replace(
+            sheet,
+            checks=(*sheet.checks, *checks),
+            rounds=(*sheet.rounds, Round(n, fix_micros, len(sheet.checks) + len(checks))),
+            budget_micros=sheet.budget_micros + fix_micros,
+        )
+        try:
+            validate(amended, self.paths.checks)
+        except TermSheetError as exc:
+            problems = _one_line("; ".join(exc.problems), 250)
+            self.say(f"The amended term sheet does not validate: {problems}")
+            self._remove(checks)
+            return None
+        for c in checks:
+            self.say(f"\nCheck {c.id} [{c.task}] {_one_line(c.description, 300)}")
+            self.say(f"--- {self.paths.checks / c.file}")
+            self.say(_check_text(self.paths.checks / c.file))
+        question = (
+            f"Add these {len(checks)} checks and fund a fix round of ${usd(fix_micros)}? "
+            "[y]es / [n]o "
+        )
+        try:
+            answer = self.ask(question).strip().lower()
+        except EOFError:  # nobody is there to approve it; Ctrl-C is an interruption, not a no
+            answer = "n"
+        if answer not in YES:
+            self.say("No fix round. The findings are in the report only.")
+            self._remove(checks)
+            return None
+        # The approval goes on the ledger before the sheet on disk changes: an interruption between
+        # the two leaves the old, still approved sheet to resume, never a sheet nobody approved.
+        data = {
+            "hashes": content_hashes(amended, self.paths.checks),
+            "round": n,
+            "added_checks": [c.id for c in checks],
+        }
+        Recorder(self.ledger, self.run_id, n)("investor", EventType.APPROVED, data=data)
+        approved = dataclasses.replace(amended, approved_by_investor=True)
+        (self.paths.root / TERM_SHEET_FILE).write_text(approved.to_json())
+        self.say("Approved. Funding a worker to fix them...")
+        return approved
+
+    def _proposed(self, sheet: TermSheet, review: Review) -> list[CheckSpec]:
+        """A check file for each verified finding that a task owns and that fails on an empty
+        workspace (as every approved check must). A finding that does not qualify is dropped, with
+        a line saying why."""
+        specs: list[CheckSpec] = []
+        for f in review.verified:
+            task = _owner(sheet, f)
+            if task is None:
+                self.say(
+                    f"Finding not proposed ({f.claim}): no task owns the module its test imports."
+                )
+                continue
+            one = Review((f,), (), ())
+            spec = findings_as_checks(one, [*sheet.checks, *specs], task)[0]
+            write_check_files(one, [spec], self.paths.checks)
+            specs.append(spec)
+        if not specs:
+            return []
+        try:
+            with tempfile.TemporaryDirectory(prefix="boss_empty_ws_") as empty:
+                results = run_gate(
+                    Path(empty),
+                    self.paths.checks,
+                    [Check(s.id, s.file) for s in specs],
+                    timeout_s=30.0,
+                )
+        except GateError as exc:
+            self.say(f"The findings could not be checked against an empty workspace ({exc}).")
+            self._remove(specs)
+            return []
+        kept = []
+        for spec, result in zip(specs, results, strict=True):
+            if result.status is CheckStatus.FAILED:
+                kept.append(spec)
+            else:
+                self.say(
+                    f"Finding not proposed as a check ({spec.description}): it does not fail on an "
+                    "empty workspace, so it could not measure progress."
+                )
+                self._remove([spec])
+        return kept
+
+    def _remove(self, specs: Sequence[CheckSpec]) -> None:
+        for spec in specs:
+            (self.paths.checks / spec.file).unlink(missing_ok=True)
+
+    def _events(self) -> list[Event]:
+        return read_events(self.paths.ledger)
+
+
+def _calls(events: Sequence[Event], role: str, **match: Any) -> list[Event]:
+    """The role's `role_call` events, oldest first, whose data has every `match` value."""
+    return [
+        e
+        for e in events
+        if e.event is EventType.ROLE_CALL
+        and e.data.get("role") == role
+        and all(e.data.get(k) == v for k, v in match.items())
+    ]
+
+
+def _last_slice_end(events: Sequence[Event]) -> int:
+    return max((i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=0)
+
+
+def _owner(sheet: TermSheet, finding: Finding) -> str | None:
+    """The task that owns the product module the finding's test imports; the only task if there is
+    just one. None when no task does."""
+    if len(sheet.tasks) == 1:
+        return sheet.tasks[0].id
+    modules = _imported(finding.test_code)
+    for task in sheet.tasks:
+        for path in map(PurePosixPath, task.paths):
+            if path == PurePosixPath(".") or any(
+                path in (PurePosixPath(m), PurePosixPath(f"{m}.py")) for m in modules
+            ):
+                return task.id
+    return None
+
+
+def _imported(code: str) -> set[str]:
+    try:
+        tree = ast.parse(code.removeprefix("﻿"))
+    except SyntaxError:
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
 
 
 def _render_review(review: StoryReview) -> str:

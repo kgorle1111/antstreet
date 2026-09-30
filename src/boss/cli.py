@@ -47,7 +47,14 @@ from boss.ledger import (
     repair_torn_tail,
 )
 from boss.limits import RunLimits
-from boss.pipeline import Pipeline, RolesError, Setup, parse_roles, recorded_setup
+from boss.pipeline import (
+    Pipeline,
+    RolesError,
+    Setup,
+    default_fix_budget,
+    parse_roles,
+    recorded_setup,
+)
 from boss.report import build_report, dollars, render_report
 from boss.roles import registry
 from boss.roles.builders import PROFILES
@@ -150,6 +157,7 @@ def _parser() -> argparse.ArgumentParser:
         default="",
         help="specialist roles to run, comma separated, or 'all' (default: none); see `boss roles`",
     )
+    _review_options(fund)
 
     for name, text in (
         ("resume", "continue an interrupted, paused or stopped run from its ledger"),
@@ -158,12 +166,30 @@ def _parser() -> argparse.ArgumentParser:
     ):
         shown = sub.add_parser(name, parents=[common], help=text)
         shown.add_argument("run", nargs="?", help="run id (default: the latest)")
+        if name == "resume":
+            _review_options(shown)
     sub.add_parser(
         "roles", parents=[common], help="print the organisation: roles, profiles, skills"
     )
     doctor = sub.add_parser("doctor", parents=[common], help="check that this machine can run boss")
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
     return parser
+
+
+def _review_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--review-cycles",
+        type=_cycles_arg,
+        default=1,
+        help="times the critic may review the product and offer a fix round; 0 reports findings "
+        "and offers nothing (default: 1)",
+    )
+    parser.add_argument(
+        "--fix-budget",
+        type=usd_arg,
+        help="dollars for a fix round after the critic's findings (default: two slices and one "
+        "reserve)",
+    )
 
 
 def usd_arg(text: str) -> int:
@@ -194,6 +220,12 @@ def _minutes_arg(text: str) -> float:
     return minutes
 
 
+def _cycles_arg(text: str) -> int:
+    if not text.isdecimal():
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of 0 or more")
+    return int(text)
+
+
 def _tokens_arg(text: str) -> int:
     if not text.isdecimal():
         raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of tokens")
@@ -222,6 +254,9 @@ def _fund(
         roles = parse_roles(args.roles, registry())
     except RolesError as exc:
         say(str(exc))
+        return EXIT_USAGE
+    if args.fix_budget is not None and args.fix_budget < needed:
+        say(_fix_budget_refusal(needed, args.reserve))
         return EXIT_USAGE
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
     paths = RunPaths(project / RUNS_DIR / run_id)
@@ -302,9 +337,46 @@ def _fund(
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
         )
         pipe.record_start(config)
-        advise = pipe.advisor(sheet)
-        outcome = _run(sheet, paths, ledger, run_id, env, executable, config, ask, say, advise)
+        fix = args.fix_budget or default_fix_budget(config)
+        outcome = _build(pipe, sheet, config, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _fix_budget_refusal(needed: int, reserve: int) -> str:
+    return (
+        f"--fix-budget must be at least ${usd(needed)}: a round needs the ${usd(reserve)} "
+        f"reserve plus a ${usd(MIN_SLICE_MICROS)} slice."
+    )
+
+
+def _build(
+    pipe: Pipeline, sheet: TermSheet, config: FirmConfig | None, cycles: int, fix_micros: int
+) -> FirmReport | int:
+    """Run the firm, then whatever the chosen roles do with what it built. The fix round the
+    critic may lead to is the same loop on an amended sheet."""
+
+    def run(current: TermSheet) -> FirmReport | int:
+        return _run(
+            current,
+            pipe.paths,
+            pipe.ledger,
+            pipe.run_id,
+            pipe.env,
+            pipe.executable,
+            config,
+            pipe.ask,
+            pipe.say,
+            pipe.advisor(current),
+        )
+
+    outcome = run(sheet)
+    if isinstance(outcome, int):
+        return outcome
+    try:
+        return pipe.after_build(sheet, outcome, run, review_cycles=cycles, fix_micros=fix_micros)
+    except KeyboardInterrupt:
+        pipe.say(f"Interrupted. Nothing is lost: continue with `boss resume {pipe.run_id}`.")
+        return EXIT_INTERRUPTED
 
 
 def _run(
@@ -394,9 +466,14 @@ def _resume_run(run: str, project: Path, environ: Mapping[str, str], ask: Ask, s
     except LedgerCorruptError as exc:
         say(f"Run {run} cannot be resumed: its ledger is damaged ({exc}).")
         return EXIT_FAILED
-    if started_config(events) is None:
+    config = started_config(events)
+    if config is None:
         say(f"Run {run} never got as far as hiring; start again with `boss fund`.")
         return EXIT_FAILED
+    needed = min_round_budget(config.reserve_micros)
+    if args.fix_budget is not None and args.fix_budget < needed:
+        say(_fix_budget_refusal(needed, config.reserve_micros))
+        return EXIT_USAGE
     env, executable = worker_env(environ), environ.get(EXECUTABLE_VAR, CLI)
     # The roles a run was started with are on its ledger; a run without any resumes without any.
     setup = recorded_setup(events) or Setup((), DEFAULT_MODEL, None)
@@ -407,8 +484,8 @@ def _resume_run(run: str, project: Path, environ: Mapping[str, str], ask: Ask, s
             say(f"Run {run} was stopped: {stops[-1].data.get('reason', 'no reason recorded')}")
             Recorder(ledger, run, events[-1].round)("investor", EventType.RESUMED)
         say(f"Resuming run {run}...")
-        advise = pipe.advisor(sheet)
-        outcome = _run(sheet, paths, ledger, run, env, executable, None, ask, say, advise)
+        fix = args.fix_budget or default_fix_budget(config)
+        outcome = _build(pipe, sheet, None, args.review_cycles, fix)
     return _finish(paths, outcome, say)
 
 
