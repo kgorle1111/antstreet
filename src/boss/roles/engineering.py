@@ -17,11 +17,11 @@ from typing import Any
 from boss.errors import Outcome
 from boss.redact import safe_text
 from boss.roles.base import RoleError, RoleOutputError, RoleSpec, call_role
+from boss.roles.planning import plan_rounds_by_priority
 from boss.roles.stories import Stories
 from boss.stream import Usage
 from boss.termsheet import (
     CheckSpec,
-    Round,
     Task,
     TermSheet,
     TermSheetError,
@@ -396,19 +396,20 @@ def draft_staged(
     executable: str = CLI,
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
+    n_rounds: int = 1,
 ) -> StagedDraft:
     """The designer, then the tester, then a term sheet that passes `termsheet.validate` (so every
     check fails on an empty workspace). `stories` must already have passed their gate.
 
-    Raises ValueError before any call for a bad idea, budget or max_tasks, and StagedDraftError
-    for anything after: it carries the usage of the stages already paid for.
+    Raises ValueError before any call for a bad idea, budget, max_tasks or n_rounds, and
+    StagedDraftError for anything after: it carries the usage of the stages already paid for.
     """
     if not idea.strip() or idea.lstrip().startswith("-"):
         raise ValueError("idea must be non-empty text that does not start with '-'")
     if type(budget_micros) is not int or budget_micros <= 0:
         raise ValueError("budget_micros must be a positive int")
-    if max_tasks < 1:
-        raise ValueError("max_tasks must be at least 1")
+    if max_tasks < 1 or n_rounds < 1:
+        raise ValueError("max_tasks and n_rounds must be at least 1")
     call = {
         "env": env,
         "model": model,
@@ -431,7 +432,9 @@ def draft_staged(
         )
         raise StagedDraftError(exc.role, problems, exc.outcome, paid) from exc
     try:
-        sheet = assemble_term_sheet(idea, budget_micros, stories, design, plan, checks_dir)
+        sheet = assemble_term_sheet(
+            idea, budget_micros, stories, design, plan, checks_dir, n_rounds=n_rounds
+        )
         validate(sheet, checks_dir)
     except TermSheetError as exc:
         raise StagedDraftError("assembly", exc.problems, Outcome.COMPLETED, paid) from exc
@@ -447,9 +450,12 @@ def assemble_term_sheet(
     design: Design,
     plan: TestPlan,
     checks_dir: Path,
+    *,
+    n_rounds: int = 1,
 ) -> TermSheet:
-    """A term sheet from a design and a test plan: one round holding the whole budget that opens
-    the next stage only when every check passes, exactly what `boss.draft_term_sheet` builds.
+    """A term sheet from a design and a test plan. One round (the default) holds the whole budget
+    and closes only when every check passes, exactly what `boss.draft_term_sheet` builds; more
+    rounds are planned by story priority (`plan_rounds_by_priority`).
 
     Does not validate the sheet (`termsheet.validate` runs the checks); it refuses, with
     ValueError, a plan that does not fit the stories and design or whose files are not in
@@ -462,7 +468,7 @@ def assemble_term_sheet(
         raise ValueError(
             "the plan does not fit the stories, design and checks: " + "; ".join(problems)
         )
-    rounds = (Round(1, budget_micros, len(plan.checks)),)
+    rounds = plan_rounds_by_priority(stories, plan.checks, budget_micros, n_rounds)
     tasks = tuple(task.as_task() for task in design.tasks)
     return TermSheet(idea.strip(), budget_micros, rounds, plan.checks, tasks)
 

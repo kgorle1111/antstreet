@@ -983,3 +983,18 @@ def test_a_plan_whose_files_are_not_in_the_directory_is_refused(cli, tmp_path):
     plan, _ = checks_of(cli, TESTS)
     with pytest.raises(ValueError, match="check c01 file test_c01.py does not exist"):
         assemble_term_sheet(IDEA, 300_000, STORIES, design_obj(), plan, tmp_path / "elsewhere")
+
+
+def test_more_rounds_are_planned_by_story_priority_and_the_sheet_still_validates(cli):
+    cli.designer(DESIGN)
+    cli.tester(TESTS)
+    draft = staged(cli, n_rounds=2)
+    # S1 is `must` (c01, c02), S2 is `should` (c03): unlock at 2 checks, then at all 3
+    assert draft.sheet.rounds == (Round(1, 298_334, 2), Round(2, 201_666, 3))
+    validate(draft.sheet, cli.checks_dir)
+
+
+def test_a_round_count_below_one_is_refused_before_any_call(cli):
+    with pytest.raises(ValueError, match="n_rounds"):
+        staged(cli, n_rounds=0)
+    assert cli.calls == []
