@@ -62,7 +62,7 @@ class RoundReport:
 
 
 @dataclass(frozen=True, slots=True)
-class _Recorder:
+class Recorder:
     """Writes ledger events for one run and round."""
 
     ledger: LedgerWriter
@@ -89,7 +89,7 @@ def run_first_round(
     require_approval(read_events(paths.ledger), sheet, paths.checks)
     round_, task, worker = sheet.rounds[0], sheet.tasks[0], "w1"
     actor = f"worker:{worker}"
-    record = _Recorder(ledger, run_id, round_.n)
+    record = Recorder(ledger, run_id, round_.n)
 
     spec = SliceSpec(
         session_id=uuid.uuid4(),
@@ -139,7 +139,7 @@ def run_first_round(
     )
 
 
-def _record_slice_end(record: _Recorder, actor: str, run: SliceRun, env: Mapping[str, str]) -> None:
+def _record_slice_end(record: Recorder, actor: str, run: SliceRun, env: Mapping[str, str]) -> None:
     record(
         actor,
         EventType.SLICE_END,

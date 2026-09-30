@@ -41,3 +41,6 @@ plans/
 .idea/
 .vscode/
 *.swp
+
+# Agent tooling state (worktrees, local settings)
+.claude/

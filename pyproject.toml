@@ -3,6 +3,7 @@
 name = "boss"
 version = "0.0.1"
 description = "Fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
+readme = "README.md"
 requires-python = ">=3.12"
 # The gate runs term-sheet checks with pytest, so it is needed at runtime, not only in development.
 dependencies = ["pytest>=8"]
@@ -20,6 +21,7 @@ build-backend = "uv_build"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = [".claude", ".boss"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]

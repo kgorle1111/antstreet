@@ -128,7 +128,7 @@ def isolation_violations(
         problems.append(f"permission mode is {init.get('permissionMode')!r}, expected 'dontAsk'")
     if hook_events:
         problems.append(f"{hook_events} hook event(s) ran")
-    version = _parse_version(init.get("claude_code_version"))
+    version = parse_version(init.get("claude_code_version"))
     if version is None or version < MIN_CLI_VERSION:
         minimum = ".".join(map(str, MIN_CLI_VERSION))
         problems.append(f"CLI version {init.get('claude_code_version')!r} is below {minimum}")
@@ -146,6 +146,6 @@ def require_isolation(
         raise IsolationError("; ".join(problems))
 
 
-def _parse_version(raw: object) -> tuple[int, ...] | None:
+def parse_version(raw: object) -> tuple[int, ...] | None:
     match = re.match(r"(\d+)\.(\d+)\.(\d+)", str(raw or ""))
     return tuple(int(part) for part in match.groups()) if match else None
