@@ -7,8 +7,8 @@ read state from it and from nothing else.
 `tests/test_docs_ledger.py` runs the code (a scripted firm with the real gate, and the real CLI
 against a fake `claude`) and fails if it writes an event type, an actor, a `data` key or a value
 type that this file does not document. The example line under each event was produced by that
-run, except for the three types that no code writes (`role_call`, `topped_up`, `denied`): those
-are built with the code that reads or would write them.
+run, except for the two types that no code writes (`topped_up`, `denied`): those are built with
+the code that reads or would write them.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 
@@ -77,15 +77,16 @@ Example:
 
 ### `role_call`
 
-- Actor: `role:<name>`, for example `role:critic`
-- Round: whatever the caller's recorder holds; 0 before the first round.
-- No code writes this event today. `roles/base.py` has the writer's helper, `ledger_fields`, which
-  returns the cost, tokens, billing and `data` for a recorder call
-  (`record(spec.actor, EventType.ROLE_CALL, **ledger_fields(...))`). Only tests call it: no
-  command, `boss fund` included, calls a role yet. The helper books the spend whether the call
-  worked or not.
-- Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one.
-  Billing is `api` or `subscription`. Like every event, it counts in its round's spend.
+- Actor: `role:<name>`; one of `role:product_manager`, `role:user_agent`, `role:system_designer`, `role:tester`, `role:check_auditor`, `role:consultant`, `role:critic`, `role:demo_writer`, `role:judge`
+- Round: always 0, so a role call is outside every round's budget and outside the run's spend
+  ceiling, like `boss_call`.
+- Written by `Pipeline._book` in `pipeline.py` for every call a chosen role makes, whether it
+  worked, failed or was refused before it was made. It builds the cost, tokens, billing and first
+  keys with `ledger_fields` from `roles/base.py` and adds `result` and `detail`. `boss report`
+  reads these events for its Roles section.
+- Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
+  for a call refused before it was made (`outcome` `not_called`). Billing is `api` or
+  `subscription`. The report's spend line for the actor comes from these events.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -93,28 +94,40 @@ Example:
 | `model` | str | The model the call used. |
 | `prompt` | str | The prompt file the role runs under. |
 | `skills` | list | The skill ids appended to that prompt, in order. Empty if none. |
-| `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose output failed the role's gate. |
+| `outcome` | str | How the call ended: an outcome name such as `completed`, `api_error`, `timeout` or `crashed`; `not_called` when it was refused before any call (an unusable request, for example a file that already exists). `completed` is also used for a paid call whose output failed the role's gate. |
+| `result` | str | What became of the output: `ok` (used), `failed` (the call failed or its output failed the gate; nothing was used) or `unused` (a good output thrown away because a later stage of the staged draft failed). |
+| `detail` | str | One line, made safe to show. The reason for a failure or an `unused` result; for `ok`, a short count such as `1 verified, 0 rejected`. |
+| `check` | str | The disputed check's id. Only on a consultant's call. |
+| `verified` | int | Findings the gate confirmed. Only on a critic's call that worked. |
+| `rejected` | int | Findings that were malformed, not reproduced or not grounded. Only on a critic's call that worked. |
+| `cycle` | int | Which review this was, from 1. Only on a critic's call that worked. |
+| `rubric` | str | The rubric id, `stories` or `usage`. Only on a judge's call. |
+| `calibrated` | bool | Whether a calibration covered the judge. Only on a judge call that worked. |
 
-`ledger_fields` takes more keyword arguments and stores them in `data` beside these; none is
-defined yet.
+`pipeline.py` counts these events to decide what a resumed run still owes: one critic call per
+review cycle, one demo call per build of the product (after the last `slice_end`), and one judge
+call per rubric and build.
 
-Example, built with `ledger_fields` to show the shape the helper returns:
+Example, a critic's call written by a run with every role:
 
 ```json
-{"actor": "role:critic", "billing": "subscription", "cost_micros": 12000, "data": {"model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"]}, "event": "role_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 900, "tokens_out": 400, "ts": "2026-09-30T17:18:40.925838+00:00", "v": 1}
+{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
 ```
 
 ### `started`
 
 - Actor: `boss` (the loop)
 - Round: 0
-- Written once by `run_firm`, before the first round, holding the configuration the run was started
-  with. `boss resume` reads it back, so a run continues with its own settings, not the defaults.
-  A run without this event never hired anyone and cannot be resumed.
+- Written once, before the first round, holding the configuration the run was started with.
+  `run_firm` writes it. When roles were chosen `pipeline.py` writes it first (`record_start`) with
+  the same `config` and adds `roles`, and `run_firm` then writes none. `boss resume` reads it back,
+  so a run continues with its own settings and roles, not the defaults. A run without this event
+  never hired anyone and cannot be resumed.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
+| `roles` | object | The roles the investor chose; only when `--roles` named some. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
 
 Config keys:
 
@@ -134,10 +147,16 @@ Config keys:
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
-Example:
+Example, a run without roles:
 
 ```json
 {"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
+```
+
+The same, in a run that named roles:
+
+```json
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}, "roles": {"model": "haiku", "names": ["check_auditor", "consultant", "critic", "demo_writer", "judge", "product_manager", "system_designer", "tester", "user_agent"], "thinking_tokens": null}}, "event": "started", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:39.880351+00:00", "v": 1}
 ```
 
 ### `resumed`
@@ -446,10 +465,9 @@ Example:
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
   - An amendment: the investor approves more checks and a round added to an approved term sheet.
     It carries `hashes` of the amended term sheet and its check files, `round` (the round the
-    amendment added) and `added_checks`. `firm.py` reads it: a worker is told about an added check
-    of its own task, and only an `investor` event counts. No code in `src/` writes this form yet
-    (`critic.findings_as_checks` only proposes checks and writes nothing), so this file has no
-    example of it; `tests/test_firm.py` builds it by hand.
+    amendment added) and `added_checks`. `pipeline.py` writes it, only after the investor says yes
+    to the critic's fix round, and before it rewrites `term_sheet.json`. `firm.py` reads it: a
+    worker is told about an added check of its own task, and only an `investor` event counts.
 - A missing `round` counts as round 1 when the state is rebuilt, so the first approval opens
   round 1.
 - `require_approval` accepts only an `approved` event by `investor` whose `hashes` equal the hashes
@@ -460,9 +478,7 @@ Example:
 |---|---|---|
 | `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file. Present in the first form, and in an amendment. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
-
-`added_checks`, the third form's list of the check ids it added, is not in the table: no run of
-the code writes it, and the tests fail on a table key that no run writes.
+| `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
 
 Examples:
 
@@ -472,6 +488,12 @@ Examples:
 
 ```json
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"round": 2}, "event": "approved", "round": 2, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:28.108273+00:00", "v": 1}
+```
+
+An amendment:
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added_checks": ["c03"], "hashes": {"term_sheet": "3358c4b8c732606c083e7f794881519b229ba89c5d388c2be6f7e79448cae768", "test_c01.py": "1d8375400c8f62ba12608933211da7dade2459fb89df181c1f23150d29b89b56", "test_c02.py": "8be209cefbc72a3ceb2b34f55206827c0a0efd55aa9e6d45b66b1fe3fba83f63", "test_c03.py": "65ba46c76ea3d12622b3ae82f9715b4baf58c84be286d8cb03645894e00ca6a1"}, "round": 2}, "event": "approved", "round": 2, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:41.920211+00:00", "v": 1}
 ```
 
 ### `topped_up`

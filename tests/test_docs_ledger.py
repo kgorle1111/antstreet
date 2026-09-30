@@ -14,13 +14,14 @@ from dataclasses import fields
 import pytest
 from docs_support import DOCS, ROOT, code_spans, read, run_cli, section, table
 
-from boss import budget, state
+from boss import budget, pipeline, state
 from boss.approval import content_hashes
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
 from boss.ledger import LEDGER_VERSION, Billing, Event, EventType, LedgerWriter, read_events
 from boss.limits import RunLimits
+from boss.roles import registry
 from boss.roles.base import RoleSpec, ledger_fields
 from boss.rundir import RunPaths
 from boss.runner import SliceRun
@@ -138,6 +139,19 @@ def cli_resumed_events(tmp_path):
     return read_events(run_dir / "ledger.jsonl")
 
 
+def roles_events(folder):
+    """A run with every role: the real CLI against the fake `claude` of tests/test_pipeline.py,
+    which also plays each role. It reaches a disputed check, an approved amendment and both
+    judgements."""
+    import test_pipeline as staged
+
+    folder.mkdir(parents=True)
+    fx = staged.Fx(folder)
+    staged.every_role(fx)
+    assert fx.fund("--roles", "all", answers={"Task": "d"}).code == 0
+    return fx.events()
+
+
 @pytest.fixture(scope="module")
 def produced(tmp_path_factory) -> dict[str, list[Event]]:
     """Every event the code writes across a set of runs that reaches every writer, by type."""
@@ -180,6 +194,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
     runs.append(cli_resumed_events(where("cli-resumed")))
+    runs.append(roles_events(where("cli-roles")))
     found: dict[str, list[Event]] = defaultdict(list)
     for events in runs:
         for e in events:
@@ -228,7 +243,7 @@ def examples_of(body: str) -> list[Event]:
     return [Event.from_json(block) for block in blocks]
 
 
-NO_WRITER = {"topped_up", "denied", "role_call"}
+NO_WRITER = {"topped_up", "denied"}
 
 
 def test_every_event_type_has_a_section_and_no_section_names_another_type(text):
@@ -255,8 +270,8 @@ def test_actor_forms_and_the_writer_rules_are_documented(text):
         assert f"`{actor}`" in body
 
 
-def test_only_three_types_have_no_writer_and_the_document_says_so(produced, text):
-    # role_call: the helper exists (`roles/base.py`), but no command calls it yet.
+def test_only_two_types_have_no_writer_and_the_document_says_so(produced, text):
+    # role_call has one: `pipeline.py`, when `boss fund --roles` names a role.
     unwritten = {e.value for e in EventType} - set(produced)
     assert unwritten == NO_WRITER, f"types with no writer changed: {sorted(unwritten)}"
     for name in NO_WRITER:
@@ -355,24 +370,52 @@ def test_the_topped_up_example_is_what_the_budget_reads(text):
     assert example.round == 1 and grown == base + example.data["micros"]
 
 
-def test_the_role_call_section_matches_the_helper_and_no_command_calls_it_yet(text):
+def test_the_role_call_section_matches_the_helper_and_only_the_pipeline_writes_it(produced, text):
     [example] = examples_of(sections(text)["role_call"])
     spec = RoleSpec("critic", "quality", "boss", "review", "a gate", "critic_v1.md", ("s/one",))
     fields = ledger_fields(spec, Usage(7, 3, 2, 1), "completed", model="haiku", env={"HOME": "/h"})
     built = Event(run="r", round=0, actor=spec.actor, event=EventType.ROLE_CALL, **fields)
     documented = keys_table(sections(text)["role_call"])
-    assert set(built.data) == set(documented) == set(example.data)
+    # the helper's own keys are documented, and the pipeline adds the rest on top of them
+    assert set(built.data) <= set(documented) and {"result", "detail"} <= set(documented)
     for key, value in built.data.items():
         assert json_type(value) in declared(documented[key]), key
     assert example.actor == "role:critic" and example.cost_micros is not None
-    # When a command starts calling roles, this fails: then document its writer and its keys.
+    # Who writes it: `Pipeline._book`, through `ledger_fields`, always in round 0. `report.py`
+    # reads the events; nothing else names the type or the helper.
+    book = inspect.getsource(pipeline.Pipeline._book)
+    assert "ledger_fields(" in book and "EventType.ROLE_CALL" in book
+    assert "Recorder(self.ledger, self.run_id, 0)(spec.actor," in book
     own = {SRC / "ledger.py", SRC / "roles" / "base.py"}
-    callers = [
-        str(p.relative_to(SRC))
+    callers = sorted(
+        p.relative_to(SRC).as_posix()
         for p in SRC.rglob("*.py")
         if p not in own and ("ledger_fields" in read(p) or "ROLE_CALL" in read(p))
-    ]
-    assert callers == [], f"a command now books role calls ({callers}): update LEDGER.md"
+    )
+    assert callers == ["pipeline.py", "report.py"], f"a new module touches role_call: {callers}"
+    assert "ledger_fields" not in read(SRC / "report.py")
+    # Every event a run wrote is under a role actor, in round 0, with the two keys it adds.
+    written = produced["role_call"]
+    assert {e.actor for e in written} == {f"role:{name}" for name in registry()}
+    for e in written:
+        assert e.round == 0 and e.data["result"] in {"ok", "failed", "unused"}
+        assert isinstance(e.data["detail"], str) and e.data["role"] == e.actor.removeprefix("role:")
+
+
+def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(produced, text):
+    with_roles = [e for e in produced["started"] if "roles" in e.data]
+    assert [sorted(e.data["roles"]) for e in with_roles] == [["model", "names", "thinking_tokens"]]
+    [event] = with_roles
+    assert event.data["roles"]["names"] == sorted(registry())
+    assert pipeline.recorded_setup([event]) == pipeline.Setup(
+        tuple(sorted(registry())), event.data["roles"]["model"], None
+    )
+    # run_firm found this event and wrote none, so there is one per run, and the same config
+    assert [e for e in produced["started"] if "roles" not in e.data]  # runs without roles exist
+    assert "record_start" in read(SRC / "cli.py") and "Nothing is written without roles" in (
+        inspect.getdoc(pipeline.Pipeline.record_start) or ""
+    )
+    assert "`roles`" in sections(text)["started"] and "`record_start`" in sections(text)["started"]
 
 
 def test_the_state_contract_is_a_subset_of_this_document(text):
