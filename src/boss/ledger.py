@@ -25,6 +25,7 @@ class EventType(StrEnum):
     CHECK_RESULT = "check_result"
     BLOCKED = "blocked"
     FIRED = "fired"
+    ABANDONED = "abandoned"  # a task nobody will work on further in this run
     REASSIGNED = "reassigned"
     ROUND_CLOSED = "round_closed"
     APPROVED = "approved"

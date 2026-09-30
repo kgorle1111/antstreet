@@ -11,7 +11,15 @@ from dataclasses import dataclass, field
 
 from boss.ledger import Event, EventType, Totals, total, totals_by
 
-_NOTABLE = (EventType.FIRED, EventType.BLOCKED, EventType.ERROR, EventType.STOPPED)
+_NOTABLE = (
+    EventType.FIRED,
+    EventType.REASSIGNED,
+    EventType.ABANDONED,
+    EventType.BLOCKED,
+    EventType.PAUSED,
+    EventType.ERROR,
+    EventType.STOPPED,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +110,15 @@ def _workers(events: Sequence[Event]) -> list[WorkerLine]:
 
 
 def _note(event: Event) -> str:
-    detail = ", ".join(f"{k}={v}" for k, v in sorted(event.data.items()))
+    data = dict(event.data)
+    evidence = data.pop("evidence", None)
+    if isinstance(evidence, dict):  # a firing: summarise the rule's evidence in one phrase
+        passing, missing = len(evidence.get("passing", [])), len(evidence.get("missing", []))
+        data["after"] = (
+            f"{evidence.get('counted_slices')} slices, {evidence.get('stalled_slices')} without "
+            f"progress, {passing}/{passing + missing} checks passing"
+        )
+    detail = ", ".join(f"{k}={v}" for k, v in sorted(data.items()) if v is not None)
     return f"round {event.round}: {event.actor} {event.event}" + (f" ({detail})" if detail else "")
 
 

@@ -115,3 +115,23 @@ def test_empty_or_mixed_ledgers_are_refused():
 def test_dollars():
     assert dollars(5_896) == "$0.0059"
     assert dollars(1_250_000) == "$1.2500"
+
+
+def test_a_firing_note_summarises_the_evidence_in_one_phrase():
+    evidence = {"counted_slices": 3, "stalled_slices": 2, "passing": ["c01"], "missing": ["c02"]}
+    fired = ev(
+        "rule",
+        EventType.FIRED,
+        data={
+            "worker": "w1",
+            "task": "t1",
+            "reason": "no progress",
+            "evidence": evidence,
+            "last_reason": None,
+        },
+    )
+    [note] = build_report([*EVENTS, fired]).notes
+    assert note == (
+        "round 1: rule fired (after=3 slices, 2 without progress, 1/2 checks passing, "
+        "reason=no progress, task=t1, worker=w1)"
+    )

@@ -11,6 +11,7 @@ from boss.boss import (
     BossError,
     InvalidDraftError,
     build_boss_command,
+    draft_schema,
     draft_term_sheet,
     load_prompt,
 )
@@ -30,6 +31,17 @@ DRAFT = {
             "task": "t1",
             "code": "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n",
         },
+    ],
+}
+UP_CHECK = "from up import shout\n\ndef test_shout():\n    assert shout('ab') == 'AB'\n"
+TWO_TASKS = {
+    "tasks": [
+        {"id": "t1", "brief": "Create rev.py with reverse(s).", "paths": ["rev.py"]},
+        {"id": "t2", "brief": "Create up.py with shout(s).", "paths": ["up.py"]},
+    ],
+    "checks": [
+        {"description": "reverses a word", "task": "t1", "code": CHECK},
+        {"description": "shouts a word", "task": "t2", "code": UP_CHECK},
     ],
 }
 FAKE_CLI = f"""#!{sys.executable}
@@ -52,7 +64,7 @@ def draft(tmp_path):
     cli.chmod(0o755)
     argv_file = tmp_path / "argv.txt"
 
-    def run(output, *, timeout_s=30.0, **env_extra):
+    def run(output, *, timeout_s=30.0, max_tasks=None, **env_extra):
         text = output if isinstance(output, str) else json.dumps(output)
         env = {
             "PATH": "/usr/bin:/bin",
@@ -68,6 +80,7 @@ def draft(tmp_path):
             env=env,
             timeout_s=timeout_s,
             executable=str(cli),
+            **({} if max_tasks is None else {"max_tasks": max_tasks}),
         )
 
     run.argv_file = argv_file
@@ -174,3 +187,70 @@ def test_command_is_pinned():
 def test_schema_caps_tasks_and_checks():
     assert DRAFT_SCHEMA["properties"]["tasks"]["maxItems"] == 1
     assert DRAFT_SCHEMA["properties"]["checks"]["maxItems"] == 8
+
+
+def test_two_task_draft_with_room_for_two_becomes_a_validated_sheet(draft):
+    sheet = draft(result_with(structured_output=TWO_TASKS), max_tasks=2).sheet
+    assert [t.id for t in sheet.tasks] == ["t1", "t2"]
+    assert [(c.id, c.task) for c in sheet.checks] == [("c01", "t1"), ("c02", "t2")]
+    assert [c.file for c in sheet.checks] == ["test_c01.py", "test_c02.py"]
+    assert (draft.checks_dir / "test_c02.py").read_text() == UP_CHECK
+    assert sheet.rounds[0].budget_micros == 500_000
+    assert TermSheet.from_json(sheet.to_json()) == sheet
+
+
+def test_two_task_draft_is_unusable_by_default(draft):
+    with pytest.raises(BossError, match="unusable draft: expected exactly one task, got 2"):
+        draft(result_with(structured_output=TWO_TASKS))
+
+
+def test_more_tasks_than_allowed_is_unusable(draft):
+    three = TWO_TASKS["tasks"] + [{"id": "t3", "brief": "b", "paths": ["z.py"]}]
+    with pytest.raises(BossError, match="unusable draft: expected 1 to 2 tasks, got 3"):
+        draft(result_with(structured_output=TWO_TASKS | {"tasks": three}), max_tasks=2)
+
+
+def test_no_tasks_is_unusable_even_when_several_are_allowed(draft):
+    with pytest.raises(BossError, match="unusable draft: expected 1 to 2 tasks, got 0"):
+        draft(result_with(structured_output=TWO_TASKS | {"tasks": []}), max_tasks=2)
+
+
+def test_several_tasks_use_the_v2_prompt_and_state_the_limit_in_the_user_prompt(draft):
+    draft(result_with(structured_output=TWO_TASKS), max_tasks=2)
+    argv = json.loads(draft.argv_file.read_text())
+    system = argv[argv.index("--system-prompt") + 1]
+    assert system == load_prompt("term_sheet_v2.md")
+    assert system != load_prompt("term_sheet_v1.md")
+    assert "2" not in system.split("Tasks")[0]  # the limit lives in the user prompt only
+    assert argv[-1] == "Idea:\nReverse a string.\n\nYou may use at most 2 tasks."
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    assert schema["properties"]["tasks"]["maxItems"] == 2
+
+
+def test_default_call_is_byte_for_byte_the_single_task_call(draft):
+    draft(result_with())
+    argv = json.loads(draft.argv_file.read_text())
+    assert argv[argv.index("--system-prompt") + 1] == load_prompt("term_sheet_v1.md")
+    assert argv[argv.index("--json-schema") + 1] == json.dumps(DRAFT_SCHEMA, separators=(",", ":"))
+    assert argv[-1] == "Idea:\nReverse a string."
+    draft(result_with(), max_tasks=1)
+    assert json.loads(draft.argv_file.read_text()) == argv
+
+
+def test_tasks_owning_overlapping_paths_are_rejected_but_still_costed(draft):
+    tasks = [TWO_TASKS["tasks"][0], TWO_TASKS["tasks"][1] | {"paths": ["./rev.py", "up.py"]}]
+    with pytest.raises(InvalidDraftError) as info:
+        draft(result_with(structured_output=TWO_TASKS | {"tasks": tasks}), max_tasks=2)
+    assert info.value.problems == ["tasks t1 and t2 both own rev.py"]
+    assert info.value.usage.cost_micros == 3634
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_max_tasks_below_one_is_a_value_error(draft, bad):
+    with pytest.raises(ValueError, match="max_tasks"):
+        draft(result_with(), max_tasks=bad)
+
+
+def test_draft_schema_caps_tasks_at_max_tasks():
+    assert draft_schema(3)["properties"]["tasks"]["maxItems"] == 3
+    assert draft_schema(1) == DRAFT_SCHEMA

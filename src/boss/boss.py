@@ -21,44 +21,51 @@ from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, va
 from boss.worker import CLI, usd, uses_api_key
 
 TERM_SHEET_PROMPT = "term_sheet_v1.md"
+MULTI_TASK_PROMPT = "term_sheet_v2.md"  # used when the boss may split the work
 DEFAULT_MODEL = "haiku"
 DEFAULT_CAP_MICROS = 250_000  # $0.25; live drafts cost $0.008-0.060, and a capped draft is wasted
 DEFAULT_TIMEOUT_S = 300.0
 MAX_CHECKS = 8
-DRAFT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "tasks": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 1,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "brief": {"type": "string"},
-                    "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+
+
+def draft_schema(max_tasks: int) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": max_tasks,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "brief": {"type": "string"},
+                        "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    },
+                    "required": ["id", "brief", "paths"],
                 },
-                "required": ["id", "brief", "paths"],
+            },
+            "checks": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_CHECKS,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "description": {"type": "string"},
+                        "task": {"type": "string"},
+                        "code": {"type": "string"},
+                    },
+                    "required": ["description", "task", "code"],
+                },
             },
         },
-        "checks": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": MAX_CHECKS,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "description": {"type": "string"},
-                    "task": {"type": "string"},
-                    "code": {"type": "string"},
-                },
-                "required": ["description", "task", "code"],
-            },
-        },
-    },
-    "required": ["tasks", "checks"],
-}
+        "required": ["tasks", "checks"],
+    }
+
+
+DRAFT_SCHEMA = draft_schema(1)
 
 
 class BossError(Exception):
@@ -121,25 +128,31 @@ def draft_term_sheet(
     cap_micros: int = DEFAULT_CAP_MICROS,
     timeout_s: float = DEFAULT_TIMEOUT_S,
     executable: str = CLI,
+    max_tasks: int = 1,
 ) -> Draft:
-    """Ask the boss for checks and a task, write the check files, and return a validated sheet.
+    """Ask the boss for checks and up to max_tasks tasks; write the check files, return a sheet.
 
     Raises BossError if the call fails or returns unusable output, and InvalidDraftError (listing
     every problem) if the draft does not validate. Both carry the call's usage for the ledger.
     """
     if not idea.strip() or idea.lstrip().startswith("-"):
         raise ValueError("idea must be non-empty text that does not start with '-'")
+    if max_tasks < 1:
+        raise ValueError("max_tasks must be at least 1")
+    prompt = f"Idea:\n{idea.strip()}"
+    if max_tasks > 1:
+        prompt += f"\n\nYou may use at most {max_tasks} tasks."
     argv = build_boss_command(
-        prompt=f"Idea:\n{idea.strip()}",
-        system_prompt=load_prompt(TERM_SHEET_PROMPT),
-        schema=DRAFT_SCHEMA,
+        prompt=prompt,
+        system_prompt=load_prompt(MULTI_TASK_PROMPT if max_tasks > 1 else TERM_SHEET_PROMPT),
+        schema=draft_schema(max_tasks),
         model=model,
         cap_micros=cap_micros,
         api_key=uses_api_key(env),
     )
     argv[0] = executable
     output = _call(argv, env, timeout_s)
-    sheet = _sheet_from_output(output, idea.strip(), budget_micros, checks_dir)
+    sheet = _sheet_from_output(output, idea.strip(), budget_micros, checks_dir, max_tasks)
     try:
         validate(sheet, checks_dir)
     except TermSheetError as exc:
@@ -173,7 +186,7 @@ def _call(argv: list[str], env: Mapping[str, str], timeout_s: float) -> StreamRe
 
 
 def _sheet_from_output(
-    output: StreamReader, idea: str, budget_micros: int, checks_dir: Path
+    output: StreamReader, idea: str, budget_micros: int, checks_dir: Path, max_tasks: int
 ) -> TermSheet:
     draft = (output.result or {}).get("structured_output")
     if not isinstance(draft, dict):
@@ -185,8 +198,9 @@ def _sheet_from_output(
         raw_checks = _as_list(draft["checks"])
     except (KeyError, TypeError) as exc:
         raise _unusable(f"missing or malformed field: {exc}", output) from exc
-    if len(tasks) != 1:
-        raise _unusable(f"expected exactly one task, got {len(tasks)}", output)
+    if not 1 <= len(tasks) <= max_tasks:
+        wanted = "exactly one task" if max_tasks == 1 else f"1 to {max_tasks} tasks"
+        raise _unusable(f"expected {wanted}, got {len(tasks)}", output)
     if not 1 <= len(raw_checks) <= MAX_CHECKS:
         raise _unusable(f"expected 1 to {MAX_CHECKS} checks, got {len(raw_checks)}", output)
 

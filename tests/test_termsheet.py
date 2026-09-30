@@ -91,6 +91,91 @@ def test_task_paths_must_stay_inside_the_workspace(checks_dir, path):
     assert any("must stay inside the workspace" in p for p in problems(s, checks_dir))
 
 
+def two_tasks(paths_1: tuple[str, ...], paths_2: tuple[str, ...]) -> TermSheet:
+    return sheet(
+        checks=(
+            CheckSpec("c01", "d", "test_c01.py", "t1"),
+            CheckSpec("c02", "d", "test_c02.py", "t2"),
+        ),
+        tasks=(Task("t1", "b", paths_1), Task("t2", "b", paths_2)),
+    )
+
+
+def overlaps(s: TermSheet, checks_dir) -> list[str]:
+    return [p for p in problems(s, checks_dir) if " both own " in p]
+
+
+@pytest.mark.parametrize(
+    ("paths_1", "paths_2", "expected"),
+    [
+        (("a.py",), ("a.py",), "tasks t1 and t2 both own a.py"),
+        (("a/b.py",), ("a/",), "tasks t1 and t2 both own a/"),
+        (("a/",), ("a/b.py",), "tasks t1 and t2 both own a/"),
+        (("./x.py",), ("x.py",), "tasks t1 and t2 both own ./x.py"),
+        (("pkg",), ("pkg/sub/mod.py",), "tasks t1 and t2 both own pkg"),
+        ((".",), ("rev.py",), "tasks t1 and t2 both own ."),
+        (("rev.py",), (".",), "tasks t1 and t2 both own ."),
+    ],
+    ids=[
+        "equal",
+        "child-first",
+        "parent-first",
+        "dot-slash",
+        "nested",
+        "root-first",
+        "root-second",
+    ],
+)
+def test_overlapping_paths_are_reported_once(checks_dir, paths_1, paths_2, expected):
+    assert overlaps(two_tasks(paths_1, paths_2), checks_dir) == [expected]
+
+
+def test_a_pair_is_reported_once_however_many_paths_collide(checks_dir):
+    s = two_tasks(("a.py", "b.py"), ("b.py", "a.py"))
+    assert overlaps(s, checks_dir) == ["tasks t1 and t2 both own a.py"]
+
+
+def test_each_overlapping_pair_of_three_tasks_is_reported(checks_dir):
+    s = sheet(
+        checks=tuple(CheckSpec(f"c0{n}", "d", f"test_c0{n}.py", f"t{n}") for n in (1, 2, 3)),
+        tasks=(Task("t1", "b", ("a",)), Task("t2", "b", ("a/x.py",)), Task("t3", "b", ("a/",))),
+    )
+    (checks_dir / "test_c03.py").write_text(GOOD_CHECK)
+    assert overlaps(s, checks_dir) == [
+        "tasks t1 and t2 both own a",
+        "tasks t1 and t3 both own a",
+        "tasks t2 and t3 both own a/",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("paths_1", "paths_2"),
+    [
+        (("a.py",), ("b.py",)),
+        (("a/",), ("ab/x.py",)),
+        (("pkg_a",), ("pkg_b/mod.py",)),
+        (("a/x.py",), ("a/y.py",)),
+    ],
+    ids=["files", "prefix-is-not-parent", "sibling-dirs", "same-dir"],
+)
+def test_disjoint_paths_are_fine(checks_dir, paths_1, paths_2):
+    validate(two_tasks(paths_1, paths_2), checks_dir)
+
+
+def test_one_task_may_own_overlapping_paths_itself(checks_dir):
+    validate(sheet(tasks=(Task("t1", "b", ("pkg/", "pkg/mod.py", "rev.py")),)), checks_dir)
+
+
+def test_a_lone_task_may_own_the_whole_workspace(checks_dir):
+    validate(sheet(tasks=(Task("t1", "b", (".",)),)), checks_dir)
+
+
+def test_paths_outside_the_workspace_are_not_also_called_overlaps(checks_dir):
+    found = problems(two_tasks(("../x.py",), ("../x.py",)), checks_dir)
+    assert not any(" both own " in p for p in found)
+    assert any("must stay inside the workspace" in p for p in found)
+
+
 def test_check_file_problems(checks_dir):
     (checks_dir / "test_c02.py").write_text("def helper(:\n")
     (checks_dir / "test_c03.py").write_text("def helper():\n    return 1\n")

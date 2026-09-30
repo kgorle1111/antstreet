@@ -7,6 +7,7 @@ Exit codes: 0 every check passed (or the command succeeded), 1 stopped or failed
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import functools
 import os
 import sys
@@ -19,9 +20,12 @@ from pathlib import Path
 from boss import __version__
 from boss.approval import review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
-from boss.firm import DEFAULT_WORKER_MODEL, Recorder, RunPaths, run_first_round
+from boss.budget import plan_rounds
+from boss.firm import DEFAULT_SLICE_MICROS, DEFAULT_WORKER_MODEL, FirmConfig, run_firm
 from boss.ledger import EventType, LedgerWriter, read_events
 from boss.report import build_report, dollars, render_report
+from boss.rule import FiringPolicy
+from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
 from boss.stream import Usage
 from boss.worker import CLI, IsolationError, billing_mode, worker_env
@@ -65,9 +69,19 @@ def _parser() -> argparse.ArgumentParser:
     )
     fund.add_argument("idea", help="what to build, in plain words")
     fund.add_argument(
-        "--budget", required=True, type=_usd, help="total budget in dollars, e.g. 0.50"
+        "--budget", required=True, type=usd_arg, help="total budget in dollars, e.g. 0.50"
     )
     fund.add_argument("--model", default=DEFAULT_WORKER_MODEL, help="worker model")
+    fund.add_argument(
+        "--rounds", type=int, default=1, help="funding rounds to split the budget into"
+    )
+    fund.add_argument(
+        "--slice", type=usd_arg, default=DEFAULT_SLICE_MICROS, help="dollars per worker slice"
+    )
+    fund.add_argument("--max-tasks", type=int, default=1, help="most tasks the boss may split into")
+    fund.add_argument("--max-slices", type=int, default=FiringPolicy().max_slices)
+    fund.add_argument("--stall-slices", type=int, default=FiringPolicy().stall_slices)
+    fund.add_argument("--no-firing", action="store_true", help="keep funding stalled workers")
     fund.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
 
     for name, text in (
@@ -81,7 +95,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _usd(text: str) -> int:
+def usd_arg(text: str) -> int:
     try:
         micros = Decimal(text.lstrip("$")) * 1_000_000
     except InvalidOperation:
@@ -122,6 +136,7 @@ def _fund(
                 env=env,
                 model=args.boss_model,
                 executable=executable,
+                max_tasks=args.max_tasks,
             )
         except BossError as exc:
             boss_spend(exc.usage, str(exc.outcome))
@@ -132,20 +147,32 @@ def _fund(
             return EXIT_FAILED
         boss_spend(draft.usage, "completed")
 
+        drafted = draft.sheet
+        if args.rounds > 1:
+            rounds = plan_rounds(args.budget, len(drafted.checks), args.rounds)
+            drafted = dataclasses.replace(drafted, rounds=rounds)
         sheet = review_term_sheet(
-            draft.sheet, paths.checks, paths.root, ledger, run_id, ask=ask, say=say
+            drafted, paths.checks, paths.root, ledger, run_id, ask=ask, say=say
         )
         if sheet is None:
             return EXIT_FAILED
         say("Approved. Hiring a worker...")
+        config = FirmConfig(
+            model=args.model,
+            slice_micros=args.slice,
+            policy=FiringPolicy(stall_slices=args.stall_slices, max_slices=args.max_slices),
+            firing=not args.no_firing,
+        )
         try:
-            round_report = run_first_round(
+            outcome = run_firm(
                 sheet,
                 paths,
                 ledger,
                 run_id,
                 env=env,
-                model=args.model,
+                config=config,
+                ask=ask,
+                say=say,
                 slice_runner=functools.partial(run_slice, executable=executable),
             )
         except IsolationError as exc:
@@ -155,8 +182,10 @@ def _fund(
     text = render_report(build_report(read_events(paths.ledger)))
     (paths.root / "report.md").write_text(text, encoding="utf-8")
     say(text)
-    say(f"Run folder: {paths.root}")
-    return EXIT_OK if round_report.unlocked else EXIT_INCOMPLETE
+    if outcome.stopped:
+        say(f"Ended early: {outcome.stopped}")
+    say(f"Run folder: {paths.root}  (built files: {paths.product})")
+    return EXIT_OK if outcome.all_passed else EXIT_INCOMPLETE
 
 
 def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
