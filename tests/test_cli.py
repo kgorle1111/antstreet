@@ -5,7 +5,14 @@ import sys
 
 import pytest
 
-from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK, EXIT_USAGE, main
+from boss.cli import (
+    EXIT_FAILED,
+    EXIT_INCOMPLETE,
+    EXIT_INTERRUPTED,
+    EXIT_OK,
+    EXIT_USAGE,
+    main,
+)
 from boss.ledger import EventType, read_events, total
 
 CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
@@ -35,6 +42,9 @@ if argv[argv.index("--output-format") + 1] == "json":   # the boss drafting a te
     say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
 else:                                                    # a worker slice
     say({INIT!r})
+    if os.path.exists(os.path.join(os.environ["HOME"], "fake_interrupt")):
+        os.kill(os.getppid(), 2)  # Ctrl-C in the investor's terminal, mid-slice
+        import time; time.sleep(30)
     override = os.path.join(os.environ["HOME"], "fake_product.py")  # env vars are stripped
     code = "def reverse(s):\\n    return s[::-1]\\n"
     if os.path.exists(override):
@@ -85,6 +95,7 @@ def test_fund_builds_the_idea_and_reports_from_the_ledger(boss):
     assert [e.event for e in events] == [
         EventType.BOSS_CALL,
         EventType.APPROVED,
+        EventType.STARTED,
         EventType.HIRED,
         EventType.SLICE_START,
         EventType.SLICE_END,
@@ -198,12 +209,111 @@ def test_bad_max_minutes_is_a_usage_error(boss, bad, capsys):
     assert "positive number of minutes" in capsys.readouterr().err
 
 
+def wrong_product(boss):
+    (boss.project.parent / "fake_product.py").write_text("def reverse(s):\n    return s\n")
+
+
+def events_of_run(boss, n=0):
+    return read_events(boss.runs()[n] / "ledger.jsonl")
+
+
+def test_resume_continues_a_run_that_was_stopped_and_records_who_lifted_the_stop(boss):
+    # A wall-clock limit stops the run before any slice. Resuming uses the configuration the run
+    # was started with, which includes that limit, so it stops again at once: nothing is
+    # silently loosened by resuming.
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9")
+    code, output = boss("resume")
+    assert code == EXIT_INCOMPLETE
+    assert "was stopped:" in output and "wall clock" in output
+    kinds = [e.event for e in events_of_run(boss)]
+    assert kinds.count(EventType.RESUMED) == 1 and kinds.count(EventType.STOPPED) == 2
+    resumed = next(e for e in events_of_run(boss) if e.event is EventType.RESUMED)
+    assert resumed.actor == "investor"
+    assert kinds.count(EventType.STARTED) == 1 and kinds.count(EventType.SLICE_START) == 0
+
+
+def test_resume_finishes_an_interrupted_run_without_a_new_draft_or_a_second_hire(boss):
+    (boss.project.parent / "fake_interrupt").write_text("")
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50")
+    assert code == EXIT_INTERRUPTED
+    [run_dir] = boss.runs()
+    assert f"continue with `boss resume {run_dir.name}`" in output
+    (boss.project.parent / "fake_interrupt").unlink()
+    code, output = boss("resume", run_dir.name)
+    assert code == EXIT_OK and "Round 1: 1/1 checks passed" in output
+    kinds = [e.event for e in events_of_run(boss)]
+    assert kinds.count(EventType.BOSS_CALL) == 1 and kinds.count(EventType.HIRED) == 1
+    assert kinds.count(EventType.SLICE_START) == 2 and kinds.count(EventType.SLICE_END) == 1
+    assert EventType.RESUMED not in kinds  # an interruption is not a stop; nothing to lift
+    assert len(boss.runs()) == 1
+
+
+def test_resume_uses_the_configuration_the_run_started_with(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--slice", "0.07", "--reserve", "0.03",
+         "--max-minutes", "1e-9")  # fmt: skip
+    started = next(e for e in events_of_run(boss) if e.event is EventType.STARTED)
+    assert started.data["config"]["slice_micros"] == 70_000
+    assert started.data["config"]["reserve_micros"] == 30_000
+    assert started.data["config"]["limits"]["max_seconds"] == pytest.approx(6e-8)
+
+
+def test_resume_refuses_a_run_whose_checks_changed_and_spends_nothing(boss):
+    wrong_product(boss)
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--max-slices", "1")
+    [run_dir] = boss.runs()
+    before = len(events_of_run(boss))
+    (run_dir / "checks" / "test_c01.py").write_text("def test_x():\n    pass\n")
+    code, output = boss("resume")
+    assert code == EXIT_FAILED
+    assert "no matching investor approval" in output and "Nothing was spent" in output
+    assert len(events_of_run(boss)) == before
+
+
+def test_resume_without_a_run_or_before_any_hiring_says_what_to_do(boss):
+    code, output = boss("resume")
+    assert code == EXIT_FAILED and "No runs under" in output
+    boss("fund", "Reverse a string.", "--budget", "0.50", answers=("r",))
+    code, output = boss("resume")
+    assert code == EXIT_FAILED and "never got as far as hiring" in output
+    (boss.runs()[0] / "term_sheet.json").write_text("{not json")
+    code, output = boss("resume")
+    assert code == EXIT_FAILED and "no usable term sheet" in output
+
+
+def test_resuming_a_finished_run_changes_nothing_and_spends_nothing(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50")
+    before = events_of_run(boss)
+    code, output = boss("resume")
+    assert code == EXIT_OK and "Round 1: 1/1 checks passed" in output
+    assert events_of_run(boss) == before
+
+
+def test_a_run_that_ends_early_tells_the_investor_how_to_continue(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9")
+    assert f"To continue this run: `boss resume {boss.runs()[0].name}`" in output
+
+
+@pytest.mark.parametrize("option", ["--rounds", "--max-tasks", "--max-slices", "--stall-slices"])
+@pytest.mark.parametrize("bad", ["0", "-1", "1.5", "two"])
+def test_counts_must_be_whole_numbers_of_one_or_more(boss, option, bad, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "x", "--budget", "0.50", option, bad)
+    assert info.value.code == 2
+    assert "whole number of 1 or more" in capsys.readouterr().err
+
+
+def test_a_slice_too_small_to_ever_be_funded_is_refused_before_anything_is_spent(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--slice", "0.004999")
+    assert code == EXIT_USAGE and "--slice must be at least $0.005" in output
+    assert not (boss.project / ".boss").exists()
+
+
 def test_help_lists_every_command(capsys):
     with pytest.raises(SystemExit) as info:
         main(["--help"])
     assert info.value.code == 0
     out = capsys.readouterr().out
-    assert all(command in out for command in ("fund", "report", "status", "doctor"))
+    assert all(command in out for command in ("fund", "resume", "report", "status", "doctor"))
 
 
 def test_doctor_reports_failures_with_a_nonzero_exit(boss):
