@@ -172,7 +172,8 @@ def _consume(
         line = cast(str, item)
         log.write(redact(line if line.endswith("\n") else line + "\n", secrets))
         reader.feed(line)
-        if reader.init is not None and not checked_init:
+        # Init passed with zero hook events, so any hook event counted since is a late one.
+        if reader.init is not None and (not checked_init or reader.hook_events):
             checked_init = True
             # Raises on a violation; run_slice's finally block stops the process.
             require_isolation(reader.init, hook_events=reader.hook_events)

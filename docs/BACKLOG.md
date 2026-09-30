@@ -40,7 +40,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B18 | Run checks inside an OS sandbox (no network, no writes outside a temp folder, no reads of the home folder) | The largest accepted risk (T13) | building |
 | B19 | A check cannot forge its own verdict; `gate.py` kn: in-process verdicts are forgeable by deliberately adversarial code | Needs the report read from outside the process that runs worker code | open |
 | B20 | `boss doctor` canary: prove at run time that a write outside the workspace is refused | Tests pin the flags only (T18) | open |
-| B21 | Re-check isolation after the init event; verify the boss call's isolation | Checked once at init (T21) | open |
+| B21 | Re-check isolation after the init event; verify the boss call's isolation | Checked once at init (T21) | done: fix(runner): a late hook event fails the slice as an isolation failure; the boss call's isolation is still unverified (no init event) |
 | B22 | Size caps on a workspace, a log and the gate's copy | Bounded by time and money only (T37) | open |
 | B23 | Hash-chain the ledger and sign approvals | Single-user machine (T29) | open |
 | B24 | Probe API-key mode; `worker.py` kn: --bare not yet probed. | Needs an API key | open |
