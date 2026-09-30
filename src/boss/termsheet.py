@@ -17,8 +17,8 @@ from typing import Any
 
 from boss.gate import Check, CheckStatus, run_gate
 
-_CHECK_FILE_RE = re.compile(r"^test_[A-Za-z0-9_]+\.py$")
-_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+_CHECK_FILE_RE = re.compile(r"^test_[A-Za-z0-9_]+\.py\Z")
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}\Z")
 
 
 class TermSheetError(Exception):

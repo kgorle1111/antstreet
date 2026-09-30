@@ -27,7 +27,7 @@ from boss.termsheet import CheckSpec, check_file_problems
 
 MIN_HIDDEN_CHECKS = 5
 DIFFICULTIES = ("easy", "medium", "hard")
-_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
+_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}\Z")
 _META_KEYS = {"id", "title", "difficulty"}
 
 

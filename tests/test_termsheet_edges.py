@@ -216,10 +216,6 @@ def test_boundary_ids_are_valid(checks_dir, good_id):
     validate(s, checks_dir)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="termsheet.py:_ID_RE ends in $, which also matches before a trailing newline",
-)
 def test_an_id_with_a_trailing_newline_is_invalid(checks_dir):
     s = sheet(
         checks=(
@@ -263,6 +259,7 @@ def test_two_checks_may_share_a_file(checks_dir):
         "sub/test_a.py",
         "test_a.py.bak",
         "Test_a.py",
+        "test_a.py\n",
     ],
 )
 def test_check_file_names_must_match_the_pattern(checks_dir, file):

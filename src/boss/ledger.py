@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import IO, Any
 
 LEDGER_VERSION = 1
-_ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+)$")
+_ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+)\Z")
 
 
 class EventType(StrEnum):

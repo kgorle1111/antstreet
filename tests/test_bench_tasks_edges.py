@@ -52,6 +52,11 @@ def structural(folder: Path) -> list[str]:
     return structural_problems(load_task(folder))
 
 
+def test_an_id_with_a_trailing_newline_is_refused(tmp_path):
+    found = structural(make_task(tmp_path, "demo\n"))
+    assert any("must be lowercase-with-dashes" in p for p in found)
+
+
 def test_a_well_formed_task_has_no_structural_problems(tmp_path):
     assert structural(make_task(tmp_path)) == []
 

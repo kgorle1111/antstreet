@@ -55,10 +55,6 @@ def test_malformed_actors_are_rejected(actor):
         ev(actor=actor)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="ledger.py:_ACTOR_RE ends in $, which also matches before a trailing newline",
-)
 @pytest.mark.parametrize("actor", ["boss\n", "worker:c01\n"])
 def test_actor_with_a_trailing_newline_is_rejected(actor):
     with pytest.raises(ValueError):
