@@ -27,7 +27,7 @@ from boss.state import RunState, run_state, slice_history
 from boss.termsheet import Round, Task, TermSheet
 from boss.worker import IsolationError, SliceSpec, billing_mode, usd
 
-BUILDER_PROMPT = "builder_v1.md"
+BUILDER_PROMPT = "builder_v2.md"
 DEFAULT_WORKER_MODEL = "haiku"
 DEFAULT_SLICE_MICROS = 100_000
 MAX_WORKERS_PER_TASK = 2  # the first worker plus one reassignment
@@ -170,7 +170,8 @@ class _Firm:
             data = {"task": task.id, "from": current, "to": name}
             record("boss", EventType.REASSIGNED, data=data)
         hired = {"worker": name, "task": task.id, "session": str(uuid.uuid4())}
-        record("boss", EventType.HIRED, data=hired | {"model": self.config.model})
+        hired |= {"model": self.config.model, "prompt": BUILDER_PROMPT}
+        record("boss", EventType.HIRED, data=hired)
         return name
 
     def _first_prompt(self, task: Task, worker: str, state: RunState) -> str:

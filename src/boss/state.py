@@ -3,7 +3,7 @@ loop, offline replay and resume all read a run the same way.
 
 Ledger data contract for stage 2 (keys inside each event's `data`):
 
-    hired        boss        {worker, task, session, model}
+    hired        boss        {worker, task, session, model, prompt}
     slice_start  worker:<w>  {slice, task, cap_micros}
     slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, ...}
                              with the event's cost_micros = this slice's own spend

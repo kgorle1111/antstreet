@@ -3,6 +3,7 @@
 import pytest
 
 from boss.approval import NotApprovedError, content_hashes
+from boss.boss import load_prompt
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total
@@ -168,6 +169,19 @@ def test_stalled_worker_is_fired_and_its_replacement_gets_the_files_and_notes(pa
     assert "previous_attempt/" in replacement.prompt
     assert (paths.workspace("w2") / "previous_attempt" / "rev.py").read_text() == BAD
     assert not (paths.product / "previous_attempt").exists()
+
+
+def test_every_worker_is_given_the_investors_idea_word_for_word(paths):
+    # Pilot finding: workers saw only the boss's paraphrase and followed it where it was wrong.
+    worker = Script(step(BAD), step(BAD), step(GOOD, "done"))
+    run(paths, worker)
+    first, _, replacement = worker.specs
+    for spec in (first, replacement):
+        assert "> Reverse a string." in spec.prompt
+        assert spec.prompt.index("> Reverse a string.") < spec.prompt.index("Create rev.py")
+        assert spec.append_system_prompt == load_prompt("builder_v2.md")
+    assert "source of truth" in load_prompt("builder_v2.md")
+    assert [e.data["prompt"] for e in events_of(paths, EventType.HIRED)] == ["builder_v2.md"] * 2
 
 
 def test_a_task_is_reassigned_only_once_then_abandoned(paths):
