@@ -4,14 +4,14 @@ Every command and option, the environment variables the tool reads, exit codes, 
 leaves on disk. `tests/test_docs_cli.py` reads the real argparse parsers and fails if an option or
 command is missing here, is documented but does not exist, or has a different default.
 
-Related: [ARCHITECTURE.md](ARCHITECTURE.md), [LEDGER.md](LEDGER.md).
+Related: [ARCHITECTURE.md](ARCHITECTURE.md), [LEDGER.md](LEDGER.md), [ROLES.md](ROLES.md).
 
 Every command also accepts `-h` and `--help`.
 
 ## `boss`
 
-`boss [--version] <command> ...` where the command is `fund`, `resume`, `report`, `status` or
-`doctor`.
+`boss [--version] <command> ...` where the command is `fund`, `resume`, `report`, `status`,
+`roles` or `doctor`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -45,6 +45,8 @@ Argument: `idea`, what to build, in plain words.
 | `--slice` | `$0.10` | Dollars a worker may spend in one slice, before the gate looks again. At least $0.005; a smaller slice is never funded (exit 2). |
 | `--reserve` | `$0.10` | Dollars held back from every slice cap: what one response can cost past the cap. |
 | `--max-tasks` | `1` | Most tasks the boss may split the work into. Above 1 the multi-task prompt is used. |
+| `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
+| `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
 | `--max-minutes` | none | Stop the run after this many minutes of wall clock. Checked before each slice, so a slice in progress can run past it. |
@@ -123,6 +125,19 @@ Argument: `run`, as for `report`.
 |---|---|---|
 | `--dir` | `.` | Project folder. |
 
+## `boss roles`
+
+`boss roles [--dir DIR]`. Prints the organisation as a tree: the investor, the boss, then the
+departments, and under them each role and each worker profile with its purpose, its gate, its
+skills, and whether it is on by default. Every specialist role is marked `off by default`. See
+[ROLES.md](ROLES.md).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Accepted like the other commands. Not used: nothing is read from the project. |
+
+It reads the code only. It makes no model call, reads no run and writes nothing. Exit 0.
+
 ## `boss doctor`
 
 `boss doctor [--dir DIR] [--live]`. Checks what a run needs and prints a fix line for each failure.
@@ -144,7 +159,7 @@ check trusts `claude auth status`, which can report a login the API then rejects
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `report`, `status`, `doctor`: success. |
+| `0` | `fund`, `resume`: every check passed. `report`, `status`, `roles`, `doctor`: success. |
 | `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
