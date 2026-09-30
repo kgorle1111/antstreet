@@ -28,7 +28,22 @@ what changed for someone using the tool, not which commit did it.
 - Every worker is given your idea word for word above the boss's brief; the builder prompt names it
   the source of truth.
 - Disputed checks: a worker can say a check contradicts your idea. The check never counts as
-  passing, the task is set aside instead of the worker being fired, and the report shows the dispute.
+  passing, and the report shows the dispute. When the claim is credible you are asked what to do.
+- Your rulings: drop a disputed check (it is no longer run or counted), keep it (the worker must
+  satisfy it), or set the task aside; unblock a blocked worker with a note. Each is a `ruled` event.
+- `boss resume [run]` continues an interrupted, paused or stopped run from its ledger, with the
+  settings it started with. It lifts a stop on your behalf; approval, budget and limits are
+  checked again.
+- Ledger events `started` (the run's settings) and `resumed`, and a `session` key on `slice_start`.
+- Checks run in an OS sandbox where the platform has a working tool (`sandbox-exec` on macOS,
+  `bwrap` on Linux): no network, writes only in the check's own folder. Tested on macOS only.
+- `BOSS_GATE_SANDBOX` (`auto`, `require` or `off`) sets whether a check needs the sandbox, and
+  `boss doctor` reports its state.
+- `python -m boss.bench.drafts` scores the boss's checks with no worker run: precision on the
+  reference solution, recall on 65 known-wrong solutions (`mutants/` in each task).
+- `ledger.repair_torn_tail` cuts an incomplete last ledger line. No command calls it yet.
+- Documents for the sandbox (`docs/SANDBOX.md`) and for everything skipped or deferred
+  (`docs/BACKLOG.md`).
 - Hard run limits on spend, slices (60), workers (16) and, with `--max-minutes`, wall clock.
 - `--boss-thinking N` to cap or turn off the boss's thinking, which was about half of a run's cost.
 - A benchmark of 17 tasks with hidden checks (`python -m boss.bench.run`, `.table`, `.replay`): a
@@ -45,7 +60,16 @@ what changed for someone using the tool, not which commit did it.
   headroom, because a slice overshoots by one whole response.
 - A budget too small to fund one slice per round is refused before the boss is called.
 - A worker refused a tool call and reporting `blocked` is told why and funded again, not set aside.
-- A worker whose only failing checks are ones it disputes is set aside, not fired.
+- A worker whose only failing checks are ones it disputes is not fired: you are asked. This holds
+  only when the dispute is credible (every other check passes, at most half the task's checks
+  disputed).
+- Ctrl-C after approval exits 130 and names `boss resume`. `--rounds`, `--max-tasks`, `--max-slices`
+  and `--stall-slices` must be whole numbers of 1 or more, and `--slice` at least $0.005: usage
+  error 2.
+- A pause or a stop leaves its round open, so a resume continues it. A round that closed below its
+  unlock threshold stays locked on resume.
+- Every attempt that is not a proven resume starts a new session id; the CLI refuses one already
+  in use.
 - The approval is verified before every slice and every gate run, not once at the start.
 - The benchmark's task set hash encoding changed: the same 17 task files went from
   `7a212cdcc5f4f466` to `c130282a6eec5fe8`.
@@ -53,8 +77,17 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
-- A slice that did work but reported no cost is charged at its cap, so a round can no longer fund
-  such slices without end. Its cost stays unknown in the ledger.
+- A slice that did work but reported no cost, or started and never ended, is charged at its cap, so
+  a round can no longer fund such slices without end. Its cost stays unknown in the ledger.
+- A run interrupted during a worker's first slice can be resumed; before, the retry reused a
+  session id the CLI refused.
+- A stalled worker can no longer avoid its firing by disputing every failing check.
+- A check file deleted mid-run stops the run like an edited one, and a file name that collides with
+  another task's is left out of `product/` and named, instead of a traceback.
+- A hook event late in a worker's stream fails the slice as an isolation failure; it was counted
+  and never checked.
+- Replay stops at a finished task as well as at an escalation. A ledger `v` other than the integer
+  1 is corrupt; `classify` and retry backoff no longer fail on malformed or huge values.
 - A fired worker's passing checks are kept when no replacement can be funded.
 - A draft that fails validation still records the cost of the boss's call.
 - A `claude` binary that cannot start ends the run with a message that names it and points to
@@ -82,6 +115,9 @@ what changed for someone using the tool, not which commit did it.
   another task's checks passed on.
 - A worker's own words are stored with secrets masked, control characters made visible and a fixed
   length limit, so they cannot print terminal escapes in a report.
+- The boss's briefs and check descriptions, and the gate's details, are shown as data: one line,
+  secrets masked, control characters visible. Check code is shown byte for byte.
+- Masking private-key blocks takes linear time (1 MB without an end line took 70 seconds).
 - Secrets are masked when glued to other text, in quoted JSON values and in private-key blocks cut
   at either end.
 - Only the investor's approval, with hashes matching the term sheet and every check file, lets a

@@ -6,8 +6,9 @@ import tomllib
 import pytest
 from docs_support import ROOT, read
 
-from boss import cli, limits
+from boss import cli, gate, limits
 from boss.bench.tasks import load_tasks, task_set_hash
+from boss.ledger import EventType
 
 DOC = ROOT / "CHANGELOG.md"
 ALLOWED = {"Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"}
@@ -104,3 +105,14 @@ def test_figures_the_changelog_states_match_the_code_and_the_repository(text):
     tasks = load_tasks(ROOT / "bench" / "tasks")
     assert f"{len(tasks)} tasks" in text
     assert "`c130282a6eec5fe8`" in text and task_set_hash(tasks) == "c130282a6eec5fe8"
+
+
+def test_the_new_names_and_figures_are_real(text):
+    tasks = load_tasks(ROOT / "bench" / "tasks")
+    assert f"recall on {sum(len(t.mutants()) for t in tasks)} known-wrong solutions" in text
+    events = {e.value for e in EventType}
+    for name in ("started", "resumed", "ruled"):
+        assert name in events and f"`{name}`" in text
+    assert f"`{gate.SANDBOX_ENV}`" in text and f"exits {cli.EXIT_INTERRUPTED}" in text
+    assert "(`docs/SANDBOX.md`)" in text and (ROOT / "docs" / "SANDBOX.md").is_file()
+    assert "(`docs/BACKLOG.md`)" in text and (ROOT / "docs" / "BACKLOG.md").is_file()
