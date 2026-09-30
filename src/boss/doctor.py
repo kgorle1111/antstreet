@@ -14,9 +14,12 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from os import environ
 from pathlib import Path
 
 from boss.errors import Outcome, classify
+from boss.gate import GateError, sandbox_mode
+from boss.sandbox import SandboxMode, detect, missing_hint
 from boss.stream import StreamReader
 from boss.worker import CLI, MIN_CLI_VERSION, parse_version, uses_api_key
 
@@ -33,6 +36,7 @@ class DoctorCheck:
     ok: bool
     detail: str  # what was found
     fix: str  # one-line next step; empty string when ok
+    advice: str = ""  # a next step for an ok check that still deserves a warning
 
 
 def _pass(name: str, detail: str) -> DoctorCheck:
@@ -169,6 +173,27 @@ def _check_writable(cwd: Path) -> DoctorCheck:
     return _pass("writable folder", str(folder))
 
 
+def _check_gate_sandbox() -> DoctorCheck:
+    """Reads BOSS_GATE_SANDBOX from the real environment: the CLI's env is the worker allowlist."""
+    name = "gate sandbox"
+    try:
+        mode = sandbox_mode(environ)
+    except GateError as exc:
+        return _fail(name, str(exc), "set BOSS_GATE_SANDBOX to auto, require or off, or unset it")
+    if mode is SandboxMode.OFF:
+        return _pass(name, "off (BOSS_GATE_SANDBOX=off): checks run with your user's full access")
+    found = detect()
+    if found is not None:
+        return _pass(name, f"{found.name}: no network, writes only in the check's own folder")
+    hint = missing_hint()
+    if mode is SandboxMode.REQUIRE:
+        return _fail(name, "none available, and BOSS_GATE_SANDBOX=require", hint)
+    return DoctorCheck(
+        name, True, "none available: checks run with your user's full access (network, files)",
+        "", hint,
+    )  # fmt: skip
+
+
 def run_doctor(
     env: Mapping[str, str], cwd: Path, *, live: bool = False, executable: str = CLI
 ) -> list[DoctorCheck]:
@@ -179,17 +204,18 @@ def run_doctor(
         checks += [_skipped("claude version", "claude cli"), _skipped("login", "claude cli")]
     else:
         checks += [_check_version(path, env), _check_login(path, env, live=live)]
-    return [*checks, _check_writable(cwd)]
+    return [*checks, _check_writable(cwd), _check_gate_sandbox()]
 
 
 def render_doctor(checks: Sequence[DoctorCheck]) -> str:
     lines: list[str] = []
     for check in checks:
-        lines.append(f"{'ok  ' if check.ok else 'FAIL'}  {check.name}: {check.detail}")
-        if not check.ok:
-            lines.append(f"        fix: {check.fix}")
+        label = "FAIL" if not check.ok else "WARN" if check.advice else "ok  "
+        lines.append(f"{label}  {check.name}: {check.detail}")
+        if not check.ok or check.advice:
+            lines.append(f"        fix: {check.fix or check.advice}")
     failed = sum(not check.ok for check in checks)
-    lines.append(
-        f"{failed} of {len(checks)} checks failed" if failed else f"all {len(checks)} checks ok"
-    )
+    warned = sum(check.ok and bool(check.advice) for check in checks)
+    tally = f"{failed} of {len(checks)} checks failed" if failed else f"all {len(checks)} checks ok"
+    lines.append(f"{tally} ({warned} warning{'s' * (warned != 1)})" if warned else tally)
     return "\n".join(lines)

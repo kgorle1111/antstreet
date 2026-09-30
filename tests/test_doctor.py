@@ -43,6 +43,7 @@ NAMES = [
     "claude version",
     "login",
     "writable folder",
+    "gate sandbox",
 ]
 
 

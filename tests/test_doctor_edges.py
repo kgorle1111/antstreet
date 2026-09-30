@@ -255,6 +255,7 @@ def test_every_check_is_always_reported_even_when_all_of_them_fail(tmp_path, env
         "claude version",
         "login",
         "writable folder",
+        "gate sandbox",
     ]
-    assert [c.ok for c in checks] == [False, True, True, False, False, False, False]
+    assert [c.ok for c in checks] == [False, True, True, False, False, False, False, True]
     assert all(c.fix for c in checks if not c.ok)
