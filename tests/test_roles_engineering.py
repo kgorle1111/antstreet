@@ -10,7 +10,7 @@ from dataclasses import replace
 import pytest
 
 from boss.errors import Outcome
-from boss.roles import registry
+from boss.roles import engineering, registry
 from boss.roles.base import RoleError, RoleOutputError, system_prompt
 from boss.roles.engineering import (
     SYSTEM_DESIGNER,
@@ -998,3 +998,54 @@ def test_a_round_count_below_one_is_refused_before_any_call(cli):
     with pytest.raises(ValueError, match="n_rounds"):
         staged(cli, n_rounds=0)
     assert cli.calls == []
+
+
+# --- found by mutation checks ------------------------------------------------------------------
+
+
+def test_an_unknown_task_is_one_problem_not_also_an_ownership_complaint(cli):
+    output = edited_tests(["checks", 0, "task"], "t9")
+    assert rejected_by_tester(cli, output) == ["check c01 belongs to unknown task 't9'"]
+
+
+def test_a_criterion_cited_twice_is_counted_once_when_naming_who_covers_it(cli):
+    output = edited_tests(["checks", 0, "criteria"], ["S1.1", "S1.1"])
+    output["untestable"].append({"criterion": "S1.1", "reason": "x"})
+    assert rejected_by_tester(cli, output) == [
+        "check c01 cites a criterion twice",
+        "S1.1 is covered by c01 and also listed untestable",
+    ]
+
+
+def test_a_description_is_stored_without_the_white_space_around_it(cli):
+    output = edited_tests(["checks", 0, "description"], "  padded \n")
+    plan, _ = checks_of(cli, output)
+    assert plan.checks[0].description == "padded"
+
+
+def test_an_output_without_an_untestable_list_means_nothing_is_untestable(cli):
+    output = copy.deepcopy(TESTS)
+    del output["untestable"]
+    output["checks"].append(
+        {"criteria": ["S2.2"], "task": "t2", "description": "breaks at spaces", "code": WRAP_WIDTH}
+    )
+    plan, _ = checks_of(cli, output)
+    assert plan.untestable == () and len(plan.checks) == 4
+
+
+def test_a_criterion_both_covered_and_listed_is_shown_with_its_checks():
+    lines = render_coverage(STORIES, HAND_WORKED, [Untestable("S1.1", "x")]).splitlines()
+    assert lines[0].endswith("c01") and "UNTESTABLE" not in lines[0]
+
+
+def test_a_value_error_after_both_calls_were_paid_still_carries_both_usages(cli, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise ValueError("plan and directory disagree")
+
+    monkeypatch.setattr(engineering, "assemble_term_sheet", refuse)
+    cli.designer(DESIGN)
+    cli.tester(TESTS)
+    with pytest.raises(StagedDraftError) as info:
+        staged(cli)
+    assert info.value.stage == "assembly" and info.value.problems == ["plan and directory disagree"]
+    assert info.value.paid == {"system_designer": USAGE, "tester": USAGE}

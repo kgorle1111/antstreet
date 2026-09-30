@@ -42,8 +42,6 @@ def plan_rounds_by_priority(
     n = min(n_rounds, len(tiers))
     while n > 1 and budget_micros < n * floor:
         n -= 1
-    if n == 1:
-        return plan_rounds(budget_micros, len(checks), 1)
     unlocks = tiers[: n - 1] + [len(checks)]
     weights = [unlocks[0]] + [b - a for a, b in zip(unlocks, unlocks[1:], strict=False)]
     spare = budget_micros - n * floor

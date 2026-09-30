@@ -127,11 +127,23 @@ def test_checks_that_cite_nothing_fall_back_to_the_house_plan():
 
 def test_a_story_with_a_priority_the_gate_would_refuse_is_treated_as_the_lowest():
     stories = stories_of(("must", 1), ("urgent", 1))
-    checks = checks_citing(("S1.1",), ("S2.1",))
+    checks = checks_citing(("S1.1",), ("S2.1",), ("S2.1",))
+    # `urgent` counts as could: tiers 1 and 3. Read as must there would be one tier and the house
+    # plan, which unlocks at 2 then 3.
     assert [r.unlock_checks for r in plan_rounds_by_priority(stories, checks, 1_000_000, 2)] == [
         1,
-        2,
+        3,
     ]
+
+
+def test_a_budget_of_exactly_n_floors_funds_n_rounds_of_the_floor():
+    assert plan_rounds_by_priority(STORIES, CHECKS, 2 * FLOOR, 2) == (
+        Round(1, FLOOR, 3),
+        Round(2, FLOOR, 6),
+    )
+    assert plan_rounds_by_priority(STORIES, CHECKS, 2 * FLOOR - 1, 2) == (
+        Round(1, 2 * FLOOR - 1, 6),
+    )
 
 
 @pytest.mark.parametrize(
