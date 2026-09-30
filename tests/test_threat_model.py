@@ -99,3 +99,22 @@ def test_partly_controlled_and_accepted_rows_say_what_remains(rows):
         and len(r["status"].split(":", 1)[-1].strip()) < 20
     ]
     assert not thin, f"rows that do not say what remains or why: {thin}"
+
+
+def test_the_late_hook_control_is_claimed_only_with_its_tests(rows):
+    row = next(r for r in rows if r["id"] == "T21")
+    assert "tests/test_runner_isolation_late.py::" in row["tests"]
+    assert "checked once" not in row["status"]
+    source = (ROOT / "src" / "boss" / "runner.py").read_text(encoding="utf-8")
+    assert "reader.hook_events" in source and "require_isolation(reader.init" in source
+
+
+def test_the_ledger_row_says_the_torn_tail_repair_is_not_wired_in(rows):
+    row = next(r for r in rows if r["id"] == "T28")
+    assert "repair_torn_tail" in row["control"] and "no command calls" in row["status"]
+    callers = [
+        p.name
+        for p in (ROOT / "src" / "boss").rglob("*.py")
+        if p.name != "ledger.py" and "repair_torn_tail" in p.read_text(encoding="utf-8")
+    ]
+    assert callers == [], "a command now repairs a torn tail: update T28 and B10"
