@@ -1704,3 +1704,16 @@ def test_an_amended_sheet_that_does_not_validate_is_not_offered(fx, monkeypatch)
     assert "The amended term sheet does not validate: the rounds do not add up" in out.text
     assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
     assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
+
+
+def test_a_fix_round_after_an_early_finish_still_asks_to_fund_the_rounds_that_never_opened(fx):
+    script_stage_1(fx, stories=TWO_STORIES, design_out=design(("S1", "S2")))
+    fx.set("tester", ok(checks_out("S1.1", "S2.1")))
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "product_manager,system_designer,tester,critic", "--rounds", "2")
+    assert out.code == EXIT_OK
+    [question] = asked(out, "Round 2")  # the firm's own rule, which the amendment does not bypass
+    assert question.startswith("Round 2: 2/3 checks pass. Fund $")
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    assert [r["n"] for r in sheet["rounds"]] == [1, 2, 3]
+    assert sorted(e.data.get("round", 1) for e in approvals(fx)) == [1, 2, 3]

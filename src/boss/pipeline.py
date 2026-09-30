@@ -442,6 +442,8 @@ class Pipeline:
         self, sheet: TermSheet, outcome: FirmReport, rerun: Rerun, cycles: int, fix_micros: int
     ) -> tuple[TermSheet, FirmReport] | int:
         # The ledger counts the cycles: a resumed run finds them there and adds none.
+        # kn: a cycle counts once its critic call is booked, so findings left unanswered by a
+        # Ctrl-C are not offered again (their tests wait in critic-N/); record the answer to fix.
         while len(_calls(self._events(), "critic")) < max(1, cycles):
             review = self._critic(sheet)
             if review is None or not review.verified:
@@ -510,6 +512,8 @@ class Pipeline:
         checks = self._proposed(sheet, review)
         if not checks:
             return None
+        # kn: the fix round goes after every round, so a sheet whose later rounds never opened
+        # (the work finished early) asks the investor to fund those first; reuse a free round.
         n = len(sheet.rounds) + 1
         amended = dataclasses.replace(
             sheet,
