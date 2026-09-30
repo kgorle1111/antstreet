@@ -16,11 +16,13 @@ import pytest
 from boss.boss import load_prompt
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
 from boss.firm import FirmConfig
-from boss.ledger import EventType, read_events
-from boss.pipeline import RolesError, Setup, parse_roles, recorded_setup
+from boss.ledger import Event, EventType, LedgerWriter, read_events
+from boss.pipeline import Pipeline, RolesError, Setup, parse_roles, recorded_setup
 from boss.roles import registry
 from boss.roles.base import system_prompt
 from boss.roles.judge import Calibration, CaseResult, judge_identity, load_rubric
+from boss.rundir import RunPaths
+from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError
 
 IDEA = (
     "Write rev.py with a function reverse(s) that returns the string s reversed. "
@@ -102,7 +104,8 @@ if argv[argv.index("--output-format") + 1] == "json":   # the boss or a role
     who = table.get(hashlib.sha256(system.encode()).hexdigest(), "unknown")
     prompt = argv[-1]
     scripted = answer(who)
-    log(who, unscripted=scripted is None)
+    log(who, unscripted=scripted is None, model=argv[argv.index("--model") + 1],
+        thinking=os.environ.get("MAX_THINKING_TOKENS", "unset"))
     open(os.path.join(folder, "last_" + who + ".txt"), "w").write(prompt)
     if scripted is None or scripted.get("fail"):
         cost = (scripted or {{}}).get("cost", 0.002)
@@ -987,6 +990,7 @@ def test_a_verified_finding_the_investor_approves_is_fixed_by_a_worker_and_recor
     rounds = [(r["n"], r["budget_micros"], r["unlock_checks"]) for r in sheet["rounds"]]
     assert rounds == [(1, 500_000, 1), (2, 300_000, 2)]
     assert (fx.run_dir / "checks" / "test_c02.py").read_text() == LONG
+    assert (fx.run_dir / "critic-1" / "critic_checks").is_dir()  # its scratch is in the run folder
     # a worker was funded, told of the new check, and fixed the product
     assert fx.calls() == ["boss", "worker", "critic", "worker"]
     assert (fx.run_dir / "product" / "rev.py").read_text() == GOOD
@@ -1023,6 +1027,7 @@ def test_ctrl_c_at_the_question_is_an_interruption_and_a_resume_does_not_ask_aga
     out = fx.fund("--roles", "critic", answers={"Add these": KeyboardInterrupt})
     assert out.code == EXIT_INTERRUPTED and "continue with `boss resume" in out.text
     assert len(approvals(fx)) == 1 and len(fx.role_calls("critic")) == 1
+    assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
     before = fx.events()
     out = fx.run("resume")  # the findings are not offered again: they wait in the critic-1 folder
     assert out.code == EXIT_OK and asked(out, "Add these") == [] and fx.events() == before
@@ -1048,6 +1053,7 @@ def test_two_review_cycles_let_the_critic_look_again_after_the_first_fix(fx):
     out = fx.fund("--roles", "critic", "--review-cycles", "2")
     assert out.code == EXIT_OK and fx.calls().count("critic") == 2
     assert [e.data["cycle"] for e in fx.role_calls("critic")] == [1, 2]
+    assert (fx.run_dir / "critic-1").is_dir() and (fx.run_dir / "critic-2").is_dir()
     assert "Critic: 0 finding(s) verified" in out.text
     assert len(approvals(fx)) == 2 and len(asked(out, "Add these")) == 1  # nothing new to add
 
@@ -1530,3 +1536,171 @@ def test_the_board_report_lists_every_role_call_and_its_outcome_one_line_each(fx
 def test_a_report_of_a_run_without_roles_is_the_one_it_always_was(fx):
     fx.fund()
     assert "Roles" not in (fx.run_dir / "report.md").read_text()
+
+
+# --- what the roles are called with --------------------------------------------------------------
+
+
+def model_and_thinking(fx, who):
+    rows = [r for r in fx.calls(full=True) if r["who"] == who]
+    return [(r["model"], r["thinking"]) for r in rows]
+
+
+def test_every_role_call_uses_the_bosss_model_and_thinking_setting_and_the_ledger_says_which(fx):
+    script_stage_1(fx)
+    fx.fund("--roles", ",".join(STAGE_1), "--boss-model", "sonnet", "--boss-thinking", "0")
+    for who in STAGE_1:
+        assert model_and_thinking(fx, who) == [("sonnet", "0")], who
+    assert {e.data["model"] for e in fx.role_calls()} == {"sonnet"}
+    assert {e.data["prompt"] for e in fx.role_calls()} == {registry()[n].prompt for n in STAGE_1}
+
+
+def test_the_default_model_is_the_bosss_and_the_cli_chooses_the_thinking(fx):
+    fx.set("check_auditor", ok(audit_out("c01")))
+    fx.fund("--roles", "check_auditor")
+    assert model_and_thinking(fx, "check_auditor") == [("haiku", "unset")]
+
+
+def test_a_resumed_run_calls_its_roles_with_the_model_and_thinking_it_was_started_with(fx):
+    with_a_wrong_check(fx)
+    fx.set("consultant", ok(ADVICE))
+    (fx.folder / "interrupt").write_text("")
+    fx.fund("--roles", "consultant", "--boss-model", "sonnet", "--boss-thinking", "0")
+    (fx.folder / "interrupt").unlink()
+    fx.run("resume", answers={"Task": "d"})
+    assert model_and_thinking(fx, "consultant") == [("sonnet", "0")]
+
+
+def test_a_run_started_without_roles_resumes_without_roles(fx):
+    (fx.folder / "interrupt").write_text("")
+    fx.fund()
+    (fx.folder / "interrupt").unlink()
+    out = fx.run("resume")
+    assert out.code == EXIT_OK and fx.role_calls() == []
+    assert "Asking the" not in out.text
+
+
+def test_a_started_event_with_a_damaged_roles_field_is_read_as_no_roles():
+    def started(roles):
+        return Event(run="r", round=0, actor="boss", event=EventType.STARTED, data={"roles": roles})
+
+    assert recorded_setup([started("critic")]) is None
+    assert recorded_setup([started({"names": "critic"})]) is None
+    damaged = {"names": ["critic", 7], "model": "m", "thinking_tokens": True}
+    assert recorded_setup([started(damaged)]) == Setup(("critic", "7"), "m", None)
+    assert recorded_setup([started({"names": [], "model": "m", "thinking_tokens": 5})]) == Setup(
+        (), "m", 5
+    )
+
+
+def test_a_blank_role_list_is_no_roles(fx):
+    out = fx.fund("--roles", " , ")
+    assert out.code == EXIT_OK and fx.role_calls() == [] and "Asking the" not in out.text
+
+
+def test_the_critic_is_not_told_that_a_failing_check_passes(fx):
+    fx.set("worker", {"files": {"rev.py": "def reverse(s):\n    return s\n"}})
+    fx.set("critic", ok({"findings": []}))
+    fx.fund("--roles", "critic", "--budget", "0.12", "--slice", "0.005")
+    prompt = fx.last_prompt("critic")
+    assert "- reverses a word" not in prompt and "- none" in prompt
+
+
+# --- found by mutation testing -----------------------------------------------------------------
+
+
+def test_the_advisor_gives_no_opinion_on_a_check_that_is_not_on_the_sheet(fx, tmp_path):
+    sheet = TermSheet(
+        IDEA,
+        500_000,
+        (Round(1, 500_000, 1),),
+        (CheckSpec("c01", "reverses a word", "test_c01.py", "t1"),),
+        (Task("t1", "Create rev.py.", ("rev.py",)),),
+    )
+    with LedgerWriter(tmp_path / "ledger.jsonl") as ledger:
+        pipe = Pipeline(
+            Setup(("consultant",), "haiku", None),
+            tmp_path,
+            RunPaths(tmp_path / "run"),
+            ledger,
+            "r1",
+            {"HOME": str(fx.home)},
+            str(fx.fake),
+            lambda question: "",
+            lambda text: None,
+        )
+        advise = pipe.advisor(sheet)
+        assert advise is not None and advise("c99", "a reason") is None
+    assert fx.calls() == [] and not (tmp_path / "ledger.jsonl").read_text()
+
+
+def test_what_a_model_wrote_in_a_note_is_made_safe_before_the_investor_reads_it(fx):
+    hostile = story(1, "must", [Q1, Q2])
+    hostile["as_a"] = "caller\x1b[2J"
+    fx.set("product_manager", ok({"stories": [hostile]}))
+    forged = {"quote": Q2, "why": "one\nFORGED: verdict accept\x1b[0m"}
+    fx.set("user_agent", ok(REVIEW_MISSING | {"missing": [forged]}))
+    out = fx.fund("--roles", "product_manager,user_agent")
+    assert out.code == EXIT_OK and "\x1b" not in out.text
+    assert "caller\\x1b[2J" in out.text and "\\x1b[0m" in out.text
+    assert not any(line.startswith("FORGED") for line in out.text.splitlines())
+    assert "why: one FORGED: verdict accept" in out.text
+
+
+def test_the_user_agents_misreadings_are_shown_with_the_criterion_they_concern(fx):
+    misread = {"criterion": "S1.1", "quote": Q1, "why": "the criterion tests a different thing"}
+    fx.set("product_manager", ok(STORIES))
+    fx.set("user_agent", ok({"missing": [], "misread": [misread], "verdict": "revise"}))
+    out = fx.fund("--roles", "product_manager,user_agent")
+    assert f'  misread S1.1: "{Q1}" | why: the criterion tests a different thing' in out.text
+    [call] = fx.role_calls("user_agent")
+    assert call_facts(call) == ("completed", "ok", 4_000)
+    assert call.data["detail"] == "0 missing, 1 misread"
+
+
+def two_task_staging(fx):
+    util_check = "from util import shout\n\n\ndef test_shout():\n    assert shout('a') == 'A'\n"
+    fx.set("product_manager", ok({"stories": [story(1, "must", [Q1]), story(2, "must", [Q2])]}))
+    tasks = [
+        {"id": "t1", "brief": "Create rev.py.", "paths": ["rev.py"], "stories": ["S1"]},
+        {"id": "t2", "brief": "Create util.py.", "paths": ["util.py"], "stories": ["S2"]},
+    ]
+    fx.set("system_designer", ok({"tasks": [t | {"interfaces": []} for t in tasks]}))
+    checks = [
+        {"criteria": ["S1.1"], "task": "t1", "description": "reverses", "code": CHECK1},
+        {"criteria": ["S2.1"], "task": "t2", "description": "shouts", "code": util_check},
+    ]
+    fx.set("tester", ok({"checks": checks, "untestable": []}))
+    shout = "def shout(s):\n    return s.upper()\n"
+    fx.set("worker", [{"files": {"rev.py": GOOD}}, {"files": {"util.py": shout}}])
+
+
+def test_the_staged_draft_may_use_as_many_tasks_as_the_investor_allowed(fx):
+    two_task_staging(fx)
+    out = fx.fund("--roles", "product_manager,system_designer,tester", "--max-tasks", "2")
+    assert out.code == EXIT_OK and "boss" not in fx.calls()
+    sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
+    assert [t["id"] for t in sheet["tasks"]] == ["t1", "t2"]
+    assert fx.role_calls("system_designer")[0].data["detail"] == "2 task(s)"
+    assert "Use at most 2 tasks." in fx.last_prompt("system_designer")
+
+
+def test_with_the_default_of_one_task_a_two_task_design_is_refused_and_the_boss_drafts(fx):
+    two_task_staging(fx)
+    out = fx.fund("--roles", "product_manager,system_designer,tester")
+    assert "The staged draft failed at system_designer" in out.text
+    assert [e.data["result"] for e in fx.role_calls("system_designer")] == ["failed"]
+    assert fx.calls()[-2:] == ["boss", "worker"]
+
+
+def test_an_amended_sheet_that_does_not_validate_is_not_offered(fx, monkeypatch):
+    def refuse(sheet, checks_dir):
+        raise TermSheetError(["the rounds do not add up"])
+
+    monkeypatch.setattr("boss.pipeline.validate", refuse)
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic")
+    assert out.code == EXIT_OK and asked(out, "Add these") == []
+    assert "The amended term sheet does not validate: the rounds do not add up" in out.text
+    assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
+    assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
