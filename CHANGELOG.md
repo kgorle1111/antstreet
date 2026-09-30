@@ -56,7 +56,16 @@ what changed for someone using the tool, not which commit did it.
 - Versioned skill files under `src/boss/skills/`, with a test that holds each to a size and a
   quality bar.
 - Nine specialist roles, each one model call with no tools behind a gate in code (`boss roles`
-  lists them). All are off, `boss fund` does not call them, and none is measured yet.
+  lists them). All are off unless you name them, and none is measured yet.
+- `boss fund --roles A,B` (or `all`) runs the chosen roles: stories and a staged draft before you
+  approve, an opinion on each dispute, a critic's review and a demo after the build. A role only
+  advises or proposes.
+- A failed role is booked, reported in one line and never read as "no problems found"; the staged
+  draft falls back to the boss's own draft.
+- The critic's verified findings can become checks and a fix round. You are asked once, and your
+  approval is recorded as an amendment: `--review-cycles` and `--fix-budget` set the limits.
+- A demo that ran is installed in `product/` with a `USAGE.md` that holds its real output.
+- The board report has a Roles section with one line per role call.
 - `python -m boss.roles.judge calibrate` compares the judge with a person's scores. Its scores
   stay labelled uncalibrated until they agree closely enough.
 - `python -m boss.bench.drafts` can score the product manager, designer and tester in place of the
@@ -74,8 +83,8 @@ what changed for someone using the tool, not which commit did it.
   remains, instead of running into the limit and losing that slice.
 - A worker's folder over 200 MB stops the run before the gate copies it, and a slice's log stops
   growing at 50 MB. The slice's cost and outcome are still recorded.
-- A worker is shown the code of checks added by an approved amendment. No command makes an
-  amendment yet.
+- A worker is shown the code of checks added by an approved amendment, which the critic's fix
+  round writes once you agree.
 - A threat model in which every control cites a test, and a test that fails if a cited test is gone.
 - Continuous integration on Linux and macOS with a coverage floor of 96%.
 - Documentation: architecture, roles and skills, ledger schema, command line, decision log,
@@ -107,6 +116,8 @@ what changed for someone using the tool, not which commit did it.
 - A finished run opens no further round when it is run again, and Ctrl-C at the funding question
   is an interruption, not a recorded no.
 - A blank idea is refused before a run folder exists.
+- Ctrl-C while the boss or a role is being called ends the run with a message and exit 130, instead
+  of a traceback; the ledger records that it stopped before approval.
 
 ### Fixed
 

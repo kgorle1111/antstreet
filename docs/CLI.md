@@ -33,8 +33,13 @@ Argument: `idea`, what to build, in plain words.
   more. `--max-minutes` must be a positive number. `--boss-thinking` must be a whole number. Any
   other value is a usage error (exit 2) before anything is spent.
 - Ctrl-C after approval, while workers are running, stops the run, prints `boss resume <id>` and
-  exits 130. Nothing already recorded is lost. Ctrl-C earlier (during the boss's call or the
-  review) is not handled: Python's own interrupt applies.
+  exits 130. Nothing already recorded is lost. Ctrl-C earlier, while the boss or a role is being
+  called, ends the run with a message and exit 130: nothing was funded, what the calls so far cost
+  is on the ledger, and there is nothing to resume. Ctrl-C at the approval question counts as
+  reject.
+- `--roles` is checked before anything is spent. An unknown name, or a role without the roles it
+  needs, is a usage error (exit 2) that says what to change. `--fix-budget` below one reserve plus
+  $0.005 is refused the same way.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -52,7 +57,10 @@ Argument: `idea`, what to build, in plain words.
 | `--max-minutes` | none | Stop the run after this many minutes of wall clock, counted from the start of this `fund` or `resume`. Checked before each slice, so a slice in progress can run past it. |
 | `--no-firing` | off | Keep funding stalled workers. A worker is still fired at the slice limit. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
-| `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. |
+| `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. Roles use it too. |
+| `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `boss roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
+| `--review-cycles` | `1` | Times the critic may review the finished product and offer a fix round. With 0 the critic still runs and its findings are shown, but you are asked nothing. |
+| `--fix-budget` | two slices plus one reserve | Dollars for a fix round after the critic's findings: `$0.30` with the default slice and reserve. At least one reserve plus $0.005. |
 
 What it asks you:
 
@@ -61,6 +69,10 @@ What it asks you:
   reject.
 - `Round N: X/Y checks pass. Fund $Z more? [y]es / [n]o` before each round after the first. End
   of input counts as no.
+- With the critic on, after the build: `Add these N checks and fund a fix round of $X? [y]es / [n]o`,
+  once per review cycle and only when the critic has verified findings and the run did not end
+  early. It shows each proposed check and its code first. `y`, `yes`, `a` and `approve` are yes;
+  anything else, and end of input, is no. Ctrl-C ends the command with exit 130.
 
 Limits that are not options: a run stops at 60 slices or 16 workers, when spend passes the sum of
 its round budgets plus one reserve per round, or when a worker's folder passes 200 MiB (the gate
@@ -88,6 +100,8 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
+| `--review-cycles` | `1` | As for `boss fund`. |
+| `--fix-budget` | two slices plus one reserve | As for `boss fund`; the slice and reserve are the run's own. |
 
 - It reads `term_sheet.json` and the configuration recorded when the run started, so a resumed
   run keeps its own slice, reserve, firing and limit settings. There are no options to change them.
@@ -99,6 +113,10 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   task that was set aside stays set aside.
 - A slice that started and never ended is charged to its round at its cap. If the last slice was
   never gated, or a firing or a question to you was owed, it is done first.
+- The roles are the ones recorded when the run started. Their first stage (stories, staged draft,
+  audit) is not run again; the consultant answers disputes; the critic, the demo and the judge of
+  the usage note run after the build unless the ledger shows they already did, so a second
+  `resume` of a finished run adds nothing.
 - On a run that already finished it changes nothing and prints the report.
 - Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; a damaged
   ledger; the run never got as far as hiring (start again with `boss fund`); the term sheet or a
@@ -172,9 +190,9 @@ run `--live` again. The other checks make no paid call. The two costs are the CL
 |---|---|
 | `0` | `fund`, `resume`: every check passed. `report`, `status`, `roles`, `doctor`: success. |
 | `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
-| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
-| `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume`. |
+| `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 
 A ledger with a damaged line makes `report` and `status` fail with an error that names the file
 and line.
@@ -365,6 +383,10 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `logs/<worker>.jsonl` | The worker's raw stream, with secrets masked. |
 | `product/` | The built files, assembled from each task's best worker at the end of a run. |
 | `report.md` | The board report, saved when `boss fund` or `boss resume` finishes. |
+| `stories.json` | The product manager's stories, when that role ran. |
+| `critic-N/` | Scratch for the critic's Nth review: `critic_checks/` holds the tests it wrote, including the ones that were not verified. |
+| `demo/` | `demo.py` and `USAGE.md` as installed in `product/`. Kept because `product/` is rebuilt on every run, and a `resume` copies them back. |
+| `demo_scratch/` | Where the demo writer ran its script against a copy of the product. |
 
 `workspaces/`, `logs/` and `product/` exist only once a worker has been hired. `report.md` is
 written by `fund` and `resume`; `boss report` prints it again from the ledger without writing.

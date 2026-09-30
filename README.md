@@ -78,6 +78,8 @@ Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
 | `--max-tasks N` | Let the boss split the work into up to N tasks | 1 |
 | `--parallel N` | Work on up to N tasks at once; one worker per task | 1 |
 | `--profile NAME` | Add a worker profile's skills to the builder prompt; `boss roles` lists them | none |
+| `--roles A,B` | Run specialist roles around the build (stories, staged draft, audit, consultant, critic, demo, judge); `all` turns on every role | none |
+| `--review-cycles N`, `--fix-budget D` | Critic reviews of the product that may lead to a fix round you approve; dollars for that round | 1, two slices and a reserve |
 
 ```bash
 uv run boss resume    # continue the latest run: interrupted, paused or stopped
