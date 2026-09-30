@@ -2320,10 +2320,7 @@ def _crash_kind(
 #   owed stop          a stop owed to an infrastructure failure or a refused start is not
 #                      recovered: the slice is retried. The invariants must still hold.
 # The classes of crash the loop does not recover from, each pinned by a strict xfail below.
-EXCLUDED = {
-    "partial product": "test_a_crash_between_two_product_results_leaves_it_half_judged",
-    "half-ruled after a keep": "test_a_crash_after_keeping_one_of_two_disputes_leaves_it_unasked",
-}
+EXCLUDED: dict[str, str] = {}  # nothing is excluded now: both earlier classes were fixed
 
 
 def lost_disputes(ref: Result, k: int, who: str, number: int, earlier: int) -> dict:
@@ -2916,12 +2913,6 @@ def test_a_ruling_reaches_a_worker_whose_session_is_not_proven():
 # ---- what the simulation finds in the loop as it is now ----
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="firm._gate_product gates the product only if no product result follows the last "
-    "slice, so a crash between two of them leaves the verdict on a subset and the report "
-    "under-counts",
-)
 def test_a_crash_between_two_product_results_leaves_it_half_judged():
     scn = hand([beh(progress="all", status="done")])
     ref = run_in_tmp(scn)
@@ -2931,12 +2922,6 @@ def test_a_crash_between_two_product_results_leaves_it_half_judged():
     assert hit.report == ref.report and _canon(hit.events) == _canon(ref.events), hit.report
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="rule.decide stops calling the worker's other dispute credible once a kept ruling "
-    "leaves that check failing and undisputed, so firm._act has no escalation left to finish and "
-    "the worker is funded again before the second dispute is asked",
-)
 def test_a_crash_after_keeping_one_of_two_disputes_leaves_it_unasked():
     scn = hand(
         [beh(progress="progress", n_new=2, disputes="all"), beh(progress="all", status="done")],

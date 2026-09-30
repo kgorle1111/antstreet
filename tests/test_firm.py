@@ -1604,3 +1604,64 @@ def test_a_lower_threshold_pauses_sooner(paths):
     worker = NearLimit([0.6], step(HALF), step(GOOD, "done"))
     report, _ = run(paths, worker, config=FirmConfig(plan_pause_at=0.5))
     assert report.stopped.startswith("paused: five_hour window at 60%") and len(worker.specs) == 1
+
+
+# Found by the simulation once it covered the product verdict and rulings.
+
+
+def test_a_product_judged_on_only_some_checks_is_finished_on_resume(paths):
+    with contextlib.suppress(KeyboardInterrupt):
+        run(paths, Script(step(GOOD, "done"), KeyboardInterrupt()))
+    lines = paths.ledger.read_text().splitlines()
+    product = [i for i, line in enumerate(lines) if '"scope": "product"' in line]
+    paths.ledger.write_text("\n".join(lines[: product[1]]) + "\n")  # killed after the first
+    assert product_results(paths) == [("c01", "passed")]
+    report, _ = run(paths, Script())
+    assert product_results(paths) == [("c01", "passed"), ("c02", "passed")]
+    assert report.all_passed and (report.passed, report.total) == (2, 2)
+
+
+def test_the_rest_of_a_workers_disputes_are_asked_after_one_was_kept_and_the_run_was_killed(paths):
+    (paths.checks / "test_c04.py").write_text(C04)
+    (paths.checks / "test_c05.py").write_text(C05)
+    (paths.checks / "test_c06.py").write_text(C05.replace("WRONG", "ALSO WRONG"))
+    checks = tuple(
+        CheckSpec(f"c0{n}", f"check {n}", f"test_c0{n}.py", "t1") for n in (1, 2, 4, 5, 6)
+    )
+    checks += (CheckSpec("c03", "spare", "test_c03.py", "t1"),)
+    tasks = (Task("t1", "Create rev.py.", ("rev.py", "up.py")),)
+    s = TermSheet("Reverse a string.", 500_000, (Round(1, 500_000, 6),), checks, tasks, True)
+
+    class WithShout(Script):
+        def __call__(self, spec, workspace, log_path, *, env):
+            (workspace / "up.py").write_text(SHOUT)
+            return super().__call__(spec, workspace, log_path, env=env)
+
+    replies = iter(["k"])
+
+    def ask(question):
+        try:
+            return next(replies)
+        except StopIteration:
+            raise KeyboardInterrupt from None
+
+    both = [dispute("c05"), dispute("c06")]
+    with LedgerWriter(paths.ledger) as ledger:
+        data = {"hashes": content_hashes(s, paths.checks)}
+        ledger.append(
+            Event(run="r1", round=0, actor="investor", event=EventType.APPROVED, data=data)
+        )
+        with pytest.raises(KeyboardInterrupt):
+            run_firm(s, paths, ledger, "r1", env=ENV, ask=ask, say=lambda _: None,
+                     slice_runner=WithShout(step(GOOD, "done", disputes=both)))  # fmt: skip
+    assert rulings_of(paths) == [("investor", "c05", "kept")]
+    # Keeping c05 leaves it failing and undisputed, so the rule no longer escalates. The second
+    # dispute must still be put to the investor before the worker is funded again.
+    resumed = Script(*[step(GOOD)] * 6)
+    report, said = run(paths, resumed, s, answers=["d"])
+    assert rulings_of(paths)[:2] == [("investor", "c05", "kept"), ("investor", "c06", "dropped")]
+    ruled_at = [i for i, e in enumerate(read_events(paths.ledger)) if e.event is EventType.RULED][1]
+    starts = [
+        i for i, e in enumerate(read_events(paths.ledger)) if e.event is EventType.SLICE_START
+    ]
+    assert all(i > ruled_at for i in starts[1:])  # no slice was paid for before the question

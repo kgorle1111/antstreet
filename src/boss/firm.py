@@ -231,17 +231,20 @@ class _Firm:
             for e in events[last_slice:]
             if e.event is EventType.CHECK_RESULT and e.data.get("scope") == "product"
         }
+        dropped = self.state().dropped
+        required = [Check(c.id, c.file) for c in self.sheet.checks if c.id not in dropped]
+        # A run killed between two product results leaves the verdict on some checks only:
+        # the ones still missing are gated now.
+        missing = [c for c in required if c.id not in verdicts]
         limit = self.config.limits.max_workspace_bytes
-        if not verdicts and workspace_bytes(self.paths.product, limit) > limit:
+        if missing and workspace_bytes(self.paths.product, limit) > limit:
             self.say("The product is over the folder size limit, so it was not gated.")
             return workspace_passes
-        if not verdicts:
-            dropped = self.state().dropped
-            checks = [Check(c.id, c.file) for c in self.sheet.checks if c.id not in dropped]
+        if missing:
             tasks = {c.id: c.task for c in self.sheet.checks}
             try:
                 require_approval(events, self.sheet, self.paths.checks)
-                results = self.gate(self.paths.product, self.paths.checks, checks)
+                results = self.gate(self.paths.product, self.paths.checks, missing)
             except NotApprovedError:
                 return workspace_passes  # the checks changed: only earlier results can be trusted
             record = Recorder(self.ledger, self.run_id, events[last_slice].round)
@@ -253,7 +256,7 @@ class _Firm:
                     data=data | {"detail": r.detail, "scope": "product"},
                 )
                 verdicts[r.check_id] = r.passed
-        passed = sum(verdicts.values())
+        passed = sum(verdicts.get(c.id, False) for c in required)
         if passed != workspace_passes:
             self.say(
                 f"The assembled product passes {passed} checks; the workers' own folders "
@@ -602,10 +605,17 @@ class _Firm:
         needed = frozenset(c.id for c in self.checks_of(task))
         if not history or not needed:
             return None
+        since = _after_last_slice(events, worker)
+        open_disputes = sorted(needed & frozenset().union(*(r.disputed for r in history)))
+        if open_disputes and any(_rules_on_a_check(e, task.id) for e in events[since:]):
+            # The investor was part way through this worker's disputes when the run stopped.
+            # The rest are asked before anything else is decided: a kept check no longer makes
+            # the rule escalate, so the rule alone would leave them unasked.
+            self._ask_disputes(task, worker, open_disputes, events, record)
+            return None
         verdict = decide(needed, history, self.config.policy)
         if verdict.decision is Decision.RETRY:
             return self._infrastructure(run, history, record) if run else None
-        since = _after_last_slice(events, worker)
         if verdict.decision is Decision.ESCALATE:
             # A dispute is asked about for as long as the verdict still lists it: each ruling
             # removes one, so an escalation interrupted half way is finished on the next pass.
@@ -634,32 +644,7 @@ class _Firm:
         """Put to the investor what the worker could not settle. No clear ruling sets the task
         aside; nothing is ever decided for the investor."""
         if verdict.reason == "disputed":
-            described = {c.id: c.description for c in self.sheet.checks}
-            reasons = {
-                e.data.get("check"): str(e.data.get("reason", ""))
-                for e in events
-                if e.event is EventType.DISPUTED and e.data.get("worker") == worker
-            }
-            for check in verdict.evidence["disputed"]:
-                advice = self.advise(check, reasons.get(check, "")) if self.advise else None
-                if advice:
-                    self.say(advice)
-                ruling = rulings.ask_dispute(
-                    self.ask,
-                    task=task.id,
-                    worker=worker,
-                    check=check,
-                    description=safe_text(" ".join(described.get(check, "").split()), limit=200),
-                    reason=reasons.get(check, ""),
-                )
-                if ruling is None:
-                    self.say(f"Task {task.id} is set aside: {worker} disputes {check}.")
-                    record(
-                        "boss", EventType.ABANDONED, data={"task": task.id, "reason": "disputed"}
-                    )
-                    return
-                ruled = {"task": task.id, "worker": worker, "check": check, "ruling": ruling}
-                record("investor", EventType.RULED, data=ruled)
+            self._ask_disputes(task, worker, verdict.evidence["disputed"], events, record)
             return
         reason = _last_reason(events, worker) or verdict.reason
         if not any(e.event is EventType.BLOCKED for e in events[since:]):
@@ -671,6 +656,41 @@ class _Firm:
             return
         ruled = {"task": task.id, "worker": worker, "ruling": rulings.UNBLOCKED, "note": note}
         record("investor", EventType.RULED, data=ruled)
+
+    def _ask_disputes(
+        self,
+        task: Task,
+        worker: str,
+        checks: Sequence[str],
+        events: Sequence[Event],
+        record: Recorder,
+    ) -> None:
+        """Ask the investor to rule on each disputed check. The first one left unruled sets the
+        task aside."""
+        described = {c.id: c.description for c in self.sheet.checks}
+        reasons = {
+            e.data.get("check"): str(e.data.get("reason", ""))
+            for e in events
+            if e.event is EventType.DISPUTED and e.data.get("worker") == worker
+        }
+        for check in checks:
+            advice = self.advise(check, reasons.get(check, "")) if self.advise else None
+            if advice:
+                self.say(advice)
+            ruling = rulings.ask_dispute(
+                self.ask,
+                task=task.id,
+                worker=worker,
+                check=check,
+                description=safe_text(" ".join(described.get(check, "").split()), limit=200),
+                reason=reasons.get(check, ""),
+            )
+            if ruling is None:
+                self.say(f"Task {task.id} is set aside: {worker} disputes {check}.")
+                record("boss", EventType.ABANDONED, data={"task": task.id, "reason": "disputed"})
+                return
+            ruled = {"task": task.id, "worker": worker, "check": check, "ruling": ruling}
+            record("investor", EventType.RULED, data=ruled)
 
     def _infrastructure(self, run: SliceRun, history: list[Any], record: Recorder) -> str | None:
         attempt = 0
@@ -709,6 +729,12 @@ def _gated(event: Event, worker: str, number: int) -> bool:
     data = event.data
     found = event.event is EventType.CHECK_RESULT
     return found and data.get("worker") == worker and data.get("slice") == number
+
+
+def _rules_on_a_check(event: Event, task: str) -> bool:
+    """Whether this is the investor's ruling on a disputed check of the task."""
+    ruling = event.event is EventType.RULED and event.actor == "investor"
+    return ruling and event.data.get("task") == task and "check" in event.data
 
 
 def _unblocks(event: Event, task: str) -> bool:
