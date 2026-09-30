@@ -65,7 +65,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     fund.add_argument("idea", help="what to build, in plain words")
     fund.add_argument(
-        "--budget", required=True, type=_usd, help="total budget in dollars, e.g. 0.50"
+        "--budget", required=True, type=usd_arg, help="total budget in dollars, e.g. 0.50"
     )
     fund.add_argument("--model", default=DEFAULT_WORKER_MODEL, help="worker model")
     fund.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
@@ -81,7 +81,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _usd(text: str) -> int:
+def usd_arg(text: str) -> int:
     try:
         micros = Decimal(text.lstrip("$")) * 1_000_000
     except InvalidOperation:
