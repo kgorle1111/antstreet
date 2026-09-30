@@ -22,50 +22,73 @@ Related: [LEDGER.md](LEDGER.md) (event schema), [CLI.md](CLI.md) (commands, run 
   `reassigned`, `abandoned`, `round_closed`, `paused`, `stopped`). Those are code, not a model
   call. Only `boss_call` is a model call.
 - The loop (`firm.py`) is not an actor. It reads the ledger, asks the rule, and writes events.
+- Specialist roles (`src/boss/roles/`) are not in this table. Each is one model call with no tools,
+  behind a gate in code, and its spend is booked as a `role_call` event under the actor
+  `role:<name>`. Every role is off by default and none is called by `boss fund`;
+  [ROLES.md](ROLES.md) says what each is and when one is switched on.
+- A worker profile (`boss fund --profile`) is the same worker with skills added to its prompt. It
+  changes what the worker is told, not what it may do.
 
 ## Module map
 
-One row per file under `src/boss/` and `src/boss/bench/`. "Never" is a rule the module keeps.
+One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `src/boss/bench/`. "Never" is a rule the module keeps.
 
 | Module | Owns | Never |
 |---|---|---|
 | `__init__.py` | The package version, read from installed metadata. | Hold logic. |
 | `approval.py` | Showing the term sheet, the approve/reject/edit loop, content hashes, `require_approval`. | Set approval without an investor answer; accept a hash that does not match the files on disk. |
 | `boss.py` | The boss's one model call: command line, draft schema, turning a draft into a term sheet. | Take ids, file names, money or round plan from the model; give the boss a tool. |
-| `briefs.py` | What a worker is told: first brief, continuation after a gate run, reassignment brief. | Call a model; present a worker's earlier words as instructions. |
+| `briefs.py` | What a worker is told: first brief, continuation after a gate run, reassignment brief, and the note about checks the investor added. | Call a model; present a worker's earlier words as instructions. |
 | `budget.py` | Round budgets, top-ups, remaining money, slice caps, the reserve, unlock test, round plan. Charges a slice that did work with no cost, or that never ended, at its cap. | Use floats; read a clock. |
-| `cli.py` | The `boss` command: parsing, validating counts and amounts, wiring, exit codes, `resume`. | Decide pass, fire or money itself. |
-| `doctor.py` | Preflight checks (including the gate sandbox), each with a one-line fix. | Raise on an expected failure; print an environment value. |
+| `cli.py` | The `boss` command: parsing, validating counts and amounts, wiring, exit codes, `resume`, `roles`; the `--profile` and `--parallel` options. | Decide pass, fire or money itself. |
+| `doctor.py` | Preflight checks, each with a one-line fix: the gate sandbox, and with `--live` one real worker slice that tries to write outside its folder. | Raise on an expected failure; print an environment value. |
 | `errors.py` | Names the outcome of one CLI run from its stream signals. | Trust `subtype` alone. |
-| `firm.py` | The round loop: hire, fund a slice, gate it, ask the rule, write events. | Keep state outside the ledger; record a pass itself; spend before approval matches. |
+| `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own. |
 | `gate.py` | Running checks against a fresh copy of the workspace, inside the OS sandbox when there is one; the verdict. | Read the exit code alone; run a check from the workspace; modify the original workspace. |
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
-| `ledger.py` | The event schema, the exclusive appender, the reader, totals, `repair_torn_tail` (no command calls it yet). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0. |
-| `limits.py` | Hard run limits: spend ceiling, slices, workers, wall clock. | Depend on the round budget or the rule. |
+| `ledger.py` | The event schema, the exclusive appender, the reader, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0. |
+| `limits.py` | Hard run limits: spend ceiling, slices, workers, wall clock, and the size of a worker's folder. | Depend on the round budget or the rule. |
 | `redact.py` | Masking secrets and control characters in text that is stored or shown (`safe_text`), in linear time. | Return text that still contains a matched secret. |
 | `report.py` | The board report, computed from events. | Read anything but events; fold an unknown cost into a total as 0. |
 | `retry.py` | Pure decisions on infrastructure failures: wait, pause, give up. | Sleep; read a clock; touch a process. |
+| `roles/__init__.py` | `registry()`: every role, collected from the `SPECS` of the modules in the package. | List a role by hand; accept two roles with one name. |
+| `roles/advisory.py` | The check auditor (an opinion on each check against the idea) and the consultant (an opinion on one disputed check). | Change a check or a ruling; accept an opinion whose quote is not a fragment of the idea. |
+| `roles/base.py` | What every role is: `RoleSpec`, the one tool-less call (`call_role`), the ledger fields for its spend. | Give a role a tool; write to the ledger itself. |
+| `roles/builders.py` | Worker profiles: which skills follow the base builder prompt. | Grant a tool or a permission; change the base prompt. |
+| `roles/critic.py` | Reading a finished product against the idea and proposing one test per claim. | Count a finding whose test the gate did not see fail; add a check to an approved term sheet. |
+| `roles/delivery.py` | The demo writer: a demo script and a usage note for a finished product. | Show output the code did not capture from a gated run; accept a script that imports more than the standard library and the product. |
+| `roles/engineering.py` | The system designer and the tester, the staged draft (`draft_staged`) that chains them, and the term sheet assembled from their output. | Take ids or file names from the model; skip `termsheet.validate`. |
+| `roles/judge.py` | The judge, which scores an artifact against a rubric, and the calibration that compares it with a person. | Hand out a score with no quote from the artifact; mark a judgement calibrated anywhere but `judge_artifact`. |
+| `roles/org.py` | The organisation chart, built from each role's department and parent (`python -m boss.roles.org`). | Draw roles that do not form a tree under the boss. |
+| `roles/planning.py` | Funding rounds that unlock in story-priority order. | Call a model. |
+| `roles/product.py` | The product manager (user stories) and the user agent (what the stories miss or misread). | Let the user agent edit the stories. |
+| `roles/stories.py` | The shape of user stories and acceptance criteria, and the word-for-word quote check against the idea. | Accept a criterion whose source is not a fragment of the idea. |
 | `rule.py` | The firing decision from a worker's slice history. | Read model output or state outside the history it is given. |
 | `rulings.py` | The investor's questions on a disputed check or a blocked task, and reading `ruled` events back. | Decide for the investor; change the approved term sheet. |
-| `rundir.py` | Run folder layout, the event recorder, assembling `product/`. | Copy a file into a path another task owns; follow a symlink. |
-| `runner.py` | Running one slice as a supervised child process; isolation check at init and on any later hook event; stopping it. | Leave a child running; start in a workspace holding agent config. |
+| `rundir.py` | Run folder layout, the event recorder, counting a folder's bytes against the size limit, assembling `product/`. | Copy a file into a path another task owns; follow a symlink. |
+| `runner.py` | Running one slice as a supervised child process; isolation check at init and on any later hook event; cutting its log at 50 MB; stopping it. | Leave a child running; start in a workspace holding agent config. |
 | `sandbox.py` | Building the command that runs one check inside a macOS `sandbox-exec` or Linux `bwrap` sandbox; probing that the tool works. | Run a check; put a path into profile text; trust a tool it has not probed. |
+| `skills/__init__.py` | Loading and parsing skill files: a header of `name`, `version` and `description`, then a body. | Accept another header; load a body over 4,000 characters. |
 | `state.py` | Rebuilding run state (workers, tasks, rounds, stops, sessions, dropped checks) from events. | Read anything but events. |
 | `stream.py` | Reading the CLI's `stream-json` output; usage and cost. | Raise on malformed input; turn a missing cost into 0. |
 | `termsheet.py` | Term sheet types, JSON round trip, validation. | Accept a wrong JSON type; skip the empty-workspace run of every check. |
 | `worker.py` | The exact worker command, the environment allowlist, status cleaning, the isolation test. | Offer a shell tool; pass a variable that is not on the allowlist. |
 | `bench/__init__.py` | The package marker for the benchmark. | Hold logic. |
-| `bench/drafts.py` | Drafting checks per task with the boss and scoring each draft (`python -m boss.bench.drafts`). | Start a worker; show the boss a hidden check, the reference or a mutant. |
+| `bench/audit.py` | Auditing saved drafts with the check auditor and scoring its flags against the reference solution (`python -m boss.bench.audit`). | Show the auditor the reference or a mutant; spend money under `--dry-run`. |
+| `bench/drafts.py` | Drafting checks per task, with the boss's one call or the three-role staged draft, and scoring each draft (`python -m boss.bench.drafts`). | Start a worker; show the boss a hidden check, the reference or a mutant. |
 | `bench/replay.py` | Replaying a firing policy over recorded ledgers, offline. | Call a model; use a different rule from the live one; walk past DONE or ESCALATE. |
 | `bench/results.py` | One benchmark cell's result record and its load checks. | Accept a wrongly typed field. |
 | `bench/run.py` | Running benchmark cells through the single and firm arms. | Copy hidden checks or the reference into a workspace or a prompt. |
-| `bench/score.py` | Scoring a draft's checks: precision on the reference, recall on the mutants. | Spend money; count a mutant killed only by a wrong check as caught. |
+| `bench/score.py` | Scoring a draft's checks (precision on the reference, recall on the mutants) and a critic's verified findings against the reference. | Spend money; count a mutant killed only by a wrong check as caught. |
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
 
-Prompts are files, not code: `src/boss/prompts/term_sheet_v1.md` (one task),
-`term_sheet_v2.md` (several tasks), `builder_v3.md` (every worker) and `solo_v1.md` (the
-benchmark's single agent).
+Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/term_sheet_v1.md`
+(one task), `term_sheet_v2.md` (several tasks), `builder_v3.md` (every worker) and `solo_v1.md` (the
+benchmark's single agent). Each role has its own: `product_manager_v1.md`, `user_agent_v1.md`,
+`system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
+`check_auditor_v1.md` and `consultant_v1.md`. Skills are Markdown files under `src/boss/skills/`
+that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
 
 ## Life of a run
 
@@ -85,29 +108,40 @@ benchmark's single agent).
    an `approved` event holding hashes of the term sheet and each check file.
 7. `run_firm` verifies the approval, writes `started` once (the run's configuration), then for each
    round asks for the investor's yes (rounds after the first) and runs the round.
-8. The round loop picks the first task whose checks do not all pass, checks the hard limits,
-   computes the slice cap, gets or hires a worker, and verifies the approval again.
-9. It records `slice_start`, runs the slice (a `claude` process in the worker's folder), records
-   `slice_end`, and, unless the slice failed for infrastructure reasons, runs the gate and records
-   one `check_result` per check.
+8. The round loop plans a wave: the first tasks whose checks do not all pass, at most `--parallel`
+   of them (default 1). For each it checks the hard limits, computes the slice cap, gets or hires a
+   worker, and verifies the approval again. Each later slice of a wave leaves one more reserve
+   unspent.
+9. It records `slice_start` for each, runs the slices (a `claude` process in each worker's folder;
+   one thread each when there are several), then records every `slice_end`, so no known cost is
+   lost. Unless a slice failed for infrastructure reasons, it runs the gate on that worker's
+   folder and records one `check_result` per check.
 10. The rule decides from the ledger alone. The loop writes the matching event (table below) and
-    goes to step 8.
+    goes to step 8. Only the loop's own thread writes the ledger.
 11. When the round ends, `round_closed` is written. The run ends when every check passes, a limit
     stops it, or the next round is not unlocked or not funded.
-12. `product/` is assembled from each task's best worker. The report is rendered from the ledger,
-    saved as `report.md` and printed. Exit 0 if every check passed, else 3.
+12. `product/` is assembled from each task's best worker. The gate then runs every required check
+    on `product/` and records one `check_result` per check with `scope: product`; that count
+    decides the exit code, and the loop says so when it differs from the workers' folders. The
+    report is rendered from the ledger, saved as `report.md` and printed. Exit 0 if every check
+    passed, else 3.
 
 `boss resume [run]` continues a run that was interrupted (Ctrl-C, exit 130), paused or stopped:
 
-1. It reloads `term_sheet.json` and the configuration from `started`. A run with no `started`
-   event never hired anyone and cannot be resumed.
-2. If the run is stopped, it writes `resumed` (actor `investor`) after saying why it stopped. The
+1. `repair_torn_tail` cuts a last ledger line that a hard kill left incomplete, and says so. A
+   damaged ledger that this does not fix ends the command with exit 1.
+2. It reloads `term_sheet.json` and the configuration from `started` (so the same `--profile`,
+   `--parallel` and limits). A run with no `started` event never hired anyone and cannot be
+   resumed.
+3. If the run is stopped, it writes `resumed` (actor `investor`) after saying why it stopped. The
    command is the investor's act; nothing else lifts a stop.
-3. It calls `run_firm` as in step 7. Approval, budget and every hard limit are checked again as
+4. It calls `run_firm` as in step 7. Approval, budget and every hard limit are checked again as
    the loop goes; a round that was interrupted stays open and continues; a round that closed below
    its unlock threshold stays locked.
-4. A slice with a `slice_start` and no `slice_end` is charged to its round at its cap. If the last
-   slice was never gated, the loop gates it; a firing or an escalation that was owed is carried out.
+5. A slice with a `slice_start` and no `slice_end` is charged to its round at its cap. If the last
+   slice was never gated, the loop gates it; a firing, an escalation or a half-asked set of
+   disputes that was owed is carried out. A product verdict cut short is completed: only the
+   checks with no `scope: product` result are run.
 
 ## Control flow of `firm.py`
 
@@ -128,16 +162,18 @@ Each row is one decision in `_Firm.run`, `_run_round`, `_current_worker`, `_slic
 | Round cannot fund a cap of at least the minimum after the reserve | None (a message is printed) | Round ends; `round_closed` |
 | Task's worker exists and is not fired | None | Fund its next slice |
 | Task's worker fired, task already had two workers | `abandoned` (`already reassigned once`) | Next task |
-| Task has no worker | `hired` (a workspace folder left by an interrupted hire is deleted first) | Fund its first slice |
+| Task has no worker | `hired` (holds the `prompt` file and the `profile`, null when none; a workspace folder left by an interrupted hire is deleted first) | Fund its first slice |
 | Task's worker fired, one worker so far | `reassigned`, then `hired` | Fund the replacement; files offered under `previous_attempt/` |
-| Approval no longer matches, or a check file is missing or unreadable, before a slice or a gate run | `stopped` (actor `rule`) | Run ends; the round stays open |
+| Approval no longer matches, a check file is missing or unreadable, or a worker's folder is over the size limit (200 MB), before a slice or a gate run | `stopped` (actor `rule`) | Run ends; the round stays open |
 | The worker's last slice has no `check_result` (an interruption) | `check_result` per check, as below | Rule decides |
-| A slice is funded (cap known, approval verified) | `slice_start` (with a `session` id: new unless a slice in that session already got past infrastructure) | Run the slice in the worker's folder |
+| A slice is funded (cap known, approval verified), one per task in a wave | `slice_start` (with a `session` id: new unless a slice in that session already got past infrastructure) | Run the slice in the worker's folder; the wave's slices run at once |
+| The investor approved more checks (an `approved` event with `added_checks`) since the worker's last slice | None | The worker's next brief shows those checks' code and says they must pass |
 | Worker did not start isolated, or a hook event appears after init | `error` (actor worker, cost unknown), then `stopped` | `IsolationError` reaches the CLI; exit 1 |
-| Slice finished, any outcome | `slice_end`; then `check_result` per check (a check the investor dropped is not run), unless the outcome is infrastructure | Rule decides |
+| Slice finished, any outcome | `slice_end` for every slice of the wave first; then `check_result` per check for each (a check the investor dropped is not run), unless the outcome is infrastructure | Rule decides |
 | Slice finished, worker disputes a check that fails now, not disputed before, not ruled on | `disputed` (actor worker) | Rule decides |
 | Rule: infrastructure outcome, attempts left | None (a message is printed, then a sleep) | Same task and worker again |
 | Rule: infrastructure outcome, plan usage limit | `paused` | Run ends; the round stays open |
+| A slice reported a plan window at or above `plan_pause_at` (0.95) and a task still has failing checks | `paused` (actor `boss`, with `reason` and `until_epoch`) | Run ends; the round stays open |
 | Rule: infrastructure outcome, login lost or attempts used | `stopped` (actor `boss`, with `fix`) | Run ends; the round stays open |
 | Rule: worker reports `blocked` with no refused tool call, or the model refused | `blocked` (unless already written), then the investor is asked | Next row |
 | Investor unblocks with a note | `ruled` (`unblocked`, with the note) | Fund the same worker; the note is in its next brief |
@@ -152,6 +188,7 @@ Each row is one decision in `_Firm.run`, `_run_round`, `_current_worker`, `_slic
 | Round ends, checks passing equal total (dropped checks are not in the total) | `round_closed` | Run ends |
 | Round ends below its unlock threshold | `round_closed` (`unlocked` false) | Run ends |
 | Round ends, unlocked, another round exists | `round_closed` (`unlocked` true) | Ask the investor for the next round |
+| The run ends and `product/` is assembled | `check_result` (actor `gate`, `scope` `product`) for each required check that has no product result yet | The count of passing checks is the run's result; nothing is run when the product folder is over the size limit or the checks no longer match the approval |
 
 ## Invariants
 
@@ -159,6 +196,8 @@ The design relies on these. Each has a test; [THREAT_MODEL.md](THREAT_MODEL.md) 
 
 - **Only the gate produces "passed".** `rule` and `state` take pass or fail from `check_result`
   events. A worker's own `done` is a note.
+- **What is delivered is gated.** Each task is gated in its own worker's folder; at the end the
+  checks run again on the assembled `product/`, and that result is the run's.
 - **The loop keeps no state outside the ledger.** Before every decision it rebuilds the run with
   `state.run_state`. Calling `run_firm` again on the same ledger continues the run; `boss resume` does
   that. A stop holds until a `resumed` event from the investor lifts it.
@@ -181,7 +220,10 @@ The design relies on these. Each has a test; [THREAT_MODEL.md](THREAT_MODEL.md) 
 - **At most two workers per task**: the first, and one replacement.
 - **A slice cap leaves one reserve unspent**, and a second layer of hard limits stops the run.
 - **The ledger has one writer at a time** (exclusive lock), validates each event before writing,
-  and flushes to disk after each. Any invalid line makes reading fail with its line number.
+  and flushes to disk after each. Any invalid line makes reading fail with its line number. With
+  several slices at once, only the loop's thread writes: slices return their results to it.
+- **A worker's folder and a slice's log are bounded.** A folder over 200 MB is never gated (the run
+  stops), and a log is cut at 50 MB.
 
 ## Fixed limits
 
@@ -210,12 +252,10 @@ Values in code, checked by the test.
 
 - Container isolation for the code the gate runs. An OS sandbox exists (`docs/SANDBOX.md`): run and
   tested on macOS, never run on Linux, and not a guard against a forged verdict.
-- Calling `ledger.repair_torn_tail`. A run whose last ledger line was cut by a hard kill cannot
-  be read or resumed until the line is cut by hand.
 - An investor ruling on a task that was already set aside. It stays set aside for the run,
   resumed or not.
 - A writer for `topped_up` and `denied` events. The budget code reads `topped_up`; nothing writes it.
-- Pausing before a plan window runs out. `retry.plan_pressure` exists and the loop does not call it.
-- Workers in parallel. One worker runs at a time.
+- A writer for an amendment, an investor `approved` event with `added_checks`. The loop reads one
+  and shows the added checks to the worker; no command writes one.
 - A reserve per model. There is one figure for all.
 - API-key (`--bare`) mode verified against the real CLI.
