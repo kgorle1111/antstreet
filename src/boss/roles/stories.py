@@ -193,11 +193,13 @@ def normalise(text: str) -> str:
     return " ".join(text.lower().split())
 
 
-def is_fragment(quote: str, idea: str) -> bool:
-    """True when `quote`, once normalised, is a non-empty piece of the normalised idea. Length
-    limits are the caller's: a two-letter quote is a fragment of almost anything."""
+def is_fragment(quote: str, idea: str, *, min_chars: int = 1) -> bool:
+    """True when `quote`, once normalised, is at least `min_chars` long and a piece of the
+    normalised idea. The grounding rule every role's quotes must meet; pass
+    `min_chars=MIN_SOURCE_CHARS` where a quote must be long enough to mean something (a
+    two-letter quote is a fragment of almost anything)."""
     needle = normalise(quote)
-    return bool(needle) and needle in normalise(idea)
+    return len(needle) >= max(1, min_chars) and needle in normalise(idea)
 
 
 def _text(item: object, key: str) -> str:
