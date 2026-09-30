@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Run state written by `boss fund`
+.boss/
+
+# Benchmark raw output (the results table is committed; raw ledgers are not)
+bench/results/raw/
+
+# Local planning and research notes, not part of the project
+COMPETITOR_SCAN-*.md
+BUILD_PLAN.md
+RESEARCH.md
+DISSECTION.md
+plans/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
