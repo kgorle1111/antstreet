@@ -35,7 +35,10 @@ def content_hashes(sheet: TermSheet, checks_dir: Path) -> dict[str, str]:
 
 
 def require_approval(events: Iterable[Event], sheet: TermSheet, checks_dir: Path) -> None:
-    current = content_hashes(sheet, checks_dir)
+    try:
+        current = content_hashes(sheet, checks_dir)
+    except OSError as exc:  # a check deleted or made unreadable is a check that changed
+        raise NotApprovedError(f"an approved check cannot be read: {exc}") from exc
     for event in events:
         if (
             event.event is EventType.APPROVED

@@ -122,7 +122,8 @@ class _Firm:
             if not unlocked:
                 stopped = f"round {round_.n} closed below its unlock threshold"
                 break
-        assemble_product(self.paths, self.sheet, self.state())
+        for path in assemble_product(self.paths, self.sheet, self.state()):
+            self.say(f"Not in the product: {path} (its name collides with another task's file).")
         return FirmReport(self.state().passing_total(), total, stopped)
 
     def _approve(self, round_: Round, record: Recorder) -> bool:

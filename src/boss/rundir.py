@@ -53,8 +53,9 @@ class Recorder:
         )
 
 
-def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None:
-    """Copy each task's files from its best worker's workspace into product/.
+def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> list[str]:
+    """Copy each task's files from its best worker's workspace into product/. Returns the
+    relative paths that could not be placed.
 
     A file inside a task's paths always comes from that task's worker. A file no task owns (a
     helper a worker added) comes from the first task that has it. So a worker can never replace
@@ -68,6 +69,7 @@ def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None
     def owner(relative: PurePosixPath) -> str | None:
         return next((t for t, p in owned if p == relative or p in relative.parents), None)
 
+    skipped: list[str] = []
     for task in sheet.tasks:
         worker = state.tasks[task.id].best
         if worker is None:
@@ -79,10 +81,16 @@ def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> None
                 continue
             target = paths.product / relative
             belongs_to = owner(relative)
-            if belongs_to not in (None, task.id) or (belongs_to is None and target.exists()):
+            if belongs_to not in (None, task.id) or (belongs_to is None and target.is_file()):
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
+            try:  # one task's file `x` and another's `x/y.py` cannot both be placed
+                if target.is_dir():  # copy2 would put the file inside the folder
+                    raise IsADirectoryError(target)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)
+            except OSError:
+                skipped.append(relative.as_posix())
+    return skipped
 
 
 def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int) -> dict[str, Any]:

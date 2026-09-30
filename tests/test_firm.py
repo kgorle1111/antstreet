@@ -548,6 +548,21 @@ def test_a_new_worker_is_never_briefed_from_a_check_edited_after_approval(paths)
     assert (report.passed, report.total) == (2, 3)  # the first task's honest passes stand
 
 
+def test_a_check_deleted_mid_run_stops_the_run_like_an_edited_one(paths):
+    # Found by review: a missing check file escaped as FileNotFoundError, with no record of why.
+    class Deleting(Tampering):
+        def __call__(self, spec, workspace, log_path, *, env):
+            result = self.worker(spec, workspace, log_path, env=env)
+            self.check_file.unlink()
+            return result
+
+    worker = Script(step(HALF, cost=30_000), step(GOOD, "done"))
+    report, _ = run(paths, Deleting(worker, paths.checks / "test_c01.py"))
+    assert report.stopped.startswith("stopped: the term sheet or a check changed")
+    assert events_of(paths, EventType.CHECK_RESULT) == [] and len(worker.specs) == 1
+    assert total(read_events(paths.ledger)).cost_micros == 30_000
+
+
 def test_a_resumed_run_stays_stopped_after_tampering_even_if_the_check_is_restored(paths):
     original = (paths.checks / "test_c01.py").read_text()
     worker = Script(step(HALF), step(GOOD, "done"))

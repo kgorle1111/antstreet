@@ -373,7 +373,7 @@ def two_task_product(tmp_path, first: dict[str, str], second: dict[str, str], pa
         approved_rounds=frozenset(),
         stopped=False,
     )
-    assemble_product(paths, sheet, state)
+    two_task_product.skipped = assemble_product(paths, sheet, state)
     return {
         p.relative_to(paths.product).as_posix(): p.read_text()
         for p in paths.product.rglob("*")
@@ -408,6 +408,21 @@ def test_an_owned_folder_covers_everything_under_it(tmp_path):
         paths2=("pkg",),
     )
     assert product == {"rev.py": RIGHT, "pkg/deep/mod.py": "MINE", "pkg/__init__.py": ""}
+
+
+def test_a_file_and_a_folder_of_the_same_name_do_not_crash_assembly(tmp_path):
+    # Found by review: one worker's unowned file `x` and another's `x/y.py` raised out of the
+    # run after all the work was done and paid for, leaving no report.
+    product = two_task_product(
+        tmp_path, {"rev.py": RIGHT, "x": "FILE"}, {"up.py": "UP", "x/y.py": "Y"}
+    )
+    assert product == {"rev.py": RIGHT, "up.py": "UP", "x": "FILE"}
+    assert two_task_product.skipped == ["x/y.py"]
+    product = two_task_product(
+        tmp_path / "again", {"rev.py": RIGHT, "x/y.py": "Y"}, {"up.py": "UP", "x": "F"}
+    )
+    assert product == {"rev.py": RIGHT, "up.py": "UP", "x/y.py": "Y"}
+    assert two_task_product.skipped == ["x"]
 
 
 def test_agent_config_caches_and_old_attempts_never_reach_the_product(tmp_path):
