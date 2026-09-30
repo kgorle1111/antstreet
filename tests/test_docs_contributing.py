@@ -37,7 +37,7 @@ def test_the_commands_ci_runs_are_the_ones_stated(text):
         "uv sync --locked",
         "uv run ruff check .",
         "uv run ruff format --check .",
-        "uv run pytest --cov --cov-report=term-missing --cov-fail-under=96",
+        "uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30",
     ]
     for command in stated:
         assert command in text, f"CONTRIBUTING.md does not state: {command}"
