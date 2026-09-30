@@ -44,7 +44,10 @@ if os.path.exists(os.path.join(home, "login_broken")):
     say(result | {{"is_error": True, "api_error_status": 401, "terminal_reason": "api_error",
                   "total_cost_usd": 0, "modelUsage": {{}}}})
 elif argv[argv.index("--output-format") + 1] == "json":
-    say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
+    draft = {DRAFT!r}
+    if os.path.exists(os.path.join(home, "draft.json")):
+        draft = json.load(open(os.path.join(home, "draft.json")))
+    say(result | {{"total_cost_usd": 0.004, "structured_output": draft}})
 else:
     say({INIT!r})
     open("slugify.py", "w").write(open(os.path.join(home, "product.py")).read())
@@ -101,6 +104,37 @@ def test_firm_can_pass_its_own_checks_and_still_fail_the_hidden_ones(bench):
     assert not result.passed
     assert result.hidden["basic"] == "passed" and result.hidden["accents"] == "failed"
     assert result.failure_class == "unlabelled"
+
+
+# Seen in the pilot: the boss wrote this check, which the idea does not support.
+WRONG = (
+    "from slugify import slugify\n\ndef test_version():\n"
+    "    assert slugify('Version 2.0') == 'version-20'\n"
+)
+
+
+def test_a_boss_check_the_reference_fails_is_counted_as_wrong(bench):
+    draft = {
+        "tasks": DRAFT["tasks"],
+        "checks": [*DRAFT["checks"], {"description": "dots", "task": "t1", "code": WRONG}],
+    }
+    (bench.home / "draft.json").write_text(json.dumps(draft))
+    result = bench("firm")
+    assert result.wrong_checks == 1
+    assert (result.visible_passed, result.visible_total) == (1, 2)
+    assert result.passed  # the product is right; only the boss's check is wrong
+    saved = CellResult.load(cell_dir(bench.results, "slugify", "firm", 1) / "result.json")
+    assert saved.wrong_checks == 1
+
+
+def test_wrong_checks_are_zero_for_a_sound_draft_and_unmeasured_without_one(bench):
+    assert bench("firm").wrong_checks == 0
+    assert bench("single").wrong_checks is None
+    # A product that fails the boss's check says nothing about the check: the reference decides.
+    broken = bench("firm", product="def slugify(text, max_length=None):\n    return 'x'\n", rep=3)
+    assert (broken.visible_passed, broken.wrong_checks) == (0, 0)
+    (bench.home / "login_broken").write_text("")
+    assert bench("firm", rep=2).wrong_checks is None  # the boss never produced a draft
 
 
 def test_hidden_checks_and_reference_never_reach_a_prompt_or_a_workspace(bench):

@@ -17,6 +17,9 @@ than a single agent given the idea directly?
 - A task is valid only if every hidden check fails on an empty workspace and passes on the
   reference solution. `validate_task` enforces this before any run.
 - The task set is identified by a hash of every task file. Each result records it.
+  The hash encoding was made unambiguous on 2026-09-30: the same 17 task files were
+  `7a212cdcc5f4f466` before and are `c130282a6eec5fe8` after. Results recorded under the old
+  value ran against identical files.
 
 ## Arms
 

@@ -29,6 +29,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "failure_class": (str, _NONE),
     "duration_s": (int, float),
     "firm_args": str,
+    "wrong_checks": (int, _NONE),
 }
 
 
@@ -50,6 +51,9 @@ class CellResult:
     failure_class: str | None  # None when every hidden check passed
     duration_s: float
     firm_args: str = ""  # extra `boss fund` options the firm arm ran with, e.g. "--rounds 3"
+    # Firm only: boss-written checks that the task's reference solution fails. Such a check
+    # demands something the idea does not; None when not measured (older results, single arm).
+    wrong_checks: int | None = None
 
     def __post_init__(self) -> None:
         if self.arm not in ARMS:

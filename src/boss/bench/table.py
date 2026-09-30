@@ -41,6 +41,9 @@ class ArmSummary:
     unknown_cost_events: int
     visible_pass_cells: int | None  # firm only
     gamed_cells: int | None  # firm only: every visible check passed, a hidden one did not
+    wrong_checks: int | None = None  # firm only: boss checks the reference solution fails
+    boss_checks: int | None = None  # boss checks in the cells where that was measured
+    wrong_check_cells: int | None = None  # cells whose draft held at least one wrong check
 
 
 def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -76,6 +79,7 @@ def _summarize_arm(arm: str, results: Sequence[CellResult]) -> ArmSummary:
     cost = sum(r.cost_micros for r in cells)
     low, high = wilson_interval(passed, n)
     firm = arm == "firm"
+    measured = [r for r in cells if r.wrong_checks is not None]
     return ArmSummary(
         arm=arm,
         cells=n,
@@ -92,6 +96,9 @@ def _summarize_arm(arm: str, results: Sequence[CellResult]) -> ArmSummary:
         unknown_cost_events=sum(r.unknown_cost_events for r in cells),
         visible_pass_cells=sum(_visible_pass(r) for r in cells) if firm else None,
         gamed_cells=sum(_visible_pass(r) and not r.passed for r in cells) if firm else None,
+        wrong_checks=sum(r.wrong_checks or 0 for r in measured) if measured else None,
+        boss_checks=sum(r.visible_total or 0 for r in measured) if measured else None,
+        wrong_check_cells=sum(bool(r.wrong_checks) for r in measured) if measured else None,
     )
 
 
@@ -198,6 +205,11 @@ def render_table(results: Sequence[CellResult]) -> str:
             f"Visible vs hidden: {firm.visible_pass_cells} of {firm.cells} firm cells passed "
             f"every visible check; {firm.gamed_cells} of those failed a hidden check.",
         ]
+        if firm.wrong_checks is not None:
+            out.append(
+                f"Wrong boss checks: {firm.wrong_checks} of {firm.boss_checks} checks failed on "
+                f"the reference solution, in {firm.wrong_check_cells} drafts."
+            )
 
     tasks = per_task(results)
     arms = [s.arm for s in summaries]
