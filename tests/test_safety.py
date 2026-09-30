@@ -32,6 +32,7 @@ from boss.ledger import (
 )
 from boss.rundir import RunPaths, assemble_product
 from boss.runner import SliceRun
+from boss.sandbox import SandboxMode
 from boss.state import RunState, TaskState
 from boss.stream import Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet, validate
@@ -50,14 +51,22 @@ FORGER = (
 )
 
 
-def gate_one(tmp_path: Path, files: dict[str, str], check: str = CHECK, timeout_s: float = 30.0):
+def gate_one(
+    tmp_path: Path,
+    files: dict[str, str],
+    check: str = CHECK,
+    timeout_s: float = 30.0,
+    sandbox: SandboxMode | None = None,
+):
     ws, checks = tmp_path / "ws", tmp_path / "checks"
     ws.mkdir()
     checks.mkdir()
     (checks / "test_c01.py").write_text(check)
     for name, code in files.items():
         (ws / name).write_text(code)
-    [result] = run_gate(ws, checks, [Check("c01", "test_c01.py")], timeout_s=timeout_s)
+    [result] = run_gate(
+        ws, checks, [Check("c01", "test_c01.py")], timeout_s=timeout_s, sandbox=sandbox
+    )
     return result
 
 
@@ -94,7 +103,8 @@ def test_accepted_risk_code_aimed_at_the_gate_can_forge_a_pass(tmp_path):
 
 def test_accepted_risk_worker_code_run_by_the_gate_has_host_access(tmp_path):
     outside = tmp_path / "written-outside-the-gate-copy"
-    result = gate_one(tmp_path, {"rev.py": f"open({str(outside)!r}, 'w').write('x')\n" + WRONG})
+    code = f"open({str(outside)!r}, 'w').write('x')\n" + WRONG
+    result = gate_one(tmp_path, {"rev.py": code}, sandbox=SandboxMode.OFF)
     assert result.status is CheckStatus.FAILED
     assert outside.read_text() == "x"
 
@@ -108,7 +118,7 @@ def test_accepted_risk_a_detached_child_outlives_the_gate_timeout(tmp_path):
         f"open({str(pid_file)!r}, 'w').write(str(p.pid))\n"
         "time.sleep(60)\n"
     )
-    result = gate_one(tmp_path, {"rev.py": detached}, timeout_s=2.0)
+    result = gate_one(tmp_path, {"rev.py": detached}, timeout_s=2.0, sandbox=SandboxMode.OFF)
     pid = int(pid_file.read_text())
     try:
         assert result.status is CheckStatus.TIMEOUT
@@ -143,7 +153,8 @@ def approval_event(sheet: TermSheet, checks: Path, actor: str = "investor") -> E
     return Event(run="r1", round=0, actor=actor, event=EventType.APPROVED, data={"hashes": hashes})
 
 
-def test_accepted_risk_check_code_runs_during_validation_before_approval(tmp_path):
+def test_accepted_risk_check_code_runs_during_validation_before_approval(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOSS_GATE_SANDBOX", "off")
     ran = tmp_path / "ran-before-approval"
     checks = tmp_path / "checks"
     checks.mkdir()
