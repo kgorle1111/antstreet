@@ -148,3 +148,36 @@ def test_render_shows_the_brief_and_every_check_in_full(run):
     assert "Create rev.py with reverse(s)." in text
     assert C01.rstrip() in text and C02.rstrip() in text
     assert "Round 1: $0.5, next unlocks at 2 passing checks" in text
+
+
+def test_advisory_notes_are_shown_under_the_sheet_and_change_nothing_that_is_approved(tmp_path):
+    from boss.approval import content_hashes, review_term_sheet
+    from boss.ledger import LedgerWriter, read_events
+
+    checks = tmp_path / "checks"
+    checks.mkdir()
+    (checks / "test_c01.py").write_text(C01)
+    (checks / "test_c02.py").write_text(C02)
+    said = []
+    with LedgerWriter(tmp_path / "ledger.jsonl") as ledger:
+        plain = review_term_sheet(
+            SHEET, checks, tmp_path, ledger, "r1", ask=lambda q: "a", say=said.append
+        )
+        noted = review_term_sheet(
+            SHEET,
+            checks,
+            tmp_path,
+            ledger,
+            "r1",
+            ask=lambda q: "a",
+            say=said.append,
+            notes=["auditor's opinion, unverified: c02 is unsupported", "coverage: S1.1 -> c01"],
+        )
+    assert said[-2:] == [
+        "auditor's opinion, unverified: c02 is unsupported",
+        "coverage: S1.1 -> c01",
+    ]
+    assert said[0] == said[1]  # the sheet itself is rendered the same with or without notes
+    first, second = read_events(tmp_path / "ledger.jsonl")
+    assert first.data == second.data == {"hashes": content_hashes(plain, checks)}
+    assert noted == plain

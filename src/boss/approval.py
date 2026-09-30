@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from boss.ledger import Event, EventType, LedgerWriter
@@ -61,17 +61,22 @@ def review_term_sheet(
     *,
     ask: Ask = input,
     say: Say = print,
+    notes: Sequence[str] = (),
 ) -> TermSheet | None:
     """Show the term sheet; loop until the investor approves (returns the sheet) or rejects (None).
 
     The investor may edit term_sheet.json and the check files; edits are re-validated before the
-    next decision. Only code sets `approved_by_investor`.
+    next decision. Only code sets `approved_by_investor`. `notes` are the specialist roles'
+    opinions on the draft (stories, coverage, an audit): they are shown under the sheet and bind
+    nothing. Approval is of the sheet and the checks alone.
     """
     path = run_dir / TERM_SHEET_FILE
     path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
     while True:
         shown = render(sheet, checks_dir)
         say(shown)
+        for note in notes:
+            say(note)
         try:
             answer = ask("[a]pprove, [r]eject, or [e]dit files and re-check? ").strip().lower()
         except (EOFError, KeyboardInterrupt):

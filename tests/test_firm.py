@@ -120,6 +120,7 @@ def run(
     sleeps=None,
     gate=run_gate,
     clock=time.monotonic,
+    advise=None,
 ):
     s = s or sheet()
     replies = iter(answers)
@@ -150,6 +151,7 @@ def run(
             slice_runner=worker,
             gate=gate,
             clock=clock,
+            advise=advise,
             sleep=(sleeps if sleeps is not None else []).append,
         )
     return report, said
@@ -1344,3 +1346,30 @@ def test_an_unknown_profile_stops_the_run_before_any_spend(paths):
     with pytest.raises(ValueError, match="wizard"):
         run(paths, worker, config=FirmConfig(profile="wizard"))
     assert worker.specs == [] and events_of(paths, EventType.SLICE_START) == []
+
+
+# An adviser's opinion reaches the investor before a dispute is ruled on, and decides nothing.
+
+
+def test_advice_is_shown_before_the_investor_rules_and_the_investor_still_decides(paths):
+    s = four_checks(paths)
+    asked = []
+
+    def advise(check, reason):
+        asked.append((check, reason))
+        return "consultant's opinion, unverified: keep this check"
+
+    worker = Script(step(GOOD, "done", disputes=[dispute("c05", "no reversal gives WRONG")]))
+    report, said = run(paths, worker, s, answers=["d"], advise=advise)
+    assert asked == [("c05", "no reversal gives WRONG")]
+    advice_at = said.index("consultant's opinion, unverified: keep this check")
+    question_at = next(i for i, q in enumerate(said) if q.startswith("Task t1: w1 disputes"))
+    assert advice_at < question_at
+    assert rulings_of(paths) == [("investor", "c05", "dropped")]  # the advice said keep
+
+
+def test_no_advice_is_no_obstacle(paths):
+    s = four_checks(paths)
+    worker = Script(step(GOOD, "done", disputes=[dispute("c05")]))
+    report, said = run(paths, worker, s, answers=["d"], advise=lambda check, reason: None)
+    assert rulings_of(paths) == [("investor", "c05", "dropped")] and report.all_passed

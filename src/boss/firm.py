@@ -47,6 +47,8 @@ SLICE_SHARE = 0.8  # the single-agent benchmark arm caps its one slice at this s
 
 SliceRunner = Callable[..., SliceRun]
 Gate = Callable[..., list[CheckResult]]
+# (check id, the worker's reason) -> a line to show the investor, or None. Advice binds nothing.
+Advise = Callable[[str, str], str | None]
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
 
@@ -128,6 +130,7 @@ class _Firm:
     clock: Callable[[], float]
     started: float
     cancel: threading.Event  # set on Ctrl-C so slices running in other threads stop
+    advise: Advise | None  # an opinion to show the investor before a dispute is ruled on
 
     def events(self) -> list[Event]:
         return read_events(self.paths.ledger)
@@ -577,6 +580,9 @@ class _Firm:
                 if e.event is EventType.DISPUTED and e.data.get("worker") == worker
             }
             for check in verdict.evidence["disputed"]:
+                advice = self.advise(check, reasons.get(check, "")) if self.advise else None
+                if advice:
+                    self.say(advice)
                 ruling = rulings.ask_dispute(
                     self.ask,
                     task=task.id,
@@ -669,6 +675,7 @@ def run_firm(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
     cancel: threading.Event | None = None,
+    advise: Advise | None = None,
 ) -> FirmReport:
     events = read_events(paths.ledger)
     require_approval(events, sheet, paths.checks)
@@ -691,5 +698,6 @@ def run_firm(
         clock,
         clock(),
         cancel or threading.Event(),
+        advise,
     )
     return firm.run()
