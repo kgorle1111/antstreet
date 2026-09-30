@@ -1,6 +1,7 @@
 """Helpers for the tests that keep the documents true. Not a test module."""
 
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,3 +38,64 @@ def table(body: str) -> list[list[str]]:
 
 def code_spans(text: str) -> list[str]:
     return re.findall(r"`([^`\n]+)`", text)
+
+
+# --- a fake `claude` that plays boss and worker, so the real CLI can run without a model -------
+
+CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
+DRAFT = {
+    "tasks": [{"id": "t1", "brief": "Create rev.py with reverse(s).", "paths": ["rev.py"]}],
+    "checks": [{"description": "reverses a word", "task": "t1", "code": CHECK}],
+}
+INIT = {
+    "type": "system", "subtype": "init", "tools": ["Read", "Write", "Edit", "StructuredOutput"],
+    "mcp_servers": [], "permissionMode": "dontAsk", "claude_code_version": "2.1.285",
+    "session_id": "s-1",
+}  # fmt: skip
+FAKE_CLAUDE = f"""#!{sys.executable}
+import json, sys
+argv = sys.argv[1:]
+say = lambda e: print(json.dumps(e), flush=True)
+usage = {{"m": {{"inputTokens": 10, "outputTokens": 5, "cacheReadInputTokens": 0}}}}
+result = {{"type": "result", "subtype": "success", "is_error": False,
+          "terminal_reason": "completed", "modelUsage": usage, "session_id": "s-1"}}
+if argv[argv.index("--output-format") + 1] == "json":
+    say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
+else:
+    say({INIT!r})
+    open("rev.py", "w").write("def reverse(s):\\n    return s[::-1]\\n")
+    say(result | {{"total_cost_usd": 0.006,
+                  "structured_output": {{"status": "done", "reason": "wrote rev.py"}}}})
+"""
+
+
+def fake_claude(folder: Path) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "fake-claude"
+    path.write_text(FAKE_CLAUDE)
+    path.chmod(0o755)
+    return path
+
+
+def run_cli(folder: Path, argv: list[str], *, answers=("a",), binary: str | None = None):
+    """Run `boss <argv>` in a fresh project folder. Returns (exit code, the run folder or None,
+    everything printed)."""
+    from boss.cli import main
+
+    project = folder / "project"
+    project.mkdir(parents=True, exist_ok=True)
+    environ = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(folder),
+        "BOSS_CLAUDE_BIN": binary or str(fake_claude(folder)),
+    }
+    replies, said = iter(answers), []
+    code = main(
+        [*argv, "--dir", str(project)],
+        ask=lambda prompt: next(replies),
+        say=said.append,
+        environ=environ,
+    )
+    runs = project / ".boss" / "runs"
+    found = sorted(runs.iterdir()) if runs.is_dir() else []
+    return code, (found[-1] if found else None), said
