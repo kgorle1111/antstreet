@@ -94,9 +94,9 @@ def write_stories(
     try:
         stories = parse_stories(out.data)
     except StoriesError as exc:
-        raise RoleOutputError(PRODUCT_MANAGER.name, [str(exc)], out.usage) from exc
+        raise RoleOutputError(PRODUCT_MANAGER.name, [str(exc)], out.usage, out.data) from exc
     if problems := story_problems(stories, idea):
-        raise RoleOutputError(PRODUCT_MANAGER.name, problems, out.usage)
+        raise RoleOutputError(PRODUCT_MANAGER.name, problems, out.usage, out.data)
     return stories, out.usage
 
 
@@ -326,9 +326,9 @@ def review_stories(
     try:
         review = parse_review(out.data)
     except ReviewError as exc:
-        raise RoleOutputError(USER_AGENT.name, [str(exc)], out.usage) from exc
+        raise RoleOutputError(USER_AGENT.name, [str(exc)], out.usage, out.data) from exc
     if problems := review_problems(review, idea, stories):
-        raise RoleOutputError(USER_AGENT.name, problems, out.usage)
+        raise RoleOutputError(USER_AGENT.name, problems, out.usage, out.data)
     return review, out.usage
 
 

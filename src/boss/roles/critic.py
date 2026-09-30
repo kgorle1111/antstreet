@@ -229,7 +229,7 @@ def review_product(
     )
     items = out.data.get("findings")
     if not isinstance(items, list):
-        raise RoleOutputError(SPECS[0].name, ["findings is not a list"], out.usage)
+        raise RoleOutputError(SPECS[0].name, ["findings is not a list"], out.usage, out.data)
     checks_dir = Path(scratch_dir) / "critic_checks"
     checks_dir.mkdir(parents=True, exist_ok=True)
     survivors, rejected = _screen(items, idea, _module_names(product_dir), checks_dir)
