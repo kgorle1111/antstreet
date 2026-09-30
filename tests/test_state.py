@@ -1,7 +1,7 @@
 from boss.errors import Outcome
 from boss.ledger import Event, EventType
 from boss.rule import SliceRecord
-from boss.state import fired_workers, slice_history, worker_tasks
+from boss.state import fired_workers, run_state, slice_history, worker_tasks
 
 
 def ev(actor, event, **fields) -> Event:
@@ -58,3 +58,54 @@ def test_missing_status_is_none():
 def test_worker_tasks_and_fired_workers():
     assert worker_tasks(EVENTS) == {"w1": "t1", "w2": "t2"}
     assert fired_workers(EVENTS) == {"w2"}
+
+
+def test_run_state_is_rebuilt_from_events_alone():
+    events = [
+        ev("investor", EventType.APPROVED, data={"hashes": {}}),
+        *EVENTS,
+        ev("boss", EventType.REASSIGNED, data={"task": "t2", "from": "w2", "to": "w3"}),
+        ev("boss", EventType.HIRED, data={"worker": "w3", "task": "t2", "session": "s3"}),
+        ev("boss", EventType.ABANDONED, data={"task": "t9", "reason": "blocked"}),
+        ev("boss", EventType.ROUND_CLOSED, data={"passed": 2, "total": 3, "unlocked": True}),
+        Event(run="r1", round=2, actor="investor", event=EventType.APPROVED, data={"round": 2}),
+    ]
+    state = run_state(events, ["t1", "t2", "t9"])
+    assert state.tasks["t1"].workers == ("w1",)
+    assert state.tasks["t1"].passing == frozenset({"c01", "c02"})
+    assert state.tasks["t2"].workers == ("w2", "w3") and state.tasks["t2"].current == "w3"
+    assert state.tasks["t2"].passing == frozenset()
+    assert state.tasks["t9"].abandoned and state.tasks["t9"].current is None
+    assert state.workers["w2"].fired and not state.workers["w1"].fired
+    assert (state.workers["w1"].slices, state.workers["w3"].slices) == (3, 0)
+    assert state.workers["w3"].session == "s3"
+    assert state.closed_rounds == frozenset({1})
+    assert state.approved_rounds == frozenset({1, 2})
+    assert state.passing_total() == 2 and not state.stopped
+
+
+def test_an_infrastructure_slice_does_not_wipe_out_what_passed_before_it():
+    events = [
+        ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1", "session": "s"}),
+        slice_end("w1", 1, 5_000),
+        check("w1", 1, "c01", "passed"),
+        slice_end("w1", 2, None, outcome="rate_limited"),
+    ]
+    assert run_state(events, ["t1"]).tasks["t1"].passing == frozenset({"c01"})
+
+
+def test_session_total_is_the_last_known_cumulative_figure():
+    def end(n, total):
+        data = {"slice": n, "outcome": "completed", "session_total_micros": total}
+        return ev("worker:w1", EventType.SLICE_END, cost_micros=1, data=data)
+
+    events = [
+        ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1", "session": "s"}),
+        end(1, 5_000),
+        end(2, None),
+        end(3, 12_000),
+        end(4, None),
+    ]
+    assert run_state(events, ["t1"]).workers["w1"].session_total_micros == 12_000
+    stopped = [*events, ev("boss", EventType.STOPPED, data={"reason": "x"})]
+    assert run_state(stopped, ["t1"]).stopped
