@@ -10,6 +10,7 @@ import ast
 import json
 import re
 import tempfile
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, fields
 from itertools import combinations, product
 from pathlib import Path, PurePosixPath
@@ -176,8 +177,13 @@ def structural_problems(sheet: TermSheet, checks_dir: Path) -> list[str]:
 
 def empty_workspace_problems(sheet: TermSheet, checks_dir: Path) -> list[str]:
     """A check that passes (or hangs) before any work is done cannot measure progress."""
+    return empty_checks_problems(sheet.gate_checks(), checks_dir)
+
+
+def empty_checks_problems(checks: Sequence[Check], checks_dir: Path) -> list[str]:
+    """`empty_workspace_problems` for any list of checks: the held-out checks use it too."""
     with tempfile.TemporaryDirectory(prefix="boss_empty_ws_") as empty:
-        results = run_gate(Path(empty), checks_dir, sheet.gate_checks(), timeout_s=30.0)
+        results = run_gate(Path(empty), checks_dir, checks, timeout_s=30.0)
     return [
         f"check {r.check_id} {'passes' if r.passed else 'times out'} on an empty workspace"
         for r in results

@@ -461,7 +461,8 @@ Example:
 
 - Actor: `investor`
 - Three forms, all by the investor:
-  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`.
+  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`, and
+    `held_out_hashes` when the run has held-out checks.
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
   - An amendment: the investor approves more checks and a round added to an approved term sheet.
     It carries `hashes` of the amended term sheet and its check files, `round` (the round the
@@ -471,12 +472,17 @@ Example:
 - A missing `round` counts as round 1 when the state is rebuilt, so the first approval opens
   round 1.
 - `require_approval` accepts only an `approved` event by `investor` whose `hashes` equal the hashes
-  of the term sheet and check files now on disk. After an amendment, the amendment's `hashes` are
-  the ones that match.
+  of the term sheet and check files now on disk, and whose `held_out_hashes` (absent means none)
+  equal the hashes of every file now in the run's `held_out/` folder. A held-out file edited, added
+  or removed after approval, or a `held_out/` folder that appears after an approval that recorded
+  none, voids the approval exactly as an edited check does. An amendment must carry the current
+  `held_out_hashes` as well as its `hashes`, or it does not match. After an amendment, the
+  amendment's hashes are the ones that match.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file. Present in the first form, and in an amendment. |
+| `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
 | `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
 

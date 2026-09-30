@@ -30,6 +30,14 @@ class RunPaths:
         return self.root / "checks"
 
     @property
+    def held_out(self) -> Path:
+        return self.root / "held_out"
+
+    @property
+    def examiner_refused(self) -> Path:
+        return self.root / "examiner_refused.json"
+
+    @property
     def product(self) -> Path:
         return self.root / "product"
 

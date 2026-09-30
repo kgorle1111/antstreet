@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from boss import held_out
+from boss.approval import NotApprovedError, content_hashes, require_approval
 from boss.bench.table import wilson_interval
 from boss.cli import usd_arg
 from boss.errors import INFRASTRUCTURE, Outcome, classify
@@ -514,3 +516,54 @@ def test_wilson_interval_brackets_the_proportion():
             assert low == 0
         if k == n:
             assert high == 1
+
+
+# 8. held-out folder and its approval -----------------------------------------------------------
+
+HELD_OUT_RUNS = 300
+H_CODE = "from rev import reverse\n\ndef test_a():\n    assert reverse('ab') == 'ba'\n"
+
+
+def test_held_out_manifests_load_or_raise_held_out_error(tmp_path):
+    rng = random.Random(8001)
+    for _ in range(HELD_OUT_RUNS):
+        doc = rng.choice([rand_json(rng), {"checks": rand_json(rng)}, {"checks": [rand_json(rng)]}])
+        (tmp_path / held_out.MANIFEST).write_text(json.dumps(doc), encoding="utf-8")
+        try:
+            loaded = held_out.load(tmp_path)
+        except held_out.HeldOutError:
+            assert held_out.problems(tmp_path)
+            continue
+        assert all(isinstance(c, held_out.HeldOutCheck) for c in loaded)
+
+
+def test_changing_any_byte_of_any_held_out_file_voids_an_approval(tmp_path):
+    rng = random.Random(8002)
+    sheet = TermSheet(
+        "Reverse.",
+        500_000,
+        (Round(1, 500_000, 1),),
+        (CheckSpec("c01", "d", "test_c01.py", "t1"),),
+        (Task("t1", "Create rev.py.", ("rev.py",)),),
+    )
+    checks = tmp_path / "checks"
+    checks.mkdir()
+    (checks / "test_c01.py").write_text(H_CODE)
+    folder = tmp_path / "held_out"
+    ids = [f"h{n:02d}" for n in range(1, 4)]
+    entries = [(held_out.HeldOutCheck(i, held_out.file_name(i), "Reverse."), H_CODE) for i in ids]
+    held_out.write(folder, entries)
+    event = Event(
+        run="r", round=0, actor="investor", event=EventType.APPROVED,
+        data={"hashes": content_hashes(sheet, checks), "held_out_hashes": held_out.hashes(folder)},
+    )  # fmt: skip
+    require_approval([event], sheet, checks, folder)
+    for _ in range(HELD_OUT_RUNS):
+        target = folder / rng.choice([held_out.MANIFEST, *(held_out.file_name(i) for i in ids)])
+        original = target.read_bytes()
+        at, bit = rng.randrange(len(original)), 1 << rng.randrange(8)
+        target.write_bytes(original[:at] + bytes([original[at] ^ bit]) + original[at + 1 :])
+        with pytest.raises(NotApprovedError):
+            require_approval([event], sheet, checks, folder)
+        target.write_bytes(original)
+        require_approval([event], sheet, checks, folder)

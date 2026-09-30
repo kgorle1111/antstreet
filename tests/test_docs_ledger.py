@@ -14,7 +14,7 @@ from dataclasses import fields
 import pytest
 from docs_support import DOCS, ROOT, code_spans, read, run_cli, section, table
 
-from boss import budget, pipeline, state
+from boss import budget, held_out, pipeline, state
 from boss.approval import content_hashes
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
@@ -94,8 +94,12 @@ def step(
     return (code, status, outcome, cost, disputes, denials)
 
 
-def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=None):
-    """Run the loop on a fresh run folder and return every event it wrote."""
+H01 = "from rev import reverse\n\ndef test_held():\n    assert reverse('xy') == 'yx'\n"
+
+
+def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=None, held=False):
+    """Run the loop on a fresh run folder and return every event it wrote. `held` gives the run one
+    approved held-out check."""
     paths = RunPaths(tmp_path)
     paths.checks.mkdir(parents=True)
     (paths.checks / "test_c01.py").write_text(C01)
@@ -104,6 +108,10 @@ def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=Non
     replies = iter(answers)
     with LedgerWriter(paths.ledger) as ledger:
         data = {"hashes": content_hashes(s, paths.checks)}
+        if held:
+            entry = held_out.HeldOutCheck("h01", held_out.file_name("h01"), "Reverse a string.")
+            held_out.write(paths.held_out, [(entry, H01)])
+            data["held_out_hashes"] = held_out.hashes(paths.held_out)
         ledger.append(
             Event(run="r1", round=0, actor="investor", event=EventType.APPROVED, data=data)
         )
@@ -189,6 +197,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
                             expect=IsolationError))  # fmt: skip
     runs.append(firm_events(where("declined"), Script(step(HALF, cost=100_000)), two_rounds,
                             answers=["n"]))  # fmt: skip
+    runs.append(firm_events(where("held-out"), Script(step(GOOD, "done")), held=True))
     runs.append(cli_events(where("cli-approved")))
     runs.append(cli_events(where("cli-rejected"), answers=("r",)))
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
