@@ -4,7 +4,8 @@ Exit codes:
   0    every required check passes on the product (or the command succeeded)
   1    nothing was built: no usable term sheet, the investor rejected it, a worker did not start
        isolated, the approved checks changed, or the run cannot be read
-  2    usage error: a bad option, a blank idea, or a budget too small to fund one slice
+  2    usage error: a bad option, a blank idea, a budget too small to fund one slice, or roles
+       that cannot run together
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
        a declined round, a task set aside)
   130  interrupted; continue with `boss resume`
@@ -45,6 +46,7 @@ from boss.ledger import (
     repair_torn_tail,
 )
 from boss.limits import RunLimits
+from boss.pipeline import Pipeline, RolesError, Setup, parse_roles
 from boss.report import build_report, dollars, render_report
 from boss.roles import registry
 from boss.roles.builders import PROFILES
@@ -142,6 +144,11 @@ def _parser() -> argparse.ArgumentParser:
         type=_tokens_arg,
         help="thinking tokens the boss may use per call; 0 turns thinking off (default: the CLI's)",
     )
+    fund.add_argument(
+        "--roles",
+        default="",
+        help="specialist roles to run, comma separated, or 'all' (default: none); see `boss roles`",
+    )
 
     for name, text in (
         ("resume", "continue an interrupted, paused or stopped run from its ledger"),
@@ -210,6 +217,11 @@ def _fund(
             f"${usd(MIN_SLICE_MICROS)} slice). Raise --budget or lower --reserve."
         )
         return EXIT_USAGE
+    try:
+        roles = parse_roles(args.roles, registry())
+    except RolesError as exc:
+        say(str(exc))
+        return EXIT_USAGE
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
     paths = RunPaths(project / RUNS_DIR / run_id)
     paths.root.mkdir(parents=True)
@@ -234,32 +246,46 @@ def _fund(
                 },
             )
 
-        try:
-            draft = draft_term_sheet(
-                args.idea,
-                args.budget,
-                paths.checks,
-                env=env,
-                model=args.boss_model,
-                executable=executable,
-                max_tasks=args.max_tasks,
-                thinking_tokens=args.boss_thinking,
-            )
-        except BossError as exc:
-            boss_spend(exc.usage, str(exc.outcome))
-            record("boss", EventType.STOPPED, data={"reason": str(exc)})
-            say(f"The boss could not produce a term sheet: {exc}")
-            if isinstance(exc, InvalidDraftError):
-                say("\n".join(f"  - {p}" for p in exc.problems))
-            return EXIT_FAILED
-        boss_spend(draft.usage, "completed")
+        def draft_boss() -> TermSheet | None:
+            try:
+                draft = draft_term_sheet(
+                    args.idea,
+                    args.budget,
+                    paths.checks,
+                    env=env,
+                    model=args.boss_model,
+                    executable=executable,
+                    max_tasks=args.max_tasks,
+                    thinking_tokens=args.boss_thinking,
+                )
+            except BossError as exc:
+                boss_spend(exc.usage, str(exc.outcome))
+                record("boss", EventType.STOPPED, data={"reason": str(exc)})
+                say(f"The boss could not produce a term sheet: {exc}")
+                if isinstance(exc, InvalidDraftError):
+                    say("\n".join(f"  - {p}" for p in exc.problems))
+                return None
+            boss_spend(draft.usage, "completed")
+            if args.rounds > 1:
+                rounds = plan_rounds(args.budget, len(draft.sheet.checks), args.rounds)
+                return dataclasses.replace(draft.sheet, rounds=rounds)
+            return draft.sheet
 
-        drafted = draft.sheet
-        if args.rounds > 1:
-            rounds = plan_rounds(args.budget, len(drafted.checks), args.rounds)
-            drafted = dataclasses.replace(drafted, rounds=rounds)
+        pipe = Pipeline(
+            Setup(roles, args.boss_model, args.boss_thinking),
+            project, paths, ledger, run_id, env, executable, ask, say,
+        )  # fmt: skip
+        plan = pipe.plan(
+            args.idea,
+            args.budget,
+            max_tasks=args.max_tasks,
+            n_rounds=args.rounds,
+            draft_boss=draft_boss,
+        )
+        if plan is None:
+            return EXIT_FAILED
         sheet = review_term_sheet(
-            drafted, paths.checks, paths.root, ledger, run_id, ask=ask, say=say
+            plan.sheet, paths.checks, paths.root, ledger, run_id, ask=ask, say=say, notes=plan.notes
         )
         if sheet is None:
             return EXIT_FAILED
@@ -274,6 +300,7 @@ def _fund(
             profile=args.profile,
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
         )
+        pipe.record_start(config)
         outcome = _run(sheet, paths, ledger, run_id, env, executable, config, ask, say)
     return _finish(paths, outcome, say)
 
