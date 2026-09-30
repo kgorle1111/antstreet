@@ -149,7 +149,12 @@ def test_not_built_claims_are_still_true(text):
         p.name for p in SRC.rglob("*.py") if p.name != "retry.py" and "plan_pressure" in read(p)
     ]
     assert callers == [] and "plan_pressure" in body
-    # no command resumes a run
+    # `boss resume` exists, so it is not listed as missing; the torn-tail repair is still uncalled
     commands = cli._parser()._subparsers._group_actions[0].choices
-    assert "resume" not in commands
-    assert "`boss resume`" in body
+    assert "resume" in commands and "boss resume" not in body
+    repairs = [
+        p.name for p in SRC.rglob("*.py") if p.name != "ledger.py" and "repair_torn_tail" in read(p)
+    ]
+    assert repairs == [] and "repair_torn_tail" in body
+    # a set-aside task is never re-opened: state keeps it abandoned and the loop skips it
+    assert "not ts.abandoned" in read(SRC / "firm.py")
