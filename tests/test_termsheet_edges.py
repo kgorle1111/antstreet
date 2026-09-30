@@ -310,21 +310,11 @@ def test_absurdly_nested_source_is_a_syntax_problem_not_a_crash(checks_dir):
     assert found == ["check cx has a syntax error: line 1: too many nested parentheses"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="termsheet.py:check_file_problems reads with read_text(encoding='utf-8') and only "
-    "catches SyntaxError, so a check file that is not valid UTF-8 raises UnicodeDecodeError",
-)
 def test_a_check_file_that_is_not_utf8_is_a_problem_not_a_crash(checks_dir):
     found = spec_problems(checks_dir, source=b"def test_x():\n    pass\n# caf\xe9\n")
     assert len(found) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="termsheet.py:check_file_problems parses the decoded text, so a UTF-8 BOM that "
-    "python and pytest accept is reported as 'invalid non-printable character U+FEFF'",
-)
 def test_a_check_file_with_a_utf8_bom_is_accepted(checks_dir):
     assert spec_problems(checks_dir, source=b"\xef\xbb\xbfdef test_x():\n    pass\n") == []
 

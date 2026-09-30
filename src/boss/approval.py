@@ -155,10 +155,18 @@ def render(sheet: TermSheet, checks_dir: Path) -> str:
     for task in sheet.tasks:
         lines += [f"\nTask {task.id} (owns {', '.join(task.paths)}):", f"  {task.brief}"]
     for check in sheet.checks:
-        code = (checks_dir / check.file).read_text(encoding="utf-8").rstrip()
+        code = _check_text(checks_dir / check.file)
         lines += [
             f"\nCheck {check.id} [{check.task}] {check.description}",
             f"--- {checks_dir / check.file}",
             code,
         ]
     return "\n".join(lines)
+
+
+def _check_text(path: Path) -> str:
+    """Display text only; the gate, not this, decides what a check means."""
+    try:
+        return path.read_bytes().decode("utf-8-sig", errors="replace").rstrip()
+    except OSError as exc:
+        return f"<unreadable: {exc}>"

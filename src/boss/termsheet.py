@@ -260,7 +260,10 @@ def check_file_problems(check: CheckSpec, checks_dir: Path) -> list[str]:
     if not path.is_file():
         return [f"check {check.id} file {check.file} does not exist"]
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=check.file)
+        # utf-8-sig: a BOM is legal for python and pytest, so it must not reach the parser as text.
+        tree = ast.parse(path.read_bytes().decode("utf-8-sig"), filename=check.file)
+    except UnicodeDecodeError as exc:
+        return [f"check {check.id} is not valid UTF-8: {exc.reason} at byte {exc.start}"]
     except SyntaxError as exc:
         return [f"check {check.id} has a syntax error: line {exc.lineno}: {exc.msg}"]
     if not _defines_a_test(tree):

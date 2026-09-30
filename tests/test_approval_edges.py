@@ -367,3 +367,10 @@ def test_render_lists_every_round_task_and_check_in_order(checks):
         f"--- {checks / 'test_c02.py'}\n"
         f"{C02.rstrip()}"
     )
+
+
+def test_render_survives_a_check_that_is_not_utf8_and_hides_a_bom(checks):
+    (checks / "test_c01.py").write_bytes(b"\xef\xbb\xbfdef test_a():\n    pass\n# caf\xe9\n")
+    shown = render(SHEET, checks)
+    assert "\ufeff" not in shown
+    assert "def test_a():" in shown
