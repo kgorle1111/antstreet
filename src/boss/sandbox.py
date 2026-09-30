@@ -52,6 +52,7 @@ _SEATBELT_HEAD = """\
   (literal "/dev/null")
   (subpath "/usr/share/locale")
   (subpath "/private/var/db/timezone")
+  (subpath "/usr/share/zoneinfo.default")
   (subpath (param "WRITABLE"))"""
 _SEATBELT_TAIL = """\
 (allow file-write* (literal "/dev/null") (subpath (param "WRITABLE")))

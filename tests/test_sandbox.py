@@ -34,6 +34,7 @@ PROFILE_NO_EXTRA = """\
   (literal "/dev/null")
   (subpath "/usr/share/locale")
   (subpath "/private/var/db/timezone")
+  (subpath "/usr/share/zoneinfo.default")
   (subpath (param "WRITABLE")))
 (allow file-write* (literal "/dev/null") (subpath (param "WRITABLE")))
 """
