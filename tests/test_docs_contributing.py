@@ -1,6 +1,7 @@
 """CONTRIBUTING.md stays true: its commands, versions, rules and the benchmark-task steps."""
 
 import re
+import shutil
 import subprocess
 import tomllib
 
@@ -9,7 +10,13 @@ from docs_support import ROOT, code_spans, read, section
 
 from boss import boss, firm
 from boss.bench import run as bench_run
-from boss.bench.tasks import DIFFICULTIES, MIN_HIDDEN_CHECKS, BenchTask, validate_task
+from boss.bench.tasks import (
+    DIFFICULTIES,
+    MIN_HIDDEN_CHECKS,
+    MIN_MUTANTS,
+    BenchTask,
+    validate_task,
+)
 
 DOC = ROOT / "CONTRIBUTING.md"
 PROMPTS = ROOT / "src" / "boss" / "prompts"
@@ -83,6 +90,8 @@ def test_the_live_test_and_the_kn_convention_exist(text):
     assert "BOSS_LIVE" in live and "BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py" in text
     sources = "".join(read(p) for p in (ROOT / "src").rglob("*.py"))
     assert "# kn: " in sources and "`# kn:`" in text
+    assert "(docs/BACKLOG.md)" in text and (ROOT / "docs" / "BACKLOG.md").is_file()
+    assert "tests/test_backlog.py" in text and (ROOT / "tests" / "test_backlog.py").is_file()
 
 
 def test_the_benchmark_task_rules_stated_are_the_validators(text):
@@ -91,6 +100,8 @@ def test_the_benchmark_task_rules_stated_are_the_validators(text):
     assert ", ".join(f"`{d}`" for d in DIFFICULTIES[:-1]) + f" or `{DIFFICULTIES[-1]}`" in steps
     assert "exactly the keys `id`, `title` and `difficulty`" in steps
     assert "tests/test_bench_tasks.py::test_every_shipped_task_is_valid" in steps
+    assert f"at least {MIN_MUTANTS} known-wrong solutions" in steps
+    assert "`mutants/<name>/`" in steps and "tests/test_bench_mutants.py" in steps
 
 
 def test_a_task_built_by_those_steps_validates(tmp_path):
@@ -104,8 +115,23 @@ def test_a_task_built_by_those_steps_validates(tmp_path):
         (root / "hidden_checks" / f"test_case{n}.py").write_text(
             f"from rev import reverse\n\ndef test_case():\n    assert reverse('ab{n}') == '{n}ba'\n"
         )
+
+    def mutant(name: str, body: str) -> None:
+        folder = root / "mutants" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "rev.py").write_text(f"# wrong: {name}\ndef reverse(s):\n    return {body}\n")
+
+    for name, body in (("identity", "s"), ("upper", "s.upper()"), ("empty", "''")):
+        mutant(name, body)
     task = BenchTask("rev-task", "Reverse", "easy", root)
     validate_task(task)  # raises TaskError unless every rule above holds
+    mutant("empty", "s[::-1]")  # right, so not a mutant
+    with pytest.raises(Exception, match="passes every hidden check"):
+        validate_task(task)
+    shutil.rmtree(root / "mutants" / "empty")  # two mutants are fewer than the minimum
+    with pytest.raises(Exception, match=f"at least {MIN_MUTANTS} mutants"):
+        validate_task(task)
+    mutant("empty", "''")
     (root / "hidden_checks" / "test_case0.py").unlink()
     with pytest.raises(Exception, match="at least"):
         validate_task(task)

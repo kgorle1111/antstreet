@@ -57,7 +57,9 @@ uv run ruff format --check .
 - **Python 3.12, type hints, ruff line length 100.** Match the neighbouring code.
 - **Mark a deliberate shortcut** with a `# kn:` comment that names its ceiling and the upgrade
   path, for example
-  `# kn: global lock; per-account if throughput matters`.
+  `# kn: global lock; per-account if throughput matters`. Then list it in
+  [docs/BACKLOG.md](docs/BACKLOG.md): `tests/test_backlog.py` fails while a `kn:` comment is missing
+  there.
 - **Never commit secrets.** `.gitignore` already excludes `.env`, `.env.*`, `*.pem`, `*.key`, `.boss/` (run
   state) and `bench/results/raw/` (raw benchmark output).
 - **Say what is not built** as plainly as what is, in code comments and in documents.
@@ -76,9 +78,16 @@ A task is a folder `bench/tasks/<id>/`. The rules are enforced by `boss.bench.ta
 4. `hidden_checks/test_<name>.py`: at least 5 files, each a complete pytest file that defines a
    test. They score the arms and are never shown to either.
 5. `reference/`: a solution in standard-library-only Python that passes every hidden check.
-6. Every hidden check must fail on an empty workspace and pass on the reference. Check that with
-   `uv run pytest tests/test_bench_tasks.py`.
-7. A task set is identified by a hash of every task file, and the task count appears in the
+6. `mutants/<name>/`: at least 3 known-wrong solutions, one folder each, laid out like `reference/`
+   (the same module files). Each is standard-library-only, imports, and fails at least one hidden
+   check (a wrong solution that passes them all is not wrong). Name it for its bug: lowercase
+   letters, digits and underscores. The first line of each file is a comment saying what is wrong.
+   Mutants score the boss's checks (`python -m boss.bench.drafts`); no arm ever sees one, and they
+   are not in the task set hash.
+7. Every hidden check must fail on an empty workspace and pass on the reference, and every mutant
+   must fail one. Check that with `uv run pytest tests/test_bench_tasks.py` and
+   `uv run pytest tests/test_bench_mutants.py`.
+8. A task set is identified by a hash of every task file, and the task count appears in the
    README and other documents. Adding a task changes both; the docs tests tell you which numbers
    to update. Results recorded against another task set are not comparable, and the results table
    warns when they are mixed.
