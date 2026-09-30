@@ -39,9 +39,9 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|---|
 | B18 | Run checks inside an OS sandbox (no network, no writes outside a temp folder, no reads of the home folder) | The largest accepted risk (T13) | done: feat(gate): run checks inside the sandbox when the platform has one; run and tested on macOS, never run on Linux (B50) |
 | B19 | A check cannot forge its own verdict; `gate.py` kn: in-process verdicts are forgeable by deliberately adversarial code | Needs the report read from outside the process that runs worker code | open |
-| B20 | `boss doctor` canary: prove at run time that a write outside the workspace is refused | Tests pin the flags only (T18) | open |
+| B20 | `boss doctor` canary: prove at run time that a write outside the workspace is refused | Tests pin the flags only (T18) | done: `src/boss/doctor.py` `_check_path_rules`, run by `boss doctor --live` (one paid call; it reports "inconclusive" when the worker does not try the write) |
 | B21 | Re-check isolation after the init event; verify the boss call's isolation | Checked once at init (T21) | building: half done. fix(runner): a late hook event fails the slice as an isolation failure. The boss call's isolation is still unverified (its output has no init event) |
-| B22 | Size caps on a workspace, a log and the gate's copy | Bounded by time and money only (T37) | open |
+| B22 | Size caps on a workspace, a log and the gate's copy | Bounded by time and money only (T37) | done: `src/boss/limits.py` `max_workspace_bytes` (200 MB), checked in `src/boss/firm.py` before every gate run and before the product gate, so the gate never copies a larger folder; `src/boss/runner.py` `DEFAULT_MAX_LOG_BYTES` (50 MB) |
 | B23 | Hash-chain the ledger and sign approvals | Single-user machine (T29) | open |
 | B24 | Probe API-key mode; `worker.py` kn: --bare not yet probed. | Needs an API key | open |
 | B25 | A recorded fixture for a plan usage limit; `errors.py` kn: no recorded fixture for a plan usage limit yet | One has not occurred | open |
@@ -54,23 +54,23 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|---|
 | B28 | Measure check quality without worker runs: precision on the reference, recall on known-wrong implementations | Nothing measured coverage | done: feat(bench): evaluate boss drafts without running workers, with feat(bench): score a draft's checks for precision and recall |
 | B29 | Boss thinking off: measure wrong checks and coverage with it | Costs about $0.50 per 17 drafts | open |
-| B30 | A second pass that audits each check against the idea | Needs B28 to be judged | open |
-| B31 | User stories with acceptance criteria, and a check traced to every criterion | Part of the roles work | open |
+| B30 | A second pass that audits each check against the idea | Needs B28 to be judged | building: the check auditor is built and gated (`src/boss/roles/advisory.py`) and `src/boss/bench/audit.py` scores its flags against the reference; `boss fund` does not call it and no scored run is recorded |
+| B31 | User stories with acceptance criteria, and a check traced to every criterion | Part of the roles work | building: stories, acceptance criteria, `CheckSpec.criteria` and a tester whose checks must cover every criterion are built (`src/boss/roles/stories.py`, `product.py`, `engineering.py`); `boss fund` does not call them |
 
 ## Roles
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B32 | Role registry: each role's prompt, tools, output schema, gate and budget in one place | New scope | open |
-| B33 | Product manager (stories), user agent, system designer, tester, critic, judge, demo writer, consultant | New scope; each default-off until it earns its cost | open |
-| B34 | Skills: versioned prompt modules per role, with tests | New scope | open |
-| B35 | Judge calibration against the investor's labels before its verdicts count | A judge is advisory until calibrated | open |
+| B32 | Role registry: each role's prompt, tools, output schema, gate and budget in one place | New scope | done: `RoleSpec` and `call_role` in `src/boss/roles/base.py`, `registry()` in `src/boss/roles/__init__.py`, `boss roles`; a role's output schema stays in its own module |
+| B33 | Product manager (stories), user agent, system designer, tester, critic, judge, demo writer, consultant | New scope; each default-off until it earns its cost | building: all eight are built, each behind a gate and off by default (`src/boss/roles/`); `boss fund` calls none and none has been measured |
+| B34 | Skills: versioned prompt modules per role, with tests | New scope | done: `src/boss/skills/` (the loader and 36 skill files), `tests/test_skills_quality.py` |
+| B35 | Judge calibration against the investor's labels before its verdicts count | A judge is advisory until calibrated | building: the harness is built (`python -m boss.roles.judge calibrate`, `require_calibrated`); no calibration file exists, so every judgement is `uncalibrated` |
 
 ## Benchmark
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B36 | Three runs per arm on the hardened code | Cost | building: the single arm finished (32 of 51 cells pass); the firm arm is still running |
+| B36 | Three runs per arm on the hardened code | Cost | done: `bench/results/2026-09-30-final3/` (both arms, 3 runs, 51 cells each; single arm at dca56c1, firm arm at a886934) |
 | B37 | Replay: stop at DONE like the live loop | The live loop never funds past DONE, so replay's extra walk changes no figure today | done: fix(replay): a worker whose task is done is not walked past that point |
 | B38 | More tasks: about 60 paired tasks are needed to see a 20-point difference | 17 exist | open |
 
