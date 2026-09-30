@@ -6,9 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from boss.boss import DRAFT_SCHEMA, BossError, build_boss_command, draft_term_sheet, load_prompt
+from boss.boss import (
+    DRAFT_SCHEMA,
+    BossError,
+    InvalidDraftError,
+    build_boss_command,
+    draft_term_sheet,
+    load_prompt,
+)
 from boss.errors import Outcome
-from boss.termsheet import TermSheet, TermSheetError
+from boss.termsheet import TermSheet
 
 RECORDED = json.loads(
     (Path(__file__).parent / "fixtures" / "json_boss_schema_call_2.1.285.json").read_text()
@@ -123,11 +130,12 @@ def test_unusable_drafts_raise(draft, change, message):
         draft(result_with(**change))
 
 
-def test_draft_whose_check_passes_on_an_empty_workspace_is_rejected(draft):
+def test_draft_whose_check_passes_on_an_empty_workspace_is_rejected_but_still_costed(draft):
     trivial = {"description": "always passes", "task": "t1", "code": "def test_x():\n    pass\n"}
-    with pytest.raises(TermSheetError) as info:
+    with pytest.raises(InvalidDraftError) as info:
         draft(result_with(structured_output=DRAFT | {"checks": [DRAFT["checks"][0], trivial]}))
     assert info.value.problems == ["check c02 passes on an empty workspace"]
+    assert info.value.usage.cost_micros == 3634  # the call was paid for; the ledger must see it
 
 
 def test_garbage_output_is_a_crash(draft):

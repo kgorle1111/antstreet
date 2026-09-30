@@ -17,7 +17,7 @@ from typing import Any
 
 from boss.errors import Outcome, classify
 from boss.stream import StreamReader, Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, validate
+from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
 from boss.worker import CLI, usd, uses_api_key
 
 TERM_SHEET_PROMPT = "term_sheet_v1.md"
@@ -70,6 +70,16 @@ class BossError(Exception):
         self.usage = usage
 
 
+class InvalidDraftError(BossError):
+    """The call succeeded and was paid for, but the draft does not validate as a term sheet."""
+
+    def __init__(self, problems: list[str], usage: Usage) -> None:
+        super().__init__(
+            "draft term sheet is invalid: " + "; ".join(problems), Outcome.COMPLETED, usage
+        )
+        self.problems = problems
+
+
 @dataclass(frozen=True, slots=True)
 class Draft:
     sheet: TermSheet
@@ -114,8 +124,8 @@ def draft_term_sheet(
 ) -> Draft:
     """Ask the boss for checks and a task, write the check files, and return a validated sheet.
 
-    Raises BossError if the call fails or returns unusable output, and TermSheetError (listing
-    every problem) if the draft does not validate.
+    Raises BossError if the call fails or returns unusable output, and InvalidDraftError (listing
+    every problem) if the draft does not validate. Both carry the call's usage for the ledger.
     """
     if not idea.strip() or idea.lstrip().startswith("-"):
         raise ValueError("idea must be non-empty text that does not start with '-'")
@@ -130,7 +140,10 @@ def draft_term_sheet(
     argv[0] = executable
     output = _call(argv, env, timeout_s)
     sheet = _sheet_from_output(output, idea.strip(), budget_micros, checks_dir)
-    validate(sheet, checks_dir)
+    try:
+        validate(sheet, checks_dir)
+    except TermSheetError as exc:
+        raise InvalidDraftError(exc.problems, output.usage()) from exc
     return Draft(sheet, output.usage())
 
 
