@@ -19,7 +19,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B07 | Pause before a plan limit is hit (plan pressure), not only after | `retry.plan_pressure` exists, the loop does not call it | open |
 | B08 | A replacement worker inherits its predecessor's disputes | Disputes are per worker today | open |
 | B09 | The refusal brief names the real reason for each refused tool call | It assumes a path outside the folder; true for every case seen | open |
-| B10 | Tolerate a torn final ledger line on resume; `ledger.py` kn: a torn final line after a hard kill also raises | Failing closed was the safe first step | done: feat(ledger): repair a torn final line |
+| B10 | Tolerate a torn final ledger line on resume; `ledger.py` kn: a torn final line after a hard kill also raises | Failing closed was the safe first step | building: feat(ledger): repair a torn final line added `repair_torn_tail`; no command calls it yet, so a torn tail still blocks `boss resume` |
 | B11 | Recover when a session to resume no longer exists ("No conversation found") | Only happens if the CLI's session store is cleared between runs | open |
 
 ## Money
@@ -37,10 +37,10 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B18 | Run checks inside an OS sandbox (no network, no writes outside a temp folder, no reads of the home folder) | The largest accepted risk (T13) | building |
+| B18 | Run checks inside an OS sandbox (no network, no writes outside a temp folder, no reads of the home folder) | The largest accepted risk (T13) | done: feat(gate): run checks inside the sandbox when the platform has one; run and tested on macOS, never run on Linux (B50) |
 | B19 | A check cannot forge its own verdict; `gate.py` kn: in-process verdicts are forgeable by deliberately adversarial code | Needs the report read from outside the process that runs worker code | open |
 | B20 | `boss doctor` canary: prove at run time that a write outside the workspace is refused | Tests pin the flags only (T18) | open |
-| B21 | Re-check isolation after the init event; verify the boss call's isolation | Checked once at init (T21) | done: fix(runner): a late hook event fails the slice as an isolation failure; the boss call's isolation is still unverified (no init event) |
+| B21 | Re-check isolation after the init event; verify the boss call's isolation | Checked once at init (T21) | building: half done. fix(runner): a late hook event fails the slice as an isolation failure. The boss call's isolation is still unverified (its output has no init event) |
 | B22 | Size caps on a workspace, a log and the gate's copy | Bounded by time and money only (T37) | open |
 | B23 | Hash-chain the ledger and sign approvals | Single-user machine (T29) | open |
 | B24 | Probe API-key mode; `worker.py` kn: --bare not yet probed. | Needs an API key | open |
@@ -52,7 +52,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B28 | Measure check quality without worker runs: precision on the reference, recall on known-wrong implementations | Nothing measured coverage | building |
+| B28 | Measure check quality without worker runs: precision on the reference, recall on known-wrong implementations | Nothing measured coverage | done: feat(bench): evaluate boss drafts without running workers, with feat(bench): score a draft's checks for precision and recall |
 | B29 | Boss thinking off: measure wrong checks and coverage with it | Costs about $0.50 per 17 drafts | open |
 | B30 | A second pass that audits each check against the idea | Needs B28 to be judged | open |
 | B31 | User stories with acceptance criteria, and a check traced to every criterion | Part of the roles work | open |
@@ -70,7 +70,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B36 | Three runs per arm on the hardened code | Cost | building |
+| B36 | Three runs per arm on the hardened code | Cost | building: the single arm finished (32 of 51 cells pass); the firm arm is still running |
 | B37 | Replay: stop at DONE like the live loop | The live loop never funds past DONE, so replay's extra walk changes no figure today | done: fix(replay): a worker whose task is done is not walked past that point |
 | B38 | More tasks: about 60 paired tasks are needed to see a 20-point difference | 17 exist | open |
 
@@ -94,3 +94,10 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B47 | `FiringPolicy` accepts bool and float | open |
 | B48 | `redact` masks some ordinary text (a word containing `sk-` followed by 20 characters; `max_tokens: 1000000`) | open |
 | B49 | The early budget check refuses `--budget 0.30 --rounds 3` even when the boss would draft fewer checks than rounds | open |
+
+## Sandbox, added later
+
+| Id | Item | Why it was deferred | Status |
+|---|---|---|---|
+| B50 | Run the Linux (`bwrap`) sandbox on a Linux host, then tighten its root to an allowlist; `sandbox.py` kn: root read-only with /home, /root, /tmp and /run hidden; not run on this machine | No `bwrap` on the machine it was written on; `docs/SANDBOX.md` step 1 is the check | open |
+| B51 | Show `sandboxed` in `boss report` | The flag is on every check result and in `boss doctor`; the report does not print it yet (T39) | open |
