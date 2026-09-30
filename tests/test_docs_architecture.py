@@ -172,7 +172,8 @@ def test_what_the_document_no_longer_calls_missing_is_built_and_named(text):
     # `boss resume` exists, and it calls repair_torn_tail
     commands = cli._parser()._subparsers._group_actions[0].choices
     assert "resume" in commands and "boss resume" not in body
-    assert "repair_torn_tail" in inspect.getsource(cli._resume) and "repair_torn_tail" not in body
+    assert "repair_torn_tail" in inspect.getsource(cli._resume_run)
+    assert "repair_torn_tail" not in body
     assert _callers("repair_torn_tail", skip=("ledger.py",)) == ["cli.py"]
     # tasks run in parallel: a wave of up to `parallel` slices in a thread pool
     assert firm.FirmConfig().parallel == 1 and "ThreadPoolExecutor" in firm_source

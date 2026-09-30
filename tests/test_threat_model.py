@@ -123,10 +123,11 @@ def test_the_ledger_row_says_resume_repairs_a_torn_tail_and_the_code_does(rows):
         if p.name != "ledger.py" and "repair_torn_tail" in p.read_text(encoding="utf-8")
     ]
     assert callers == ["cli.py"], "the only caller is `boss resume`: update T28 if that changes"
-    # The repair comes before the first read of the ledger, inside `_resume`.
+    # The repair comes before the first read of the ledger, in `_resume_run` (`_resume` finds
+    # the run and turns a held lock into a message).
     tree = ast.parse((ROOT / "src" / "boss" / "cli.py").read_text(encoding="utf-8"))
     resume = next(
-        n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_resume"
+        n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_resume_run"
     )
     lines = {
         name: min(
