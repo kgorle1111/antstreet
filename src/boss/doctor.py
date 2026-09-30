@@ -78,7 +78,7 @@ def _check_platform() -> DoctorCheck:
 def _check_pytest() -> DoctorCheck:
     if importlib.util.find_spec("pytest") is not None:
         return _pass("pytest", "importable")
-    return _fail("pytest", "not importable; the gate runs checks with it", "uv add pytest")
+    return _fail("pytest", "not importable; the gate runs checks with it", "reinstall boss")
 
 
 def _check_cli(executable: str, env: Mapping[str, str]) -> tuple[DoctorCheck, str | None]:
