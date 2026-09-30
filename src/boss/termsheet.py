@@ -143,7 +143,7 @@ def structural_problems(sheet: TermSheet, checks_dir: Path) -> list[str]:
     p += _round_problems(sheet)
     p += _ownership_problems(sheet)
     for check in sheet.checks:
-        p += _check_file_problems(check, checks_dir)
+        p += check_file_problems(check, checks_dir)
     return p
 
 
@@ -211,7 +211,7 @@ def _ownership_problems(sheet: TermSheet) -> list[str]:
     return p
 
 
-def _check_file_problems(check: CheckSpec, checks_dir: Path) -> list[str]:
+def check_file_problems(check: CheckSpec, checks_dir: Path) -> list[str]:
     if not _CHECK_FILE_RE.match(check.file):
         return [f"check {check.id} file {check.file!r} must be named test_<name>.py"]
     path = checks_dir / check.file
