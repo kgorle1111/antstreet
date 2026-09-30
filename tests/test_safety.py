@@ -281,17 +281,21 @@ def test_a_worker_saying_done_is_not_a_pass(tmp_path):
     assert len(of(events, EventType.SLICE_END)) == 4  # "done" did not end the task
 
 
-def test_slices_of_unknown_cost_are_unknown_and_stopped_only_by_the_firing_policy(tmp_path):
-    sheet = dataclasses.replace(sheet_of(), budget_micros=120_000, rounds=(Round(1, 120_000, 1),))
+def test_slices_of_unknown_cost_are_charged_at_their_cap_so_the_round_runs_out(tmp_path):
+    sheet = dataclasses.replace(sheet_of(), budget_micros=320_000, rounds=(Round(1, 320_000, 1),))
     crashed = Step({"rev.py": WRONG}, status=None, outcome=Outcome.CRASHED, cost=None)
-    _, events, _ = fund(tmp_path, Worker(*[crashed] * 4), sheet)
+    worker = Worker(*[crashed] * 4)
+    _, events, _ = fund(tmp_path, worker, sheet)
     ends = of(events, EventType.SLICE_END)
-    assert [e.cost_micros for e in ends] == [None] * 4
-    assert (total(events).cost_micros, total(events).unknown_cost_events) == (0, 4)
-    # Unknown cost does not shrink the budget, so four slices were funded against $0.12: the
-    # limit is the policy (2 stalled slices per worker, 2 workers), not the money.
-    assert remaining(sheet, events, 1) == 120_000
-    assert [e.data["cap_micros"] for e in of(events, EventType.SLICE_START)] == [96_000] * 4
+    # The ledger never invents a figure: both slices stay "unknown" and the total stays 0.
+    assert [e.cost_micros for e in ends] == [None] * 3
+    assert (total(events).cost_micros, total(events).unknown_cost_events) == (0, 3)
+    # The budget treats each as spent at its cap, so the money stops the round with a step
+    # still unplayed: caps of 100,000, 100,000 and the last 20,000 above the reserve.
+    caps = [e.data["cap_micros"] for e in of(events, EventType.SLICE_START)]
+    assert caps == [100_000, 100_000, 20_000]
+    assert remaining(sheet, events, 1) == 100_000
+    assert len(worker.specs) == 3
 
 
 def test_an_overshooting_slice_is_recorded_and_ends_the_round(tmp_path):
