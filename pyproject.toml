@@ -24,7 +24,7 @@ build-backend = "uv_build"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-extend-exclude = [".claude", ".boss"]
+extend-exclude = [".claude", ".boss", "bench/tasks/*/mutants"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]

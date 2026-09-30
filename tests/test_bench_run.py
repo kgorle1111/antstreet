@@ -146,6 +146,16 @@ def test_hidden_checks_and_reference_never_reach_a_prompt_or_a_workspace(bench):
         assert path.read_text().strip() not in prompts
         assert path.name not in prompts
     assert "hidden_checks" not in prompts and "reference" not in prompts
+    # Mutants, the known-wrong solutions used to score boss drafts, are just as private.
+    mutants = TASK.mutants()
+    assert mutants
+    assert "mutants" not in prompts
+    for mutant in mutants:
+        assert mutant.name not in prompts
+        for source in mutant.glob("*.py"):
+            assert source.read_text().strip() not in prompts
+            assert source.read_text().splitlines()[0] not in prompts
+    assert not [p for p in bench.results.rglob("*") if "mutants" in p.parts]
     workspace_files = {
         p.name
         for p in bench.results.rglob("*")
