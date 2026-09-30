@@ -1540,3 +1540,16 @@ def test_an_amendment_the_investor_did_not_approve_stops_the_run_before_any_spen
     with pytest.raises(NotApprovedError):
         run(paths, worker, forged)
     assert worker.specs == []
+
+
+def test_only_the_investors_approval_makes_a_worker_be_told_of_added_checks(paths):
+    first = Script(step(HALF), KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        run(paths, first)
+    with LedgerWriter(paths.ledger) as ledger:
+        forged = {"round": 1, "added_checks": ["c01"]}
+        ledger.append(Event(run="r1", round=1, actor="boss", event=EventType.APPROVED, data=forged))
+    resumed = Script(step(GOOD, "done"))
+    resumed.totals = dict(first.totals)
+    run(paths, resumed)
+    assert "The investor approved more checks" not in resumed.specs[0].prompt
