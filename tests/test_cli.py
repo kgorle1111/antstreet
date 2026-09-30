@@ -299,6 +299,29 @@ def test_resuming_a_finished_run_changes_nothing_and_spends_nothing(boss):
     assert events_of_run(boss) == before
 
 
+def test_resuming_a_finished_run_that_used_roles_changes_nothing_and_spends_nothing(boss):
+    # This fake answers every role with the boss's draft, which no role's gate accepts: both
+    # calls are booked as failed, and a resume (whose roles come from the ledger) adds nothing.
+    code, output = boss(
+        "fund", "Reverse a string.", "--budget", "0.50", "--roles", "check_auditor,critic"
+    )
+    assert (
+        code == EXIT_OK
+        and "The check_auditor failed (" in output
+        and "The critic failed (" in output
+    )
+    calls = [e for e in events_of_run(boss) if e.event is EventType.ROLE_CALL]
+    assert [(e.actor, e.cost_micros, e.data["result"]) for e in calls] == [
+        ("role:check_auditor", 4_000, "failed"),
+        ("role:critic", 4_000, "failed"),
+    ]
+    before = events_of_run(boss)
+    for _ in range(2):
+        code, output = boss("resume")
+        assert code == EXIT_OK and "Roles (each call" in output
+        assert events_of_run(boss) == before
+
+
 def test_a_run_that_ends_early_tells_the_investor_how_to_continue(boss):
     code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9")
     assert f"To continue this run: `boss resume {boss.runs()[0].name}`" in output
