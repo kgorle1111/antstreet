@@ -10,6 +10,26 @@ ARMS = ("single", "firm")
 RESULT_FILE = "result.json"
 # Set by the runner when it can tell; everything else is labelled by hand with evidence kept.
 FAILURE_CLASSES = ("product", "model", "grading", "infrastructure", "unlabelled")
+_NONE = type(None)
+# JSON types of a result file, checked on load; bool is refused everywhere (it is an int in Python).
+_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
+    "task": str,
+    "arm": str,
+    "rep": int,
+    "set_hash": str,
+    "model": str,
+    "budget_micros": int,
+    "hidden": dict,
+    "visible_passed": (int, _NONE),
+    "visible_total": (int, _NONE),
+    "cost_micros": int,
+    "boss_micros": int,
+    "unknown_cost_events": int,
+    "outcome": str,
+    "failure_class": (str, _NONE),
+    "duration_s": (int, float),
+    "firm_args": str,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +86,15 @@ class CellResult:
         required = {f.name for f in fields(cls) if f.default is MISSING}
         if not isinstance(raw, dict) or not required <= set(raw) <= known:
             raise ValueError(f"{path}: fields differ from the result schema")
-        return cls(**raw)
+        for name, kinds in _FIELD_TYPES.items():
+            if name in raw and (isinstance(raw[name], bool) or not isinstance(raw[name], kinds)):
+                raise ValueError(f"{path}: field {name!r} has the wrong type: {raw[name]!r}")
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in raw["hidden"].items()):
+            raise ValueError(f"{path}: field 'hidden' must map check ids to status strings")
+        try:
+            return cls(**raw)
+        except ValueError as exc:
+            raise ValueError(f"{path}: {exc}") from exc
 
 
 def cell_dir(results_dir: Path, task: str, arm: str, rep: int) -> Path:

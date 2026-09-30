@@ -183,11 +183,6 @@ def test_a_missing_result_file_is_an_os_error(tmp_path):
         CellResult.load(tmp_path / RESULT_FILE)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="results.py:CellResult.load checks field names but not types, so a list for `hidden` "
-    "escapes as AttributeError from __post_init__ instead of a ValueError naming the file",
-)
 def test_a_hidden_field_of_the_wrong_type_is_refused_on_load(tmp_path):
     raw = dataclasses.asdict(cell())
     raw["hidden"] = ["h1", "h2"]
@@ -195,6 +190,29 @@ def test_a_hidden_field_of_the_wrong_type_is_refused_on_load(tmp_path):
     path.write_text(json.dumps(raw))
     with pytest.raises(ValueError):
         CellResult.load(path)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("hidden", ["h1"]),
+        ("hidden", {"h1": 1}),
+        ("rep", "1"),
+        ("rep", True),
+        ("cost_micros", 1.5),
+        ("visible_passed", "2"),
+        ("outcome", None),
+        ("duration_s", "fast"),
+    ],
+)
+def test_a_wrongly_typed_field_is_refused_naming_the_file_and_field(tmp_path, name, value):
+    raw = dataclasses.asdict(cell()) | {name: value}
+    path = tmp_path / RESULT_FILE
+    path.write_text(json.dumps(raw))
+    with pytest.raises(ValueError) as info:
+        CellResult.load(path)
+    assert str(path) in str(info.value)
+    assert name in str(info.value)
 
 
 # --- cell_dir and load_results --------------------------------------------------------------
