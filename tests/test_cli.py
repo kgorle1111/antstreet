@@ -156,6 +156,16 @@ def test_bad_budget_is_a_usage_error(boss, budget, capsys):
     assert "budget" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("option", ["--slice", "--reserve"])
+def test_a_bad_dollar_amount_names_its_own_option_and_value_not_the_budget(boss, option, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "x", "--budget", "0.50", option, "0")
+    assert info.value.code == 2
+    error = capsys.readouterr().err.strip().splitlines()[-1]  # the line after the usage
+    assert f"argument {option}: '0' is not a positive dollar amount" in error
+    assert "budget" not in error
+
+
 def test_a_budget_too_small_for_one_slice_is_refused_before_anything_is_spent(boss):
     code, output = boss("fund", "Reverse a string.", "--budget", "0.104999")
     assert code == EXIT_USAGE

@@ -164,7 +164,9 @@ def usd_arg(text: str) -> int:
     except InvalidOperation:
         raise argparse.ArgumentTypeError(f"{text!r} is not a dollar amount") from None
     if micros <= 0 or micros != micros.to_integral_value():
-        raise argparse.ArgumentTypeError("budget must be positive, with at most 6 decimal places")
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a positive dollar amount with at most 6 decimal places"
+        )
     return int(micros)
 
 
