@@ -214,7 +214,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("results_dir", type=Path)
     parser.add_argument("--out", type=Path, help="write the table here instead of stdout")
     args = parser.parse_args(argv)
-    results = load_results(args.results_dir)
+    try:
+        results = load_results(args.results_dir)
+    except (OSError, ValueError) as exc:
+        print(f"cannot read results under {args.results_dir}: {exc}", file=sys.stderr)
+        return 1
     if not results:
         print(f"no results found under {args.results_dir}", file=sys.stderr)
         return 1

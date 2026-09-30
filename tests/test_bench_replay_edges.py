@@ -242,15 +242,16 @@ def test_ledgers_that_are_valid_but_have_no_slices_are_skipped_silently(tmp_path
     assert "| 1 | 4 | 1 | 0 |" in capsys.readouterr().out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="replay.py:main calls read_events on every ledger.jsonl, and a torn final line (a run "
-    "killed mid-write) raises LedgerCorruptError with a traceback instead of a one-line error",
-)
 def test_a_torn_ledger_is_reported_with_its_path_not_a_traceback(tmp_path, capsys):
     path = tmp_path / "ledger.jsonl"
     write_ledger(path, worker_events("w", {"a"}, [(1, set())]))
     with path.open("a") as fh:
         fh.write('{"v": 1, "run": ')
+    assert main([str(tmp_path)], decide=never_fire) == 1
+    assert "ledger.jsonl" in capsys.readouterr().err
+
+
+def test_a_ledger_that_is_not_utf8_is_reported_with_its_path(tmp_path, capsys):
+    (tmp_path / "ledger.jsonl").write_bytes(b"\xff\xfe\n")
     assert main([str(tmp_path)], decide=never_fire) == 1
     assert "ledger.jsonl" in capsys.readouterr().err

@@ -249,15 +249,18 @@ def test_main_ignores_stray_files_next_to_results(tmp_path, capsys):
     assert "| single | 1 |" in capsys.readouterr().out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="table.py:main calls load_results with no error handling, so one damaged result.json "
-    "aborts with a traceback instead of naming the file and returning 1",
-)
 def test_main_reports_a_damaged_result_file_by_name(tmp_path, capsys):
     save(tmp_path, cell())
     bad = cell_dir(tmp_path, "t2", "single", 0)
     bad.mkdir(parents=True)
     (bad / RESULT_FILE).write_text("{")
+    assert main([str(tmp_path)]) == 1
+    assert "t2" in capsys.readouterr().err
+
+
+def test_main_reports_a_result_file_that_is_not_utf8_by_name(tmp_path, capsys):
+    bad = cell_dir(tmp_path, "t2", "single", 0)
+    bad.mkdir(parents=True)
+    (bad / RESULT_FILE).write_bytes(b"\xff\xfe")
     assert main([str(tmp_path)]) == 1
     assert "t2" in capsys.readouterr().err

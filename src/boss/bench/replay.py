@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from boss import rule
-from boss.ledger import Event, EventType, read_events
+from boss.ledger import Event, EventType, LedgerError, read_events
 from boss.report import dollars
 from boss.rule import Decision, FiringPolicy, SliceRecord, Verdict
 from boss.state import slice_history
@@ -149,7 +149,13 @@ def main(argv: Sequence[str] | None = None, decide: Decide = rule.decide) -> int
     except ValueError as exc:
         parser.error(str(exc))
 
-    runs = [read_events(p) for p in sorted(args.results_dir.rglob("ledger.jsonl"))]
+    runs = []
+    for path in sorted(args.results_dir.rglob("ledger.jsonl")):
+        try:
+            runs.append(read_events(path))
+        except (LedgerError, OSError, UnicodeDecodeError) as exc:
+            print(f"cannot read ledger {path}: {exc}", file=sys.stderr)
+            return 1
     runs = [events for events in runs if any(e.event is EventType.SLICE_END for e in events)]
     if not runs:
         print(f"no ledger with slice data under {args.results_dir}", file=sys.stderr)

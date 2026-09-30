@@ -58,7 +58,10 @@ class CellResult:
 
     @classmethod
     def load(cls, path: Path) -> CellResult:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError name no file
+            raise ValueError(f"{path}: not valid JSON: {exc}") from exc
         known = {f.name for f in fields(cls)}
         required = {f.name for f in fields(cls) if f.default is MISSING}
         if not isinstance(raw, dict) or not required <= set(raw) <= known:
