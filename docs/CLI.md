@@ -181,7 +181,8 @@ and line.
 
 ## Benchmark commands
 
-These make real model calls only through `run`. See [../bench/METHOD.md](../bench/METHOD.md).
+`run` makes real model calls for every cell. `drafts` and `audit` make one call per draft. `table`
+and `replay` make none. See [../bench/METHOD.md](../bench/METHOD.md).
 
 ## `python -m boss.bench.run`
 
@@ -260,11 +261,79 @@ Argument: `results_dir`, a folder holding `ledger.jsonl` files.
 Exit codes: `0`; `1` when a ledger cannot be read or none has slice data; `2` for an invalid
 policy value or a usage error.
 
+## `python -m boss.bench.audit`
+
+Scores the check auditor, a role that gives an opinion on each check of a draft: does the idea say
+what the check demands? The benchmark knows which checks are wrong (the task's reference solution
+fails them), so the auditor's flags can be counted against that. The auditor stays advisory until
+these numbers say it is worth its cost.
+
+It audits drafts that are already saved, from a `boss.bench.run` results folder or a
+`boss.bench.drafts` output folder. It makes one model call per draft, capped at $0.15 a call
+(the auditor's cap), unless `--dry-run`. The real cost per call has not been measured.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--results` | required | One or more folders of saved drafts. Their names must differ. |
+| `--tasks` | `bench/tasks` | Folder of task folders. |
+| `--out` | required | Folder for the audits. |
+| `--only` | all tasks | Task ids to audit. |
+| `--model` | `haiku` | Model for the auditor. |
+| `--thinking` | none | Thinking tokens per audit. |
+| `--jobs` | `2` | Audits to make and score at once. |
+| `--dry-run` | off | List the audits and the cost ceiling, then exit. |
+| `--retry-failed` | off | Audit again the cells that failed to run. |
+
+- A folder refuses audits made with other settings (task set, prompt, model, thinking). Use a fresh
+  `--out` to compare.
+- Exit codes: `0` after the audits ran; `1` when no task matches, a folder cannot be read, no draft
+  is found, or `--out` holds audits made with other settings; `2` for a usage error.
+
+## `python -m boss.roles.judge template`
+
+`python -m boss.roles.judge template --rubric ID --artifacts DIR --out FILE`. Writes a case file
+with one unlabelled case for each file in a folder (not files that start with a dot), for a person to score by hand. The judge
+is advisory, and its scores are labelled `uncalibrated` until a calibration shows it agrees with a
+person. Makes no model call. See [ROLES.md](ROLES.md).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--rubric` | required | Id of the rubric the cases are scored against. |
+| `--artifacts` | required | Folder of UTF-8 text files, one case each. |
+| `--out` | required | The case file to write. It is never overwritten. |
+
+Fill in every context and every score (1 to 5) in the file, then run `calibrate`. Exit codes: `0`;
+`1` for an unreadable case file, rubric or folder.
+
+## `python -m boss.roles.judge calibrate`
+
+`python -m boss.roles.judge calibrate --cases FILE --out FILE [--model M] [--dry-run]`. Runs the
+judge on every case of a labelled case file, compares its scores with yours, and saves and prints
+the result. It prints the number of calls and the most they can cost (each call is capped at $0.15)
+before it makes any. It will not overwrite `--out`.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--cases` | required | The labelled case file. |
+| `--out` | required | The calibration file to write. It must not exist. |
+| `--model` | `haiku` | Model for the judge. |
+| `--dry-run` | off | Show the calls and their cost ceiling, make none. |
+
+Exit codes: `0`; `1` for an unreadable case file, rubric or calibration, or an `--out` that exists.
+
+## `python -m boss.roles.judge show`
+
+`python -m boss.roles.judge show FILE`. Prints a calibration file. Makes no model call.
+
+Argument: `file`, a calibration file written by `calibrate`.
+
+Exit codes: `0`; `1` when the file cannot be read.
+
 ## Environment variables
 
 | Variable | Read by | Meaning |
 |---|---|---|
-| `BOSS_CLAUDE_BIN` | `boss fund`, `boss doctor`, `bench.run` | Path or name of the `claude` executable. Default `claude`. Not passed on to children. |
+| `BOSS_CLAUDE_BIN` | `boss fund`, `boss resume`, `boss doctor`, `bench.run`, `bench.drafts`, `bench.audit`, `roles.judge` | Path or name of the `claude` executable. Default `claude`. Not passed on to children. |
 | `ANTHROPIC_API_KEY` | every command that calls the CLI | If set and non-empty: billing is `api`, the CLI runs with `--bare` instead of `--safe-mode`, and the key is passed to the CLI and masked in logs. The `--bare` mode is not verified against the real CLI. |
 | `HOME` | worker and boss calls | Passed on so the CLI finds its login. |
 | `PATH` | worker and boss calls | Passed on so the CLI can start. |
@@ -279,8 +348,8 @@ policy value or a usage error.
 - Nothing else from your environment reaches a worker or boss process. The gate builds its own
   environment for checks: a temporary `HOME` and `TMPDIR`, a short `PATH`, `LANG`, and
   `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`.
-- Only `boss.cli`, `boss.bench.run`, `boss.bench.drafts`, `boss.gate` and `boss.sandbox` read the
-  process environment.
+- Only `boss.cli`, `boss.bench.run`, `boss.bench.drafts`, `boss.bench.audit`, `boss.roles.judge`,
+  `boss.gate` and `boss.sandbox` read the process environment.
 
 ## Run folder
 
