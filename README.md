@@ -42,7 +42,9 @@ uv run boss doctor --live
 ```
 
 `doctor` checks everything a run needs and prints a fix line for anything missing. `--live` makes
-one small real call, because `claude auth status` can report a login that the API then rejects.
+two small paid calls, each capped at $0.05 on Haiku: one to verify the login, because `claude auth
+status` can report a login that the API then rejects, and one that asks a worker to write outside
+its folder, to check that the installed CLI still refuses it.
 
 ## Use
 
@@ -74,18 +76,22 @@ Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
 | `--max-minutes M` | Stop the run after this much wall-clock time | none |
 | `--boss-thinking N` | Thinking tokens for the boss's draft; 0 turns thinking off | the CLI's |
 | `--max-tasks N` | Let the boss split the work into up to N tasks | 1 |
+| `--parallel N` | Work on up to N tasks at once; one worker per task | 1 |
+| `--profile NAME` | Add a worker profile's skills to the builder prompt; `boss roles` lists them | none |
 
 ```bash
 uv run boss resume    # continue the latest run: interrupted, paused or stopped
 uv run boss report    # the latest run's board report
 uv run boss status    # one line: last event, checks passing, spend
+uv run boss roles     # the organisation: roles, worker profiles and their skills
+uv run boss doctor    # check this machine; --live adds the two paid calls above
 ```
 
 `boss resume` reads the run's ledger and the settings it started with. Running it is your decision
 to lift a stop, and the approval, the budget and every limit are checked again.
 
 Exit codes: `0` every check passed; `1` the boss produced no usable term sheet, you rejected it, or
-a worker did not start isolated; `2` usage error (including a budget too small to fund one slice);
+a worker did not start isolated; `2` usage error (including a blank idea and a budget too small to fund one slice);
 `3` the run ended with checks not passing, including a run stopped early by a limit, a declined
 round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss resume`).
 
@@ -121,8 +127,8 @@ Limits you should know:
 - `--budget` covers the funding rounds. The boss's own drafting call is charged on top of it (about
   $0.03 to $0.10 on Haiku, most of it thinking; see `--boss-thinking`).
 - A task you set aside (or leave unanswered) stays set aside for the run, resumed or not.
-- A ledger whose last line was cut by a hard kill cannot be resumed until you remove that line:
-  the repair function exists and no command calls it yet.
+- A ledger whose last line was cut by a hard kill is repaired by `boss resume`, which removes
+  that line. A ledger damaged anywhere else cannot be resumed.
 - A slice cap can be overshot by one model response. The reserve is sized for that; a response
   that costs more than the reserve still overshoots.
 - The boss can write a wrong check. You are the filter: read the checks before approving.
@@ -135,6 +141,7 @@ Limits you should know:
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Roles, one line per module, the life of a run, the loop's control flow, the invariants |
 | [docs/LEDGER.md](docs/LEDGER.md) | Every event type and the `data` keys it carries, with an example line each |
 | [docs/CLI.md](docs/CLI.md) | Every command and option, environment variables, exit codes, the run folder |
+| [docs/ROLES.md](docs/ROLES.md) | Roles, worker profiles and skills: what each is, how to add one, and when a role is switched on |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why it is built this way: what was rejected and the evidence |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Each threat, its control, the test that proves it, and what is accepted |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | The gate's OS sandbox: what it denies, what it allows, the probes, what is not verified |

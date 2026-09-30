@@ -451,8 +451,14 @@ def test_an_audit_that_fails_or_is_rejected_is_recorded_with_no_verdicts_and_no_
     assert cell.status == status and cell.verdicts is None and cell.wrong is None
     assert cell.score is None and cell.detail
     assert AuditCell.load(env.out / "pilot" / "alpha" / "rep1" / "audit.json") == cell
+    kept = env.out / "pilot" / "alpha" / "rep1" / "rejected_output.json"
     if mode == "partial":
         assert cell.detail == "c02: no verdict" and cell.cost_micros == 30_000  # paid for
+        refused = json.loads(kept.read_text())
+        assert refused["role"] == "check_auditor" and refused["problems"] == ["c02: no verdict"]
+        assert [v["check"] for v in refused["output"]["verdicts"]] == ["c01"]
+    else:
+        assert not kept.exists()  # nothing was refused: there was no output to keep
     if mode == "capped":
         assert cell.outcome == "capped" and cell.cost_micros == 150_000
     if mode == "login":

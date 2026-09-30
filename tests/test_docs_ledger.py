@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import fields
 
 import pytest
-from docs_support import DOCS, code_spans, read, run_cli, section, table
+from docs_support import DOCS, ROOT, code_spans, read, run_cli, section, table
 
 from boss import budget, state
 from boss.approval import content_hashes
@@ -21,6 +21,7 @@ from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
 from boss.ledger import LEDGER_VERSION, Billing, Event, EventType, LedgerWriter, read_events
 from boss.limits import RunLimits
+from boss.roles.base import RoleSpec, ledger_fields
 from boss.rundir import RunPaths
 from boss.runner import SliceRun
 from boss.stream import Usage
@@ -28,6 +29,7 @@ from boss.termsheet import CheckSpec, Round, Task, TermSheet
 from boss.worker import IsolationError
 
 DOC = DOCS / "LEDGER.md"
+SRC = ROOT / "src" / "boss"
 
 # --- scripted firm: the pattern of tests/test_firm.py, copied on purpose ---------------------
 
@@ -226,7 +228,7 @@ def examples_of(body: str) -> list[Event]:
     return [Event.from_json(block) for block in blocks]
 
 
-NO_WRITER = {"topped_up", "denied"}
+NO_WRITER = {"topped_up", "denied", "role_call"}
 
 
 def test_every_event_type_has_a_section_and_no_section_names_another_type(text):
@@ -249,11 +251,12 @@ def test_top_level_fields_are_the_event_fields_plus_the_version(text):
 
 def test_actor_forms_and_the_writer_rules_are_documented(text):
     body = section(text, "Top-level fields")
-    for actor in ("boss", "gate", "rule", "investor", "worker:<name>"):
+    for actor in ("boss", "gate", "rule", "investor", "worker:<name>", "role:<name>"):
         assert f"`{actor}`" in body
 
 
-def test_only_two_types_have_no_writer_and_the_document_says_so(produced, text):
+def test_only_three_types_have_no_writer_and_the_document_says_so(produced, text):
+    # role_call: the helper exists (`roles/base.py`), but no command calls it yet.
     unwritten = {e.value for e in EventType} - set(produced)
     assert unwritten == NO_WRITER, f"types with no writer changed: {sorted(unwritten)}"
     for name in NO_WRITER:
@@ -350,6 +353,26 @@ def test_the_topped_up_example_is_what_the_budget_reads(text):
     base = sheet().rounds[0].budget_micros
     grown = budget.round_budget(sheet(), [example], example.round)
     assert example.round == 1 and grown == base + example.data["micros"]
+
+
+def test_the_role_call_section_matches_the_helper_and_no_command_calls_it_yet(text):
+    [example] = examples_of(sections(text)["role_call"])
+    spec = RoleSpec("critic", "quality", "boss", "review", "a gate", "critic_v1.md", ("s/one",))
+    fields = ledger_fields(spec, Usage(7, 3, 2, 1), "completed", model="haiku", env={"HOME": "/h"})
+    built = Event(run="r", round=0, actor=spec.actor, event=EventType.ROLE_CALL, **fields)
+    documented = keys_table(sections(text)["role_call"])
+    assert set(built.data) == set(documented) == set(example.data)
+    for key, value in built.data.items():
+        assert json_type(value) in declared(documented[key]), key
+    assert example.actor == "role:critic" and example.cost_micros is not None
+    # When a command starts calling roles, this fails: then document its writer and its keys.
+    own = {SRC / "ledger.py", SRC / "roles" / "base.py"}
+    callers = [
+        str(p.relative_to(SRC))
+        for p in SRC.rglob("*.py")
+        if p not in own and ("ledger_fields" in read(p) or "ROLE_CALL" in read(p))
+    ]
+    assert callers == [], f"a command now books role calls ({callers}): update LEDGER.md"
 
 
 def test_the_state_contract_is_a_subset_of_this_document(text):

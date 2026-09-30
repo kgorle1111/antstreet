@@ -173,6 +173,13 @@ def test_an_output_that_fails_its_gate_lists_every_problem_and_keeps_the_cost():
     assert error.problems == ["c01 passes on nothing", "S1.2 has no check"]
     assert error.outcome is Outcome.COMPLETED and error.usage.cost_micros == 9
     assert "c01 passes on nothing; S1.2 has no check" in str(error)
+    assert error.data is None  # a gate that has no output to show says so
+
+
+def test_a_refused_output_travels_with_the_error_so_it_can_be_kept():
+    refused = {"checks": [{"id": "c01"}]}
+    error = RoleOutputError("tester", ["c01 passes on nothing"], Usage(9, 1, 1, 0), refused)
+    assert error.data is refused and error.role == "tester"
 
 
 def test_ledger_fields_book_a_roles_spend_under_its_own_actor():

@@ -41,18 +41,45 @@ what changed for someone using the tool, not which commit did it.
   `boss doctor` reports its state.
 - `python -m boss.bench.drafts` scores the boss's checks with no worker run: precision on the
   reference solution, recall on 65 known-wrong solutions (`mutants/` in each task).
-- `ledger.repair_torn_tail` cuts an incomplete last ledger line. No command calls it yet.
+- `boss resume` cuts an incomplete last ledger line left by a hard kill and says so. Damage
+  anywhere else in a ledger is reported by file and line and never altered.
 - Documents for the sandbox (`docs/SANDBOX.md`) and for everything skipped or deferred
   (`docs/BACKLOG.md`).
 - Hard run limits on spend, slices (60), workers (16) and, with `--max-minutes`, wall clock.
 - `--boss-thinking N` to cap or turn off the boss's thinking, which was about half of a run's cost.
+- `boss fund --parallel N` works on up to N tasks at once. Each task still has one worker at a
+  time, and only one thread writes the ledger.
+- `boss fund --profile NAME` adds a worker profile's skills to the builder's prompt. No profile is
+  used unless asked for. It is recorded on every hire and kept on `boss resume`.
+- `boss roles` prints the organisation: each specialist role and worker profile, its gate, its
+  skills and whether it is on by default (none is).
+- Versioned skill files under `src/boss/skills/`, with a test that holds each to a size and a
+  quality bar.
+- Nine specialist roles, each one model call with no tools behind a gate in code (`boss roles`
+  lists them). All are off, `boss fund` does not call them, and none is measured yet.
+- `python -m boss.roles.judge calibrate` compares the judge with a person's scores. Its scores
+  stay labelled uncalibrated until they agree closely enough.
+- `python -m boss.bench.drafts` can score the product manager, designer and tester in place of the
+  boss's one call (`staged`).
+- `python -m boss.bench.audit` scores the check auditor's flags against the reference solution.
 - A benchmark of 17 tasks with hidden checks (`python -m boss.bench.run`, `.table`, `.replay`): a
   single agent against the firm, with intervals, the visible-against-hidden gap, the number of wrong
   boss checks, and an offline replay of firing policies.
+- Benchmark results under `bench/results/` with what they show: three runs of each arm, and the
+  boss's draft quality scored without worker runs.
+- A refused role or audit answer is kept beside its cell as `rejected_output.json`, so a corrected
+  gate can be judged without paying again.
+- `boss doctor --live` also asks a worker to write outside its folder and fails if the file lands.
+- The run pauses, with its round left open, when a slice reports a plan window 95% used and work
+  remains, instead of running into the limit and losing that slice.
+- A worker's folder over 200 MB stops the run before the gate copies it, and a slice's log stops
+  growing at 50 MB. The slice's cost and outcome are still recorded.
+- A worker is shown the code of checks added by an approved amendment. No command makes an
+  amendment yet.
 - A threat model in which every control cites a test, and a test that fails if a cited test is gone.
 - Continuous integration on Linux and macOS with a coverage floor of 96%.
-- Documentation: architecture, ledger schema, command line, decision log, security policy and
-  contributing guide, each with a test that fails when it and the code disagree.
+- Documentation: architecture, roles and skills, ledger schema, command line, decision log,
+  security policy and contributing guide, each with a test that fails when it and the code disagree.
 
 ### Changed
 
@@ -74,6 +101,12 @@ what changed for someone using the tool, not which commit did it.
 - The benchmark's task set hash encoding changed: the same 17 task files went from
   `7a212cdcc5f4f466` to `c130282a6eec5fe8`.
 - `boss report` lists events with missing data as incomplete instead of failing.
+- The result and the exit code are the gate's run of every required check on the assembled
+  `product/`, not the sum over each worker's folder. A difference is said aloud, and a status line
+  follows every slice.
+- A finished run opens no further round when it is run again, and Ctrl-C at the funding question
+  is an interruption, not a recorded no.
+- A blank idea is refused before a run folder exists.
 
 ### Fixed
 
@@ -89,6 +122,13 @@ what changed for someone using the tool, not which commit did it.
 - Replay stops at a finished task as well as at an escalation. A ledger `v` other than the integer
   1 is corrupt; `classify` and retry backoff no longer fail on malformed or huge values.
 - A fired worker's passing checks are kept when no replacement can be funded.
+- A run killed between two gate results, between two rulings, before a round closed, or part way
+  through the product verdict is finished on resume, without paying for a needless slice.
+- Your note or ruling is no longer dropped when the worker's next slice starts a new session or a
+  replacement takes over.
+- A benchmark cell that paused for the plan limit counts as an infrastructure outcome.
+- A role's quote from your idea may drop its backticks or quote marks, or elide text with `...`,
+  when each piece is word for word; a changed word or number is still refused.
 - A draft that fails validation still records the cost of the boss's call.
 - A `claude` binary that cannot start ends the run with a message that names it and points to
   `boss doctor`, not a traceback.

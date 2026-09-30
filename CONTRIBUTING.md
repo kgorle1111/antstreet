@@ -35,7 +35,7 @@ uv run ruff format --check .
   `BOSS_LIVE=1`: `BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py`.
 - CI runs, on Linux and macOS: `uv sync --locked`, `uv run ruff check .`,
   `uv run ruff format --check .` and
-  `uv run pytest --cov --cov-report=term-missing --cov-fail-under=96`. The coverage floor is 96;
+  `uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30`. The coverage floor is 96;
   it only ever goes up.
 
 ## Rules

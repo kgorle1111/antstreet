@@ -61,13 +61,17 @@ class RoleError(Exception):
 
 
 class RoleOutputError(RoleError):
-    """The call was paid for and its output failed the role's gate. Lists every problem."""
+    """The call was paid for and its output failed the role's gate. Lists every problem, and
+    keeps the refused output: it was paid for, and it is the evidence when a gate is wrong."""
 
-    def __init__(self, role: str, problems: list[str], usage: Usage) -> None:
+    def __init__(
+        self, role: str, problems: list[str], usage: Usage, data: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(
             role, "output failed its gate: " + "; ".join(problems), Outcome.COMPLETED, usage
         )
         self.problems = problems
+        self.data = data
 
 
 @dataclass(frozen=True, slots=True)

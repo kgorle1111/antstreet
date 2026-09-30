@@ -163,6 +163,24 @@ def test_the_local_time_zone_survives_the_sandbox(tmp_path):
     assert seen[ON].group(1) == seen[OFF].group(1)  # without the zone database it would be UTC
 
 
+BUILT_IN_ZONES = Path("/usr/share/zoneinfo.default")
+
+
+@requires_sandbox
+@pytest.mark.skipif(not BUILT_IN_ZONES.is_dir(), reason="no built-in time zone copy here")
+def test_the_built_in_time_zone_copy_is_readable_for_a_mac_with_no_downloaded_update(tmp_path):
+    # /usr/share/zoneinfo resolves into /private/var/db/timezone only once macOS has downloaded
+    # a time zone update; before that it resolves here, as on a fresh CI runner.
+    check = (
+        "import zoneinfo\n"
+        "def test_zone():\n"
+        f"    with open('{BUILT_IN_ZONES}/America/New_York', 'rb') as fh:\n"
+        "        assert zoneinfo.ZoneInfo.from_file(fh).utcoffset(None) is None\n"
+    )
+    result = gate(tmp_path, check, "", ON)
+    assert result.status is CheckStatus.PASSED, result.output_tail
+
+
 # --- (b) no network --------------------------------------------------------------------------
 
 

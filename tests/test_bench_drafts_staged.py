@@ -7,7 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench.drafts import FAILED, INVALID, SCORED, STAGED, main, run_draft, settings_for
+from boss.bench.drafts import (
+    FAILED,
+    INVALID,
+    REJECTED_FILE,
+    SCORED,
+    STAGED,
+    main,
+    run_draft,
+    settings_for,
+)
 from boss.bench.tasks import load_task, load_tasks, task_set_hash
 from boss.roles.base import system_prompt
 from boss.roles.engineering import SYSTEM_DESIGNER, TESTER
@@ -140,6 +149,9 @@ def test_stories_that_fail_their_gate_are_an_invalid_draft_that_still_cost_one_c
     assert staged.calls() == ["product_manager"]  # nothing is designed from rejected stories
     assert cell.status == INVALID and cell.score is None and cell.cost_micros == 10_000
     assert "not a fragment of the idea" in cell.detail
+    refused = json.loads((staged.home / "out0" / TASK.id / "rep1" / REJECTED_FILE).read_text())
+    assert refused["role"] == "product_manager" and refused["output"] == ungrounded
+    assert "not a fragment of the idea" in refused["problems"][0]
 
 
 def test_checks_that_leave_a_criterion_uncovered_are_invalid_and_every_call_is_counted(staged):
@@ -148,6 +160,8 @@ def test_checks_that_leave_a_criterion_uncovered_are_invalid_and_every_call_is_c
     assert staged.calls() == ["product_manager", "system_designer", "tester"]
     assert cell.status == INVALID and cell.cost_micros == 70_000
     assert cell.detail.startswith("tester: ") and "S1.2" in cell.detail
+    refused = json.loads((staged.home / "out0" / TASK.id / "rep1" / REJECTED_FILE).read_text())
+    assert refused["role"] == "tester" and refused["output"] == uncovered  # found through the wrap
 
 
 def test_a_call_that_fails_is_a_failed_draft_not_an_invalid_one(staged):
@@ -155,6 +169,7 @@ def test_a_call_that_fails_is_a_failed_draft_not_an_invalid_one(staged):
     assert staged.calls() == ["product_manager", "system_designer"]
     assert cell.status == FAILED and cell.outcome == "login"
     assert cell.cost_micros == 10_000  # the stories were paid for; the failed call cost nothing
+    assert not (staged.home / "out0" / TASK.id / "rep1" / REJECTED_FILE).exists()
 
 
 def test_the_staged_settings_change_when_any_of_the_three_prompts_or_skills_change(monkeypatch):

@@ -319,10 +319,10 @@ def write_demo(
     try:
         draft = parse_draft(out.data)
     except DemoShapeError as exc:
-        raise RoleOutputError(SPEC.name, [str(exc)], out.usage) from exc
+        raise RoleOutputError(SPEC.name, [str(exc)], out.usage, out.data) from exc
     problems = draft_problems(draft, idea, _own_modules(regular))
     if problems:
-        raise RoleOutputError(SPEC.name, problems, out.usage)
+        raise RoleOutputError(SPEC.name, problems, out.usage, out.data)
     try:
         ran = run_demo(draft.code, product, scratch_dir, timeout_s=timeout_s, sandbox=sandbox)
     except (GateError, OSError) as exc:
@@ -330,7 +330,7 @@ def write_demo(
             SPEC.name, f"the demo could not be run: {exc}", Outcome.COMPLETED, out.usage
         ) from exc
     if ran.problems:
-        raise RoleOutputError(SPEC.name, list(ran.problems), out.usage)
+        raise RoleOutputError(SPEC.name, list(ran.problems), out.usage, out.data)
     demo = Demo(draft.code, draft.steps, draft.usage, ran.output, ran.sandboxed)
     return demo, out.usage
 

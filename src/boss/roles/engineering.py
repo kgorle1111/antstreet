@@ -189,7 +189,7 @@ def design_tasks(
     if design is not None:
         problems = design_problems(design, stories, max_tasks=max_tasks)
     if design is None or problems:
-        raise RoleOutputError(SYSTEM_DESIGNER.name, problems, output.usage)
+        raise RoleOutputError(SYSTEM_DESIGNER.name, problems, output.usage, output.data)
     return design, output.usage
 
 
@@ -340,7 +340,7 @@ def write_checks(
     if not problems:
         problems = _plan_problems(stories, design, raw, untestable)
     if problems:
-        raise RoleOutputError(TESTER.name, problems, output.usage)
+        raise RoleOutputError(TESTER.name, problems, output.usage, output.data)
     specs = tuple(
         CheckSpec(f"c{n:02d}", r.description.strip(), f"test_c{n:02d}.py", r.task, r.criteria)
         for n, r in enumerate(raw, start=1)
@@ -358,7 +358,7 @@ def write_checks(
     problems = [p for spec in specs for p in check_file_problems(spec, checks_dir)]
     if problems:
         _remove(written)
-        raise RoleOutputError(TESTER.name, problems, output.usage)
+        raise RoleOutputError(TESTER.name, problems, output.usage, output.data)
     return TestPlan(specs, tuple(untestable)), output.usage
 
 

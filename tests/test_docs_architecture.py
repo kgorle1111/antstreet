@@ -2,6 +2,7 @@
 
 import ast
 import importlib
+import inspect
 import re
 
 import pytest
@@ -139,22 +140,41 @@ def _uses(name: str) -> list[str]:
     )
 
 
+def _callers(name: str, *, skip: tuple[str, ...]) -> list[str]:
+    return sorted(
+        p.relative_to(SRC).as_posix()
+        for p in SRC.rglob("*.py")
+        if p.name not in skip and name in read(p)
+    )
+
+
 def test_not_built_claims_are_still_true(text):
     body = section(text, "Not built")
     # nothing writes topped_up (only the budget reads it) or denied
     assert _uses("DENIED") == [] and "`denied`" in body
     assert _uses("TOPPED_UP") == ["budget.py"] and "`topped_up`" in body
-    # the loop never calls retry.plan_pressure
-    callers = [
-        p.name for p in SRC.rglob("*.py") if p.name != "retry.py" and "plan_pressure" in read(p)
-    ]
-    assert callers == [] and "plan_pressure" in body
-    # `boss resume` exists, so it is not listed as missing; the torn-tail repair is still uncalled
+    # nothing writes an amendment: only the loop reads `added_checks` (state.py names it in prose)
+    assert _callers("added_checks", skip=("state.py", "briefs.py", "critic.py")) == ["firm.py"]
+    assert "added_checks" in body and "no command writes one" in body
+    assert 'e.data.get("added_checks"' in read(SRC / "firm.py")
+    # a set-aside task is never re-opened: state keeps it abandoned and the loop skips it
+    assert "not state.tasks[task.id].abandoned" in read(SRC / "firm.py")
+    assert "already set aside" in body
+
+
+def test_what_the_document_no_longer_calls_missing_is_built_and_named(text):
+    body = section(text, "Not built")
+    firm_source = read(SRC / "firm.py")
+    # the loop calls retry.plan_pressure, through _Firm._plan_pressure, unless the pause is off
+    assert _callers("plan_pressure", skip=("retry.py",)) == ["firm.py"]
+    assert "retry.plan_pressure(run.rate_limit" in firm_source
+    assert firm.FirmConfig().plan_pause_at == 0.95 and "plan_pressure" not in body
+    # `boss resume` exists, and it calls repair_torn_tail
     commands = cli._parser()._subparsers._group_actions[0].choices
     assert "resume" in commands and "boss resume" not in body
-    repairs = [
-        p.name for p in SRC.rglob("*.py") if p.name != "ledger.py" and "repair_torn_tail" in read(p)
-    ]
-    assert repairs == [] and "repair_torn_tail" in body
-    # a set-aside task is never re-opened: state keeps it abandoned and the loop skips it
-    assert "not ts.abandoned" in read(SRC / "firm.py")
+    assert "repair_torn_tail" in inspect.getsource(cli._resume_run)
+    assert "repair_torn_tail" not in body
+    assert _callers("repair_torn_tail", skip=("ledger.py",)) == ["cli.py"]
+    # tasks run in parallel: a wave of up to `parallel` slices in a thread pool
+    assert firm.FirmConfig().parallel == 1 and "ThreadPoolExecutor" in firm_source
+    assert "--parallel" in commands["fund"].format_help() and "in parallel" not in body

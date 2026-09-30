@@ -307,7 +307,7 @@ def judge_artifact(
     )
     problems = verdict_problems(rubric, artifact, out.data)
     if problems:
-        raise RoleOutputError(JUDGE.name, problems, out.usage)
+        raise RoleOutputError(JUDGE.name, problems, out.usage, out.data)
     by_name = {item["criterion"]: item for item in out.data["scores"]}
     scores = tuple(
         Score(c.id, by_name[c.id]["score"], by_name[c.id]["evidence"]) for c in rubric.criteria

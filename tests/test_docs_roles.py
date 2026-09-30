@@ -1,6 +1,8 @@
 """docs/ROLES.md stays true: what it names exists, its tables match the code, and each way it says
 to add a skill, a profile or a role works as written. It lists no specialist role by hand."""
 
+import ast
+import dataclasses
 import re
 import subprocess
 import sys
@@ -14,14 +16,17 @@ from skills_support import (
     combined_problems,
     skill_problems,
     usage_problems,
+    users,
 )
 
 from boss import firm
 from boss.boss import load_prompt
+from boss.firm import FirmConfig
 from boss.roles import builders, org, registry
 from boss.roles.base import DEFAULT_ROLE_CAP_MICROS, DEPARTMENTS, RoleSpec
 from boss.roles.builders import PROFILES, WorkerProfile, builder_system_prompt, profile
 from boss.skills import MAX_SKILL_CHARS, SkillError, all_skill_ids, load_skill, parse_skill
+from boss.termsheet import Task
 
 DOC = DOCS / "ROLES.md"
 BUILDER_SIDE = {p.name for p in PROFILES} | {"builder"}
@@ -80,7 +85,8 @@ def test_the_three_things_table_states_what_the_code_enforces(text):
         "What it is", "Defined in", "Tools", "Produces", "Paid for", "On by default",
     }  # fmt: skip
     assert "src/boss/roles/builders.py" in row["Defined in"][2]
-    assert "`generalist` only" in row["On by default"][2]
+    assert FirmConfig().profile is None  # no profile unless `--profile` names one
+    assert "--profile" in row["On by default"][2] and "generalist" not in row["On by default"][2]
     assert RoleSpec("aa", "quality", "boss", "p", "g", "term_sheet_v1.md").default_on is False
     assert f"{DEFAULT_ROLE_CAP_MICROS:,} micro-dollars" in text
 
@@ -124,7 +130,7 @@ def test_the_limits_and_banned_phrases_the_document_states_are_the_ones_enforced
 
 def test_a_skill_nobody_names_is_caught_and_naming_it_fixes_it():
     ids = [*all_skill_ids(), "builder/my-skill"]
-    used = {f"profile:{p.name}": p.skills for p in PROFILES}
+    used = users()  # every role and every profile: a skill only a role names is used too
     assert usage_problems(ids, used) == [
         "builder/my-skill is used by no role and no profile: delete it or use it"
     ]
@@ -234,9 +240,33 @@ def test_the_functions_the_document_names_exist(text):
         assert f"`{name}" in section_text and callable(getattr(org, name))
 
 
+def _imports_of_roles(path) -> set[str]:
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(read(path))):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("boss.roles"):
+            found |= {f"{node.module}.{alias.name}" for alias in node.names}
+    return found
+
+
 def test_what_is_not_built_is_still_not_built(text):
+    body = section(text, "Not built")
     live = read(ROOT / "src" / "boss" / "firm.py")
-    assert "builder_system_prompt" not in live and "load_prompt(BUILDER_PROMPT)" in live, (
-        "the live loop now uses profiles: update 'Not built' in docs/ROLES.md"
-    )
-    assert "The live loop does not choose a profile" in section(text, "Not built")
+    # A profile is chosen once for the whole run, by the investor: the loop uses it when set.
+    assert "return builder_system_prompt(self.config.profile, BUILDER_PROMPT)" in live
+    assert "if self.config.profile is None:" in live and FirmConfig().profile is None
+    assert '"profile": self.config.profile' in live  # every `hired` event names it
+    # Nothing assigns a profile to a task: a task has no such field, the boss's draft has none.
+    assert "profile" not in {f.name for f in dataclasses.fields(Task)}
+    assert "profile" not in read(ROOT / "src" / "boss" / "boss.py")
+    assert "Nothing assigns a profile to a task" in body
+    # No role is called by `boss fund`: the loop and the command import no role module.
+    allowed = {
+        "boss.roles.registry",
+        "boss.roles.builders.PROFILES",
+        "boss.roles.builders.builder_system_prompt",
+        "boss.roles.org.org_chart",
+        "boss.roles.org.render_org",
+    }
+    for module in sorted((ROOT / "src" / "boss").glob("*.py")):
+        assert _imports_of_roles(module) <= allowed, f"{module.name} now imports a role"
+    assert "No role is called by `boss fund`" in body

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import statistics
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -44,6 +45,8 @@ class ArmSummary:
     wrong_checks: int | None = None  # firm only: boss checks the reference solution fails
     boss_checks: int | None = None  # boss checks in the cells where that was measured
     wrong_check_cells: int | None = None  # cells whose draft held at least one wrong check
+    median_duration_s: float | None = None  # wall clock per counted cell; None with no cells
+    reliable_tasks: int = 0  # tasks whose every counted run passed (pass^k over k runs)
 
 
 def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -99,6 +102,10 @@ def _summarize_arm(arm: str, results: Sequence[CellResult]) -> ArmSummary:
         wrong_checks=sum(r.wrong_checks or 0 for r in measured) if measured else None,
         boss_checks=sum(r.visible_total or 0 for r in measured) if measured else None,
         wrong_check_cells=sum(bool(r.wrong_checks) for r in measured) if measured else None,
+        median_duration_s=statistics.median(r.duration_s for r in cells) if cells else None,
+        reliable_tasks=sum(
+            all(r.passed for r in cells if r.task == task) for task in {r.task for r in cells}
+        ),
     )
 
 
@@ -140,6 +147,13 @@ def _md(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
     return [line(header), line(["---"] * len(header))] + [line(r) for r in rows]
 
 
+def _duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "n/a"
+    minutes, secs = divmod(round(seconds), 60)
+    return f"{minutes}m{secs:02d}s"
+
+
 def _values(label: str, values: Sequence[str]) -> str:
     return f"{label}: " + ", ".join(sorted(set(values)))
 
@@ -179,6 +193,8 @@ def render_table(results: Sequence[CellResult]) -> str:
                 _pct(s.boss_share),
                 str(s.unknown_cost_events),
                 str(s.infrastructure),
+                _duration(s.median_duration_s),
+                f"{s.reliable_tasks}/{s.tasks}",
             ]
         )
     out += _md(
@@ -194,6 +210,8 @@ def render_table(results: Sequence[CellResult]) -> str:
             "boss share",
             "unknown-cost events",
             "infrastructure excluded",
+            "median time/cell",
+            "tasks passed every run",
         ],
         rows,
     )

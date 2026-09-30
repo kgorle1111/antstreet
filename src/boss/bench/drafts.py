@@ -37,13 +37,14 @@ from boss.boss import (
 )
 from boss.errors import Outcome
 from boss.report import dollars
-from boss.roles.base import RoleError, system_prompt
+from boss.roles.base import RoleError, RoleOutputError, system_prompt
 from boss.roles.engineering import SYSTEM_DESIGNER, TESTER, StagedDraftError, draft_staged
 from boss.roles.product import PRODUCT_MANAGER, write_stories
 from boss.stream import Usage
 from boss.worker import CLI, usd, worker_env
 
 DRAFT_FILE = "draft.json"
+REJECTED_FILE = "rejected_output.json"
 CHECKS_DIR = "checks"
 # The term sheet needs a budget to be valid; it is never spent and the prompt does not mention it.
 STAGED = "staged"  # in place of a prompt name: the three-role draft
@@ -149,6 +150,18 @@ def draft_cell_dir(out: Path, task: str, rep: int) -> Path:
     return out / task / f"rep{rep}"
 
 
+def save_rejected(cell: Path, exc: BaseException | None) -> None:
+    """Keep the output a gate refused, beside the cell. It was paid for, and it is what shows
+    whether the model or the gate was wrong; with it a corrected gate can be judged for free."""
+    while exc is not None and not isinstance(exc, RoleOutputError):
+        exc = exc.__cause__
+    if exc is None or exc.data is None:
+        return
+    cell.mkdir(parents=True, exist_ok=True)
+    kept = {"role": exc.role, "problems": exc.problems, "output": exc.data}
+    (cell / REJECTED_FILE).write_text(json.dumps(kept, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def run_draft(
     task: BenchTask,
     rep: int,
@@ -184,6 +197,7 @@ def run_draft(
         invalid = isinstance(exc, InvalidDraftError) or exc.outcome is Outcome.COMPLETED
         status = INVALID if invalid else FAILED
         result = _cell(task, rep, set_hash, settings, status, exc.usage, str(exc.outcome), str(exc))
+        save_rejected(cell, exc)
     else:
         score = score_draft(task, checks_dir)
         result = _cell(task, rep, set_hash, settings, SCORED, usage, score=score)

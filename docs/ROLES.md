@@ -14,7 +14,7 @@ code, and `render_org` prints them (see "See the whole organisation").
 | Tools | None | `Read`, `Write`, `Edit` in its own folder; no shell | Not applicable |
 | Produces | Data that must pass its gate | Files that the gate's checks run against | Text appended to a system prompt |
 | Paid for | A capped call, booked as a `role_call` event | Capped slices, like any worker | Its characters, on every call that loads it |
-| On by default | No | `generalist` only | Loaded by whatever names it |
+| On by default | No | No: the builder prompt runs alone unless `boss fund --profile` names one | Loaded by whatever names it |
 
 ## What a role is
 
@@ -22,8 +22,9 @@ code, and `render_org` prints them (see "See the whole organisation").
   JSON schema. A role that needs to touch files is a worker, not a role.
 - **A gate.** `RoleSpec.gate` is one line naming the deterministic check its output must pass
   before anything uses it. A role drafts; code decides.
-- **Metered.** Every call is a `role_call` event under the actor `role:<name>`, with a cap of
-  `cap_micros` (150,000 micro-dollars, $0.15, unless the spec says otherwise).
+- **Metered.** A call's spend is booked by whoever calls the role, as a `role_call` event under
+  the actor `role:<name>` (`ledger_fields` builds the fields). The call has a cap of `cap_micros`
+  (150,000 micro-dollars, $0.15, unless the spec says otherwise).
 - **Off by default.** `default_on` is `False` until a measurement says the role earns its cost.
 - **Placed by two fields.** `department` is one of `product`, `engineering`, `quality`,
   `delivery` or `advisory`. `reports_to` is `boss` or the name of another role.
@@ -36,16 +37,27 @@ code, and `render_org` prints them (see "See the whole organisation").
 - What counts as more than the noise is not fixed here. At 17 tasks a difference in pass rate is
   descriptive only ([DECISIONS.md](DECISIONS.md), D29), so a role is judged on the measures a small
   set can support.
-- The second boss pass (D26) is the worked example: not built, because nobody has measured that it
-  pays for one more model call in every run.
+- The check auditor is the worked example (D26). It exists as a role and is off, because nobody has
+  measured that it pays for one more model call in every run.
+- The tools that measure a role are in the repository and cost money to run, so each has a dry run:
+  `src/boss/bench/drafts.py` (`python -m boss.bench.drafts`) scores the checks the boss drafts, and
+  with `--prompt staged` it scores the product manager, designer and tester in place of the
+  boss's one call; `src/boss/bench/audit.py` (`python -m boss.bench.audit`) scores the
+  check auditor's flags against the reference solution; `src/boss/roles/judge.py`
+  (`python -m boss.roles.judge calibrate`) compares the judge's scores with a person's on about
+  twenty artifacts.
+- A judge's scores are labelled `uncalibrated` until that comparison meets its bar, and
+  `require_calibrated` refuses to hand an uncalibrated one to code that would act on it.
 
 ## What a worker profile is
 
 - The same worker, the same three tools, the same base prompt (`builder_v3.md`), the same gate.
   Only the list of skills after the base prompt differs. A profile cannot grant a permission.
 - `builder_system_prompt(name)` is the base prompt, a blank line, then the profile's skills in
-  order. With no skills it is the base prompt byte for byte, so switching the live loop to this
-  function changes nothing until a profile says so.
+  order. With no skills it is the base prompt byte for byte.
+- `boss fund --profile NAME` chooses one profile for the whole run. It is stored in the `started`
+  event's configuration, so `boss resume` uses the same one, and in every `hired` event. Without
+  the option the loop sends the base prompt alone: no profile is on by default.
 - Every specialist carries the six `builder/` skills the generalist does, then its own.
 
 | Profile | Purpose |
@@ -148,9 +160,14 @@ An unknown profile name is an error that lists the known ones:
 
 ## Not built
 
-- The live loop does not choose a profile: `src/boss/firm.py` still appends the base prompt alone.
-  `builder_system_prompt` is the function it would call.
-- Nothing assigns a profile to a task. The boss does not pick one; `hired` events do not name one.
+- No role is called by `boss fund`. The roles return data and usage to their caller and write
+  nothing; the code that calls them today is the benchmark's measurement tools and the judge's
+  own commands. `src/boss/firm.py` and `src/boss/cli.py` import only `registry`, `PROFILES`,
+  `org_chart`, `render_org` and `builder_system_prompt`.
+- Nothing assigns a profile to a task. The investor picks one for the run; the boss does not pick
+  one, and a task has no profile field.
+- No role has been measured to pay for its call, so every role is off. No judge calibration file
+  is in the repository.
 - No measurement shows that any skill changes a worker's output. No benchmark cell has used a
   profile. Each skill answers a failure seen in the pilot and rerun or reasoned from a worker with no
   shell; none has been tested by an A/B run.

@@ -17,11 +17,12 @@ from docs_support import (
 )
 
 from boss import cli, gate, worker
-from boss.bench import drafts, replay
+from boss.bench import audit, drafts, replay
 from boss.bench import run as bench_run
 from boss.bench import table as bench_table
 from boss.bench.tasks import BenchTask
 from boss.ledger import EventType, read_events
+from boss.roles import judge
 
 DOC = DOCS / "CLI.md"
 SRC = ROOT / "src" / "boss"
@@ -46,6 +47,12 @@ def bench_parsers() -> dict[str, argparse.ArgumentParser]:
         "python -m boss.bench.drafts": captured_parser(drafts.main),
         "python -m boss.bench.table": captured_parser(bench_table.main),
         "python -m boss.bench.replay": captured_parser(replay.main),
+        "python -m boss.bench.audit": captured_parser(audit.main),
+    } | {
+        f"python -m boss.roles.judge {name}": parser
+        for name, parser in captured_parser(judge.main)
+        ._subparsers._group_actions[0]
+        .choices.items()
     }
 
 
@@ -149,8 +156,17 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
     assert 'os.environ.get("BOSS_LIVE")' in read(ROOT / "tests" / "test_end_to_end.py")
     assert source_env_names() <= expected, "the source reads a variable this document omits"
     readers = {p.relative_to(SRC).as_posix() for p in SRC.rglob("*.py") if "os.environ" in read(p)}
-    assert readers == {"cli.py", "bench/run.py", "bench/drafts.py", "gate.py", "sandbox.py"}
-    assert "`boss.gate`" in text and "`boss.sandbox`" in text and "`boss.bench.drafts`" in text
+    assert readers == {
+        "cli.py",
+        "bench/run.py",
+        "bench/drafts.py",
+        "bench/audit.py",
+        "roles/judge.py",
+        "gate.py",
+        "sandbox.py",
+    }
+    for module in ("gate", "sandbox", "bench.drafts", "bench.audit", "roles.judge"):
+        assert f"`boss.{module}`" in text
 
 
 @pytest.fixture(scope="module")
@@ -232,13 +248,12 @@ def test_a_run_that_ends_with_failing_checks_exits_three_and_says_why(tmp_path):
     assert EventType.ROUND_CLOSED in [e.event for e in read_events(run_dir / "ledger.jsonl")]
 
 
-def test_a_blank_idea_raises_a_value_error_and_leaves_an_empty_run_folder(tmp_path):
-    # Documented as not fixed. If this starts failing because the CLI now says something useful,
-    # update the note under `boss fund` in docs/CLI.md.
-    with pytest.raises(ValueError, match="idea must be non-empty"):
-        run_cli(tmp_path, ["fund", " ", "--budget", "0.50"])
-    [run_dir] = list((tmp_path / "project" / ".boss" / "runs").iterdir())
-    assert (run_dir / "ledger.jsonl").read_text() == ""
+def test_a_blank_idea_is_a_usage_error_and_creates_no_run_folder(tmp_path):
+    for idea in (" ", "", " -x"):
+        code, run_dir, said = run_cli(tmp_path, ["fund", idea, "--budget", "0.50"])
+        assert code == cli.EXIT_USAGE and run_dir is None
+        assert "The idea must be some text" in " ".join(said)
+    assert not (tmp_path / "project" / ".boss").exists()
 
 
 def test_doctor_exit_codes(tmp_path):

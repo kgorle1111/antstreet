@@ -239,9 +239,9 @@ def audit_checks(
     try:
         audit = parse_audit(output.data)
     except AdvisoryError as exc:
-        raise RoleOutputError(AUDITOR.name, [str(exc)], output.usage) from exc
+        raise RoleOutputError(AUDITOR.name, [str(exc)], output.usage, output.data) from exc
     if problems := audit_problems(audit, idea, ids):
-        raise RoleOutputError(AUDITOR.name, problems, output.usage)
+        raise RoleOutputError(AUDITOR.name, problems, output.usage, output.data)
     by_id = {v.check: v for v in audit.verdicts}
     return Audit(tuple(by_id[i] for i in ids)), output.usage
 
@@ -295,9 +295,9 @@ def advise_on_dispute(
     try:
         advice = parse_advice(output.data)
     except AdvisoryError as exc:
-        raise RoleOutputError(CONSULTANT.name, [str(exc)], output.usage) from exc
+        raise RoleOutputError(CONSULTANT.name, [str(exc)], output.usage, output.data) from exc
     if problems := advice_problems(advice, idea):
-        raise RoleOutputError(CONSULTANT.name, problems, output.usage)
+        raise RoleOutputError(CONSULTANT.name, problems, output.usage, output.data)
     return advice, output.usage
 
 

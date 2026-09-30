@@ -16,7 +16,10 @@ jobs:
   test:
     name: lint and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # The suite runs hundreds of real pytest and worker subprocesses; the runners took over 10
+    # minutes once parallel waves and the known-wrong implementations landed. --durations below
+    # names the slow tests in the log so the next slowdown can be read, not guessed.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -45,4 +48,4 @@ jobs:
       # catches a real drop. Only ever raise it: when total coverage settles 2+ points above it,
       # move it up to (total - 2).
       - name: Test
-        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=96
+        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30

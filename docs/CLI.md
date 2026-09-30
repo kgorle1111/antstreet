@@ -4,14 +4,14 @@ Every command and option, the environment variables the tool reads, exit codes, 
 leaves on disk. `tests/test_docs_cli.py` reads the real argparse parsers and fails if an option or
 command is missing here, is documented but does not exist, or has a different default.
 
-Related: [ARCHITECTURE.md](ARCHITECTURE.md), [LEDGER.md](LEDGER.md).
+Related: [ARCHITECTURE.md](ARCHITECTURE.md), [LEDGER.md](LEDGER.md), [ROLES.md](ROLES.md).
 
 Every command also accepts `-h` and `--help`.
 
 ## `boss`
 
-`boss [--version] <command> ...` where the command is `fund`, `resume`, `report`, `status` or
-`doctor`.
+`boss [--version] <command> ...` where the command is `fund`, `resume`, `report`, `status`,
+`roles` or `doctor`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -26,8 +26,9 @@ Every command also accepts `-h` and `--help`.
 
 Argument: `idea`, what to build, in plain words.
 
-- A blank idea, or one that starts with `-`, is refused with a Python `ValueError`, not a usage
-  message, after the run folder and an empty ledger were created. Nothing is spent. Not fixed yet.
+- A blank idea, or one whose first non-blank character is `-` (it would read as an option), is
+  refused with a message and exit 2. No run folder is made and nothing is spent. To give an idea
+  that starts with `-`, put some other word first.
 - `--rounds`, `--max-tasks`, `--max-slices` and `--stall-slices` must be whole numbers of 1 or
   more. `--max-minutes` must be a positive number. `--boss-thinking` must be a whole number. Any
   other value is a usage error (exit 2) before anything is spent.
@@ -44,9 +45,11 @@ Argument: `idea`, what to build, in plain words.
 | `--slice` | `$0.10` | Dollars a worker may spend in one slice, before the gate looks again. At least $0.005; a smaller slice is never funded (exit 2). |
 | `--reserve` | `$0.10` | Dollars held back from every slice cap: what one response can cost past the cap. |
 | `--max-tasks` | `1` | Most tasks the boss may split the work into. Above 1 the multi-task prompt is used. |
+| `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
+| `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
-| `--max-minutes` | none | Stop the run after this many minutes of wall clock. Checked before each slice, so a slice in progress can run past it. |
+| `--max-minutes` | none | Stop the run after this many minutes of wall clock, counted from the start of this `fund` or `resume`. Checked before each slice, so a slice in progress can run past it. |
 | `--no-firing` | off | Keep funding stalled workers. A worker is still fired at the slice limit. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
 | `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. |
@@ -59,8 +62,9 @@ What it asks you:
 - `Round N: X/Y checks pass. Fund $Z more? [y]es / [n]o` before each round after the first. End
   of input counts as no.
 
-Limits that are not options: a run stops at 60 slices or 16 workers, or when spend passes the sum of
-its round budgets plus one reserve per round. See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
+Limits that are not options: a run stops at 60 slices or 16 workers, when spend passes the sum of
+its round budgets plus one reserve per round, or when a worker's folder passes 200 MiB (the gate
+copies it for every check). See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
 
 A budget per round below one reserve plus $0.005 is refused before anything is spent.
 
@@ -89,17 +93,20 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   run keeps its own slice, reserve, firing and limit settings. There are no options to change them.
 - Running it is your decision to lift a stop: it prints why the run stopped and writes `resumed`.
   The approval, the budget and every hard limit are checked again as the loop goes, so a lifted
-  stop can stop again at once (a wall-clock limit that is already over does).
+  stop can stop again at once. The wall-clock limit (`--max-minutes`) counts from the start of
+  each `resume`, so a resumed run gets the whole time again.
 - An interrupted round continues. A round that closed below its unlock threshold stays locked. A
   task that was set aside stays set aside.
 - A slice that started and never ended is charged to its round at its cap. If the last slice was
   never gated, or a firing or a question to you was owed, it is done first.
 - On a run that already finished it changes nothing and prints the report.
-- Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; the run never
-  got as far as hiring (start again with `boss fund`); the term sheet or a check no longer matches
-  your approval.
-- A ledger whose last line was cut by a hard kill cannot be read. `ledger.repair_torn_tail` repairs
-  it, but nothing calls it yet, so the line has to be removed by hand.
+- Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; a damaged
+  ledger; the run never got as far as hiring (start again with `boss fund`); the term sheet or a
+  check no longer matches your approval.
+- A ledger whose last line was cut by a hard kill is repaired first: the cut line is removed and
+  `resume` prints it. A ledger damaged anywhere else is refused.
+- If another `boss` process is still writing the run's ledger, `resume` says so and exits 1.
+  Nothing is changed, not even a cut-off last line.
 - Exit codes are those of `boss fund`.
 
 ## `boss report`
@@ -122,6 +129,19 @@ Argument: `run`, as for `report`.
 |---|---|---|
 | `--dir` | `.` | Project folder. |
 
+## `boss roles`
+
+`boss roles [--dir DIR]`. Prints the organisation as a tree: the investor, the boss, then the
+departments, and under them each role and each worker profile with its purpose, its gate, its
+skills, and whether it is on by default. Every specialist role is marked `off by default`. See
+[ROLES.md](ROLES.md).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Accepted like the other commands. Not used: nothing is read from the project. |
+
+It reads the code only. It makes no model call, reads no run and writes nothing. Exit 0.
+
 ## `boss doctor`
 
 `boss doctor [--dir DIR] [--live]`. Checks what a run needs and prints a fix line for each failure.
@@ -129,23 +149,30 @@ Argument: `run`, as for `report`.
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder; `.boss/` inside it must be writable. |
-| `--live` | off | Verify the login with one real call: model `haiku`, cap $0.05, 120 s. |
+| `--live` | off | Verify the login with one real call: model `haiku`, cap $0.05, 120 s. If that works, make a second real call to test the worker path rules (see below): model `haiku`, cap $0.05, 120 s. Both are paid, at most $0.10 by their caps. |
 
 Checks, in order: Python 3.12 or newer; a POSIX system; `pytest` importable; the `claude` binary on
-`PATH`; its version is 2.1.277 or newer; the login; a writable `.boss/`; the gate sandbox. The
+`PATH`; its version is 2.1.277 or newer; the login; the worker path rules (only with `--live`, and
+only when the login check passed); a writable `.boss/`; the gate sandbox. The
 sandbox line names the tool found (`sandbox-exec` or `bwrap`). With no working tool it is a warning
 with the fix, not a failure, and the exit code stays 0. It fails under `BOSS_GATE_SANDBOX=require`
 or for a value that is not `auto`, `require` or `off`. See [SANDBOX.md](SANDBOX.md). Without `--live` the login
 check trusts `claude auth status`, which can report a login the API then rejects. With an
 `ANTHROPIC_API_KEY` set and no `--live`, the login check passes without a call.
 
+The worker path rules check runs one real worker slice, isolated as a run would, and asks the
+worker to write a file outside its own folder. It passes when the write was refused. It fails when
+the file appears, when the worker did not start isolated, or when the call could not run. If the
+worker did not try the write, it passes with a warning (`inconclusive`) and the exit code stays 0:
+run `--live` again. The other checks make no paid call. The two costs are the CLI's estimates.
+
 ## Exit codes of `boss`
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `report`, `status`, `doctor`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
-| `2` | Usage error: bad or missing arguments, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
+| `0` | `fund`, `resume`: every check passed. `report`, `status`, `roles`, `doctor`: success. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
 | `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume`. |
 
@@ -154,7 +181,8 @@ and line.
 
 ## Benchmark commands
 
-These make real model calls only through `run`. See [../bench/METHOD.md](../bench/METHOD.md).
+`run` makes real model calls for every cell. `drafts` and `audit` make one call per draft. `table`
+and `replay` make none. See [../bench/METHOD.md](../bench/METHOD.md).
 
 ## `python -m boss.bench.run`
 
@@ -233,11 +261,79 @@ Argument: `results_dir`, a folder holding `ledger.jsonl` files.
 Exit codes: `0`; `1` when a ledger cannot be read or none has slice data; `2` for an invalid
 policy value or a usage error.
 
+## `python -m boss.bench.audit`
+
+Scores the check auditor, a role that gives an opinion on each check of a draft: does the idea say
+what the check demands? The benchmark knows which checks are wrong (the task's reference solution
+fails them), so the auditor's flags can be counted against that. The auditor stays advisory until
+these numbers say it is worth its cost.
+
+It audits drafts that are already saved, from a `boss.bench.run` results folder or a
+`boss.bench.drafts` output folder. It makes one model call per draft, capped at $0.15 a call
+(the auditor's cap), unless `--dry-run`. The real cost per call has not been measured.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--results` | required | One or more folders of saved drafts. Their names must differ. |
+| `--tasks` | `bench/tasks` | Folder of task folders. |
+| `--out` | required | Folder for the audits. |
+| `--only` | all tasks | Task ids to audit. |
+| `--model` | `haiku` | Model for the auditor. |
+| `--thinking` | none | Thinking tokens per audit. |
+| `--jobs` | `2` | Audits to make and score at once. |
+| `--dry-run` | off | List the audits and the cost ceiling, then exit. |
+| `--retry-failed` | off | Audit again the cells that failed to run. |
+
+- A folder refuses audits made with other settings (task set, prompt, model, thinking). Use a fresh
+  `--out` to compare.
+- Exit codes: `0` after the audits ran; `1` when no task matches, a folder cannot be read, no draft
+  is found, or `--out` holds audits made with other settings; `2` for a usage error.
+
+## `python -m boss.roles.judge template`
+
+`python -m boss.roles.judge template --rubric ID --artifacts DIR --out FILE`. Writes a case file
+with one unlabelled case for each file in a folder (not files that start with a dot), for a person to score by hand. The judge
+is advisory, and its scores are labelled `uncalibrated` until a calibration shows it agrees with a
+person. Makes no model call. See [ROLES.md](ROLES.md).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--rubric` | required | Id of the rubric the cases are scored against. |
+| `--artifacts` | required | Folder of UTF-8 text files, one case each. |
+| `--out` | required | The case file to write. It is never overwritten. |
+
+Fill in every context and every score (1 to 5) in the file, then run `calibrate`. Exit codes: `0`;
+`1` for an unreadable case file, rubric or folder.
+
+## `python -m boss.roles.judge calibrate`
+
+`python -m boss.roles.judge calibrate --cases FILE --out FILE [--model M] [--dry-run]`. Runs the
+judge on every case of a labelled case file, compares its scores with yours, and saves and prints
+the result. It prints the number of calls and the most they can cost (each call is capped at $0.15)
+before it makes any. It will not overwrite `--out`.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--cases` | required | The labelled case file. |
+| `--out` | required | The calibration file to write. It must not exist. |
+| `--model` | `haiku` | Model for the judge. |
+| `--dry-run` | off | Show the calls and their cost ceiling, make none. |
+
+Exit codes: `0`; `1` for an unreadable case file, rubric or calibration, or an `--out` that exists.
+
+## `python -m boss.roles.judge show`
+
+`python -m boss.roles.judge show FILE`. Prints a calibration file. Makes no model call.
+
+Argument: `file`, a calibration file written by `calibrate`.
+
+Exit codes: `0`; `1` when the file cannot be read.
+
 ## Environment variables
 
 | Variable | Read by | Meaning |
 |---|---|---|
-| `BOSS_CLAUDE_BIN` | `boss fund`, `boss doctor`, `bench.run` | Path or name of the `claude` executable. Default `claude`. Not passed on to children. |
+| `BOSS_CLAUDE_BIN` | `boss fund`, `boss resume`, `boss doctor`, `bench.run`, `bench.drafts`, `bench.audit`, `roles.judge` | Path or name of the `claude` executable. Default `claude`. Not passed on to children. |
 | `ANTHROPIC_API_KEY` | every command that calls the CLI | If set and non-empty: billing is `api`, the CLI runs with `--bare` instead of `--safe-mode`, and the key is passed to the CLI and masked in logs. The `--bare` mode is not verified against the real CLI. |
 | `HOME` | worker and boss calls | Passed on so the CLI finds its login. |
 | `PATH` | worker and boss calls | Passed on so the CLI can start. |
@@ -252,8 +348,8 @@ policy value or a usage error.
 - Nothing else from your environment reaches a worker or boss process. The gate builds its own
   environment for checks: a temporary `HOME` and `TMPDIR`, a short `PATH`, `LANG`, and
   `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`.
-- Only `boss.cli`, `boss.bench.run`, `boss.bench.drafts`, `boss.gate` and `boss.sandbox` read the
-  process environment.
+- Only `boss.cli`, `boss.bench.run`, `boss.bench.drafts`, `boss.bench.audit`, `boss.roles.judge`,
+  `boss.gate` and `boss.sandbox` read the process environment.
 
 ## Run folder
 

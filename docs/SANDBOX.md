@@ -46,6 +46,7 @@ check passed, then removing each rule to see whether anything noticed (mutation 
 | read `/` (the directory itself) | Without it the process aborts at launch (exit 134, no message). |
 | read the run folder, `sys.prefix`, `sys.base_prefix` (resolved) | The check and its workspace copy; the virtualenv with pytest; the interpreter and stdlib. May sit under the home directory. |
 | read `/private/var/db/timezone` | Without it the local time zone silently becomes UTC (`datetime.now().astimezone()`). |
+| read `/usr/share/zoneinfo.default` | The built-in time zone copy. `/usr/share/zoneinfo` resolves here on a Mac that has not downloaded a time zone update (a fresh CI runner), and `zoneinfo.ZoneInfo(...)` fails without it. |
 | read `/usr/share/locale` | Without it `locale.getpreferredencoding()` returns `utf-8` instead of `UTF-8`. |
 | read and write `/dev/null` | pytest opens `os.devnull`. |
 | write the run folder | Workspace copy, check, report, `HOME`, `TMPDIR`. The report is here, hence T12. |
