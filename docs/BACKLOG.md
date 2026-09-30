@@ -71,7 +71,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
 | B36 | Three runs per arm on the hardened code | Cost | building |
-| B37 | Replay: stop at DONE like the live loop | The live loop never funds past DONE, so replay's extra walk changes no figure today | open |
+| B37 | Replay: stop at DONE like the live loop | The live loop never funds past DONE, so replay's extra walk changes no figure today | done: fix(replay): a worker whose task is done is not walked past that point |
 | B38 | More tasks: about 60 paired tasks are needed to see a 20-point difference | 17 exist | open |
 
 ## Packaging and release

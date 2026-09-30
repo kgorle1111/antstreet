@@ -207,6 +207,36 @@ def test_an_infrastructure_slice_is_not_an_escalation_and_the_walk_goes_on():
     assert replay_one(events, stall=1) == WorkerReplay("retry", 4, 3, 4_000, False, False)
 
 
+# W_DONE: 2 checks, 4 slices costing 1_000, 1_000, 1_000, 5_000 passing c1 | c1 c2 | c1 | c1.
+# Slice 2 passes every check, so the live loop says DONE and never funds slice 3 or 4 (the later
+# regressions are not real spend).
+W_DONE = ledger(
+    "done",
+    ["c1", "c2"],
+    [(1_000, OK, {"c1"}), (1_000, OK, {"c1", "c2"}), (1_000, OK, {"c1"}), (5_000, OK, {"c1"})],
+)
+
+
+def test_a_worker_whose_task_is_done_is_never_walked_past_that_point():
+    # stall=2, max_slices=3. After slice 1: counted 1, stalled 0 => CONTINUE. After slice 2 every
+    # check passes => DONE: stop, no firing, nothing saved. Walking on (the old behaviour) reached
+    # slice 3 with counted 3 >= 3 => "slice limit" FIRE and a false saving of slice 4 = 5_000.
+    got = replay_one(W_DONE, stall=2, max_slices=3)
+    assert got == WorkerReplay("done", 4, None, 0, False, False)
+
+
+def test_done_is_a_stop_in_aggregate_too_but_its_cost_stays_in_the_total():
+    # Spend recorded after DONE is still in total_micros: 1_000 + 1_000 + 1_000 + 5_000 = 8_000.
+    got = replay_runs([W_DONE], [FiringPolicy(2, 3)])
+    assert got == [PolicyResult(FiringPolicy(2, 3), 1, 0, 0, 0, 0, 8_000)]
+
+
+def test_a_worker_fired_before_its_task_completes_is_still_fired():
+    # DONE only stops a walk that reached it: W_LOST at stall=2 fires after slice 3, before the
+    # slice-4 completion, and that lost completion is still reported.
+    assert replay_one(W_LOST, stall=2).lost_completion is True
+
+
 def test_blocked_workers_add_to_the_total_but_never_to_the_saving():
     # W_BLOCKED: 2 slices of 1_000, blocked at slice 1 => set aside under every policy.
     # PROG (4 x 1_000) is never fired at stall=2. total = 4_000 + 2_000 = 6_000, saved = 0.
