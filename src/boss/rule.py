@@ -35,6 +35,7 @@ class SliceRecord:
     status: str  # the worker's self-report: "done", "continuing", "blocked" or "none"
     passing: frozenset[str]  # ids of the task's checks that pass after this slice
     disputed: frozenset[str] = frozenset()  # checks the worker disputed in this slice
+    denied_tools: tuple[str, ...] = ()  # tools whose calls were refused in this slice
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +102,9 @@ def decide(
         return verdict(Decision.DONE, "all checks pass")
     if latest.outcome in INFRASTRUCTURE:
         return verdict(Decision.RETRY, f"infrastructure: {latest.outcome.value}")
-    if latest.status == "blocked":
+    # A worker that says "blocked" after a refused tool call is usually wrong about why: it named
+    # a path outside its folder. It is told so and funded again; the stall rule still applies.
+    if latest.status == "blocked" and not latest.denied_tools:
         return verdict(Decision.ESCALATE, "blocked")
     if latest.outcome is Outcome.REFUSAL:
         return verdict(Decision.ESCALATE, "refusal")

@@ -313,3 +313,16 @@ def test_a_dispute_is_decided_before_the_slice_limit() -> None:
     v = run(rec(1, {"a", "b"}, disputed={"c"}), policy=policy)
     assert (v.decision, v.reason) == (Decision.ESCALATE, "disputed")
     assert run(rec(1, {"a", "b"}), policy=policy).reason == "slice limit"
+
+
+def test_blocked_after_a_refused_tool_call_is_not_escalated() -> None:
+    refused = SliceRecord(
+        1, 100, Outcome.COMPLETED, "blocked", frozenset(), denied_tools=("Write",)
+    )
+    assert run(refused).decision is Decision.CONTINUE
+    assert run(rec(1, status="blocked")).decision is Decision.ESCALATE
+    again = SliceRecord(2, 100, Outcome.COMPLETED, "blocked", frozenset(), denied_tools=("Write",))
+    assert (run(refused, again).decision, run(refused, again).reason) == (
+        Decision.FIRE,
+        "no progress",
+    )

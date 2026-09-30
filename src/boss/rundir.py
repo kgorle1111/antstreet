@@ -9,6 +9,7 @@ from typing import Any
 
 from boss.handoff import SKIPPED_NAMES
 from boss.ledger import Event, EventType, LedgerWriter
+from boss.redact import safe_text
 from boss.runner import SliceRun
 from boss.state import RunState
 from boss.termsheet import TermSheet
@@ -101,6 +102,7 @@ def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int)
             "session_total_micros": total,
             "exit_code": run.exit_code,
             "denials": len(run.denials),
+            "denied_tools": sorted({safe_text(str(d.get("tool")), limit=40) for d in run.denials}),
             "log": str(run.log_path),
         },
     }

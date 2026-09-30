@@ -34,7 +34,7 @@ from boss.worker import (
     usd,
 )
 
-BUILDER_PROMPT = "builder_v2.md"
+BUILDER_PROMPT = "builder_v3.md"
 DEFAULT_WORKER_MODEL = "haiku"
 DEFAULT_SLICE_MICROS = 100_000
 MAX_WORKERS_PER_TASK = 2  # the first worker plus one reassignment
@@ -243,7 +243,9 @@ class _Firm:
         require_approval(self.events(), self.sheet, self.paths.checks)  # before any spend
         disputed = frozenset().union(*(r.disputed for r in history))
         if started:
-            prompt = continuation_prompt(self.run_gate(task, worker), disputed)
+            prompt = continuation_prompt(
+                self.run_gate(task, worker), disputed, history[-1].denied_tools, task.paths[0]
+            )
         else:
             prompt = self._first_prompt(task, worker, state)
         spec = SliceSpec(

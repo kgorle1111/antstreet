@@ -43,9 +43,15 @@ def _fenced(text: str) -> str:
     return "\n".join(f"> {line}".rstrip() for line in text.strip().splitlines())
 
 
-def continuation_prompt(results: Sequence[CheckResult], disputed: Collection[str] = ()) -> str:
-    """The brief for a later slice: which checks pass now, the gate's output for the rest, and
-    which of the failing ones this worker has already disputed."""
+def continuation_prompt(
+    results: Sequence[CheckResult],
+    disputed: Collection[str] = (),
+    denied_tools: Sequence[str] = (),
+    example_path: str = "module.py",
+) -> str:
+    """The brief for a later slice: which checks pass now, the gate's output for the rest, which
+    of the failing ones this worker has already disputed, and what to do about refused tool
+    calls (a worker that names a path outside its folder tends to give up as "blocked")."""
     passing = sorted(r.check_id for r in results if r.passed)
     parts = [
         "Continue your task. After your last slice the gate ran your checks.",
@@ -60,6 +66,13 @@ def continuation_prompt(results: Sequence[CheckResult], disputed: Collection[str
         parts.append(
             f"You disputed: {', '.join(open_disputes)}. The investor will rule on those; "
             "do not bend your code to them."
+        )
+    if denied_tools:
+        parts.append(
+            f"In your last slice your {', '.join(denied_tools)} calls were refused because they "
+            "named a path outside your folder. Nothing is wrong with your permissions: the "
+            "current folder is your whole workspace. Use relative paths, for example "
+            f"`{example_path}`, and do the work again."
         )
     parts.append("Fix what is failing. When you stop, report your status.")
     return "\n\n".join(parts)

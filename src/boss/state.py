@@ -5,7 +5,7 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
 
     hired        boss        {worker, task, session, model, prompt}
     slice_start  worker:<w>  {slice, task, cap_micros}
-    slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, ...}
+    slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, denied_tools, ...}
                              with the event's cost_micros = this slice's own spend
     check_result gate        {check, task, status, detail, worker, slice}
     fired        rule        {worker, task, reason, evidence}
@@ -60,6 +60,7 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
                 status=str(status),
                 passing=frozenset(passing.get((worker, number), set())),
                 disputed=frozenset(disputed.get((worker, number), set())),
+                denied_tools=tuple(str(t) for t in e.data.get("denied_tools") or ()),
             )
         )
     return history

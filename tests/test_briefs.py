@@ -119,3 +119,15 @@ def test_continuation_names_open_disputes_and_drops_one_whose_check_now_passes()
     assert "Failing: c03" in prompt  # a disputed check is still shown as failing
     assert "You disputed" not in continuation_prompt(results)
     assert "You disputed" not in continuation_prompt(results, disputed={"c02"})
+
+
+def test_continuation_tells_a_worker_why_its_tool_calls_were_refused_and_what_to_do():
+    prompt = continuation_prompt(
+        [result("c01")], denied_tools=["Read", "Write"], example_path="a.py"
+    )
+    assert (
+        "your Read, Write calls were refused because they named a path outside your folder"
+        in prompt
+    )
+    assert "Nothing is wrong with your permissions" in prompt and "for example `a.py`" in prompt
+    assert "refused" not in continuation_prompt([result("c01")])

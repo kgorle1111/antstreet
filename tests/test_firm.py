@@ -44,7 +44,7 @@ def sheet(rounds=None, two_tasks=False) -> TermSheet:
 
 
 class Script:
-    """A scripted worker. Each step is (file, source or None, status, outcome, cost, disputes)."""
+    """A scripted worker. Each step is (file, source, status, outcome, cost, disputes, denials)."""
 
     def __init__(self, *steps):
         self.steps = list(steps)
@@ -56,7 +56,7 @@ class Script:
         step = self.steps.pop(0)
         if isinstance(step, BaseException):
             raise step
-        name, code, status, outcome, cost, disputes = step
+        name, code, status, outcome, cost, disputes, denials = step
         if code is not None:
             (workspace / name).write_text(code)
         session = str(spec.session_id)
@@ -73,13 +73,20 @@ class Script:
             exit_code=0,
             duration_s=0.1,
             log_path=log_path,
+            denials=[{"tool": tool, "reason": "rule"} for tool in denials],
         )
 
 
 def step(
-    code, status="continuing", outcome=Outcome.COMPLETED, cost=10_000, name="rev.py", disputes=()
+    code,
+    status="continuing",
+    outcome=Outcome.COMPLETED,
+    cost=10_000,
+    name="rev.py",
+    disputes=(),
+    denials=(),
 ):
-    return (name, code, status, outcome, cost, list(disputes))
+    return (name, code, status, outcome, cost, list(disputes), list(denials))
 
 
 def dispute(check, reason="the idea says otherwise"):
@@ -203,9 +210,9 @@ def test_every_worker_is_given_the_investors_idea_word_for_word(paths):
     for spec in (first, replacement):
         assert "> Reverse a string." in spec.prompt
         assert spec.prompt.index("> Reverse a string.") < spec.prompt.index("Create rev.py")
-        assert spec.append_system_prompt == load_prompt("builder_v2.md")
-    assert "source of truth" in load_prompt("builder_v2.md")
-    assert [e.data["prompt"] for e in events_of(paths, EventType.HIRED)] == ["builder_v2.md"] * 2
+        assert spec.append_system_prompt == load_prompt("builder_v3.md")
+    assert "source of truth" in load_prompt("builder_v3.md")
+    assert [e.data["prompt"] for e in events_of(paths, EventType.HIRED)] == ["builder_v3.md"] * 2
 
 
 def test_a_task_is_reassigned_only_once_then_abandoned(paths):
@@ -638,3 +645,37 @@ def test_a_workers_words_are_made_safe_before_they_reach_the_ledger_or_the_repor
     assert events_of(paths, EventType.BLOCKED)[0].data["reason"] == end.data["status"]["reason"]
     report = render_report(build_report(read_events(paths.ledger)))
     assert secret not in report and "\x1b" not in report
+
+
+# Found in the rerun: a worker wrote to an absolute path outside its folder, was refused by the
+# path rule, reported "blocked", and the task was set aside with nothing built.
+
+
+def test_a_worker_blocked_by_a_refused_tool_call_is_told_why_and_funded_again(paths):
+    worker = Script(step(None, "blocked", denials=["Write", "Read"]), step(GOOD, "done"))
+    report, _ = run(paths, worker)
+    assert report.all_passed
+    assert events_of(paths, EventType.BLOCKED) == [] and events_of(paths, EventType.ABANDONED) == []
+    assert events_of(paths, EventType.SLICE_END)[0].data["denied_tools"] == ["Read", "Write"]
+    retry = worker.specs[1].prompt
+    assert (
+        "your Read, Write calls were refused because they named a path outside your folder" in retry
+    )
+    assert "for example `rev.py`" in retry
+    assert "refused" not in worker.specs[0].prompt
+
+
+def test_a_worker_that_stays_blocked_after_refusals_is_fired_by_the_stall_rule(paths):
+    denied = step(None, "blocked", denials=["Write"])
+    worker = Script(denied, denied, denied, denied)
+    report, _ = run(paths, worker)
+    assert [e.data["reason"] for e in events_of(paths, EventType.FIRED)] == ["no progress"] * 2
+    assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "already reassigned once"
+
+
+def test_blocked_without_a_refused_call_still_goes_to_the_investor(paths):
+    worker = Script(step(None, "blocked", denials=["Write"]), step(None, "blocked"))
+    run(paths, worker)
+    assert len(worker.specs) == 2
+    assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "blocked"
+    assert "refused" in worker.specs[1].prompt
