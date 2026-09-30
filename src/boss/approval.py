@@ -103,6 +103,8 @@ def review_term_sheet(
                     data={"reason": "term sheet rejected"},
                 )
             )
+            # An investor edit may have set the flag; only an approval is allowed to leave it set.
+            path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
             say("Rejected. Nothing was funded.")
             return None
         if answer in ("e", "edit"):

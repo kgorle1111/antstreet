@@ -190,11 +190,6 @@ def test_deleted_term_sheet_file_during_an_edit_is_reported_not_raised(session):
     assert session.review(["e", delete, restore, "a"]) is not None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="approval.py:review_term_sheet: an investor edit that sets approved_by_investor stays "
-    "in term_sheet.json after a rejection, although only code is meant to set it",
-)
 def test_a_rejected_sheet_never_says_approved_on_disk(session):
     def preapprove():
         raw = json.loads(session.sheet_file.read_text())
