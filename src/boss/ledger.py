@@ -7,6 +7,7 @@ import json
 import os
 import re
 from collections.abc import Callable, Hashable, Iterable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -157,10 +158,46 @@ class LedgerWriter:
         os.fsync(self._fh.fileno())  # money records must survive a crash right after append
 
 
+def repair_torn_tail(path: Path) -> str | None:
+    """Cut an incomplete final line left by a hard kill and return the removed text.
+
+    Acts only when the file does not end with a newline (`LedgerWriter.append` always writes
+    one), every line before the last is a valid event, and the last is not. Anything else is
+    left untouched for `read_events` to reject. Takes the writer's lock, so it is refused while
+    a writer is open.
+    """
+    with suppress(FileNotFoundError), Path(path).open("r+b") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise LedgerLockedError(f"{path} is held by another writer") from None
+        data = fh.read()
+        if not data or data.endswith(b"\n"):
+            return None
+        start = data.rfind(b"\n") + 1
+        try:
+            for line in data[:start].split(b"\n")[:-1]:
+                Event.from_json(line.decode("utf-8"))
+        except (ValueError, TypeError):
+            return None
+        try:
+            Event.from_json(data[start:].decode("utf-8"))
+        except (ValueError, TypeError):
+            pass
+        else:
+            return None
+        fh.truncate(start)
+        fh.flush()
+        os.fsync(fh.fileno())
+        return data[start:].decode("utf-8", errors="replace")
+    return None
+
+
 def read_events(path: Path) -> list[Event]:
-    """Parse every line; any invalid line raises with its line number."""
-    # kn: a torn final line after a hard kill also raises;
-    # tolerant tail handling arrives with run resume (plan step 2.15).
+    """Parse every line; any invalid line raises with its line number.
+
+    A torn final line raises too (fail closed); `repair_torn_tail` is the one way past it.
+    """
     events: list[Event] = []
     with Path(path).open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, start=1):

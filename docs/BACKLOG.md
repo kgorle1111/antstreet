@@ -19,7 +19,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B07 | Pause before a plan limit is hit (plan pressure), not only after | `retry.plan_pressure` exists, the loop does not call it | open |
 | B08 | A replacement worker inherits its predecessor's disputes | Disputes are per worker today | open |
 | B09 | The refusal brief names the real reason for each refused tool call | It assumes a path outside the folder; true for every case seen | open |
-| B10 | Tolerate a torn final ledger line on resume; `ledger.py` kn: a torn final line after a hard kill also raises | Failing closed was the safe first step | open |
+| B10 | Tolerate a torn final ledger line on resume; `ledger.py` kn: a torn final line after a hard kill also raises | Failing closed was the safe first step | done: feat(ledger): repair a torn final line |
 | B11 | Recover when a session to resume no longer exists ("No conversation found") | Only happens if the CLI's session store is cleared between runs | open |
 
 ## Money
