@@ -18,6 +18,7 @@ _ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+)$")
 
 
 class EventType(StrEnum):
+    BOSS_CALL = "boss_call"  # the boss's own model spend, e.g. drafting the term sheet
     HIRED = "hired"
     SLICE_START = "slice_start"
     SLICE_END = "slice_end"
