@@ -131,3 +131,16 @@ def test_continuation_tells_a_worker_why_its_tool_calls_were_refused_and_what_to
     )
     assert "Nothing is wrong with your permissions" in prompt and "for example `a.py`" in prompt
     assert "refused" not in continuation_prompt([result("c01")])
+
+
+def test_a_note_about_added_checks_shows_their_code_and_only_theirs(tmp_path):
+    from boss.briefs import added_checks_note, check_sections
+
+    s = sheet()
+    directory = checks_dir(tmp_path)
+    note = added_checks_note(s, {"c02"}, directory)
+    assert note.startswith("The investor approved more checks after reviewing the work.")
+    assert "--- check c02 (test_c02.py): shouts" in note and "SHOUT_MARKER" in note
+    assert "REVERSE_MARKER" not in note
+    assert check_sections(s, {"c01", "c02"}, directory)[0].startswith("--- check c01")
+    assert check_sections(s, set(), directory) == []

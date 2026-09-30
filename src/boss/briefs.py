@@ -30,12 +30,31 @@ def task_prompt(sheet: TermSheet, task: Task, checks_dir: Path) -> str:
         "After you stop, an independent gate runs these checks against your files. "
         "You cannot run them yourself.",
     ]
-    for check in sheet.checks:
-        if check.task == task.id:
-            code = (checks_dir / check.file).read_text(encoding="utf-8").rstrip()
-            parts.append(f"--- check {check.id} ({check.file}): {check.description}\n{code}")
+    parts += check_sections(sheet, [c.id for c in sheet.checks if c.task == task.id], checks_dir)
     parts.append("When you stop, report your status.")
     return "\n\n".join(parts)
+
+
+def check_sections(sheet: TermSheet, check_ids: Collection[str], checks_dir: Path) -> list[str]:
+    """One section per named check, in the sheet's order: its id, file, description and code."""
+    sections = []
+    for check in sheet.checks:
+        if check.id in check_ids:
+            code = (checks_dir / check.file).read_text(encoding="utf-8").rstrip()
+            sections.append(f"--- check {check.id} ({check.file}): {check.description}\n{code}")
+    return sections
+
+
+def added_checks_note(sheet: TermSheet, check_ids: Collection[str], checks_dir: Path) -> str:
+    """What a worker is told when the investor approved more checks after it last worked: it
+    has never seen their code, and the gate will run them."""
+    sections = check_sections(sheet, check_ids, checks_dir)
+    return "\n\n".join(
+        [
+            "The investor approved more checks after reviewing the work. They must pass too.",
+            *sections,
+        ]
+    )
 
 
 def _fenced(text: str) -> str:

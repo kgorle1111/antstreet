@@ -1475,3 +1475,68 @@ def test_a_replacement_is_told_what_the_investor_ruled_before_it_was_hired(paths
     assert "The investor ruled on your dispute: check c05 stands. Make it pass." in (
         replacement.prompt
     )
+
+
+# An amendment: after a review the investor approves more checks and funds another round.
+
+
+def amend(paths, s, extra_check, code, round_budget=300_000):
+    """What the command line does for an approved amendment: add the check and a round to the
+    sheet, and record the investor's approval of exactly that."""
+    (paths.checks / extra_check.file).write_text(code)
+    rounds = (*s.rounds, Round(len(s.rounds) + 1, round_budget, len(s.checks) + 1))
+    amended = dataclasses.replace(
+        s,
+        checks=(*s.checks, extra_check),
+        rounds=rounds,
+        budget_micros=s.budget_micros + round_budget,
+    )
+    data = {"hashes": content_hashes(amended, paths.checks), "round": rounds[-1].n}
+    with LedgerWriter(paths.ledger) as ledger:
+        ledger.append(
+            Event(
+                run="r1",
+                round=rounds[-1].n,
+                actor="investor",
+                event=EventType.APPROVED,
+                data=data | {"added_checks": [extra_check.id]},
+            )  # fmt: skip
+        )
+    return amended
+
+
+def test_after_an_amendment_the_worker_is_shown_the_new_check_and_funded_to_pass_it(paths):
+    first = Script(step(GOOD, "done"))
+    report, _ = run(paths, first)
+    assert report.all_passed
+    none_check = "from rev import reverse\n\ndef test_none():\n    assert reverse(None) == ''\n"
+    extra = CheckSpec("c09", "None is treated as empty", "test_c09.py", "t1")
+    amended = amend(paths, sheet(), extra, none_check)
+    fixed = "def reverse(s):\n    return (s or '')[::-1]\n"
+    second = Script(step(fixed, "done"))
+    second.totals = dict(first.totals)
+    report, said = run(paths, second, amended)
+    assert report.all_passed and (report.passed, report.total) == (3, 3)
+    [spec] = second.specs
+    assert spec.resume is True  # the same worker, its session carried on
+    assert "The investor approved more checks after reviewing the work." in spec.prompt
+    assert "--- check c09 (test_c09.py): None is treated as empty" in spec.prompt
+    assert "reverse(None) == ''" in spec.prompt
+    assert "Failing: c09" in spec.prompt
+    assert not any(q.startswith("Round 2") for q in said)  # the amendment funded it already
+    assert events_of(paths, EventType.SLICE_END)[-1].round == 2
+    assert product_results(paths)[-3:] == [("c01", "passed"), ("c02", "passed"), ("c09", "passed")]
+
+
+def test_an_amendment_the_investor_did_not_approve_stops_the_run_before_any_spend(paths):
+    run(paths, Script(step(GOOD, "done")))
+    extra = CheckSpec("c09", "x", "test_c09.py", "t1")
+    (paths.checks / "test_c09.py").write_text(
+        "from rev import reverse\n\ndef test_x():\n    assert 0\n"
+    )
+    s = sheet()
+    forged = dataclasses.replace(s, checks=(*s.checks, extra))
+    worker = Script(step(GOOD, "done"))
+    with pytest.raises(NotApprovedError):
+        run(paths, worker, forged)
+    assert worker.specs == []

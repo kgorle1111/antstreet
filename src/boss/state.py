@@ -14,6 +14,7 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
     blocked      worker:<w>  {task, reason}
     disputed     worker:<w>  {task, check, reason, worker, slice}
     round_closed boss        {passed, total, unlocked}
+    approved     investor    {hashes} | {round} | {hashes, round, added_checks} (an amendment)
     started      boss        {config}
     resumed      investor    {}
     ruled        investor    {task, worker, ruling, check?, note?}   ruling: dropped|kept|unblocked

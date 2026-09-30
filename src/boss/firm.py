@@ -20,7 +20,12 @@ from typing import Any
 from boss import budget, handoff, limits, retry, rulings
 from boss.approval import NotApprovedError, require_approval
 from boss.boss import load_prompt
-from boss.briefs import continuation_prompt, reassignment_brief, task_prompt
+from boss.briefs import (
+    added_checks_note,
+    continuation_prompt,
+    reassignment_brief,
+    task_prompt,
+)
 from boss.errors import INFRASTRUCTURE
 from boss.gate import Check, CheckResult, run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events
@@ -479,7 +484,17 @@ class _Firm:
         resume = ws.session is not None
         session = ws.session or str(uuid.uuid4())
         events = self.events()
-        notes = rulings.notes_since(events, task.id, _after_last_slice(events, worker))
+        since = _after_last_slice(events, worker)
+        notes = rulings.notes_since(events, task.id, since)
+        mine = {c.id for c in self.checks_of(task)}
+        added = mine & {
+            str(check)
+            for e in events[since:]
+            if e.event is EventType.APPROVED and e.actor == "investor"
+            for check in e.data.get("added_checks", ())
+        }
+        if added and history:  # a worker that has not worked yet gets them in its first brief
+            notes.append(added_checks_note(self.sheet, added, self.paths.checks))
         if resume:
             prompt = continuation_prompt(
                 self.run_gate(task, worker),
