@@ -64,13 +64,17 @@ def _require_count(name: str, value: object) -> None:
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    """One ledger line. `cents_est=None` means the cost is unknown, which is never the same as 0."""
+    """One ledger line.
+
+    `cost_micros` is the estimated cost in millionths of a US dollar (whole cents are too coarse:
+    a boss call costs about $0.004). `None` means unknown, which is never the same as 0.
+    """
 
     run: str
     round: int
     actor: str
     event: EventType
-    cents_est: int | None = 0
+    cost_micros: int | None = 0
     tokens_in: int = 0
     tokens_out: int = 0
     tokens_cached: int = 0
@@ -86,8 +90,8 @@ class Event:
             raise ValueError(f"unknown actor {self.actor!r}")
         object.__setattr__(self, "event", EventType(self.event))
         object.__setattr__(self, "billing", Billing(self.billing))
-        if self.cents_est is not None:
-            _require_count("cents_est", self.cents_est)
+        if self.cost_micros is not None:
+            _require_count("cost_micros", self.cost_micros)
         for name in ("tokens_in", "tokens_out", "tokens_cached"):
             _require_count(name, getattr(self, name))
         if not isinstance(self.data, dict):
@@ -156,7 +160,7 @@ def read_events(path: Path) -> list[Event]:
 
 @dataclass(frozen=True, slots=True)
 class Totals:
-    cents_est: int = 0
+    cost_micros: int = 0
     unknown_cost_events: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
@@ -165,17 +169,17 @@ class Totals:
 
 
 def total(events: Iterable[Event]) -> Totals:
-    cents = unknown = t_in = t_out = t_cached = count = 0
+    micros = unknown = t_in = t_out = t_cached = count = 0
     for e in events:
         count += 1
-        if e.cents_est is None:
+        if e.cost_micros is None:
             unknown += 1
         else:
-            cents += e.cents_est
+            micros += e.cost_micros
         t_in += e.tokens_in
         t_out += e.tokens_out
         t_cached += e.tokens_cached
-    return Totals(cents, unknown, t_in, t_out, t_cached, count)
+    return Totals(micros, unknown, t_in, t_out, t_cached, count)
 
 
 def totals_by[K: Hashable](events: Iterable[Event], key: Callable[[Event], K]) -> dict[K, Totals]:

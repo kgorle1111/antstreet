@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from boss.ledger import Billing
-from boss.worker import SliceSpec, billing_mode, build_command, worker_env
+from boss.worker import SliceSpec, billing_mode, build_command, usd, worker_env
 
 SID = UUID("12345678-1234-5678-1234-567812345678")
 SCHEMA = (
@@ -20,7 +20,7 @@ def spec(**overrides) -> SliceSpec:
         "resume": False,
         "prompt": "Implement the task in BRIEF.md.",
         "model": "haiku",
-        "cap_cents": 30,
+        "cap_micros": 300_000,
     }
     return SliceSpec(**(base | overrides))
 
@@ -32,7 +32,7 @@ def test_first_slice_with_subscription_login():
         "--tools", "Read,Write,Edit",
         "--allowedTools", "Read(./**) Write(./**) Edit(./**)",
         "--permission-mode", "dontAsk",
-        "--max-budget-usd", "0.30",
+        "--max-budget-usd", "0.3",
         "--json-schema", SCHEMA,
         "--session-id", str(SID),
         "Implement the task in BRIEF.md.",
@@ -41,7 +41,8 @@ def test_first_slice_with_subscription_login():
 
 def test_resumed_slice_with_api_key_and_role_prompt():
     argv = build_command(
-        spec(resume=True, cap_cents=125, append_system_prompt="You are a builder."), api_key=True
+        spec(resume=True, cap_micros=1_250_000, append_system_prompt="You are a builder."),
+        api_key=True,
     )
     assert argv == [
         "claude", "--print", "--output-format", "stream-json", "--verbose", "--bare",
@@ -72,10 +73,10 @@ def test_no_shell_tool_is_ever_offered():
 @pytest.mark.parametrize(
     "bad",
     [
-        {"cap_cents": 0},
-        {"cap_cents": -5},
-        {"cap_cents": 0.5},
-        {"cap_cents": True},
+        {"cap_micros": 0},
+        {"cap_micros": -5},
+        {"cap_micros": 0.5},
+        {"cap_micros": True},
         {"prompt": "   "},
         {"prompt": "--dangerously-skip-permissions"},
         {"model": ""},
@@ -107,3 +108,11 @@ def test_api_key_is_passed_through_only_when_set_and_decides_billing():
     assert billing_mode(with_key) is Billing.API
     assert "ANTHROPIC_API_KEY" not in worker_env({"HOME": "/h", "ANTHROPIC_API_KEY": ""})
     assert billing_mode({"HOME": "/h"}) is Billing.SUBSCRIPTION
+
+
+@pytest.mark.parametrize(
+    ("micros", "expected"),
+    [(300_000, "0.3"), (1_250_000, "1.25"), (6_000, "0.006"), (1, "0.000001"), (5_000_000, "5")],
+)
+def test_usd_formatting_is_exact_and_trimmed(micros, expected):
+    assert usd(micros) == expected

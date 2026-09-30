@@ -37,7 +37,7 @@ class SliceSpec:
     resume: bool
     prompt: str
     model: str
-    cap_cents: int
+    cap_micros: int  # millionths of a US dollar, like the ledger
     append_system_prompt: str | None = None
 
     def __post_init__(self) -> None:
@@ -49,8 +49,13 @@ class SliceSpec:
             raise ValueError("prompt must not start with '-'; the CLI would read it as a flag")
         if not self.model:
             raise ValueError("model must be non-empty")
-        if type(self.cap_cents) is not int or self.cap_cents <= 0:
-            raise ValueError(f"cap_cents must be a positive int, got {self.cap_cents!r}")
+        if type(self.cap_micros) is not int or self.cap_micros <= 0:
+            raise ValueError(f"cap_micros must be a positive int, got {self.cap_micros!r}")
+
+
+def usd(micros: int) -> str:
+    """Dollar string for the CLI, e.g. 300_000 -> "0.3", 6_000 -> "0.006"."""
+    return f"{micros / 1_000_000:.6f}".rstrip("0").rstrip(".")
 
 
 def uses_api_key(env: Mapping[str, str]) -> bool:
@@ -79,7 +84,7 @@ def build_command(spec: SliceSpec, *, api_key: bool) -> list[str]:
         "--tools", ",".join(WORKER_TOOLS),
         "--allowedTools", WORKER_TOOL_RULES,
         "--permission-mode", "dontAsk",
-        "--max-budget-usd", f"{spec.cap_cents / 100:.2f}",
+        "--max-budget-usd", usd(spec.cap_micros),
         "--json-schema", json.dumps(STATUS_SCHEMA, separators=(",", ":")),
         session_flag, str(spec.session_id),
     ]  # fmt: skip
