@@ -6,10 +6,10 @@ Cells: 102. Raw ledgers, logs and products are kept on the machine that ran them
 
 Task set: c130282a6eec5fe8 | Model: haiku | Budget per cell: $0.4000
 
-| arm | cells | tasks | passed | pass rate [95% CI] | hidden checks | mean cost/cell | cost/pass | boss share | unknown-cost events | infrastructure excluded |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| single | 51 | 17 | 32 | 63% [49-75%] | 92% | $0.0925 | $0.1474 | 0% | 0 | 0 |
-| firm | 51 | 17 | 35 | 69% [55-80%] | 94% | $0.2197 | $0.3202 | 40% | 0 | 0 |
+| arm | cells | tasks | passed | pass rate [95% CI] | hidden checks | mean cost/cell | cost/pass | boss share | unknown-cost events | infrastructure excluded | median time/cell | tasks passed every run |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| single | 51 | 17 | 32 | 63% [49-75%] | 92% | $0.0925 | $0.1474 | 0% | 0 | 0 | 1m28s | 8/17 |
+| firm | 51 | 17 | 35 | 69% [55-80%] | 94% | $0.2197 | $0.3202 | 40% | 0 | 0 | 4m04s | 9/17 |
 
 Visible vs hidden: 36 of 51 firm cells passed every visible check; 12 of those failed a hidden check.
 Wrong boss checks: 20 of 397 checks failed on the reference solution, in 16 drafts.

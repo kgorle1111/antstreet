@@ -7,10 +7,10 @@ Cells: 34. Raw ledgers, logs and products are kept on the machine that ran them,
 Task set: 7a212cdcc5f4f466, 8c04e5da92cfd00b | Model: haiku | Budget per cell: $0.4000
 WARNING: results mix task sets, models or budgets; do not compare.
 
-| arm | cells | tasks | passed | pass rate [95% CI] | hidden checks | mean cost/cell | cost/pass | boss share | unknown-cost events | infrastructure excluded |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| single | 17 | 17 | 10 | 59% [36-78%] | 90% | $0.0909 | $0.1545 | 0% | 0 | 0 |
-| firm | 17 | 17 | 8 | 47% [26-69%] | 83% | $0.1945 | $0.4133 | 51% | 0 | 0 |
+| arm | cells | tasks | passed | pass rate [95% CI] | hidden checks | mean cost/cell | cost/pass | boss share | unknown-cost events | infrastructure excluded | median time/cell | tasks passed every run |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| single | 17 | 17 | 10 | 59% [36-78%] | 90% | $0.0909 | $0.1545 | 0% | 0 | 0 | 1m35s | 10/17 |
+| firm | 17 | 17 | 8 | 47% [26-69%] | 83% | $0.1945 | $0.4133 | 51% | 0 | 0 | 3m30s | 8/17 |
 
 Visible vs hidden: 11 of 17 firm cells passed every visible check; 5 of those failed a hidden check.
 
