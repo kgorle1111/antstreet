@@ -30,7 +30,7 @@ Costs are the CLI's client-side estimates. Model: Haiku. Budget: $0.40 per cell.
 - Workers disputed 10 checks. **All 10 were wrong**: the reference solution fails each of them.
   With rerun1, that is 13 of 13.
 - The rule fired 4 workers. **All 4 were in cells with a wrong check the worker had not disputed**,
-  and in 3 of those cells the product passed every hidden check. Those firings were caused by the
+  and the product in each of those 3 cells passed every hidden check. Those firings were caused by the
   boss's wrong checks, not by the workers.
 - Nothing here is a large sample. It is why a check auditor is being built and why it will be
   scored against the reference before it is switched on.
