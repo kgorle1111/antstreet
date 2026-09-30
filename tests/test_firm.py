@@ -1373,3 +1373,105 @@ def test_no_advice_is_no_obstacle(paths):
     worker = Script(step(GOOD, "done", disputes=[dispute("c05")]))
     report, said = run(paths, worker, s, answers=["d"], advise=lambda check, reason: None)
     assert rulings_of(paths) == [("investor", "c05", "dropped")] and report.all_passed
+
+
+# Found by the loop simulation after the recovery paths were added.
+
+
+def test_a_slice_graded_on_only_some_of_its_checks_is_finished_on_resume(paths):
+    # Killed between the first and the second gate result: the slice passed both checks, but
+    # the ledger shows one. Reading that as "one passes" would pay for a slice nobody needs.
+    with contextlib.suppress(KeyboardInterrupt):
+        run(paths, Script(step(GOOD, "done"), KeyboardInterrupt()))
+    lines = paths.ledger.read_text().splitlines()
+    second = [i for i, line in enumerate(lines) if '"event": "check_result"' in line][1]
+    paths.ledger.write_text("\n".join(lines[:second]) + "\n")
+    assert len(slice_results(paths)) == 1
+    resumed = Script(step(BAD))
+    report, _ = run(paths, resumed)
+    assert report.all_passed and resumed.specs == []
+    assert [(e.data["check"], e.data["status"]) for e in slice_results(paths)] == [
+        ("c01", "passed"),
+        ("c02", "passed"),
+    ]
+
+
+def test_an_escalation_interrupted_between_two_rulings_asks_for_the_rest(paths):
+    (paths.checks / "test_c04.py").write_text(C04)
+    (paths.checks / "test_c05.py").write_text(C05)
+    (paths.checks / "test_c06.py").write_text(C05.replace("WRONG", "ALSO WRONG"))
+    checks = tuple(
+        CheckSpec(f"c0{n}", f"check {n}", f"test_c0{n}.py", "t1") for n in (1, 2, 4, 5, 6)
+    )
+    checks += (CheckSpec("c03", "spare", "test_c03.py", "t1"),)
+    tasks = (Task("t1", "Create rev.py.", ("rev.py", "up.py")),)
+    s = TermSheet("Reverse a string.", 500_000, (Round(1, 500_000, 6),), checks, tasks, True)
+    both = [dispute("c05"), dispute("c06")]
+
+    class WithShout(Script):  # c03 needs up.py; the other three sound checks need rev.py
+        def __call__(self, spec, workspace, log_path, *, env):
+            (workspace / "up.py").write_text(SHOUT)
+            return super().__call__(spec, workspace, log_path, env=env)
+
+    replies = iter(["d"])
+
+    def ask(question):
+        try:
+            return next(replies)
+        except StopIteration:
+            raise KeyboardInterrupt from None
+
+    with LedgerWriter(paths.ledger) as ledger:
+        data = {"hashes": content_hashes(s, paths.checks)}
+        ledger.append(
+            Event(run="r1", round=0, actor="investor", event=EventType.APPROVED, data=data)
+        )
+        with pytest.raises(KeyboardInterrupt):
+            run_firm(s, paths, ledger, "r1", env=ENV, ask=ask, say=lambda _: None,
+                     slice_runner=WithShout(step(GOOD, "done", disputes=both)))  # fmt: skip
+    assert rulings_of(paths) == [("investor", "c05", "dropped")]
+    resumed = Script(step(GOOD, "done"))
+    report, said = run(paths, resumed, s, answers=["d"])
+    assert rulings_of(paths) == [("investor", "c05", "dropped"), ("investor", "c06", "dropped")]
+    assert resumed.specs == [] and report.all_passed and report.total == 4
+    assert sum(q.startswith("Task t1: w1 disputes check c06") for q in said) == 1
+    assert not any(q.startswith("Task t1: w1 disputes check c05") for q in said)
+
+
+def test_a_round_whose_close_was_lost_is_closed_on_resume(paths):
+    s = sheet(rounds=(Round(1, 250_000, 2), Round(2, 250_000, 2)))
+    with contextlib.suppress(KeyboardInterrupt):
+        run(paths, Script(step(GOOD, "done"), KeyboardInterrupt()), s)
+    cut_ledger_before(paths, '"event": "round_closed"')
+    assert events_of(paths, EventType.ROUND_CLOSED) == []
+    report, said = run(paths, Script(), s, answers=["y"])
+    [closed] = events_of(paths, EventType.ROUND_CLOSED)
+    assert closed.round == 1 and closed.data == {"passed": 2, "total": 2, "unlocked": True}
+    assert report.all_passed and not any(line.startswith("Round 2") for line in said)
+
+
+def test_the_investors_note_reaches_a_worker_whose_next_slice_starts_a_new_session(paths):
+    # The blocked slice reported no cost, so its session is unproven and the next slice starts
+    # from the first brief. The note must be in it.
+    worker = Script(step(None, "blocked", cost=None), step(GOOD, "done"))
+    report, _ = run(paths, worker, answers=["u", "use slicing"])
+    second = worker.specs[1]
+    assert second.resume is False and "> Reverse a string." in second.prompt
+    assert second.prompt.endswith("The investor answered your block: use slicing")
+    assert report.all_passed
+
+
+def test_a_replacement_is_told_what_the_investor_ruled_before_it_was_hired(paths):
+    s = four_checks(paths)
+    worker = Script(
+        step(GOOD, disputes=[dispute("c05")]),
+        step(GOOD),
+        step(GOOD),
+        *[step(GOOD)] * 3,
+    )
+    run(paths, worker, s, answers=["k"])
+    replacement = worker.specs[3]
+    assert replacement.resume is False
+    assert "The investor ruled on your dispute: check c05 stands. Make it pass." in (
+        replacement.prompt
+    )

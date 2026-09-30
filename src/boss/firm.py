@@ -168,7 +168,8 @@ class _Firm:
                 break
             if round_.n in state.closed_rounds:
                 continue
-            if self.sheet.tasks and self._next_task(state) is None and state.workers:
+            unopened = round_.n not in state.approved_rounds
+            if unopened and self._next_task(state) is None and state.workers:
                 break  # nothing is left to do: no further round is opened or paid for
             record = Recorder(self.ledger, self.run_id, round_.n)
             if round_.n not in state.approved_rounds and not self._approve(round_, record):
@@ -477,17 +478,19 @@ class _Firm:
         # 2.1.285), and an interrupted attempt leaves no record of whether it created its session.
         resume = ws.session is not None
         session = ws.session or str(uuid.uuid4())
+        events = self.events()
+        notes = rulings.notes_since(events, task.id, _after_last_slice(events, worker))
         if resume:
-            events = self.events()
             prompt = continuation_prompt(
                 self.run_gate(task, worker),
                 disputed,
                 history[-1].denied_tools,
                 task.paths[0],
-                rulings.notes_since(events, task.id, _after_last_slice(events, worker)),
+                notes,
             )
         else:
-            prompt = self._first_prompt(task, worker, state)
+            # A new session starts from the first brief; what the investor ruled still applies.
+            prompt = "\n\n".join([self._first_prompt(task, worker, state), *notes])
         spec = SliceSpec(
             session_id=uuid.UUID(session),
             resume=resume,
@@ -519,9 +522,11 @@ class _Firm:
         if not history or history[-1].outcome in INFRASTRUCTURE:
             return
         number = history[-1].slice
-        if any(_gated(e, worker, number) for e in events):
+        graded = {e.data.get("check") for e in events if _gated(e, worker, number)}
+        if {c.id for c in self.checks_of(task)} <= graded:
             return
-        results = self.run_gate(task, worker)
+        # A run killed between two results leaves the slice half graded: grade the rest.
+        results = [r for r in self.run_gate(task, worker) if r.check_id not in graded]
         for r in results:
             data = {"check": r.check_id, "task": task.id, "status": str(r.status)}
             data |= {"detail": r.detail, "worker": worker, "slice": number}
@@ -530,7 +535,8 @@ class _Firm:
         # the investor has ruled on.
         raised = frozenset().union(*(r.disputed for r in history))
         settled = rulings.ruled(events, rulings.KEPT)
-        open_to_dispute = {r.check_id for r in results if not r.passed} - raised - settled
+        failing = {r.check_id for r in results if not r.passed}
+        open_to_dispute = failing - raised - settled
         if isinstance(status, dict):
             for check, reason in disputed_checks(status, open_to_dispute).items():
                 data = {"task": task.id, "check": check, "reason": reason}
@@ -551,7 +557,12 @@ class _Firm:
             return self._infrastructure(run, history, record) if run else None
         since = _after_last_slice(events, worker)
         if verdict.decision is Decision.ESCALATE:
-            if not any(_settles(e, task.id) for e in events[since:]):
+            # A dispute is asked about for as long as the verdict still lists it: each ruling
+            # removes one, so an escalation interrupted half way is finished on the next pass.
+            # A block is settled by one answer.
+            if verdict.reason == "disputed" or not any(
+                _unblocks(e, task.id) for e in events[since:]
+            ):
                 self._escalate(task, worker, verdict, events, since, record)
         elif verdict.decision is Decision.FIRE and (
             self.config.firing or verdict.reason == "slice limit"
@@ -650,10 +661,14 @@ def _gated(event: Event, worker: str, number: int) -> bool:
     return found and data.get("worker") == worker and data.get("slice") == number
 
 
-def _settles(event: Event, task: str) -> bool:
-    """Whether this event already settles an escalation of the task."""
-    ruling = event.event is EventType.RULED and event.actor == "investor"
-    return (ruling or event.event is EventType.ABANDONED) and event.data.get("task") == task
+def _unblocks(event: Event, task: str) -> bool:
+    """Whether the investor has already answered this task's block."""
+    return (
+        event.event is EventType.RULED
+        and event.actor == "investor"
+        and event.data.get("ruling") == rulings.UNBLOCKED
+        and event.data.get("task") == task
+    )
 
 
 def _fired(event: Event, worker: str) -> bool:
