@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from boss.errors import Outcome
+from boss.errors import INFRASTRUCTURE, Outcome
 
 
 class Decision(StrEnum):
@@ -54,5 +54,51 @@ class Verdict:
 def decide(
     task_checks: frozenset[str], history: Sequence[SliceRecord], policy: FiringPolicy
 ) -> Verdict:
-    """The decision after the latest slice in `history` (which must be non-empty)."""
-    raise NotImplementedError
+    """The decision after the latest slice in `history` (which must be non-empty).
+
+    Rules apply in order to the latest record; the first that matches wins, so DONE beats an
+    infrastructure retry and both beat the slice limit. Infrastructure slices are never counted,
+    but the checks they show passing still count as "seen" when judging later progress.
+    """
+    if not history or not task_checks:
+        raise ValueError("decide needs a non-empty history and a non-empty task_checks")
+
+    latest = history[-1]
+    seen: set[str] = set()
+    counted = stalled = spent = unknown = 0
+    for record in history:
+        if record.outcome not in INFRASTRUCTURE:
+            counted += 1
+            stalled = 0 if record.passing - seen else stalled + 1
+        seen |= record.passing
+        if record.cost_micros is None:
+            unknown += 1
+        else:
+            spent += record.cost_micros
+
+    evidence: dict[str, Any] = {
+        "counted_slices": counted,
+        "stalled_slices": stalled,
+        "passing": sorted(latest.passing),
+        "best": sorted(seen),
+        "missing": sorted(task_checks - latest.passing),
+        "spent_micros": spent,
+        "unknown_cost_slices": unknown,
+    }
+
+    def verdict(decision: Decision, reason: str) -> Verdict:
+        return Verdict(decision, reason, evidence)
+
+    if task_checks <= latest.passing:
+        return verdict(Decision.DONE, "all checks pass")
+    if latest.outcome in INFRASTRUCTURE:
+        return verdict(Decision.RETRY, f"infrastructure: {latest.outcome.value}")
+    if latest.status == "blocked":
+        return verdict(Decision.ESCALATE, "blocked")
+    if latest.outcome is Outcome.REFUSAL:
+        return verdict(Decision.ESCALATE, "refusal")
+    if counted >= policy.max_slices:
+        return verdict(Decision.FIRE, "slice limit")
+    if stalled >= policy.stall_slices:
+        return verdict(Decision.FIRE, "no progress")
+    return verdict(Decision.CONTINUE, "progressing")
