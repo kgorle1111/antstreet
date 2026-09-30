@@ -103,11 +103,19 @@ class TermSheet:
                 rounds=tuple(Round(**_fields(r, Round)) for r in raw["rounds"]),
                 checks=tuple(CheckSpec(**_fields(c, CheckSpec)) for c in raw["checks"]),
                 tasks=tuple(
-                    Task(**_fields(t, Task) | {"paths": tuple(t["paths"])}) for t in raw["tasks"]
+                    Task(**_fields(t, Task) | {"paths": tuple(as_list(t["paths"]))})
+                    for t in raw["tasks"]
                 ),
             )
         except (ValueError, KeyError, TypeError) as exc:
             raise TermSheetError([f"not a valid term sheet: {exc}"]) from exc
+
+
+def as_list(value: object) -> list[Any]:
+    # tuple("rev.py") would silently become ("r", "e", "v", ...); insist on a JSON array.
+    if not isinstance(value, list):
+        raise TypeError(f"expected a list, got {type(value).__name__}")
+    return value
 
 
 def _fields(raw: Any, cls: type, nested: tuple[str, ...] = ()) -> dict[str, Any]:

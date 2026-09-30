@@ -17,7 +17,7 @@ from typing import Any
 
 from boss.errors import Outcome, classify
 from boss.stream import StreamReader, Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
+from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, as_list, validate
 from boss.worker import CLI, usd, uses_api_key, with_thinking
 
 TERM_SHEET_PROMPT = "term_sheet_v1.md"
@@ -197,9 +197,9 @@ def _sheet_from_output(
         raise _unusable("no structured output", output)
     try:
         tasks = tuple(
-            Task(t["id"], t["brief"], tuple(_as_list(t["paths"]))) for t in _as_list(draft["tasks"])
+            Task(t["id"], t["brief"], tuple(as_list(t["paths"]))) for t in as_list(draft["tasks"])
         )
-        raw_checks = _as_list(draft["checks"])
+        raw_checks = as_list(draft["checks"])
     except (KeyError, TypeError) as exc:
         raise _unusable(f"missing or malformed field: {exc}", output) from exc
     if not 1 <= len(tasks) <= max_tasks:
@@ -230,10 +230,3 @@ def _sheet_from_output(
 
 def _unusable(why: str, output: StreamReader) -> BossError:
     return BossError(f"unusable draft: {why}", Outcome.COMPLETED, output.usage())
-
-
-def _as_list(value: object) -> list[Any]:
-    # tuple("rev.py") would silently become ("r", "e", "v", ...); insist on a JSON array.
-    if not isinstance(value, list):
-        raise TypeError(f"expected a list, got {type(value).__name__}")
-    return value

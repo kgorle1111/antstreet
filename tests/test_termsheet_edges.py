@@ -147,10 +147,6 @@ def test_error_names_the_offending_record_type():
         TermSheet.from_json(json.dumps(raw))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="termsheet.py:from_json does tuple(t['paths']), so a bare string becomes its characters",
-)
 def test_a_string_where_a_paths_list_belongs_is_refused_not_split_into_letters():
     raw = json.loads(sheet().to_json())
     raw["tasks"][0]["paths"] = "src/app.py"
