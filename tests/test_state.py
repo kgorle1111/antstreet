@@ -264,3 +264,12 @@ def test_a_dropped_check_counts_for_nothing_and_a_ruled_dispute_is_settled():
     assert after.tasks["t1"].passing == {"c01"} and after.passing_total() == 1
     [record] = slice_history(events)["w1"]
     assert record.passing == {"c01"} and record.disputed == {"c04", "c05"}
+
+
+def test_a_slice_that_crashed_without_reporting_does_not_prove_its_session_exists():
+    crashed = worker_of(start("w1", 1, "a"), ended("w1", 1, None, "crashed"))
+    assert (crashed.session, crashed.session_total_micros) == (None, 0)
+    timed_out = worker_of(start("w1", 1, "a"), ended("w1", 1, None, "timeout"))
+    assert timed_out.session is None
+    reported = worker_of(start("w1", 1, "a"), ended("w1", 1, 0, "capped"))
+    assert (reported.session, reported.session_total_micros) == ("a", 0)

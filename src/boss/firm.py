@@ -145,6 +145,8 @@ class _Firm:
                 break
             if round_.n in state.closed_rounds:
                 continue
+            if self.sheet.tasks and self._next_task(state) is None and state.workers:
+                break  # nothing is left to do: no further round is opened or paid for
             record = Recorder(self.ledger, self.run_id, round_.n)
             if round_.n not in state.approved_rounds and not self._approve(round_, record):
                 stopped = "investor declined the round"
@@ -173,7 +175,7 @@ class _Firm:
         )
         try:
             answer = self.ask(question).strip().lower()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:  # nobody is there to fund it; Ctrl-C is an interruption, not a no
             answer = "n"
         if answer in ("y", "yes", "a", "approve"):
             record("investor", EventType.APPROVED, data={"round": round_.n})

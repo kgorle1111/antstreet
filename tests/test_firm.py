@@ -1072,3 +1072,35 @@ def test_recovery_changes_nothing_in_a_run_that_was_not_interrupted(paths):
     before = read_events(paths.ledger)
     run(paths, Script())
     assert read_events(paths.ledger) == before
+
+
+def test_a_finished_run_opens_no_further_round_when_run_again(paths):
+    # Found by the simulation: every check passed in round 1 of 2, and running the firm again
+    # asked the investor to fund round 2.
+    s = sheet(rounds=(Round(1, 250_000, 1), Round(2, 250_000, 2)))
+    report, _ = run(paths, Script(step(GOOD, "done")), s)
+    assert report.all_passed
+    before = read_events(paths.ledger)
+    again, said = run(paths, Script(), s, answers=["y"])
+    assert again.all_passed and again.stopped is None
+    assert not any(line.startswith("Round 2") for line in said)
+    assert read_events(paths.ledger) == before
+
+
+def test_ctrl_c_at_the_funding_question_interrupts_the_run_and_declines_nothing(paths):
+    s = sheet(rounds=(Round(1, 204_000, 1), Round(2, 300_000, 2)))
+
+    def interrupt(question):
+        raise KeyboardInterrupt
+
+    worker = Script(step(HALF, cost=100_000))
+    with LedgerWriter(paths.ledger) as ledger:
+        data = {"hashes": content_hashes(s, paths.checks)}
+        approved = Event(run="r1", round=0, actor="investor", event=EventType.APPROVED, data=data)
+        ledger.append(approved)
+        with pytest.raises(KeyboardInterrupt):
+            run_firm(s, paths, ledger, "r1", env=ENV, ask=interrupt, say=lambda _: None,
+                     slice_runner=worker)  # fmt: skip
+    assert events_of(paths, EventType.STOPPED) == []
+    report, _ = run(paths, Script(step(GOOD, "done")), s, answers=["y"])
+    assert report.all_passed  # asked again on resume, and funded

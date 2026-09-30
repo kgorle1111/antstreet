@@ -198,9 +198,9 @@ def _live_session(
 
     Every attempt that is not a resume starts a new session id, recorded on its slice_start: the
     CLI refuses an id that is already in use, and an interrupted or failed attempt may or may not
-    have created one. A session is resumed only once a slice in it got past infrastructure, which
-    proves it exists. Ledgers written before slice_start carried a session fall back to the one
-    recorded at hiring.
+    have created one. A session is resumed only once a slice in it got past infrastructure and
+    reported the session's total, which proves it exists. Ledgers written before slice_start
+    carried a session fall back to the one recorded at hiring.
     """
     fallback = str(hired_session) if hired_session else None
     live: str | None = None
@@ -211,10 +211,12 @@ def _live_session(
         if e.event is EventType.SLICE_START:
             attempt = str(e.data.get("session") or fallback or "") or None
         elif e.event is EventType.SLICE_END:
-            worked = Outcome(e.data.get("outcome", Outcome.CRASHED)) not in INFRASTRUCTURE
-            if worked and attempt != live:
-                live, total = attempt, 0
+            # The CLI's own result for the slice is the proof: it carries the session's total.
+            # A slice that crashed or was killed before reporting proves nothing.
             known = e.data.get("session_total_micros")
+            worked = Outcome(e.data.get("outcome", Outcome.CRASHED)) not in INFRASTRUCTURE
+            if worked and isinstance(known, int) and attempt != live:
+                live, total = attempt, 0
             if attempt == live and isinstance(known, int):
                 total = known
     return live, total
