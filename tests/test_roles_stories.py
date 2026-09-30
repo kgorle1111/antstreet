@@ -10,6 +10,8 @@ from boss.roles.stories import (
     STORIES_SCHEMA,
     Stories,
     StoriesError,
+    is_fragment,
+    normalise,
     parse_stories,
     story_problems,
 )
@@ -163,3 +165,20 @@ def test_the_schema_asks_for_everything_the_parser_needs():
     criterion = story["properties"]["criteria"]["items"]
     assert set(criterion["required"]) == {"id", "given", "when", "then", "source"}
     assert STORIES_SCHEMA["properties"]["stories"]["maxItems"] == MAX_STORIES
+
+
+@pytest.mark.parametrize(
+    ("quote", "expected"),
+    [
+        ("join words with single hyphens", True),
+        ("  JOIN words\nwith   single hyphens ", True),
+        ("the text and join", True),
+        ("join words with one hyphen", False),
+        ("", False),
+        ("  \n ", False),
+        ("hyphens are single", False),
+    ],
+)
+def test_a_fragment_is_a_normalised_piece_of_the_normalised_idea(quote, expected):
+    assert is_fragment(quote, IDEA) is expected
+    assert normalise(" A\tB \n c ") == "a b c"

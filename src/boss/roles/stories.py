@@ -156,7 +156,7 @@ def story_problems(stories: Stories, idea: str) -> list[str]:
         problems.append(f"needs 1 to {MAX_STORIES} stories, has {len(stories.stories)}")
     if len(stories.criteria()) > MAX_CRITERIA:
         problems.append(f"at most {MAX_CRITERIA} criteria in all, has {len(stories.criteria())}")
-    haystack = _normalise(idea)
+    haystack = normalise(idea)
     for n, story in enumerate(stories.stories, start=1):
         if story.id != f"S{n}" or not _STORY_ID.fullmatch(story.id):
             problems.append(f"story {n} must have id S{n}, has {story.id!r}")
@@ -174,7 +174,7 @@ def story_problems(stories: Stories, idea: str) -> list[str]:
             for field in ("given", "when", "then"):
                 if not getattr(criterion, field).strip():
                     problems.append(f"{expected}: {field} is empty")
-            source = _normalise(criterion.source)
+            source = normalise(criterion.source)
             if len(source) < MIN_SOURCE_CHARS:
                 problems.append(
                     f"{expected}: source must quote at least {MIN_SOURCE_CHARS} characters"
@@ -188,9 +188,16 @@ def story_problems(stories: Stories, idea: str) -> list[str]:
     return problems
 
 
-def _normalise(text: str) -> str:
+def normalise(text: str) -> str:
     """Lower case, single spaces: a quote may differ from the idea in case and line breaks only."""
     return " ".join(text.lower().split())
+
+
+def is_fragment(quote: str, idea: str) -> bool:
+    """True when `quote`, once normalised, is a non-empty piece of the normalised idea. Length
+    limits are the caller's: a two-letter quote is a fragment of almost anything."""
+    needle = normalise(quote)
+    return bool(needle) and needle in normalise(idea)
 
 
 def _text(item: object, key: str) -> str:
