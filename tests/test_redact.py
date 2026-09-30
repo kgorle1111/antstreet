@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.redact import MASK, redact
+from boss.redact import MASK, redact, safe_text
 
 # Fake values shaped like real credentials. None of these are live.
 SAMPLES = {
@@ -122,3 +122,69 @@ def test_bearer_glued_to_a_preceding_word_is_masked():
 )
 def test_words_that_merely_contain_a_prefix_are_untouched(text):
     assert redact(text) == text
+
+
+@pytest.mark.parametrize(
+    ("raw", "shown"),
+    [
+        ("\x1b[31mred\x1b[0m", "\\x1b[31mred\\x1b[0m"),
+        ("bell\x07 nul\x00 cr\r del\x7f", "bell\\x07 nul\\x00 cr\\x0d del\\x7f"),
+        ("csi\x9b31m and \x80\x9f", "csi\\x9b31m and \\x80\\x9f"),
+    ],
+)
+def test_safe_text_makes_control_characters_visible(raw, shown):
+    assert safe_text(raw) == shown
+
+
+def test_safe_text_keeps_newline_tab_and_ordinary_unicode():
+    assert safe_text("a\tb\nc \u00e9\u4e2d\u00a0") == "a\tb\nc \u00e9\u4e2d\u00a0"
+
+
+def test_safe_text_masks_secrets_and_known_values():
+    key = "sk-ant-" + "a" * 30
+    assert safe_text(
+        f"k={key} v=plain-looking-9f8e7d", known_secrets=("plain-looking-9f8e7d",)
+    ) == (f"k={MASK} v={MASK}")
+
+
+def test_safe_text_without_limit_never_cuts():
+    assert safe_text("x" * 100_000) == "x" * 100_000
+
+
+def test_safe_text_cuts_to_the_limit_with_a_marker():
+    out = safe_text("x" * 100, limit=30)
+    assert len(out) == 30
+    assert out == "x" * 24 + " [cut]"
+    assert safe_text("x" * 30, limit=30) == "x" * 30  # exactly at the limit is not cut
+
+
+def test_safe_text_rejects_a_limit_too_small_for_the_marker():
+    with pytest.raises(ValueError, match="limit"):
+        safe_text("anything", limit=3)
+
+
+def test_safe_text_second_redaction_can_not_push_it_past_the_limit():
+    # Cutting inside "[REDACTED]" leaves "[REDAC", which the env-style pattern re-masks to the
+    # full ten characters, so the cut text grows by four.
+    out = safe_text("API_KEY=abcdefghij tail tail tail", limit=20)
+    assert len(out) <= 20
+    assert out.endswith(" [cut]")
+
+
+@pytest.mark.parametrize("offset", range(150, 200, 3))
+def test_safe_text_never_half_reveals_a_secret_across_the_cut(offset):
+    secret = "ghp_" + "Ab3" * 12
+    text = "x" * offset + secret + "y" * 100
+    out = safe_text(text, limit=190)
+    assert len(out) <= 190
+    assert "ghp_" not in out
+    assert secret[:12] not in out
+
+
+@pytest.mark.parametrize("limit", [None, 12, 20, 200])
+def test_safe_text_is_idempotent(limit):
+    text = (
+        "\x1b[2Jhead API_KEY=abcdefghij http://a:b@h/ Bearer " + "q" * 30 + "\x00" * 5 + "z" * 300
+    )
+    once = safe_text(text, limit=limit)
+    assert safe_text(once, limit=limit) == once

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 MASK = "[REDACTED]"
 _MIN_KNOWN_SECRET_LEN = 8  # shorter values would mask ordinary words
+_CUT = " [cut]"
+# C0, DEL and C1 controls except newline and tab; a raw ESC in model output could drive a terminal.
+_CONTROL_ESCAPES = {
+    c: f"\\x{c:02x}" for c in (*range(0x20), 0x7F, *range(0x80, 0xA0)) if c not in (0x0A, 0x09)
+}
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -52,3 +57,23 @@ def redact(text: str, known_secrets: Iterable[str] = ()) -> str:
     for pattern, replacement in _PATTERNS:
         text = pattern.sub(replacement, text)
     return text
+
+
+def safe_text(text: str, *, limit: int | None = None, known_secrets: Sequence[str] = ()) -> str:
+    """`text` made safe to show a person: secrets masked, control characters made visible, and
+    at most `limit` characters long, ending in ` [cut]` if it was cut.
+
+    Redaction runs before the cut and again after it, so a secret straddling the cut is never
+    half-shown. The second pass can lengthen the text (a short URL credential becomes the mask),
+    hence the final re-cut. Idempotent.
+    """
+    if limit is not None and limit < len(_CUT):
+        raise ValueError(f"limit must be at least {len(_CUT)}")
+
+    def cut(value: str) -> str:
+        if limit is None or len(value) <= limit:
+            return value
+        return value[: limit - len(_CUT)] + _CUT
+
+    text = redact(text, known_secrets).translate(_CONTROL_ESCAPES)
+    return cut(redact(cut(text), known_secrets))
