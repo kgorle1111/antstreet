@@ -47,8 +47,9 @@ def run(tmp_path):
             return answers[index]
 
         with LedgerWriter(ledger_path) as ledger:
-            result = review_term_sheet(SHEET, checks, tmp_path, ledger, "r1", ask=ask,
-                                       say=said.append)  # fmt: skip
+            result = review_term_sheet(
+                SHEET, checks, tmp_path, ledger, "r1", ask=ask, say=said.append
+            )
         return result, said
 
     review.checks = checks
@@ -84,8 +85,10 @@ def test_end_of_input_counts_as_rejection(run):
         raise EOFError
 
     with LedgerWriter(run.dir / "ledger.jsonl") as ledger:
-        assert review_term_sheet(SHEET, run.checks, run.dir, ledger, "r1", ask=ask,
-                                 say=lambda _: None) is None  # fmt: skip
+        assert (
+            review_term_sheet(SHEET, run.checks, run.dir, ledger, "r1", ask=ask, say=lambda _: None)
+            is None
+        )
     assert run.events()[0].event is EventType.STOPPED
 
 
@@ -129,8 +132,13 @@ def test_changing_a_check_after_approval_voids_it(run):
 
 
 def test_only_the_investor_can_approve(run):
-    forged = Event(run="r1", round=0, actor="boss", event=EventType.APPROVED,
-                   data={"hashes": content_hashes(SHEET, run.checks)})  # fmt: skip
+    forged = Event(
+        run="r1",
+        round=0,
+        actor="boss",
+        event=EventType.APPROVED,
+        data={"hashes": content_hashes(SHEET, run.checks)},
+    )
     with pytest.raises(NotApprovedError):
         require_approval([forged], SHEET, run.checks)
 

@@ -104,8 +104,9 @@ def _run_one(workspace: Path, check: Check, src: Path, timeout_s: float) -> Chec
         duration = time.monotonic() - start
         tail = output[-OUTPUT_TAIL_CHARS:]
         if timed_out:
-            return CheckResult(check.id, CheckStatus.TIMEOUT, None, f"exceeded {timeout_s}s",
-                               tail, duration)  # fmt: skip
+            return CheckResult(
+                check.id, CheckStatus.TIMEOUT, None, f"exceeded {timeout_s}s", tail, duration
+            )
         ok, detail = _verdict(exit_code, report)
         status = CheckStatus.PASSED if ok else CheckStatus.FAILED
         return CheckResult(check.id, status, exit_code, detail, tail, duration)
@@ -127,9 +128,16 @@ def _run_bounded(
 ) -> tuple[int | None, str, bool]:
     """Run in a new process group so a timeout also kills anything the check spawned."""
     proc = subprocess.Popen(
-        cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, errors="replace", start_new_session=True,
-    )  # fmt: skip
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        start_new_session=True,
+    )
     try:
         out, _ = proc.communicate(timeout=timeout_s)
         return proc.returncode, out, False

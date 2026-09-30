@@ -18,10 +18,13 @@ DRAFT = {
     "tasks": [{"id": "t1", "brief": "Create rev.py with reverse(s).", "paths": ["rev.py"]}],
     "checks": [
         {"description": "reverses a word", "task": "t1", "code": CHECK},
-        {"description": "empty string", "task": "t1",
-         "code": "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n"},
+        {
+            "description": "empty string",
+            "task": "t1",
+            "code": "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n",
+        },
     ],
-}  # fmt: skip
+}
 FAKE_CLI = f"""#!{sys.executable}
 import json, os, sys, time
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
@@ -44,10 +47,21 @@ def draft(tmp_path):
 
     def run(output, *, timeout_s=30.0, **env_extra):
         text = output if isinstance(output, str) else json.dumps(output)
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "FAKE_ARGV": str(argv_file),
-               "FAKE_OUTPUT": text, **env_extra}  # fmt: skip
-        return draft_term_sheet("Reverse a string.", 500_000, tmp_path / "checks", env=env,
-                                timeout_s=timeout_s, executable=str(cli))  # fmt: skip
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "FAKE_ARGV": str(argv_file),
+            "FAKE_OUTPUT": text,
+            **env_extra,
+        }
+        return draft_term_sheet(
+            "Reverse a string.",
+            500_000,
+            tmp_path / "checks",
+            env=env,
+            timeout_s=timeout_s,
+            executable=str(cli),
+        )
 
     run.argv_file = argv_file
     run.checks_dir = tmp_path / "checks"
@@ -90,13 +104,20 @@ def test_failed_call_raises_with_its_outcome(draft):
         ({"structured_output": {"tasks": DRAFT["tasks"]}}, "missing or malformed"),
         ({"structured_output": DRAFT | {"tasks": DRAFT["tasks"] * 2}}, "exactly one task"),
         ({"structured_output": DRAFT | {"checks": []}}, "expected 1 to 8 checks"),
-        ({"structured_output": DRAFT | {"tasks": [DRAFT["tasks"][0] | {"paths": "rev.py"}]}},
-         "missing or malformed"),
-        ({"structured_output": DRAFT | {"checks": [{"description": "d", "task": "t1", "code": 7}]}},
-         "code is not text"),
+        (
+            {"structured_output": DRAFT | {"tasks": [DRAFT["tasks"][0] | {"paths": "rev.py"}]}},
+            "missing or malformed",
+        ),
+        (
+            {
+                "structured_output": DRAFT
+                | {"checks": [{"description": "d", "task": "t1", "code": 7}]}
+            },
+            "code is not text",
+        ),
     ],
     ids=["none", "no-checks-key", "two-tasks", "zero-checks", "paths-string", "code-not-text"],
-)  # fmt: skip
+)
 def test_unusable_drafts_raise(draft, change, message):
     with pytest.raises(BossError, match=message):
         draft(result_with(**change))
@@ -127,8 +148,14 @@ def test_idea_cannot_be_read_as_a_flag(draft):
 
 
 def test_command_is_pinned():
-    argv = build_boss_command(prompt="Idea:\nx", system_prompt="S", schema={"type": "object"},
-                              model="haiku", cap_micros=100_000, api_key=True)  # fmt: skip
+    argv = build_boss_command(
+        prompt="Idea:\nx",
+        system_prompt="S",
+        schema={"type": "object"},
+        model="haiku",
+        cap_micros=100_000,
+        api_key=True,
+    )
     assert argv == [
         "claude", "--print", "--output-format", "json", "--bare", "--model", "haiku",
         "--tools", "", "--system-prompt", "S", "--json-schema", '{"type":"object"}',

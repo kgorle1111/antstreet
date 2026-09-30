@@ -79,9 +79,16 @@ def run_slice(
     lines: queue.Queue[object] = queue.Queue()
     start = time.monotonic()
     proc = subprocess.Popen(
-        argv, cwd=workspace, env=dict(env), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True, errors="replace", start_new_session=True,
-    )  # fmt: skip
+        argv,
+        cwd=workspace,
+        env=dict(env),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        start_new_session=True,
+    )
     threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
     threading.Thread(target=_drain, args=(proc.stderr, stderr_tail), daemon=True).start()
 

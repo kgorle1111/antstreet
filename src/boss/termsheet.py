@@ -77,8 +77,15 @@ class TermSheet:
     approved_by_investor: bool = False
 
     def __post_init__(self) -> None:
-        _types(self, idea=str, budget_micros=int, rounds=tuple, checks=tuple, tasks=tuple,
-               approved_by_investor=bool)  # fmt: skip
+        _types(
+            self,
+            idea=str,
+            budget_micros=int,
+            rounds=tuple,
+            checks=tuple,
+            tasks=tuple,
+            approved_by_investor=bool,
+        )
 
     def gate_checks(self) -> list[Check]:
         return [Check(c.id, c.file) for c in self.checks]
@@ -96,7 +103,7 @@ class TermSheet:
                 checks=tuple(CheckSpec(**_fields(c, CheckSpec)) for c in raw["checks"]),
                 tasks=tuple(
                     Task(**_fields(t, Task) | {"paths": tuple(t["paths"])}) for t in raw["tasks"]
-                ),  # fmt: skip
+                ),
             )
         except (ValueError, KeyError, TypeError) as exc:
             raise TermSheetError([f"not a valid term sheet: {exc}"]) from exc
@@ -183,11 +190,17 @@ def _round_problems(sheet: TermSheet) -> list[str]:
 
 def _ownership_problems(sheet: TermSheet) -> list[str]:
     task_ids = {t.id for t in sheet.tasks}
-    p = [f"check {c.id} belongs to unknown task {c.task!r}" for c in sheet.checks
-         if c.task not in task_ids]  # fmt: skip
+    p = [
+        f"check {c.id} belongs to unknown task {c.task!r}"
+        for c in sheet.checks
+        if c.task not in task_ids
+    ]
     owned = {c.task for c in sheet.checks}
-    p += [f"task {t.id} owns no checks, so its progress cannot be measured" for t in sheet.tasks
-          if t.id not in owned]  # fmt: skip
+    p += [
+        f"task {t.id} owns no checks, so its progress cannot be measured"
+        for t in sheet.tasks
+        if t.id not in owned
+    ]
     for task in sheet.tasks:
         if not task.paths:
             p.append(f"task {task.id} declares no paths")
@@ -221,7 +234,10 @@ def _defines_a_test(tree: ast.Module) -> bool:
 
     return any(
         is_test_fn(node)
-        or (isinstance(node, ast.ClassDef) and node.name.startswith("Test")
-            and any(is_test_fn(m) for m in node.body))
+        or (
+            isinstance(node, ast.ClassDef)
+            and node.name.startswith("Test")
+            and any(is_test_fn(m) for m in node.body)
+        )
         for node in tree.body
-    )  # fmt: skip
+    )

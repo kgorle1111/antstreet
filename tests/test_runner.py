@@ -88,10 +88,18 @@ def fake(tmp_path):
             "FAKE_CHILD_PID": str(child_pid),
             **extra_env,
         }
-        spec = SliceSpec(session_id=uuid4(), resume=False, prompt="Do it.", model="haiku",
-                         cap_micros=100_000)  # fmt: skip
-        return run_slice(spec, ws, tmp_path / "logs" / "w1.jsonl", env=env, timeout_s=timeout_s,
-                         grace_s=0.5, executable=str(cli))  # fmt: skip
+        spec = SliceSpec(
+            session_id=uuid4(), resume=False, prompt="Do it.", model="haiku", cap_micros=100_000
+        )
+        return run_slice(
+            spec,
+            ws,
+            tmp_path / "logs" / "w1.jsonl",
+            env=env,
+            timeout_s=timeout_s,
+            grace_s=0.5,
+            executable=str(cli),
+        )
 
     run.child_pid = child_pid
     run.workspace = ws

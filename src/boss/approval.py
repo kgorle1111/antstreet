@@ -37,8 +37,11 @@ def content_hashes(sheet: TermSheet, checks_dir: Path) -> dict[str, str]:
 def require_approval(events: Iterable[Event], sheet: TermSheet, checks_dir: Path) -> None:
     current = content_hashes(sheet, checks_dir)
     for event in events:
-        if (event.event is EventType.APPROVED and event.actor == "investor"
-                and event.data.get("hashes") == current):  # fmt: skip
+        if (
+            event.event is EventType.APPROVED
+            and event.actor == "investor"
+            and event.data.get("hashes") == current
+        ):
             return
     raise NotApprovedError("the term sheet or its checks have no matching investor approval")
 
@@ -69,12 +72,26 @@ def review_term_sheet(
         if answer in ("a", "approve"):
             approved = dataclasses.replace(sheet, approved_by_investor=True)
             path.write_text(approved.to_json())
-            ledger.append(Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED,
-                                data={"hashes": content_hashes(approved, checks_dir)}))  # fmt: skip
+            ledger.append(
+                Event(
+                    run=run_id,
+                    round=0,
+                    actor="investor",
+                    event=EventType.APPROVED,
+                    data={"hashes": content_hashes(approved, checks_dir)},
+                )
+            )
             return approved
         if answer in ("r", "reject"):
-            ledger.append(Event(run=run_id, round=0, actor="investor", event=EventType.STOPPED,
-                                data={"reason": "term sheet rejected"}))  # fmt: skip
+            ledger.append(
+                Event(
+                    run=run_id,
+                    round=0,
+                    actor="investor",
+                    event=EventType.STOPPED,
+                    data={"reason": "term sheet rejected"},
+                )
+            )
             say("Rejected. Nothing was funded.")
             return None
         if answer in ("e", "edit"):
@@ -93,13 +110,16 @@ def _reload_after_edit(
         return sheet
     while True:
         try:
-            edited = dataclasses.replace(TermSheet.from_json(path.read_text()),
-                                         approved_by_investor=False)  # fmt: skip
+            edited = dataclasses.replace(
+                TermSheet.from_json(path.read_text()), approved_by_investor=False
+            )
             validate(edited, checks_dir)
             return edited
         except TermSheetError as exc:
-            say("The edited term sheet does not validate:\n" +
-                "\n".join(f"  - {p}" for p in exc.problems))  # fmt: skip
+            say(
+                "The edited term sheet does not validate:\n"
+                + "\n".join(f"  - {p}" for p in exc.problems)
+            )
             try:
                 ask("Fix the files, then press Enter to re-check. ")
             except (EOFError, KeyboardInterrupt):
@@ -113,12 +133,17 @@ def render(sheet: TermSheet, checks_dir: Path) -> str:
         f"Budget: ${usd(sheet.budget_micros)} (estimated cost, not a bill)",
     ]
     for r in sheet.rounds:
-        lines.append(f"Round {r.n}: ${usd(r.budget_micros)}, next unlocks at {r.unlock_checks} "
-                     f"passing checks")  # fmt: skip
+        lines.append(
+            f"Round {r.n}: ${usd(r.budget_micros)}, next unlocks at {r.unlock_checks} "
+            f"passing checks"
+        )
     for task in sheet.tasks:
         lines += [f"\nTask {task.id} (owns {', '.join(task.paths)}):", f"  {task.brief}"]
     for check in sheet.checks:
         code = (checks_dir / check.file).read_text(encoding="utf-8").rstrip()
-        lines += [f"\nCheck {check.id} [{check.task}] {check.description}",
-                  f"--- {checks_dir / check.file}", code]  # fmt: skip
+        lines += [
+            f"\nCheck {check.id} [{check.task}] {check.description}",
+            f"--- {checks_dir / check.file}",
+            code,
+        ]
     return "\n".join(lines)

@@ -81,9 +81,14 @@ def load_prompt(name: str) -> str:
 
 
 def build_boss_command(
-    *, prompt: str, system_prompt: str, schema: Mapping[str, Any], model: str, cap_micros: int,
+    *,
+    prompt: str,
+    system_prompt: str,
+    schema: Mapping[str, Any],
+    model: str,
+    cap_micros: int,
     api_key: bool,
-) -> list[str]:  # fmt: skip
+) -> list[str]:
     """Exact argv for a boss call: no tools, replaced system prompt, JSON-schema output."""
     return [
         CLI, "--print", "--output-format", "json", "--bare" if api_key else "--safe-mode",
@@ -115,9 +120,13 @@ def draft_term_sheet(
     if not idea.strip() or idea.lstrip().startswith("-"):
         raise ValueError("idea must be non-empty text that does not start with '-'")
     argv = build_boss_command(
-        prompt=f"Idea:\n{idea.strip()}", system_prompt=load_prompt(TERM_SHEET_PROMPT),
-        schema=DRAFT_SCHEMA, model=model, cap_micros=cap_micros, api_key=uses_api_key(env),
-    )  # fmt: skip
+        prompt=f"Idea:\n{idea.strip()}",
+        system_prompt=load_prompt(TERM_SHEET_PROMPT),
+        schema=DRAFT_SCHEMA,
+        model=model,
+        cap_micros=cap_micros,
+        api_key=uses_api_key(env),
+    )
     argv[0] = executable
     output = _call(argv, env, timeout_s)
     sheet = _sheet_from_output(output, idea.strip(), budget_micros, checks_dir)
@@ -129,12 +138,19 @@ def _call(argv: list[str], env: Mapping[str, str], timeout_s: float) -> StreamRe
     with tempfile.TemporaryDirectory(prefix="boss_call_") as cwd:
         try:
             proc = subprocess.run(
-                argv, cwd=cwd, env=dict(env), stdin=subprocess.DEVNULL, capture_output=True,
-                text=True, timeout=timeout_s, check=False,
-            )  # fmt: skip
+                argv,
+                cwd=cwd,
+                env=dict(env),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
         except subprocess.TimeoutExpired:
-            raise BossError(f"boss call exceeded {timeout_s}s", Outcome.TIMEOUT,
-                            Usage(None, 0, 0, 0)) from None  # fmt: skip
+            raise BossError(
+                f"boss call exceeded {timeout_s}s", Outcome.TIMEOUT, Usage(None, 0, 0, 0)
+            ) from None
     reader = StreamReader()
     reader.feed(proc.stdout)
     outcome = classify(reader.signals())
@@ -166,8 +182,10 @@ def _sheet_from_output(
     for n, raw in enumerate(raw_checks, start=1):
         check_id = f"c{n:02d}"  # ids and file names are ours, never the model's
         try:
-            code, spec = raw["code"], CheckSpec(check_id, raw["description"],
-                                                f"test_{check_id}.py", raw["task"])  # fmt: skip
+            code, spec = (
+                raw["code"],
+                CheckSpec(check_id, raw["description"], f"test_{check_id}.py", raw["task"]),
+            )
         except (KeyError, TypeError) as exc:
             raise _unusable(f"check {n} is malformed: {exc}", output) from exc
         if not isinstance(code, str):

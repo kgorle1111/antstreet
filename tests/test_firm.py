@@ -61,17 +61,21 @@ def paths(tmp_path):
 
 def approve(paths, ledger):
     ledger.append(
-        Event(run="r1", round=0, actor="investor", event=EventType.APPROVED,
-              data={"hashes": content_hashes(SHEET, paths.checks)})
-    )  # fmt: skip
+        Event(
+            run="r1",
+            round=0,
+            actor="investor",
+            event=EventType.APPROVED,
+            data={"hashes": content_hashes(SHEET, paths.checks)},
+        )
+    )
 
 
 def first_round(paths, worker, *, approved=True):
     with LedgerWriter(paths.ledger) as ledger:
         if approved:
             approve(paths, ledger)
-        return run_first_round(SHEET, paths, ledger, "r1", env={"HOME": "/h"},
-                               slice_runner=worker)  # fmt: skip
+        return run_first_round(SHEET, paths, ledger, "r1", env={"HOME": "/h"}, slice_runner=worker)
 
 
 def test_correct_work_passes_every_check_and_unlocks(paths):
