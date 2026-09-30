@@ -1,0 +1,43 @@
+{
+  "id": "demo",
+  "version": 1,
+  "title": "Demo of a built feature",
+  "criteria": [
+    {
+      "id": "shows_feature",
+      "question": "Does the demo exercise the main behaviour the idea asked for, not a neighbouring one?",
+      "anchors": {
+        "1": "The demo shows something unrelated to the idea's main behaviour, or only that the program starts.",
+        "3": "The main behaviour appears, but only through a trivial input or alongside a lot of unrelated material.",
+        "5": "The demo's central steps are exactly the behaviour the idea asked for, on inputs that make that behaviour visible."
+      }
+    },
+    {
+      "id": "coverage",
+      "question": "How many of the behaviours the idea states are shown?",
+      "anchors": {
+        "1": "At most one of the stated behaviours is shown.",
+        "3": "Roughly half of the stated behaviours are shown; the rest are neither shown nor mentioned.",
+        "5": "Every stated behaviour is shown, or the demo says explicitly which are not and why."
+      }
+    },
+    {
+      "id": "real_output",
+      "question": "Is what the demo presents real output of running the thing, not description or hand-written results?",
+      "anchors": {
+        "1": "Results are asserted in prose or typed by hand; no command or call that could have produced them is shown.",
+        "3": "Commands are shown but some results are summarised or elided so they cannot be compared to the command.",
+        "5": "Each result is shown next to the exact command or call that produced it, unedited."
+      }
+    },
+    {
+      "id": "followable",
+      "question": "Can someone with no prior knowledge follow what is being done and see the result?",
+      "anchors": {
+        "1": "Steps are not in order or assume knowledge the demo never gives.",
+        "3": "The order is clear, but at least one step or output is shown without saying what to look at.",
+        "5": "Each step says what is about to be done and what to look for in the result."
+      }
+    }
+  ]
+}

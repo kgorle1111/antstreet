@@ -1,0 +1,43 @@
+{
+  "id": "stories",
+  "version": 1,
+  "title": "User stories and acceptance criteria",
+  "criteria": [
+    {
+      "id": "clarity",
+      "question": "Does each story say who wants what and why, without the reader having to guess?",
+      "anchors": {
+        "1": "Stories are fragments or restate the feature name; the actor or the reason is missing in most of them.",
+        "3": "Most stories name an actor and a want, but some reasons are vague ('so that it works') or two stories overlap.",
+        "5": "Every story names a specific actor, one want and a concrete reason; no two stories overlap."
+      }
+    },
+    {
+      "id": "checkable",
+      "question": "Could each acceptance criterion be turned into an automated pass or fail check exactly as written?",
+      "anchors": {
+        "1": "Criteria are adjectives ('fast', 'user-friendly', 'works well') with no observable result.",
+        "3": "About half the criteria name an input and an observable result; the rest need interpretation before they can be tested.",
+        "5": "Every criterion gives a starting state, an action and one observable result, with concrete values where the idea supplies them."
+      }
+    },
+    {
+      "id": "faithful",
+      "question": "Does every story and criterion trace to something the idea actually says, with nothing invented?",
+      "anchors": {
+        "1": "Several requirements appear that the idea never mentions, or a stated requirement is contradicted.",
+        "3": "Mostly grounded, but one or two criteria add detail (a format, a limit, a feature) the idea does not state.",
+        "5": "Everything traces to the idea's own words; open questions are listed as questions, not silently decided."
+      }
+    },
+    {
+      "id": "complete",
+      "question": "Are the behaviours the idea clearly asks for all covered by at least one story?",
+      "anchors": {
+        "1": "A behaviour central to the idea has no story at all.",
+        "3": "The main behaviour is covered, but one explicitly stated secondary behaviour or edge case is missing.",
+        "5": "Every behaviour the idea states is covered, including the edge cases it implies, and the ones left out are named as out of scope."
+      }
+    }
+  ]
+}
