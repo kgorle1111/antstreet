@@ -1470,7 +1470,7 @@ def check_product(res: Result) -> None:
             done += got
             for e in ev[b.start : b.end + 1]:
                 task = next(c.task for c in sheet.checks if c.id == e.data["check"])
-                shape = {"check", "task", "status", "detail", "scope"}
+                shape = {"check", "task", "status", "detail", "scope", "sandboxed"}
                 if e.actor != "gate" or set(e.data) != shape or e.data["task"] != task:
                     _fail(res, f"a malformed product result {e.data}")
             after = ev[b.end + 1] if b.end + 1 < len(ev) else None

@@ -385,6 +385,8 @@ Round 1: 1/1 checks passed, next round unlocked
 Checks
   c01  passed   1 passed
 
+WARNING: Checks ran sandboxed: 0 of 2 (2 UNCONFINED); see T39 in the threat model.
+
 Spend (estimated by the CLI, not a bill)
   boss         $0.0040   tokens in 10 / out 5 / cached 0
   worker:w1    $0.0060   tokens in 10 / out 5 / cached 0
@@ -396,7 +398,8 @@ Workers
 Run folder: PROJECT/.boss/runs/RUN  (built files: PROJECT/.boss/runs/RUN/product)"""
 
 
-def test_with_no_roles_the_ledger_and_the_output_are_what_they_always_were(fx):
+def test_with_no_roles_the_ledger_and_the_output_are_what_they_always_were(fx, monkeypatch):
+    monkeypatch.setenv("BOSS_GATE_SANDBOX", "off")  # the sandbox line depends on the machine
     out = fx.fund()
     assert out.code == EXIT_OK
     shown = out.text.replace(fx.run_dir.name, "RUN").replace(str(fx.project.resolve()), "PROJECT")
