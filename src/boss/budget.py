@@ -53,6 +53,8 @@ def remaining(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
     cap, and so is a slice that started and never reported an end (the run was interrupted):
     treating either as free would let a round fund such slices without end. An infrastructure
     failure (login, rate limit) reported no cost because it did no work, so it is not charged.
+    The charge is dropped once a later slice resumes the same session and reports its total: that
+    total covers the lost slice's real spend, which the later slice's cost then books.
 
     Call this between slices only: a slice still running looks like one that never ended.
     """
@@ -61,24 +63,28 @@ def remaining(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
 
 
 def _unknown_slice_charges(events: Sequence[Event], round_n: int) -> int:
-    unfinished: dict[tuple[str, object], int] = {}  # slices started and not yet ended, by cap
-    charged = 0
+    # Slices started and not yet ended, and slices lost, each as cap and session, by round.
+    unfinished: dict[tuple[int, str, object], tuple[int, object]] = {}
+    lost: list[tuple[int, int, object]] = []  # (round, cap, session)
     for e in events:
-        if e.round != round_n:
-            continue
-        key = (e.actor, e.data.get("slice"))
+        key = (e.round, e.actor, e.data.get("slice"))
         if e.event is EventType.SLICE_START:
-            charged += unfinished.pop(key, 0)  # the same slice started again: the first was lost
+            if key in unfinished:  # the same slice started again: the first was lost
+                lost.append((e.round, *unfinished[key]))
             cap = e.data.get("cap_micros")
-            unfinished[key] = cap if type(cap) is int and cap > 0 else 0
+            unfinished[key] = (cap if type(cap) is int and cap > 0 else 0, e.data.get("session"))
         elif e.event is EventType.SLICE_END:
-            cap = unfinished.pop(key, 0)
+            cap, session = unfinished.pop(key, (0, None))
+            if session is not None and type(e.data.get("session_total_micros")) is int:
+                # A resumed session reports its cumulative cost: this slice's cost already holds
+                # what every earlier slice of the session spent, whichever round booked it.
+                lost = [x for x in lost if x[2] != session]
+                unfinished = {k: v for k, v in unfinished.items() if v[1] != session}
             if e.cost_micros is None and e.data.get("outcome") not in _INFRASTRUCTURE:
-                charged += cap
-    # kn: if the lost slice's session is later resumed, the CLI's cumulative total recovers its
-    # real cost and the cap is counted as well. Over-counting after an interruption is the safe
-    # side.
-    return charged + sum(unfinished.values())
+                lost.append((e.round, cap, session))
+    return sum(cap for r, cap, _ in lost if r == round_n) + sum(
+        cap for k, (cap, _) in unfinished.items() if k[0] == round_n
+    )
 
 
 def next_slice_cap(

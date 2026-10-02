@@ -183,6 +183,97 @@ def test_a_failed_infrastructure_attempt_is_not_charged_when_the_slice_runs_agai
     assert remaining(sheet(), events, 1) == 600_000 - 9_000
 
 
+def s_start(n: int, cap: int, session: str, round_n: int = 1) -> Event:
+    return ev(round_n, EventType.SLICE_START, slice=n, cap_micros=cap, session=session)
+
+
+def s_end(
+    n: int, cost: int | None, total: int | None, outcome: str = "completed", round_n: int = 1
+) -> Event:
+    return ev(round_n, cost=cost, slice=n, outcome=outcome, session_total_micros=total)
+
+
+def test_a_lost_slice_is_counted_once_when_its_session_is_resumed() -> None:
+    # Slice 2 spent 30,000 before the run was interrupted; nothing was booked for it. Slice 3
+    # resumes the session and the CLI reports the cumulative 70,000: slice 3 books 70,000 - 30,000.
+    events = [
+        s_start(1, 40_000, "S"),
+        s_end(1, 30_000, 30_000),
+        s_start(2, 40_000, "S"),  # lost
+        s_start(3, 40_000, "S"),
+        s_end(3, 40_000, 70_000),
+    ]
+    assert round_spend(events, 1).cost_micros == 70_000  # the session's real total
+    assert remaining(sheet(), events, 1) == 600_000 - 70_000  # not another 40,000 for slice 2
+
+
+def test_a_lost_slice_stays_charged_until_a_later_slice_of_its_session_reports() -> None:
+    lost = [s_start(1, 40_000, "S"), s_end(1, 30_000, 30_000), s_start(2, 40_000, "S")]
+    assert remaining(sheet(), lost, 1) == 600_000 - 30_000 - 40_000
+    # Slice 3 of the same session is lost too (cost unknown): nothing has covered slice 2 yet.
+    both = [*lost, s_start(3, 25_000, "S"), s_end(3, None, None, "timeout")]
+    assert remaining(sheet(), both, 1) == 600_000 - 30_000 - 40_000 - 25_000
+    # Slice 4 reports the session's total, which holds the spend of slices 2 and 3.
+    covered = [*both, s_start(4, 40_000, "S"), s_end(4, 55_000, 85_000)]
+    assert remaining(sheet(), covered, 1) == 600_000 - 85_000
+
+
+def test_the_same_slice_started_again_in_its_session_is_counted_once() -> None:
+    events = [
+        s_start(1, 40_000, "S"),
+        s_end(1, 30_000, 30_000),
+        s_start(2, 40_000, "S"),  # interrupted
+        s_start(2, 40_000, "S"),  # run again after a resume of the run
+        s_end(2, 35_000, 65_000),
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 65_000
+
+
+def test_a_report_from_another_session_does_not_cover_a_lost_slice() -> None:
+    events = [
+        s_start(1, 40_000, "S"),  # lost before the CLI reported anything: S is never resumed
+        s_start(1, 40_000, "S2"),  # a new session, so no cumulative total includes slice 1
+        s_end(1, 30_000, 30_000),
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000 - 40_000
+
+
+def test_a_report_without_a_total_does_not_cover_a_lost_slice() -> None:
+    events = [
+        s_start(1, 40_000, "S"),
+        s_end(1, 30_000, 30_000),
+        s_start(2, 40_000, "S"),  # lost
+        s_start(3, 40_000, "S"),
+        s_end(3, 10_000, None),  # no session total: it cannot be known to include slice 2
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000 - 40_000 - 10_000
+
+
+def test_a_lost_slice_covered_in_a_later_round_is_not_charged_in_its_own() -> None:
+    events = [
+        s_start(1, 40_000, "S", round_n=1),
+        s_end(1, 30_000, 30_000, round_n=1),
+        s_start(2, 40_000, "S", round_n=1),  # lost when round 1 ended
+        s_start(3, 40_000, "S", round_n=2),
+        s_end(3, 40_000, 70_000, round_n=2),  # books slice 2's spend as well, in round 2
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000
+    assert remaining(sheet(), events, 2) == 400_000 - 40_000
+    assert round_spend(events, 1).cost_micros + round_spend(events, 2).cost_micros == 70_000
+
+
+def test_a_lost_slice_of_another_worker_is_not_covered_by_this_workers_session() -> None:
+    other = Event(
+        run="r",
+        round=1,
+        actor="worker:b",
+        event=EventType.SLICE_START,
+        data={"slice": 1, "cap_micros": 90_000, "session": "T"},
+    )
+    events = [other, s_start(1, 40_000, "S"), s_end(1, 30_000, 30_000)]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000 - 90_000
+
+
 def test_remaining_negative_after_overshoot() -> None:
     assert remaining(sheet(), [ev(1, cost=450_000), ev(1, cost=200_000)], 1) == -50_000
 
