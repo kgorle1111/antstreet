@@ -994,7 +994,7 @@ def test_a_verified_finding_the_investor_approves_is_fixed_by_a_worker_and_recor
     # the amendment: the investor's approval of exactly the amended sheet, adding c02, in round 2
     first, amendment = approvals(fx)
     assert amendment.actor == "investor" and amendment.round == 2
-    assert set(amendment.data) == {"hashes", "round", "added_checks"}
+    assert set(amendment.data) == {"hashes", "round", "added_checks", "sig"}  # signed (T46)
     assert amendment.data["round"] == 2 and amendment.data["added_checks"] == ["c02"]
     assert set(amendment.data["hashes"]) == {"term_sheet", "test_c01.py", "test_c02.py"}
     assert amendment.data["hashes"]["test_c01.py"] == first.data["hashes"]["test_c01.py"]

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from boss import signing
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
 from boss.errors import Outcome
 from boss.firm import Advise, FirmConfig, FirmReport, config_data
@@ -595,6 +596,8 @@ class Pipeline:
             "round": n,
             "added_checks": [c.id for c in checks],
         }
+        if (key_path := self.paths.investor_key) is not None:
+            data = signing.signed(signing.load_or_create_key(key_path), self.run_id, n, data)
         Recorder(self.ledger, self.run_id, n)("investor", EventType.APPROVED, data=data)
         approved = dataclasses.replace(amended, approved_by_investor=True)
         (self.paths.root / TERM_SHEET_FILE).write_text(approved.to_json())

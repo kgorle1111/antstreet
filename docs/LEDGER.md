@@ -40,7 +40,7 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   It does not stop a forger who recomputes it; that is what the signature on an approval is for
   (below). It also cannot see the end of the file: dropping the last lines leaves a valid chain,
   and the last line is not covered until another line follows it. A ledger with every `prev`
-  removed reads as an older one. `docs/THREAT_MODEL.md` T29 states the limits.
+  removed reads as an older one. `docs/THREAT_MODEL.md` T46 states the limits.
 - Keys are sorted. Timestamps are UTC ISO 8601.
 - `state.py`'s docstring lists the `data` contract for thirteen event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
@@ -535,6 +535,18 @@ Example:
   none, voids the approval exactly as an edited check does. An amendment must carry the current
   `held_out_hashes` as well as its `hashes`, or it does not match. After an amendment, the
   amendment's hashes are the ones that match.
+- Signature. The investor's key is 32 random bytes in `<project>/.boss/investor.key` (hex, mode
+  0600, created by the first approval in the project, inside the project's ignored `.boss/`).
+  `approval.review_term_sheet` and `pipeline.py` sign with it; `require_approval` verifies with
+  it and never prints it. When the key file exists, a signed approval counts only if its `sig`
+  verifies (an edited approval, one moved to another run, or one signed with another key does
+  not), and an unsigned approval counts only if its line has no `prev`, that is, it was written
+  before the chain: every line the code writes now is chained and signed. When the key file is
+  missing, a signed approval cannot be verified and is refused, and an unsigned one is accepted
+  (as it always was). A key file that is unreadable, readable by others, a symlink or not 32
+  bytes of hex stops the check with an error that does not quote it. Losing the key voids the
+  signed approvals of the project's runs.
+- The round form (`{"round": N}`) is not signed; only the chain covers it.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -542,6 +554,7 @@ Example:
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
 | `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
+| `sig` | str | HMAC-SHA-256 (hex) with the project's investor key over the event's run id, its round and every other key of `data`. On the first form and on an amendment when the run is in a project (`<project>/.boss/runs/<id>`). Absent from approvals written before signing. |
 
 Examples:
 
@@ -553,10 +566,17 @@ Examples:
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"round": 2}, "event": "approved", "round": 2, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:28.108273+00:00", "v": 1}
 ```
 
-An amendment:
+A signed approval on a chained line, as `boss fund` writes it (the key that signed this one was
+thrown away):
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added_checks": ["c03"], "hashes": {"term_sheet": "3358c4b8c732606c083e7f794881519b229ba89c5d388c2be6f7e79448cae768", "test_c01.py": "1d8375400c8f62ba12608933211da7dade2459fb89df181c1f23150d29b89b56", "test_c02.py": "8be209cefbc72a3ceb2b34f55206827c0a0efd55aa9e6d45b66b1fe3fba83f63", "test_c03.py": "65ba46c76ea3d12622b3ae82f9715b4baf58c84be286d8cb03645894e00ca6a1"}, "round": 2}, "event": "approved", "round": 2, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:41.920211+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"hashes": {"term_sheet": "aa0ce180f53592efa47a651dc9e0b62d750b5817cec5f2dce48f585f158c7f5b", "test_c01.py": "46dcc9df463d18fec190640e9731fb76fd54990602d51e6f562260ee40137215", "test_c02.py": "ef8fdb7658a4589dad9a7e41b8b287e591fb402c96b8b5b3bc1438cbe7fe1173"}, "sig": "61434adc9e66de41b498b390a0e654e87b71c026f05b2a1d446a371d99d61757"}, "event": "approved", "prev": "7211d3a5bb23508fb9e64a0dc9863c1f0475689c6c0c16e91731ce7d99839f50", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:52:27.361484+00:00", "v": 1}
+```
+
+An amendment (signed like the first form, in round 2):
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added_checks": ["c03"], "hashes": {"term_sheet": "3358c4b8c732606c083e7f794881519b229ba89c5d388c2be6f7e79448cae768", "test_c01.py": "1d8375400c8f62ba12608933211da7dade2459fb89df181c1f23150d29b89b56", "test_c02.py": "8be209cefbc72a3ceb2b34f55206827c0a0efd55aa9e6d45b66b1fe3fba83f63", "test_c03.py": "65ba46c76ea3d12622b3ae82f9715b4baf58c84be286d8cb03645894e00ca6a1"}, "round": 2, "sig": "b19804ca0c46db6f21d950a8fa527f9970f5c7ede78c19cc111df7251c0a7562"}, "event": "approved", "prev": "fc9ef3312be6ddc0b9ac051bec79f7636249921f56c2fe09d2393d43901739e1", "round": 2, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:41.920211+00:00", "v": 1}
 ```
 
 ### `topped_up`

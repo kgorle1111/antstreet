@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from boss import held_out
+from boss import held_out, signing
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import _CONTROL_ESCAPES, safe_text
 from boss.termsheet import TermSheet, TermSheetError, validate
@@ -44,16 +44,26 @@ def require_approval(
     sheet: TermSheet,
     checks_dir: Path,
     held_out_dir: Path | None = None,
+    key_path: Path | None = None,
 ) -> None:
     """Raise NotApprovedError unless an investor approval matches the files on disk. With a
     `held_out_dir`, the approval must also match that folder exactly, so a held-out file edited,
     added or removed after approval voids it (an approval made without held-out checks records
-    none, so a folder that appears later voids it too)."""
+    none, so a folder that appears later voids it too).
+
+    With a `key_path` that holds the project's investor key, a signed approval must carry a valid
+    HMAC, and an unsigned one counts only when it is older than the hash chain (its line has no
+    `prev`): a line written by this code always signs, so an unsigned approval inside the chain
+    is a forgery. Without a key file nothing can be verified and a signature is not required."""
     try:
         current = content_hashes(sheet, checks_dir)
         held = None if held_out_dir is None else held_out.hashes(held_out_dir)
+        key = None if key_path is None else signing.load_key(key_path)
     except OSError as exc:  # a check deleted or made unreadable is a check that changed
         raise NotApprovedError(f"an approved check cannot be read: {exc}") from exc
+    except signing.SigningError as exc:
+        raise NotApprovedError(str(exc)) from exc
+    unverified = False
     for event in events:
         if (
             event.event is EventType.APPROVED
@@ -61,8 +71,21 @@ def require_approval(
             and event.data.get("hashes") == current
             and (held is None or event.data.get("held_out_hashes", {}) == held)
         ):
-            return
+            if _signature_ok(event, key):
+                return
+            unverified = True
+    if unverified:
+        raise NotApprovedError(
+            "an investor approval matches the term sheet and its checks but its signature does "
+            "not verify against .boss/investor.key (forged, edited, or the key was replaced)"
+        )
     raise NotApprovedError("the term sheet or its checks have no matching investor approval")
+
+
+def _signature_ok(event: Event, key: bytes | None) -> bool:
+    if signing.SIG_KEY in event.data:
+        return key is not None and signing.verify(key, event)
+    return key is None or event.prev is None
 
 
 def review_term_sheet(
@@ -76,6 +99,7 @@ def review_term_sheet(
     say: Say = print,
     notes: Sequence[str] = (),
     held_out_dir: Path | None = None,
+    key_path: Path | None = None,
 ) -> TermSheet | None:
     """Show the term sheet; loop until the investor approves (returns the sheet) or rejects (None).
 
@@ -84,7 +108,8 @@ def review_term_sheet(
     opinions on the draft (stories, coverage, an audit): they are shown under the sheet and bind
     nothing. Approval is of the sheet and the checks alone, and of the held-out checks when
     `held_out_dir` holds any: the investor reads them with the rest, and their hashes go into the
-    same approval event.
+    same approval event. With a `key_path` the approval event is signed with the project's
+    investor key, which is created there on first use.
     """
     path = run_dir / TERM_SHEET_FILE
     path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
@@ -113,6 +138,8 @@ def review_term_sheet(
             data: dict[str, Any] = {"hashes": content_hashes(approved, checks_dir)}
             if held_out_dir is not None and (held := held_out.hashes(held_out_dir)):
                 data["held_out_hashes"] = held
+            if key_path is not None:
+                data = signing.signed(signing.load_or_create_key(key_path), run_id, 0, data)
             ledger.append(
                 Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED, data=data)
             )

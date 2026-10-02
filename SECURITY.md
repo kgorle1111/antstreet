@@ -55,7 +55,7 @@ Risks accepted in the threat model, with what would change each:
 | Id | Risk | Status |
 |---|---|---|
 | T12 | Code written to defeat the gate can fake a pass | `accepted` |
-| T29 | Anyone who can write the ledger can forge an approval | `accepted` |
+| T29 | Anyone with the user's file access can forge an approval (a worker without the key cannot: T46) | `accepted` |
 | T36 | A hostile `claude` binary on `PATH` or in `BOSS_CLAUDE_BIN` | `accepted` |
 | T37 | A worker can fill the disk or CPU within the time and money caps | `accepted` |
 

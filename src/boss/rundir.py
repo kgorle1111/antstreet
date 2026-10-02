@@ -12,6 +12,7 @@ from boss.handoff import SKIPPED_NAMES
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import safe_text
 from boss.runner import SliceRun
+from boss.signing import KEY_FILE
 from boss.state import RunState
 from boss.termsheet import TermSheet
 from boss.worker import clean_status
@@ -20,6 +21,15 @@ from boss.worker import clean_status
 @dataclass(frozen=True, slots=True)
 class RunPaths:
     root: Path
+
+    @property
+    def investor_key(self) -> Path | None:
+        """The project's investor key when this folder is `<project>/.boss/runs/<id>`, else None
+        (a folder laid out any other way, such as a test's, has no project to hold one)."""
+        runs = self.root.parent
+        if runs.name != "runs" or runs.parent.name != ".boss":
+            return None
+        return runs.parent / KEY_FILE
 
     @property
     def ledger(self) -> Path:

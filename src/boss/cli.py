@@ -71,6 +71,7 @@ from boss.roles.org import org_chart, render_org
 from boss.rule import FiringPolicy
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
+from boss.signing import SigningError
 from boss.state import run_state
 from boss.stream import Usage
 from boss.termsheet import TermSheet, TermSheetError
@@ -365,17 +366,22 @@ def _fund(
         if plan is None:
             return EXIT_FAILED
         held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, args.reserve)
-        sheet = review_term_sheet(
-            plan.sheet,
-            paths.checks,
-            paths.root,
-            ledger,
-            run_id,
-            ask=ask,
-            say=say,
-            notes=plan.notes,
-            held_out_dir=paths.held_out if held else None,
-        )
+        try:
+            sheet = review_term_sheet(
+                plan.sheet,
+                paths.checks,
+                paths.root,
+                ledger,
+                run_id,
+                ask=ask,
+                say=say,
+                notes=plan.notes,
+                held_out_dir=paths.held_out if held else None,
+                key_path=paths.investor_key,
+            )
+        except SigningError as exc:
+            say(f"The approval could not be signed, so nothing was funded: {exc}")
+            return EXIT_FAILED
         if sheet is None:
             return EXIT_FAILED
         say("Approved. Hiring a worker...")

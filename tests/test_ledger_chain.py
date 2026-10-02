@@ -1,7 +1,7 @@
 """The ledger's hash chain: each line carries the SHA-256 of the line before it.
 
 The chain is unkeyed, so it detects an edit that does not recompute it (a byte flip, a deleted,
-inserted or reordered line) and does not stop one that does (T29). It also cannot see the end of
+inserted or reordered line) and does not stop one that does (T46). It also cannot see the end of
 the file: nothing follows the last line, and dropping trailing lines leaves a valid chain; those
 two limits are pinned by `test_accepted_risk_*` below.
 """
@@ -163,7 +163,7 @@ def test_a_chain_stripped_from_the_middle_of_a_ledger_is_refused(path):
 
 
 def test_accepted_risk_a_ledger_with_every_prev_removed_loads_as_an_older_one(path):
-    # Whoever can rewrite the whole file can also remove the chain; see docs/THREAT_MODEL.md T29.
+    # Whoever can rewrite the whole file can also remove the chain; see docs/THREAT_MODEL.md T46.
     write_all(path, 3)
     stripped = []
     for line in lines_of(path):

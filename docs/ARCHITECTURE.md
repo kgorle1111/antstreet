@@ -37,7 +37,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | Module | Owns | Never |
 |---|---|---|
 | `__init__.py` | The package version, read from installed metadata. | Hold logic. |
-| `approval.py` | Showing the term sheet (and the held-out checks, if any), the approve/reject/edit loop, content hashes, `require_approval`. | Set approval without an investor answer; accept a hash that does not match the files on disk. |
+| `approval.py` | Showing the term sheet (and the held-out checks, if any), the approve/reject/edit loop, content hashes, signing the approval, `require_approval`. | Set approval without an investor answer; accept a hash that does not match the files on disk, or a signature that does not verify. |
 | `boss.py` | The boss's one model call: command line, draft schema, turning a draft into a term sheet. | Take ids, file names, money or round plan from the model; give the boss a tool. |
 | `briefs.py` | What a worker is told: first brief, continuation after a gate run, reassignment brief, and the note about checks the investor added. | Call a model; present a worker's earlier words as instructions. |
 | `budget.py` | Round budgets, top-ups, remaining money, slice caps, the reserve, unlock test, round plan. Charges a slice that did work with no cost, or that never ended, at its cap. | Use floats; read a clock. |
@@ -48,7 +48,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `gate.py` | Running checks against a fresh copy of the workspace, inside the OS sandbox when there is one; the verdict. | Read the exit code alone; run a check from the workspace; modify the original workspace. |
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
 | `held_out.py` | The `held_out/` folder of a run: its manifest, its content hashes, and the gate its files must pass (ids, parse, a test function, failing on an empty workspace). | Hold a check's body anywhere but that folder; let a file it does not list stand. |
-| `ledger.py` | The event schema, the exclusive appender, the reader, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0. |
+| `ledger.py` | The event schema, the exclusive appender that chains each line to the one before, the reader that checks the chain, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0. |
 | `limits.py` | Hard run limits: spend ceiling, slices, workers, wall clock, and the size of a worker's folder. | Depend on the round budget or the rule. |
 | `pipeline.py` | The roles the investor chose, around the loop: before approval (stories, staged draft, audit, judge, notes under the sheet), while a dispute is open (the consultant's line), after the build (the critic and the fix round, the demo, the judge of the usage note). Booking every role call, the `started` event's `roles`, and what a resume still owes. | Decide anything: a note binds nothing, a proposal changes the run only when the investor says yes; record an amendment by anyone but the investor; call a role that was not chosen; write a role's model text to the screen unmade safe. |
 | `redact.py` | Masking secrets and control characters in text that is stored or shown (`safe_text`), in linear time. | Return text that still contains a matched secret. |
@@ -72,6 +72,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `rundir.py` | Run folder layout, the event recorder, counting a folder's bytes against the size limit, assembling `product/`. | Copy a file into a path another task owns; follow a symlink. |
 | `runner.py` | Running one slice as a supervised child process; isolation check at init and on any later hook event; cutting its log at 50 MB; stopping it. | Leave a child running; start in a workspace holding agent config. |
 | `sandbox.py` | Building the command that runs one check inside a macOS `sandbox-exec` or Linux `bwrap` sandbox; probing that the tool works. | Run a check; put a path into profile text; trust a tool it has not probed. |
+| `signing.py` | The investor's per-project key file (`.boss/investor.key`) and the HMAC on approval events. | Print, log or put the key in an error; create it readable by anyone but the owner. |
 | `skills/__init__.py` | Loading and parsing skill files: a header of `name`, `version` and `description`, then a body. | Accept another header; load a body over 4,000 characters. |
 | `state.py` | Rebuilding run state (workers, tasks, rounds, stops, sessions, dropped checks) from events. | Read anything but events. |
 | `stream.py` | Reading the CLI's `stream-json` output; usage and cost. | Raise on malformed input; turn a missing cost into 0. |
