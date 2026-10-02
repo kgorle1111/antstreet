@@ -61,6 +61,7 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
             if str(e.data["check"]) not in settled:
                 disputed[key].add(str(e.data["check"]))
 
+    inherited = _inherited_disputes(events, settled)
     dropped = ruled(events, DROPPED)  # a dropped check counts for nothing, passing or not
     history: dict[str, list[SliceRecord]] = {}
     for e in events:
@@ -76,11 +77,37 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
                 outcome=_outcome(e),
                 status=str(status),
                 passing=frozenset(passing.get((worker, number), set())) - dropped,
-                disputed=frozenset(disputed.get((worker, number), set())),
+                disputed=frozenset(disputed.get((worker, number), set()))
+                | inherited.get(worker, set()),
                 denied_tools=tuple(str(t) for t in e.data.get("denied_tools") or ()),
             )
         )
     return history
+
+
+def _inherited_disputes(events: Sequence[Event], settled: frozenset[str]) -> dict[str, set[str]]:
+    """Per worker, the checks that workers hired earlier for the same task disputed and the
+    investor has not ruled on. A dispute is about a check, not about the worker who raised it: the
+    rule must go on seeing it after that worker is fired, or a replacement whose only failing
+    checks are those would be judged as if nobody had doubted them."""
+    hired: list[tuple[str, str]] = []  # (worker, task) in hiring order
+    for e in events:
+        if e.event is EventType.HIRED and "worker" in e.data:
+            hired.append((str(e.data["worker"]), str(e.data.get("task", ""))))
+    order = {worker: i for i, (worker, _) in enumerate(hired)}
+    raised = [
+        (str(e.data["worker"]), str(e.data.get("task", "")), str(e.data["check"]))
+        for e in events
+        if e.event is EventType.DISPUTED and "worker" in e.data and "check" in e.data
+    ]
+    return {
+        worker: {
+            check
+            for by, on, check in raised
+            if on == task and check not in settled and order.get(by, len(order)) < order[worker]
+        }
+        for worker, task in hired
+    }
 
 
 def _outcome(event: Event) -> Outcome:

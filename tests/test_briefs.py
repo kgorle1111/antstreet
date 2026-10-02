@@ -3,7 +3,12 @@ these tests pin what is in it, in what order, and that nothing in it can pose as
 
 import uuid
 
-from boss.briefs import FEEDBACK_TAIL_CHARS, continuation_prompt, task_prompt
+from boss.briefs import (
+    FEEDBACK_TAIL_CHARS,
+    continuation_prompt,
+    predecessor_disputes_note,
+    task_prompt,
+)
 from boss.gate import CheckResult, CheckStatus
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
 from boss.worker import SliceSpec
@@ -144,3 +149,12 @@ def test_a_note_about_added_checks_shows_their_code_and_only_theirs(tmp_path):
     assert "REVERSE_MARKER" not in note
     assert check_sections(s, {"c01", "c02"}, directory)[0].startswith("--- check c01")
     assert check_sections(s, set(), directory) == []
+
+
+def test_a_predecessors_disputes_are_quoted_as_unverified_claims_not_instructions():
+    secret = "sk-ant-" + "a" * 40
+    note = predecessor_disputes_note({"c05": 'says "WRONG" is wrong', "c06": f"key {secret}"})
+    assert note.startswith("Your predecessor disputed these checks as wrong.")
+    assert "not verified" in note and "has not ruled" in note
+    assert '- c05: "says "WRONG" is wrong"' in note
+    assert secret not in note

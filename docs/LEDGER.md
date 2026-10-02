@@ -407,7 +407,9 @@ Examples:
   has not disputed before and that the investor has not ruled `kept`. A dispute never counts as
   passing. It changes the rule's decision only when it is credible: every other check passes and
   at most half of the task's checks are disputed. Otherwise the worker is judged as if it had
-  disputed nothing; the event stays on record.
+  disputed nothing; the event stays on record. A dispute is about the check, not the worker: a
+  worker hired later for the same task inherits the disputes the investor has not ruled on, in the
+  rule's view and in its brief, and a question about one names the worker who raised it.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -447,7 +449,7 @@ Evidence keys:
 | `passing` | list | Checks passing after the latest slice. |
 | `best` | list | Every check that passed at some slice. |
 | `missing` | list | Checks not passing after the latest slice. |
-| `disputed` | list | Checks the worker disputes that still fail. |
+| `disputed` | list | Checks the worker disputes, or an earlier worker of its task disputed and nobody has ruled on, that still fail. |
 | `spent_micros` | int | Known spend of the worker's slices. |
 | `unknown_cost_slices` | int | Slices whose cost is unknown. |
 

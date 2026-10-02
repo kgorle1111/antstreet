@@ -199,11 +199,12 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
         return root / name
 
     two_rounds = sheet((Round(1, 204_000, 1), Round(2, 300_000, 2)))
-    # w1 is refused a tool, disputes c01 and stalls; w2 passes one check, round 2 is funded.
+    # w1 is refused a tool, disputes c01 and stalls; w2 inherits the unruled dispute and passes
+    # the other check, so the investor is asked about c01 (kept); round 2 is funded.
     runs.append(firm_events(where("full"), Script(
         step(BAD, disputes=("c01",), denials=("Write",)), step(BAD),
         step(HALF, cost=100_000), step(GOOD, "done"),
-    ), two_rounds, answers=["y"]))  # fmt: skip
+    ), two_rounds, answers=["k", "y"]))  # fmt: skip
     # The investor answers each escalation: set aside (`s`), drop or keep a disputed check,
     # unblock with a note. Each answer writes its own `ruled` or `abandoned` event.
     runs.append(firm_events(where("blocked"), Script(step(None, "blocked")), answers=["s"]))

@@ -1539,9 +1539,62 @@ def test_a_replacement_is_told_what_the_investor_ruled_before_it_was_hired(paths
     run(paths, worker, s, answers=["k"])
     replacement = worker.specs[3]
     assert replacement.resume is False
-    assert "The investor ruled on your dispute: check c05 stands. Make it pass." in (
-        replacement.prompt
+    # The dispute was the predecessor's: the replacement is told whose it was and why it was made.
+    assert (
+        "The investor ruled on the dispute your predecessor raised "
+        '(its reason: "the idea says otherwise"): check c05 stands. Make it pass.'
+    ) in replacement.prompt
+    assert "ruled on your dispute" not in replacement.prompt
+    assert "Your predecessor disputed" not in replacement.prompt  # ruled, so no longer open
+
+
+def two_workers_one_wrong_check(paths, answers, *replacement):
+    """w1 disputes c04 and c05 while c01 also fails, stalls and is fired; the replacement runs
+    `replacement`. Disputes that are not credible on their own are what a replacement inherits."""
+    s = four_checks(paths)
+    both = [dispute("c04", "w1 says three letters"), dispute("c05", "w1 says WRONG is wrong")]
+    worker = Script(step(HALF, disputes=both), step(HALF), step(HALF), *replacement)
+    return worker, run(paths, worker, s, answers=answers)
+
+
+def test_a_replacement_inherits_what_its_predecessor_disputed_and_the_investor_is_asked(paths):
+    worker, (report, said) = two_workers_one_wrong_check(
+        paths, ["d"], step(HALF), step(GOOD), step(GOOD), step(GOOD)
     )
+    assert events_of(paths, EventType.FIRED)[0].data["worker"] == "w1"
+    # w2 passes everything but c05, which w1 disputed and nobody ruled on: the rule escalates
+    # it instead of letting w2 grind on a wrong check until it is abandoned.
+    assert rulings_of(paths) == [("investor", "c05", "dropped")]
+    [question] = [q for q in said if "disputes check c05" in q]
+    assert question.startswith("Task t1: w1 disputes check c05") and "w1 says WRONG" in question
+    assert events_of(paths, EventType.ABANDONED) == [] and report.all_passed
+    first, second = worker.specs[3].prompt, worker.specs[4].prompt
+    assert "Your predecessor disputed these checks as wrong." in first
+    assert '- c05: "w1 says WRONG is wrong"' in first and '- c04: "w1 says three letters"' in first
+    assert "Your predecessor disputed these checks as wrong." in second
+    assert "You disputed" not in second  # it did not
+    assert [e.data["worker"] for e in events_of(paths, EventType.DISPUTED)] == ["w1", "w1"]
+
+
+def test_without_an_inherited_dispute_the_same_replacement_is_not_escalated(paths):
+    # The control: a replacement whose failing check nobody disputed is judged like any worker.
+    s = four_checks(paths)
+    worker = Script(*[step(HALF)] * 3, step(HALF), step(GOOD), step(GOOD), step(GOOD))
+    run(paths, worker, s, answers=["d"])
+    assert rulings_of(paths) == []
+    assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "already reassigned once"
+    assert all("Your predecessor disputed" not in spec.prompt for spec in worker.specs)
+
+
+def test_an_inherited_dispute_the_investor_keeps_binds_the_replacement(paths):
+    worker, (report, _) = two_workers_one_wrong_check(
+        paths, ["k"], step(HALF), step(GOOD), step(GOOD), step(GOOD)
+    )
+    assert rulings_of(paths) == [("investor", "c05", "kept")]
+    third = worker.specs[5].prompt  # after the ruling the worker is told, and the note is quoted
+    assert "check c05 stands. Make it pass." in third and "w1 says WRONG" in third
+    assert "Your predecessor disputed" not in third
+    assert not report.all_passed
 
 
 # An amendment: after a review the investor approves more checks and funds another round.
@@ -1732,3 +1785,17 @@ def test_the_rest_of_a_workers_disputes_are_asked_after_one_was_kept_and_the_run
         i for i, e in enumerate(read_events(paths.ledger)) if e.event is EventType.SLICE_START
     ]
     assert all(i > ruled_at for i in starts[1:])  # no slice was paid for before the question
+
+
+def test_a_dispute_whose_check_passes_later_is_not_put_to_the_investor_after_another_ruling(paths):
+    # c04 and c05 are disputed while c01 fails too. c04 then passes, so only c05 is put to the
+    # investor; after that ruling the loop must not ask about c04, which is no longer in question.
+    s = four_checks(paths)
+    both = [dispute("c04"), dispute("c05")]
+    worker = Script(step(HALF, disputes=both), step(GOOD), *[step(GOOD)] * 8)
+    _, said = run(paths, worker, s, answers=["k"])
+    assert rulings_of(paths) == [("investor", "c05", "kept")]
+    assert [q for q in said if "disputes check" in q] == [
+        q for q in said if "disputes check c05" in q
+    ]
+    assert len([q for q in said if "disputes check" in q]) == 1

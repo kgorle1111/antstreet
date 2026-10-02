@@ -514,7 +514,8 @@ with a JSON schema.
 - Decision: `rule.decide` sets a task aside for the investor (instead of firing the worker) only
   when every failing check is disputed and the disputed checks are at most half of the task's
   checks. Otherwise the worker is judged as if it had disputed nothing. The disputes stay on the
-  ledger.
+  ledger. A replacement inherits the disputes of workers hired before it on its task that the
+  investor has not ruled on (B08): same test, and its brief quotes them as unverified claims.
 - Why: Disputing costs a worker nothing (D19). An independent review reproduced a stalled worker
   that dodged its firing by disputing every failing check. The boss's drafts had at most 3 wrong
   checks in 8, so a claim that most of a task is wrong is not believed.

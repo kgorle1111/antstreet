@@ -25,6 +25,7 @@ from boss.boss import load_prompt
 from boss.briefs import (
     added_checks_note,
     continuation_prompt,
+    predecessor_disputes_note,
     reassignment_brief,
     task_prompt,
 )
@@ -603,8 +604,18 @@ class _Firm:
         session = ws.session or str(uuid.uuid4())
         events = self.events()
         since = _after_last_slice(events, worker)
-        notes = rulings.notes_since(events, task.id, since)
+        notes = rulings.notes_since(events, task.id, since, worker)
         mine = {c.id for c in self.checks_of(task)}
+        # What an earlier worker of this task disputed and nobody has ruled on still stands
+        # against this one's checks: it is told, and the rule sees it (state.slice_history).
+        settled = rulings.ruled(events, rulings.KEPT)
+        theirs = {
+            check: reason
+            for check, (by, reason) in _disputes(events, task.id).items()
+            if by != worker and check in mine - settled - state.tasks[task.id].passing
+        }
+        if theirs:
+            notes.append(predecessor_disputes_note(theirs))
         added = mine & {
             str(check)
             for e in events[since:]
@@ -616,7 +627,7 @@ class _Firm:
         if resume:
             prompt = continuation_prompt(
                 self.run_gate(task, worker),
-                disputed,
+                disputed - theirs.keys(),
                 history[-1].denied_tools,
                 task.paths[0],
                 notes,
@@ -692,7 +703,8 @@ class _Firm:
         if not history or not needed:
             return None
         since = _after_last_slice(events, worker)
-        open_disputes = sorted(needed & frozenset().union(*(r.disputed for r in history)))
+        raised = frozenset().union(*(r.disputed for r in history))
+        open_disputes = sorted((needed & raised) - history[-1].passing)  # a passing one is moot
         if open_disputes and any(_rules_on_a_check(e, task.id) for e in events[since:]):
             # The investor was part way through this worker's disputes when the run stopped.
             # The rest are asked before anything else is decided: a kept check no longer makes
@@ -754,28 +766,25 @@ class _Firm:
         """Ask the investor to rule on each disputed check. The first one left unruled sets the
         task aside."""
         described = {c.id: c.description for c in self.sheet.checks}
-        reasons = {
-            e.data.get("check"): str(e.data.get("reason", ""))
-            for e in events
-            if e.event is EventType.DISPUTED and e.data.get("worker") == worker
-        }
+        raised = _disputes(events, task.id)
         for check in checks:
-            advice = self.advise(check, reasons.get(check, "")) if self.advise else None
+            by, reason = raised.get(check, (worker, ""))  # a fired worker's dispute is put too
+            advice = self.advise(check, reason) if self.advise else None
             if advice:
                 self.say(advice)
             ruling = rulings.ask_dispute(
                 self.ask,
                 task=task.id,
-                worker=worker,
+                worker=by,
                 check=check,
                 description=safe_text(" ".join(described.get(check, "").split()), limit=200),
-                reason=reasons.get(check, ""),
+                reason=reason,
             )
             if ruling is None:
-                self.say(f"Task {task.id} is set aside: {worker} disputes {check}.")
+                self.say(f"Task {task.id} is set aside: {by} disputes {check}.")
                 record("boss", EventType.ABANDONED, data={"task": task.id, "reason": "disputed"})
                 return
-            ruled = {"task": task.id, "worker": worker, "check": check, "ruling": ruling}
+            ruled = {"task": task.id, "worker": by, "check": check, "ruling": ruling}
             record("investor", EventType.RULED, data=ruled)
 
     def _infrastructure(self, run: SliceRun, history: list[Any], record: Recorder) -> str | None:
@@ -814,6 +823,15 @@ def _last_reason(events: Sequence[Event], worker: str) -> str | None:
     since = _after_last_slice(events, worker)
     status = events[since - 1].data.get("status") if since else None
     return (status or {}).get("reason") or None
+
+
+def _disputes(events: Sequence[Event], task: str) -> dict[str, tuple[str, str]]:
+    """Each check of the task a worker disputed, with who disputed it and why (the latest wins)."""
+    return {
+        str(e.data["check"]): (str(e.data.get("worker", "")), str(e.data.get("reason", "")))
+        for e in events
+        if e.event is EventType.DISPUTED and e.data.get("task") == task and "check" in e.data
+    }
 
 
 def _gated(event: Event, worker: str, number: int) -> bool:

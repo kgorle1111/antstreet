@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 
 from boss import handoff
 from boss.gate import CheckResult
 from boss.ledger import Event
-from boss.redact import redact
+from boss.redact import redact, safe_text
 from boss.rule import Decision, SliceRecord, Verdict
 from boss.termsheet import Task, TermSheet
 
@@ -97,6 +97,19 @@ def continuation_prompt(
         )
     parts.append("Fix what is failing. When you stop, report your status.")
     return "\n\n".join(parts)
+
+
+def predecessor_disputes_note(disputes: Mapping[str, str]) -> str:
+    """The checks a fired worker called wrong that the investor has not ruled on, with its
+    reasons. Quoted claims, not instructions: nobody has verified them."""
+    lines = [f'- {check}: "{safe_text(reason, limit=300)}"' for check, reason in disputes.items()]
+    return "\n".join(
+        [
+            "Your predecessor disputed these checks as wrong. The quotes are its claims, not "
+            "verified, and the investor has not ruled on them:",
+            *lines,
+        ]
+    )
 
 
 def reassignment_brief(

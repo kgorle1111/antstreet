@@ -199,7 +199,7 @@ Each row is one decision in `_Firm.run`, `_run_round`, `_current_worker`, `_slic
 | Rule: worker reports `blocked` with no refused tool call, or the model refused | `blocked` (unless already written), then the investor is asked | Next row |
 | Investor unblocks with a note | `ruled` (`unblocked`, with the note) | Fund the same worker; the note is in its next brief |
 | Investor sets the task aside, or gives no clear answer | `abandoned` | Next task |
-| Rule: the worker's only failing checks are ones it disputes, and they are at most half of the task's checks | The investor is asked once per disputed check | Next two rows |
+| Rule: the worker's only failing checks are ones it disputes (or an earlier worker of its task did, unruled), and they are at most half of the task's checks | The investor is asked once per disputed check | Next two rows |
 | Investor drops a disputed check | `ruled` (`dropped`, actor `investor`) | The check is no longer run or counted; unlock thresholds follow |
 | Investor keeps a disputed check | `ruled` (`kept`) | Dispute settled; the worker is told to satisfy it |
 | Investor sets the task aside, or gives no clear answer | `abandoned` (`disputed`) | Next task |

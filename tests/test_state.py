@@ -326,3 +326,48 @@ def test_only_the_investor_can_reopen_a_locked_round():
     for actor in ("worker:w1", "boss", "gate", "rule", "role:critic"):
         state = run_state([closed(1, False), topped_up(1, actor=actor)], [])
         assert state.locked_rounds == {1} and state.closed_rounds == {1}, actor
+
+
+# A dispute is about a check, so a replacement inherits what its predecessor disputed.
+
+
+def test_a_replacement_inherits_the_unruled_disputes_of_workers_hired_before_it_on_its_task():
+    def dispute_event(worker, check_id, task="t1") -> Event:
+        data = {"task": task, "check": check_id, "reason": "r", "worker": worker, "slice": 1}
+        return ev(f"worker:{worker}", EventType.DISPUTED, data=data)
+
+    def ruled_event(kind, check_id) -> Event:
+        data = {"task": "t1", "worker": "w1", "check": check_id, "ruling": kind}
+        return ev("investor", EventType.RULED, data=data)
+
+    def hired(worker, task) -> Event:
+        return ev("boss", EventType.HIRED, data={"worker": worker, "task": task})
+
+    events = [
+        hired("w1", "t1"),
+        hired("w9", "t2"),
+        slice_end("w1", 1, 1_000),
+        dispute_event("w1", "c01"),
+        dispute_event("w1", "c02"),
+        dispute_event("w1", "c03"),
+        dispute_event("w9", "c07", task="t2"),
+        ruled_event("kept", "c02"),
+        ruled_event("dropped", "c03"),
+        hired("w2", "t1"),
+        slice_end("w2", 1, 1_000),
+        dispute_event("w2", "c04"),
+        hired("w3", "t1"),  # hired after w2: w2 must not inherit from it
+        slice_end("w3", 1, 1_000),
+    ]
+    history = slice_history(events)
+    assert history["w1"][0].disputed == {"c01"}  # its own, minus what the investor settled
+    # c02 kept and c03 dropped are settled; c01 is inherited and c04 its own.
+    assert history["w2"][0].disputed == {"c01", "c04"}
+    assert history["w3"][0].disputed == {"c01", "c04"}
+    assert "c07" not in history["w2"][0].disputed  # another task's dispute is not inherited
+
+
+def test_a_worker_with_no_hire_on_the_ledger_inherits_nothing():
+    data = {"task": "t1", "check": "c01", "reason": "r", "worker": "w1", "slice": 1}
+    events = [slice_end("w2", 1, 1_000), ev("worker:w1", EventType.DISPUTED, data=data)]
+    assert slice_history(events)["w2"][0].disputed == frozenset()
