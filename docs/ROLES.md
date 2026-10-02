@@ -61,7 +61,9 @@ says how many to ask for (0 is off, up to 8), and `boss fund` has no option for 
 
 - **What it sees.** The investor's idea, and the public names the product must expose: the paths
   each task owns, the modules and names the visible check files import, and the names the task
-  briefs put in backticks (`public_names` in `src/boss/roles/examiner.py`). Names only.
+  briefs state: in backticks, or in prose as a call shape (`reverse(s)`) or a `*.py` file name
+  (`public_names` in `src/boss/roles/examiner.py`). Names only; a test file named in a brief is
+  left out.
 - **What it never sees.** A visible check's body, description or file name. Independence from the
   checks the workers are graded on is the point, so `tests/test_roles_examiner.py::test_no_visible_check_body_description_or_file_name_reaches_the_examiner`
   pins it.

@@ -1,12 +1,13 @@
 """The examiner: checks the workers never see, written from the idea and the public names alone.
 
 It is shown the investor's idea and the names the product must expose (file paths and the names
-the term sheet's briefs and check files import), never a visible check's body: independence from
-the checks the workers are graded on is the point. Its output is data until `examine`'s gate has
-run: every quote a fragment of the idea, every file parsing and defining a test, ids `h01`..
-unique, and every check failing on an empty workspace. `run_examiner` books the call, stores the
-checks in the run folder's `held_out/`, and tells the investor when it could not; the run then goes
-on without held-out checks. The investor approves what is stored (`approval.review_term_sheet`).
+the term sheet's briefs state or its check files import), never a visible check's body:
+independence from the checks the workers are graded on is the point. Its output is data until
+`examine`'s gate has run: every quote a fragment of the idea, every file parsing and defining a
+test, ids `h01`.. unique, and every check failing on an empty workspace. `run_examiner` books the
+call, stores the checks in the run folder's `held_out/`, and tells the investor when it could not;
+the run then goes on without held-out checks. The investor approves what is stored
+(`approval.review_term_sheet`).
 """
 
 from __future__ import annotations
@@ -37,6 +38,9 @@ from boss.worker import CLI
 MAX_CODE_CHARS = 20_000  # a held-out check is one behaviour; a file this long is not
 MAX_NAMES = 60  # the public names shown to the model; a brief naming more is not a contract
 _NAME = re.compile(r"`([A-Za-z_][\w.]{0,59}(?:\([\w\s,=*.:'\"\[\]|-]{0,60}\))?)`")
+# Interfaces a brief states in prose: a call shape `name(args)` and a `*.py` file name.
+_CALL = re.compile(r"\b[A-Za-z_]\w{0,59}\([\w\s,=*.:'\"\[\]|-]{0,60}\)")
+_PY_FILE = re.compile(r"(?<![\w./-])(?:[\w-]{1,40}/){0,3}[\w-]{1,40}\.py\b")
 _IMPORTED = re.compile(r"[A-Za-z_][\w.]{0,59}\Z")
 _NOT_PRODUCT = frozenset(sys.stdlib_module_names) | {"pytest"}
 _SHOWN_PROBLEMS = 10  # problems kept in the ledger event
@@ -63,7 +67,7 @@ SPECS = (EXAMINER,)
 
 @dataclass(frozen=True, slots=True)
 class PublicNames:
-    files: tuple[str, ...]  # what the tasks own, from the term sheet
+    files: tuple[str, ...]  # what the tasks own, and the `*.py` files their briefs name
     names: tuple[str, ...]  # modules and symbols the check files import, and code-quoted names in
     # the briefs; only names are taken from a visible check, never a line of its body
 
@@ -71,17 +75,28 @@ class PublicNames:
 def public_names(sheet: TermSheet, checks_dir: Path) -> PublicNames:
     """The contract a held-out check may import against. A check file contributes the product
     modules and symbols it imports (an unparsable file contributes nothing); a task brief
-    contributes its code-quoted names, such as `reverse(s)`. Nothing else leaves the files."""
-    # kn: names come from code-quoted words in briefs and imports in check files; a brief that
-    # names an interface in prose only gives the examiner nothing to import. Read the design's
-    # interfaces when the staged draft is the default draft.
+    contributes the names it quotes in code, such as `reverse(s)`, and those it states in prose:
+    a call shape `reverse(s)` and a file name `rev.py`. A test file is never a public name, so a
+    brief that mentions a visible check's file does not show it. Nothing else leaves the files."""
+    visible = {c.file for c in sheet.checks}
     files = dict.fromkeys(p for t in sheet.tasks for p in t.paths if p.strip() and p != ".")
     names: dict[str, None] = {}
     for task in sheet.tasks:
-        names.update(dict.fromkeys(_NAME.findall(task.brief)))
+        prose = [m[0] for m in _CALL.finditer(task.brief)]
+        stated = [m[0] for m in _PY_FILE.finditer(task.brief)]
+        names.update(dict.fromkeys(_NAME.findall(task.brief) + prose))
+        files.update(dict.fromkeys(f for f in stated if not _is_test(f, visible)))
     for check in sheet.checks:
         names.update(dict.fromkeys(_imported(checks_dir / check.file)))
-    return PublicNames(tuple(files), tuple(names)[:MAX_NAMES])
+    return PublicNames(
+        tuple(files), tuple(n for n in names if not _is_test(n, visible))[:MAX_NAMES]
+    )
+
+
+def _is_test(name: str, visible: set[str]) -> bool:
+    """Whether a stated name is a visible check's file or looks like a test."""
+    base = name.rsplit("/", 1)[-1]
+    return base in visible or base.startswith(("test_", "conftest")) or base.endswith("_test.py")
 
 
 def _imported(path: Path) -> list[str]:

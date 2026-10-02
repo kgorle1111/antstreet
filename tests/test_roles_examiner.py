@@ -165,6 +165,40 @@ def test_relative_and_star_imports_and_odd_identifiers_are_not_names(paths):
     assert "pkg.sub" in names and "rev" in names
 
 
+def sheet_with(brief, paths=("rev.py",)):
+    return TermSheet(IDEA, 1, (), SHEET.checks, (Task("t1", brief, paths),))
+
+
+def test_a_function_and_a_file_stated_in_prose_are_public_names(paths):
+    brief = "Write a function reverse(s) in rev.py, and a helper wrap(a, b=1) in pkg/util.py."
+    names = public_names(sheet_with(brief), paths.checks)
+    assert names.files == ("rev.py", "pkg/util.py")
+    assert names.names == ("reverse(s)", "wrap(a, b=1)", "rev", "reverse", "helper")
+
+
+def test_prose_that_only_looks_like_a_name_is_not_one(paths):
+    brief = "Keep it small (see the idea). Visit http://x.example/y.py or read rev.pyc, not (s)."
+    names = public_names(sheet_with(brief, paths=()), paths.checks)
+    assert names.files == () and "(see the idea)" not in names.names
+    assert not any(n.startswith("(") or "example" in n for n in names.names)
+
+
+def test_a_brief_that_mentions_a_visible_check_does_not_show_it(paths, fake):
+    brief = "Make test_c01.py and tests/test_c02.py pass; test_word() must stay green. Use rev.py."
+    names = public_names(sheet_with(brief), paths.checks)
+    assert names.files == ("rev.py",)
+    assert not any("test_" in n for n in names.names)
+    examine_with(fake, GOOD, names=names)
+    everything = json.dumps(fake.argv())
+    assert "test_c01" not in everything and "test_c02" not in everything
+    assert "test_word" not in everything and "files: rev.py" in everything
+
+
+def test_prose_names_count_toward_the_limit(paths):
+    brief = " ".join(f"call f{i}(x)." for i in range(MAX_NAMES + 20))
+    assert len(public_names(sheet_with(brief), paths.checks).names) == MAX_NAMES
+
+
 def test_a_brief_that_quotes_many_names_is_cut_to_the_limit(paths):
     brief = " ".join(f"`f{i}`" for i in range(MAX_NAMES + 20))
     sheet = TermSheet(IDEA, 1, (), SHEET.checks, (Task("t1", brief, ("rev.py",)),))
