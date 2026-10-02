@@ -57,7 +57,7 @@ Haiku. See `2026-09-30-drafts-and-audit/README.md` for the method, the refusal r
 | One-call draft, thinking default | 16 scored of 17 | 2 of 124 checks wrong; 40 of 61 mutants killed | $0.101/draft |
 | One-call draft, thinking off | 16 scored of 17 | 7 of 128 checks wrong; 36 of 61 mutants killed | $0.032/draft |
 | Staged draft | 4 scored, 12 invalid, 1 failed | 29 of the 32 refusals are a quote the gate would not accept | $0.157/call |
-| Check auditor | 24 audited, 3 rejected, 7 failed | precision 8/8 [68-100%], recall 8/11 [43-90%] | $0.085/call that ran |
+| Check auditor | 27 audited, 7 rejected, 0 failed | precision 9/9 [70-100%], recall 9/12 [47-91%] | $0.081/call |
 
 - Thinking off cuts the draft cost 3.1 times; the wrong-check intervals overlap ([3-36%] and [14-56%] of drafts).
 - The staged draft is not usable today: 4 of 17 tasks get a draft.

@@ -85,26 +85,26 @@ of known cost; the 1 unknown-cost call is the `lrucache` timeout.
 
 ## Check auditor (Haiku)
 
-`table-audit.md`. 34 saved drafts (pilot 17, rerun1 17). **24 audited, 3 rejected, 7 failed.**
+`table-audit.md`. 34 saved drafts (pilot 17, rerun1 17). **27 audited, 7 rejected, 0 failed.**
 
 | | |
 |---|---|
-| Checks audited | 191, of which 11 are wrong (6% base rate) |
-| Flags | 8 (0.3 per audit), all `contradicts`, none `unsupported` |
-| True / false positives, false negatives | 8 / 0 / 3 |
-| Precision [95% CI] | 8/8 = 100% [68-100%] |
-| Recall [95% CI] | 8/11 = 73% [43-90%] |
-| Mean cost per audit (tool) | $0.0672 over 34 calls |
-| Cost per call that ran | $0.0846 over the 27 audited or rejected calls |
+| Checks audited | 214, of which 12 are wrong (6% base rate) |
+| Flags | 9 (0.3 per audit), all `contradicts`, none `unsupported` |
+| True / false positives, false negatives | 9 / 0 / 3 |
+| Precision [95% CI] | 9/9 = 100% [70-100%] |
+| Recall [95% CI] | 9/12 = 75% [47-91%] |
+| Mean cost per audit (tool) | $0.0812 over 34 calls, every one of which ran |
 
-- The 7 failed cells (rerun1: intervals, jsonpointer, justify, linediff, semver, tokenbucket, workdays) ended as
-  `usage_limit`. They are saved with cost 0, never retried, and not the auditor's fault. They pull the tool's mean
-  down; the $0.0846 leaves them out.
-- The 3 rejected cells (pilot: bigdecimal, duration, workdays) failed the quote gate again after the fix.
-- What the tool says these numbers can support (printed in `table-audit.md`): recall rests on 11 wrong checks and
-  is a rough figure, 47 points wide; the intervals treat checks as independent and the real uncertainty is wider;
+- 7 cells (rerun1: intervals, jsonpointer, justify, linediff, semver, tokenbucket, workdays) first ended on the
+  plan's usage limit, not the auditor's fault. They were retried on 2026-10-02 ($0.4758): 3 audited (jsonpointer,
+  justify, tokenbucket; justify's one wrong check was flagged), 4 rejected by the quote gate.
+- The 7 rejected cells: pilot bigdecimal, duration, workdays, and rerun1 intervals, linediff, semver, workdays.
+  Each kept its refused output beside it (`rejected_output.json`) for reading before any further run.
+- What the tool says these numbers can support (printed in `table-audit.md`): recall rests on 12 wrong checks and
+  is a rough figure, 44 points wide; the intervals treat checks as independent and the real uncertainty is wider;
   precision is a lower bound; the numbers cannot support letting the auditor decide anything, so it stays advisory.
-- The 11 wrong checks are 9 from pilot drafts and 2 from rerun1 drafts; only 10 of rerun1's 17 drafts were audited.
+- The 12 wrong checks are 9 from pilot drafts and 3 from rerun1 drafts; 13 of rerun1's 17 drafts were audited.
 
 ## The first attempt against the re-run
 
@@ -116,7 +116,7 @@ product manager's cap went from $0.15 to $0.30. The first attempt's cells are ke
 |---|---|---|
 | Staged scored (of 17) | 2 (roman, slugify) | 4 (adds bigdecimal, justify) |
 | Staged, 15 cells re-run | 9 invalid, 6 capped | 2 scored, 12 invalid, 1 timeout |
-| Auditor audited (of 34) | 15 | 24 |
+| Auditor audited (of 34) | 15 | 24, then 27 after the usage-limit retry |
 | Auditor, 19 cells re-run | 19 rejected | 9 audited, 3 rejected, 7 failed (`usage_limit`) |
 
 - Rescued: 2 of the 15 staged cells (13%) and 9 of the 19 auditor cells (47%).
@@ -138,19 +138,20 @@ Sum of `cost_micros` of every saved cell. Unknown cost is counted separately, ne
 | Staged | re-run (15 cells) | 15 | $2.0648 | 1 (`lrucache`, timeout) |
 | Auditor | first (34 cells: 19 superseded + 15 kept) | 34 | $2.6316 | 0 |
 | Auditor | re-run (19 cells) | 19 | $1.0332 | 0 (7 recorded as 0: `usage_limit`) |
-| **All** | | **119** | **$10.6193** | **1** |
+| Auditor | retry of the 7 `usage_limit` cells (2026-10-02) | 7 | $0.4758 | 0 |
+| **All** | | **126** | **$11.0951** | **1** |
 
 In the staged re-run folder, the 12 invalid cells cost $1.71 and the failed cell's cost is unknown. In the auditor
-re-run folder, the 3 rejected cells cost $0.17 and the 24 audited cells $2.11.
+re-run folder (before the usage-limit retry), the 3 rejected cells cost $0.17 and the 24 audited cells $2.11.
 
 ## What this decides
 
 - **Thinking stays at the default for the boss's draft.** It costs 3.1 times as much ($0.101 against $0.032) and
   2 of 16 drafts had a wrong check with it on against 5 of 16 with it off, but the intervals overlap ([3-36%] and [14-56%])
   and the two arms lost different tasks. Not supported: a claim that thinking writes better checks.
-- **The auditor can ship as an advisory note, not as a decision-maker.** 8 of 8 flags were wrong checks against a
-  6% base rate, at 0.3 flags a draft and about $0.085 a call. Not supported: its recall (8 of 11, [43-90%]); 7 of 34
-  drafts were never audited; and nothing here lets it overrule a person.
+- **The auditor can ship as an advisory note, not as a decision-maker.** 9 of 9 flags were wrong checks against a
+  6% base rate, at 0.3 flags a draft and about $0.081 a call. Not supported: its recall (9 of 12, [47-91%]); 7 of 34
+  drafts got no opinion because the gate refused the auditor's quotes; and nothing here lets it overrule a person.
 - **The staged draft stays off.** 4 of 17 tasks scored; 12 were refused at the first role for a quote the gate
   would not take (29 of 32 problems); $0.63 per scored draft against $0.107. Not supported: whether its checks
   are better, from 4 drafts.
