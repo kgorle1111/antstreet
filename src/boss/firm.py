@@ -49,6 +49,7 @@ from boss.worker import (
     IsolationError,
     SliceSpec,
     billing_mode,
+    check_thinking,
     disputed_checks,
     usd,
 )
@@ -89,8 +90,12 @@ class FirmConfig:
     # The examiner runs before the approval (`boss fund --held-out N`), so the loop only grades
     # what was approved.
     held_out: int = 0
+    # The CLI's thinking budget for every worker slice (MAX_THINKING_TOKENS); 0 turns thinking
+    # off. None leaves the CLI's own default.
+    thinking_tokens: int | None = None
 
     def __post_init__(self) -> None:
+        check_thinking(self.thinking_tokens)
         if type(self.held_out) is not int or not 0 <= self.held_out <= held_out_store.MAX_HELD_OUT:
             raise ValueError(
                 f"held_out must be a whole number from 0 to {held_out_store.MAX_HELD_OUT}, "
@@ -624,6 +629,7 @@ class _Firm:
             model=self.config.model,
             cap_micros=cap,
             append_system_prompt=self._builder_prompt(),
+            thinking_tokens=self.config.thinking_tokens,
         )
         number = ws.slices + 1
         start = {"slice": number, "task": task.id, "cap_micros": cap, "session": session}

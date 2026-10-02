@@ -24,6 +24,7 @@ from boss.worker import (
     build_command,
     require_isolation,
     uses_api_key,
+    with_thinking,
 )
 
 DEFAULT_TIMEOUT_S = 15 * 60.0
@@ -76,6 +77,7 @@ def run_slice(
     check_workspace(workspace)
     argv = build_command(spec, api_key=uses_api_key(env))
     argv[0] = executable
+    env = with_thinking(env, spec.thinking_tokens)
     secrets = [*known_secrets, *(v for k, v in env.items() if k == "ANTHROPIC_API_KEY")]
     log_path.parent.mkdir(parents=True, exist_ok=True)
 

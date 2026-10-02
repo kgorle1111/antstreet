@@ -58,6 +58,7 @@ class SliceSpec:
     model: str
     cap_micros: int  # millionths of a US dollar, like the ledger
     append_system_prompt: str | None = None
+    thinking_tokens: int | None = None  # None: the CLI's own default; 0 turns thinking off
 
     def __post_init__(self) -> None:
         if not isinstance(self.session_id, UUID):
@@ -70,6 +71,7 @@ class SliceSpec:
             raise ValueError("model must be non-empty")
         if type(self.cap_micros) is not int or self.cap_micros <= 0:
             raise ValueError(f"cap_micros must be a positive int, got {self.cap_micros!r}")
+        check_thinking(self.thinking_tokens)
 
 
 def usd(micros: int) -> str:
@@ -91,12 +93,16 @@ def worker_env(env: Mapping[str, str]) -> dict[str, str]:
     return {k: env[k] for k in keep if env.get(k)}
 
 
+def check_thinking(tokens: int | None) -> None:
+    if tokens is not None and (type(tokens) is not int or tokens < 0):
+        raise ValueError(f"thinking tokens must be a non-negative int, got {tokens!r}")
+
+
 def with_thinking(env: Mapping[str, str], tokens: int | None) -> dict[str, str]:
     """`env` with the CLI's thinking budget set. None leaves the CLI's own default."""
+    check_thinking(tokens)
     if tokens is None:
         return dict(env)
-    if type(tokens) is not int or tokens < 0:
-        raise ValueError(f"thinking tokens must be a non-negative int, got {tokens!r}")
     return {**env, _THINKING_VAR: str(tokens)}
 
 

@@ -158,18 +158,19 @@ Config keys:
 | `parallel` | int | Tasks worked on at once (`--parallel`). Each task still has one worker at a time. |
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
 | `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. Set by `boss fund --held-out N`. A run started before the key existed loads with 0. |
+| `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. `boss fund` has no option for it yet. A run started before the key existed loads with `null`. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
 
 ```json
-{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "held_out": 0, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "held_out": 0, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000, "thinking_tokens": null}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
 ```
 
 The same, in a run that named roles:
 
 ```json
-{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}, "roles": {"model": "haiku", "names": ["check_auditor", "consultant", "critic", "demo_writer", "judge", "product_manager", "system_designer", "tester", "user_agent"], "thinking_tokens": null}}, "event": "started", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:39.880351+00:00", "v": 1}
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000, "thinking_tokens": null}, "roles": {"model": "haiku", "names": ["check_auditor", "consultant", "critic", "demo_writer", "judge", "product_manager", "system_designer", "tester", "user_agent"], "thinking_tokens": null}}, "event": "started", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:39.880351+00:00", "v": 1}
 ```
 
 ### `resumed`
