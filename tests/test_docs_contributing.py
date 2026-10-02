@@ -150,5 +150,5 @@ def test_the_dry_run_named_in_the_document_lists_cells_and_writes_nothing(tmp_pa
         str(ROOT / "bench/tasks"),
     ]
     assert bench_run.main(args) == 0
-    assert "34 cells" in capsys.readouterr().out and not out.exists()
+    assert "70 cells" in capsys.readouterr().out and not out.exists()
     assert "uv run python -m boss.bench.run --dry-run --out /tmp/bench --budget 0.40" in text

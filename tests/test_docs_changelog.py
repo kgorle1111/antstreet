@@ -4,7 +4,7 @@ import re
 import tomllib
 
 import pytest
-from docs_support import ROOT, read
+from docs_support import ROOT, original_tasks, read
 
 from boss import cli, gate, limits
 from boss.bench.tasks import load_tasks, task_set_hash
@@ -104,7 +104,7 @@ def test_figures_the_changelog_states_match_the_code_and_the_repository(text):
     assert "--cov-fail-under=96" in read(ROOT / ".github" / "workflows" / "ci.yml")
     tasks = load_tasks(ROOT / "bench" / "tasks")
     assert f"{len(tasks)} tasks" in text
-    assert "`c130282a6eec5fe8`" in text and task_set_hash(tasks) == "c130282a6eec5fe8"
+    assert "`c130282a6eec5fe8`" in text and task_set_hash(original_tasks()) == "c130282a6eec5fe8"
 
 
 def test_the_new_names_and_figures_are_real(text):

@@ -10,6 +10,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- 18 benchmark tasks (text, data structures, numbers and dates): 35 tasks, and
+  recall on 156 known-wrong solutions; earlier results stay on the original 17. Plus 8 multi-file tasks.
 - Type checking: `uv run mypy` (strict, over `src/boss`) runs locally and in CI after the format check.
 - `bench/calibration/`: 20 unlabelled cases each for the stories and usage rubrics, and `score.py` to
   label them; until you do and run `calibrate`, every judgement stays `uncalibrated`.

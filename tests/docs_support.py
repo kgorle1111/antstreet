@@ -156,3 +156,15 @@ def run_cli(
     runs = project / ".boss" / "runs"
     found = sorted(runs.iterdir()) if runs.is_dir() else []
     return code, (found[-1] if found else None), said
+
+
+def original_tasks() -> list:
+    """The 17 tasks every result before 2026-10-02 ran on: the ones the final run recorded. Their
+    files, and so their hash, are unchanged by the tasks added since."""
+    import json
+
+    from boss.bench.tasks import load_tasks
+
+    results = ROOT / "bench" / "results" / "2026-09-30-final3" / "results.jsonl"
+    ran = {json.loads(line)["task"] for line in results.read_text().splitlines()}
+    return [t for t in load_tasks(ROOT / "bench" / "tasks") if t.id in ran]

@@ -3,10 +3,18 @@
 import re
 
 import pytest
-from docs_support import DOCS, ROOT, expected_default, read, run_cli, section, table
+from docs_support import (
+    DOCS,
+    ROOT,
+    expected_default,
+    original_tasks,
+    read,
+    run_cli,
+    section,
+    table,
+)
 
 from boss import budget, cli, worker
-from boss.bench.tasks import load_tasks
 from boss.ledger import EventType, read_events, total
 
 README = ROOT / "README.md"
@@ -121,7 +129,7 @@ def test_every_command_is_shown_in_the_readme(text):
 def test_the_benchmark_figures_agree_with_the_decision_log_and_the_task_count(text):
     status = text.split("## How it works")[0]
     decisions = " ".join(read(DOCS / "DECISIONS.md").split())
-    tasks = len(load_tasks(ROOT / "bench" / "tasks"))
+    tasks = len(original_tasks())  # the figures below are from runs on the original task set
     assert f"{tasks}-task benchmark" in status
     for figure in ("9 of 17 (53%)", "10 of 17 (59%)", "$0.206", "$0.091"):
         assert figure in status, f"README lost {figure}"
