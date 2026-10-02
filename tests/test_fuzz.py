@@ -311,6 +311,23 @@ SECRET_MAKERS = {
 PRINTABLE = string.printable
 
 
+def mixed_body(rng: random.Random, k: int) -> str:
+    # A random key body almost always has a digit, an upper and a lower case letter; force it.
+    body = rng.choices(ALNUM, k=k - 3) + [
+        rng.choice(string.digits),
+        rng.choice(string.ascii_uppercase),
+        rng.choice(string.ascii_lowercase),
+    ]
+    rng.shuffle(body)
+    return "".join(body)
+
+
+SECRET_MAKERS["sk-bare"] = lambda rng: "sk-" + mixed_body(rng, rng.randint(20, 60))
+SECRET_MAKERS["sk-bare-hyphen"] = lambda rng: (
+    "sk-" + mixed_body(rng, 20) + "-" + mixed_body(rng, 20)
+)
+
+
 def embed(rng: random.Random, text: str, secret: str) -> str:
     i = rng.randint(0, len(text))
     return text[:i] + secret + text[i:]
@@ -373,6 +390,63 @@ def test_redact_leaves_plain_words_unchanged():
         ]
         text = " ".join(words)
         assert redact(text) == text
+
+
+def test_redact_masks_a_hex_sk_key_unless_a_vowel_is_glued_to_it():
+    # Known residual (THREAT_MODEL T17): "<vowel>sk-<hex>" reads as a word such as "disk-<hash>".
+    rng = random.Random(3008)
+    for _ in range(REDACT_RUNS):
+        secret = "sk-" + "".join(rng.choices("0123456789abcdef", k=32))
+        glue = rng.choice([" ", "\n", "=", ":", '"', "x", "k", "Z", "7", "-", "_", "(", ""])
+        assert secret not in redact(rand_text(rng, 30, "bcdfg h") + glue + secret + " tail")
+
+
+ORDINARY_MAKERS = {
+    # a word ending in "sk" (vowel before it) followed by a long single-class run
+    "sk-word": lambda rng: (
+        rng.choice(["ta", "di", "de", "ri", "ma", "a", "bri", "whi", "hu"])
+        + "sk-"
+        + "".join(rng.choices(string.ascii_lowercase, k=rng.randint(20, 40)))
+    ),
+    "sk-word-hex": lambda rng: (
+        rng.choice(["task", "disk", "desk"]) + "-" + "".join(rng.choices("0123456789abcdef", k=32))
+    ),
+    "sk-hyphenated": lambda rng: (
+        "sk-"
+        + "-".join(
+            "".join(rng.choices(string.ascii_lowercase, k=rng.randint(3, 9))) for _ in range(5)
+        )
+    ),
+    "token-count": lambda rng: (
+        rng.choice(["max_tokens", "input_tokens", "tokens_used", "token_count", "maxTokens"])
+        + rng.choice([": ", "=", " = "])
+        + str(rng.randint(10**5, 10**9))
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", ORDINARY_MAKERS)
+def test_redact_leaves_ordinary_text_that_looks_like_a_secret_alone(shape):
+    rng = random.Random(3006)
+    for _ in range(REDACT_RUNS):
+        words = [
+            "".join(rng.choices(string.ascii_lowercase, k=rng.randint(1, 8))) for _ in range(4)
+        ]
+        ordinary = ORDINARY_MAKERS[shape](rng)
+        text = f"{words[0]} {words[1]} {ordinary} {words[2]}\n{words[3]}"
+        assert redact(text) == text
+
+
+def test_redact_masks_a_secret_next_to_ordinary_lookalikes():
+    rng = random.Random(3007)
+    makers = list(SECRET_MAKERS.values())
+    for _ in range(REDACT_RUNS):
+        secret = rng.choice(makers)(rng)
+        ordinary = rng.choice(list(ORDINARY_MAKERS.values()))(rng)
+        parts = [ordinary, f"key={secret}", ordinary]
+        out = redact(" ".join(parts))
+        assert secret.removeprefix("Bearer ") not in out
+        assert out.startswith(ordinary) and out.endswith(ordinary)
 
 
 # 4. term sheet ---------------------------------------------------------------------------------

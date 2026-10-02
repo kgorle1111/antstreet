@@ -76,6 +76,47 @@ def test_ordinary_text_is_untouched(text):
     assert redact(text) == text
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "task-abcdefghijklmnopqrstuvwxyz",  # B48: a word ending in sk, then 20+ letters
+        "see disk-ImageConfigurationManagement for it",
+        "desk-" + "0123456789abcdef" * 2,
+        "ask-" + "A" * 26,
+        "sk-learn-pipeline-configuration-notes",  # hyphen body, no digit or case mix
+        "max_tokens: 1000000",  # B48
+        "max_tokens=4096",
+        "input_tokens: 123456",
+        "token_count = 1234567",
+        "maxTokens: 1,000,000",
+        "TOKENS_USED=12345678",
+    ],
+)
+def test_lookalikes_of_a_key_or_a_secret_assignment_are_untouched(text):
+    assert redact(text) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        ("task" + SAMPLES["openai project key"], True),
+        ("disk-" + "aB3" * 16, True),  # key-like body wins over a vowel before sk
+        ("id: sk-" + "a" * 30, True),
+        ("sk-" + "aB3-" * 8, True),  # unknown vendor segment, key-like body
+        ("sk-or-v1-" + "0123456789abcdef" * 4, True),
+        ("sk-None-" + "aB3" * 16, True),
+        ("TOKEN=1234567890", True),  # a bare token that is only digits is still a secret
+        ("API_TOKEN: 1234567", True),
+        ("max_tokens: abcdefgh12345", True),  # a count name does not excuse a non-number
+        ("max_tokens: 1000000x", True),
+        ("PASSWORD=12345678", True),
+        ("SECRET_TOKENS=sk_live_abcdef", True),
+    ],
+)
+def test_the_lookalike_rules_do_not_let_a_real_secret_through(text, masked):
+    assert (MASK in redact(text)) is masked
+
+
 def test_recorded_fixtures_need_no_redaction():
     # Over-redaction would corrupt worker logs; the sanitized probe recordings must pass through.
     for path in sorted((Path(__file__).parent / "fixtures").iterdir()):

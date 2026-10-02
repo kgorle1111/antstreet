@@ -124,6 +124,8 @@ def test_a_complete_key_block_is_masked_once_and_the_text_around_it_kept():
         "-----BEGIN PRIVATE KEY-----\n" * 5_000,
         "-----END PRIVATE KEY-----\n" * 5_000,
         "sk-" * 100_000,
+        "ab-" * 100_000,  # scheme characters with no ://, retried from every word boundary
+        "task-" * 60_000,
         "password=" * 50_000,
         "'" * 200_000,
     ],
@@ -134,6 +136,8 @@ def test_a_complete_key_block_is_masked_once_and_the_text_around_it_kept():
         "many-begins",
         "many-ends",
         "sk",
+        "scheme-run",
+        "task-run",
         "assign",
         "quotes",
     ],
