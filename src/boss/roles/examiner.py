@@ -190,22 +190,11 @@ def _parse(
             problems.append(f"{name}: source must be a fragment of the idea, word for word")
         if not code.strip() or len(code) > MAX_CODE_CHARS:
             problems.append(f"{name}: code must be 1 to {MAX_CODE_CHARS} characters")
-        if not _is_text(code):
-            problems.append(f"{name}: code is not valid text (it cannot be written as UTF-8)")
         entries.append(
             (held_out.HeldOutCheck(check_id, held_out.file_name(check_id), source), code)
         )
     problems += held_out.id_problems([c.id for c, _ in entries])
     return entries, problems
-
-
-def _is_text(code: str) -> bool:
-    """A lone surrogate in model output cannot be written to a file; found before any write."""
-    try:
-        code.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
-    return True
 
 
 def _file_problems(

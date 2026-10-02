@@ -276,10 +276,6 @@ REFUSED = {
         "code must be 1 to 20000 characters",
     ),
     "empty code": (lambda c: c[0].update(code="  \n"), "code must be 1 to 20000 characters"),
-    "code with a lone surrogate": (
-        lambda c: c[0].update(code="# \ud800\nfrom rev import reverse\ndef test_a():\n    pass\n"),
-        "check 'h01': code is not valid text",
-    ),
     "code with a null byte": (
         lambda c: c[0].update(code="from rev import reverse\n\x00\ndef test_a():\n    pass\n"),
         "check h01 has a syntax error",
@@ -300,6 +296,14 @@ def test_each_bad_output_is_refused_for_its_own_reason_and_the_refused_output_is
     assert error.data == output  # the paid output is evidence, whatever the gate said
     assert error.usage == Usage(20_000, 100, 50, 7)
     assert error.role == "examiner"
+
+
+def test_a_lone_surrogate_arrives_replaced_so_the_check_can_be_written(fake):
+    # The stream reader replaces it for every role (boss/stream.py); nothing here has to refuse it.
+    output = mutated(lambda c: c[0].update(code="# \ud800\n" + c[0]["code"]))
+    entries, _ = examine_with(fake, output)
+    assert entries[0][1].startswith("# \ufffd\n")
+    entries[0][1].encode("utf-8")
 
 
 def test_an_id_that_is_a_visible_checks_is_refused(fake):
