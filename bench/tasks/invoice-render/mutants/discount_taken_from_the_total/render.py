@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in models.py: The discount is applied once to the subtotal instead of to every item before rounding.
 from models import compute_totals, line_total, parse_percent
 
 

@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in metrics.py: Ties between shortest paths go to the largest names instead of the smallest.
 def _check(node):
     if not isinstance(node, str) or not node:
         raise ValueError("a node must be a non-empty str")

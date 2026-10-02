@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in items.py: ship lowers on_hand but forgets to lower reserved.
 from items import InsufficientStock
 
 

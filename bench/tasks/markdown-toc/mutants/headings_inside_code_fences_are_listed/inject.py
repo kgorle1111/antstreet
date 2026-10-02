@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in headings.py: extract_headings does not skip fenced code blocks, so '# comment' lines in code become headings.
 from headings import extract_headings, fenced_lines
 from toc import render_toc
 

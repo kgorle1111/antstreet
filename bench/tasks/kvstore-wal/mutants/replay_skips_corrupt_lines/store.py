@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in log.py: replay silently skips terminated lines that are not valid records instead of raising.
 def _check_key(key):
     if not isinstance(key, str) or not key:
         raise ValueError("key must be a non-empty str")

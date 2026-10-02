@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in metrics.py: density uses edges / (nodes * (nodes - 1)), the directed-graph formula.
 def _check(node):
     if not isinstance(node, str) or not node:
         raise ValueError("a node must be a non-empty str")

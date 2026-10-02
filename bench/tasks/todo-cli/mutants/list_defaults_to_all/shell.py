@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in parse.py: list with no status word shows all items instead of only open ones.
 from parse import parse_command
 
 

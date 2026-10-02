@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in metrics.py: density uses edges / (nodes * (nodes - 1)), the directed-graph formula.
 from metrics import components, degree, degree_distribution, density, shortest_path, top_degree
 
 

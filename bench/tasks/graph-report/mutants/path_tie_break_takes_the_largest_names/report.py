@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in metrics.py: Ties between shortest paths go to the largest names instead of the smallest.
 from metrics import components, degree, degree_distribution, density, shortest_path, top_degree
 
 

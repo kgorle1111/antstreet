@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in store.py: compact writes the records in insertion order instead of ordered by key.
 import json
 import os
 import tempfile

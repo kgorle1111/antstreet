@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in bucket.py: A denied try_acquire empties the bucket instead of leaving the tokens alone.
 import math
 import time
 from collections import OrderedDict

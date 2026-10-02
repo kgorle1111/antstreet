@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in headings.py: A line like '#hashtag' is accepted as a heading because the space after the hashes is optional.
 def _check_level(value):
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 6:
         raise ValueError("levels must be ints from 1 to 6")

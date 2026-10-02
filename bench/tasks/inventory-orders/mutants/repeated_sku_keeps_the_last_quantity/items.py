@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in orders.py: A SKU that appears twice in the lines keeps the last quantity instead of adding them up.
 class InsufficientStock(Exception):
     def __init__(self, sku, requested, available):
         super().__init__(f"{sku}: {requested} requested, {available} available")

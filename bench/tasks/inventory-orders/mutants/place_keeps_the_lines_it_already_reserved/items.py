@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in orders.py: place checks for unknown SKUs but not for shortages, so a short line fails after earlier lines were reserved.
 class InsufficientStock(Exception):
     def __init__(self, sku, requested, available):
         super().__init__(f"{sku}: {requested} requested, {available} available")

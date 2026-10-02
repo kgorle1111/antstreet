@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in store.py: delete appends a record even when the key is absent.
 import json
 import os
 import tempfile

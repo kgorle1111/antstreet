@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in render.py: Percentages in labels are printed as given (8.50) instead of without trailing zeros (8.5).
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 

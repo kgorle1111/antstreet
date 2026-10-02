@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in stats.py: stdev divides by count instead of count - 1 (population, not sample, deviation).
 from stats import describe
 
 _SUMMARY_COLUMNS = ["column", "count", "missing", "mean", "min", "median", "max", "stdev"]

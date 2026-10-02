@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in shell.py: done and rm let the KeyError for an unknown id escape instead of replying Error: no item.
 import re
 from dataclasses import dataclass, replace
 

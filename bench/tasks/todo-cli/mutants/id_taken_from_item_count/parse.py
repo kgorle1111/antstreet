@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in core.py: A new id is the number of items plus one, so ids are reused after a remove.
 import re
 from dataclasses import dataclass
 

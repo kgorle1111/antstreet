@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in metrics.py: components are ordered by first node, not by size with the largest first.
 from metrics import components, degree, degree_distribution, density, shortest_path, top_degree
 
 

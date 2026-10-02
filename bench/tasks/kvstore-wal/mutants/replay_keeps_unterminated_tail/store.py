@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in log.py: replay treats text after the last newline as a record instead of ignoring the torn write.
 def _check_key(key):
     if not isinstance(key, str) or not key:
         raise ValueError("key must be a non-empty str")

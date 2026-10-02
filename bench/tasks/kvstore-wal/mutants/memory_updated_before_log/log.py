@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in store.py: set updates the in-memory state before the log append, so a failed append leaves it changed.
 import json
 import os
 import tempfile

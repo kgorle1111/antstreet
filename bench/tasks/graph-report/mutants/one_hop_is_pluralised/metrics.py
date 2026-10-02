@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in report.py: render_path writes '1 hops' instead of '1 hop'.
 from collections import Counter, deque
 
 

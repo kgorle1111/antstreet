@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in inject.py: update_toc inserts the new TOC but keeps what was between the markers, so it grows on every run.
 import re
 from dataclasses import dataclass
 

@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in headings.py: extract_headings does not skip fenced code blocks, so '# comment' lines in code become headings.
 def _check_level(value):
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 6:
         raise ValueError("levels must be ints from 1 to 6")

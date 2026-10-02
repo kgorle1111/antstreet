@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in stats.py: The median of an even count is the upper middle value instead of the mean of the two middle ones.
 import csv
 import io
 import math

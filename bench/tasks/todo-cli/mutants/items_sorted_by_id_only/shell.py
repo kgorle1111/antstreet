@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in core.py: items() orders by id only and ignores priority.
 from parse import parse_command
 
 

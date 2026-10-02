@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in graph.py: add_edge accepts a self-loop and records the node as its own neighbour.
 from metrics import components, degree, degree_distribution, density, shortest_path, top_degree
 
 

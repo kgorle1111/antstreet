@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in metrics.py: components are ordered by first node, not by size with the largest first.
 def _check(node):
     if not isinstance(node, str) or not node:
         raise ValueError("a node must be a non-empty str")

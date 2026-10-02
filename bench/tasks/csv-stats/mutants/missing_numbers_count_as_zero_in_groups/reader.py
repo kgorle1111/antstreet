@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in stats.py: group_by treats a missing number as 0.0 instead of skipping it, so counts and means include it.
 import csv
 import io
 import math

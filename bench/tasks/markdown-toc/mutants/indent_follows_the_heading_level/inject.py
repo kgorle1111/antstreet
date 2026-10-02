@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in toc.py: The TOC indent is 2 spaces per heading level above 1 instead of per open ancestor.
 from headings import extract_headings, fenced_lines
 from toc import render_toc
 

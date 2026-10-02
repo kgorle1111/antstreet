@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in orders.py: ship and cancel do not check the order's status, so a shipped or cancelled order can be released or shipped again.
 class InsufficientStock(Exception):
     def __init__(self, sku, requested, available):
         super().__init__(f"{sku}: {requested} requested, {available} available")

@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in render.py: The Discount line is printed even when there is no discount.
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 

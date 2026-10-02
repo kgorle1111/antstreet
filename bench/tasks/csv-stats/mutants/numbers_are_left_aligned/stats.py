@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in table.py: render_table left-aligns every column, number columns included.
 import math
 import statistics
 from dataclasses import dataclass

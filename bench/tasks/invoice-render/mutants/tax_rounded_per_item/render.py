@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in models.py: Tax is rounded on every item and then summed, instead of once on each category's net.
 from models import compute_totals, line_total, parse_percent
 
 

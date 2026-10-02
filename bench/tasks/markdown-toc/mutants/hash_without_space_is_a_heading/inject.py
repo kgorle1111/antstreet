@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in headings.py: A line like '#hashtag' is accepted as a heading because the space after the hashes is optional.
 from headings import extract_headings, fenced_lines
 from toc import render_toc
 

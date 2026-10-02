@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in headings.py: Repeated headings all get the plain slug as their anchor instead of numbered suffixes.
 from headings import extract_headings, fenced_lines
 from toc import render_toc
 

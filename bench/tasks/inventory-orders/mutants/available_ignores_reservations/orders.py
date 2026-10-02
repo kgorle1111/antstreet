@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in items.py: available() returns on_hand, so reserved units can be promised again.
 from items import InsufficientStock
 
 

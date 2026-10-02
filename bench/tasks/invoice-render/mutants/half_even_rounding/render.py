@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in models.py: Money is rounded half to even (banker's rounding) instead of half up.
 from models import compute_totals, line_total, parse_percent
 
 

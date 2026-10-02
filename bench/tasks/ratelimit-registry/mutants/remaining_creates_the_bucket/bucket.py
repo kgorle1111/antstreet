@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in registry.py: remaining() on an unknown key creates its bucket and makes it most recently used.
 import math
 import time
 

@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in stats.py: stdev divides by count instead of count - 1 (population, not sample, deviation).
 import csv
 import io
 import math

@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in reader.py: A row with fewer fields than the header is accepted instead of rejected.
 import math
 import statistics
 from dataclasses import dataclass

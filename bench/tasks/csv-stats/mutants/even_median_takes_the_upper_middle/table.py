@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in stats.py: The median of an even count is the upper middle value instead of the mean of the two middle ones.
 from stats import describe
 
 _SUMMARY_COLUMNS = ["column", "count", "missing", "mean", "min", "median", "max", "stdev"]

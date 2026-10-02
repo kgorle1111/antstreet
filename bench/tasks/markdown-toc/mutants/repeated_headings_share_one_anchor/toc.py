@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in headings.py: Repeated headings all get the plain slug as their anchor instead of numbered suffixes.
 def _check_level(value):
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 6:
         raise ValueError("levels must be ints from 1 to 6")

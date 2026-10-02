@@ -1,3 +1,4 @@
+# Same as the reference; the bug is in reader.py: A row with fewer fields than the header is accepted instead of rejected.
 from stats import describe
 
 _SUMMARY_COLUMNS = ["column", "count", "missing", "mean", "min", "median", "max", "stdev"]
