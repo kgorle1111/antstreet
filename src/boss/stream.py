@@ -42,6 +42,9 @@ class StreamReader:
         self.hook_events = 0
         self.malformed_lines = 0
         self.event_counts: Counter[str] = Counter()
+        # Per message id: the CLI emits one `assistant` event per content block, each repeating
+        # the message's usage, so counting events would count a message once per block.
+        self._messages: dict[str, tuple[int, int, int]] = {}  # id -> in, cache write, cache read
 
     def feed(self, line: str) -> None:
         if not line.strip():
@@ -60,6 +63,8 @@ class StreamReader:
             self._system(subtype, event)
         elif kind == "rate_limit_event" and isinstance(event.get("rate_limit_info"), dict):
             self.rate_limit = event["rate_limit_info"]
+        elif kind == "assistant":
+            self._message(event.get("message"))
         elif kind == "result":
             self.result = event
 
@@ -74,6 +79,17 @@ class StreamReader:
             )
         elif subtype.startswith("hook_"):
             self.hook_events += 1
+
+    def _message(self, message: Any) -> None:
+        usage = message.get("usage") if isinstance(message, dict) else None
+        mid = message.get("id") if isinstance(message, dict) else None
+        if not isinstance(usage, dict) or not isinstance(mid, str):
+            return
+        self._messages[mid] = (
+            _count(usage, "input_tokens"),
+            _count(usage, "cache_creation_input_tokens"),
+            _count(usage, "cache_read_input_tokens"),
+        )
 
     @property
     def session_id(self) -> str | None:
@@ -98,17 +114,24 @@ class StreamReader:
 
     def usage(self) -> Usage:
         result = self.result
-        if result is None:
-            # kn: input tokens could be recovered from per-message usage; not needed yet.
-            return Usage(None, 0, 0, 0)
-        raw = result.get("modelUsage")
+        raw = (result or {}).get("modelUsage")
         models = [m for m in raw.values() if isinstance(m, dict)] if isinstance(raw, dict) else []
+        if result is None or not models:
+            return self._message_usage(None if result is None else _cost_micros(result, False))
         tokens_in = sum(
             _count(m, "inputTokens") + _count(m, "cacheCreationInputTokens") for m in models
         )
         tokens_out = sum(_count(m, "outputTokens") for m in models)
         tokens_cached = sum(_count(m, "cacheReadInputTokens") for m in models)
         return Usage(_cost_micros(result, bool(models)), tokens_in, tokens_out, tokens_cached)
+
+    def _message_usage(self, cost_micros: int | None) -> Usage:
+        """Input-side tokens summed from the messages seen, for a slice with no totals: it was
+        killed, or the CLI zeroed them. Output stays 0: each message's `output_tokens` is its
+        count at the start of the response (4 against 775 billed in the capped fixture), so a sum
+        of them would look measured and be wrong. The cost stays unknown for the same reason."""
+        sums = [sum(m[i] for m in self._messages.values()) for i in range(3)]
+        return Usage(cost_micros, sums[0] + sums[1], 0, sums[2])
 
 
 def _count(model: dict[str, Any], key: str) -> int:
