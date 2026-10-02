@@ -484,6 +484,19 @@ def test_topup_names_the_run_it_is_given_not_only_the_latest(boss):
     assert events_of_run(boss, 1)[-1].event is not EventType.TOPPED_UP
 
 
+def test_topup_lands_on_the_round_it_names(boss):
+    locked_run(boss)
+    path = boss.runs()[0] / "term_sheet.json"
+    sheet = json.loads(path.read_text())
+    sheet["rounds"].append({"n": 2, "budget_micros": 300_000, "unlock_checks": 1})
+    sheet["budget_micros"] += 300_000
+    path.write_text(json.dumps(sheet))
+    code, output = boss("topup", "--round", "2", "--amount", "0.20")
+    assert code == EXIT_OK and "Topped up round 2" in output
+    last = events_of_run(boss)[-1]
+    assert (last.event, last.round, last.data) == (EventType.TOPPED_UP, 2, {"micros": 200_000})
+
+
 def test_topup_refuses_a_round_the_run_does_not_have_and_writes_nothing(boss):
     locked_run(boss)
     before = events_of_run(boss)
