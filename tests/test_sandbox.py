@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from sandbox_support import working_sandbox
 
 from boss import sandbox
 from boss.sandbox import (
@@ -216,3 +217,18 @@ def test_missing_hints_name_the_tool_and_the_fix_per_platform():
     assert "sandbox-exec" in missing_hint("Darwin") and "macOS" in missing_hint("Darwin")
     assert "Windows" in missing_hint("Windows")
     assert missing_hint() == missing_hint(sandbox.platform.system())
+
+
+# --- the tests' own guard against a silent skip ------------------------------------------------
+
+
+def test_a_required_sandbox_that_cannot_run_raises_instead_of_letting_tests_skip(monkeypatch):
+    monkeypatch.setattr(sandbox, "detect", lambda *a, **k: None)
+    monkeypatch.setenv("BOSS_GATE_SANDBOX", "auto")
+    assert working_sandbox() is None  # a developer machine without a tool still skips
+    monkeypatch.setenv("BOSS_GATE_SANDBOX", " Require ")
+    with pytest.raises(SandboxUnavailable, match="BOSS_GATE_SANDBOX=require"):
+        working_sandbox()
+    found = Sandbox("bwrap", "/usr/bin/bwrap")
+    monkeypatch.setattr(sandbox, "detect", lambda *a, **k: found)
+    assert working_sandbox() is found

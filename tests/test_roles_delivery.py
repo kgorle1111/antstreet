@@ -7,6 +7,7 @@ import json
 import sys
 
 import pytest
+from sandbox_support import working_sandbox
 
 from boss.errors import Outcome
 from boss.gate import OUTPUT_TAIL_CHARS, Check, CheckResult, CheckStatus, GateError, run_gate
@@ -24,7 +25,7 @@ from boss.roles.delivery import (
     render_usage,
     write_demo,
 )
-from boss.sandbox import SandboxMode, detect
+from boss.sandbox import SandboxMode
 from boss.skills import MAX_SKILL_CHARS, load_skill
 from boss.stream import Usage
 
@@ -64,7 +65,7 @@ STEPS = [
     {"says": "Shortens without a trailing hyphen", "quote": "A max_length shortens the slug"},
 ]
 USAGE = "Import slug from slugger.py. Pass the title as text; max_length is optional."
-SANDBOX = detect()
+SANDBOX = working_sandbox()
 needs_sandbox = pytest.mark.skipif(SANDBOX is None, reason="no OS sandbox on this machine")
 
 
