@@ -32,6 +32,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "wrong_checks": (int, _NONE),
     "held_out_passed": (int, _NONE),
     "held_out_total": (int, _NONE),
+    "held_out_wrong": (int, _NONE),
 }
 
 
@@ -62,6 +63,10 @@ class CellResult:
     # when the run had none (older results, the single arm, no `--held-out`).
     held_out_passed: int | None = None
     held_out_total: int | None = None
+    # Firm only: held-out checks the task's reference solution fails. Such a check demands
+    # something the idea does not, so a product failing it says nothing about the product; None when
+    # not measured (older results, the single arm, no held-out checks on disk).
+    held_out_wrong: int | None = None
 
     def __post_init__(self) -> None:
         if self.arm not in ARMS:

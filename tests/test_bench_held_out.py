@@ -15,6 +15,14 @@ from boss.bench.tasks import load_task
 from boss.ledger import Event, EventType, LedgerWriter
 
 TASK = load_task(Path(__file__).parent.parent / "bench" / "tasks" / "slugify")
+SOUND = (
+    "from slugify import slugify\n\ndef test_basic():\n"
+    "    assert slugify('Hello World') == 'hello-world'\n"
+)
+WRONG = (  # the idea does not support it: the reference solution fails it
+    "from slugify import slugify\n\ndef test_version():\n"
+    "    assert slugify('Version 2.0') == 'version-20'\n"
+)
 HASHES = {"manifest.json": "0" * 64} | {f"test_h0{n}.py": str(n) * 64 for n in (1, 2, 3)}
 
 
@@ -44,12 +52,17 @@ def stub(tmp_path, monkeypatch):
     calls = []
     stub = type("Stub", (), {})()
     stub.events, stub.calls = firm_ledger(), calls
+    stub.held_out = {}  # file name -> code, written to the run folder's held_out/
 
     def fake_main(argv, *, ask, say, environ):
         calls.append(list(argv))
         out = Path(argv[argv.index("--dir") + 1])
         run_dir = out / ".boss" / "runs" / "r1"
         (run_dir / "checks").mkdir(parents=True)
+        if stub.held_out:
+            (run_dir / "held_out").mkdir()
+            for name, code in stub.held_out.items():
+                (run_dir / "held_out" / name).write_text(code)
         shutil.copytree(TASK.reference_dir, run_dir / "product")
         with LedgerWriter(run_dir / "ledger.jsonl") as ledger:
             for event in stub.events:
@@ -139,6 +152,38 @@ def test_a_firm_run_whose_examiner_failed_records_no_count(stub):
     assert result.firm_args == "--held-out 3"  # what was asked is still on the record
 
 
+# --- held-out checks the reference solution fails (B61) ---------------------------------------
+
+
+def test_held_out_checks_the_reference_fails_are_counted_as_wrong(stub):
+    stub.held_out = {"test_h01.py": SOUND, "test_h02.py": WRONG, "test_h03.py": WRONG}
+    result = stub.cell(held_out=3)
+    assert result.held_out_wrong == 2 and result.held_out_total == 3
+    assert result.wrong_checks is None  # no visible draft in this stub: a separate figure
+    saved = CellResult.load(cell_dir(stub.results, "slugify", "firm", 1) / "result.json")
+    assert saved.held_out_wrong == 2
+
+
+def test_sound_held_out_checks_are_zero_wrong(stub):
+    stub.held_out = {"test_h01.py": SOUND}
+    assert stub.cell(held_out=1).held_out_wrong == 0
+
+
+def test_no_held_out_files_means_not_measured_never_zero(stub):
+    stub.events = firm_ledger(statuses=(), written=False, requested=0)
+    assert stub.cell().held_out_wrong is None
+
+
+def test_the_single_arm_does_not_measure_wrong_held_out_checks(stub, monkeypatch):
+    def single(task, out, environ, model, budget_micros):
+        workspace = out / "workspace"
+        shutil.copytree(TASK.reference_dir, workspace)
+        return workspace, [ev(EventType.SLICE_END, "worker:solo", outcome="completed")]
+
+    monkeypatch.setattr(bench_run, "_run_single", single)
+    assert stub.cell("single", held_out=3).held_out_wrong is None
+
+
 # --- the command line -------------------------------------------------------------------------
 
 
@@ -188,6 +233,18 @@ def test_results_written_before_the_held_out_fields_still_load(tmp_path):
     (tmp_path / "result.json").write_text(json.dumps(raw))
     old = CellResult.load(tmp_path / "result.json")
     assert (old.held_out_passed, old.held_out_total) == (None, None)
+
+
+def test_results_written_before_held_out_wrong_still_load_and_the_field_is_type_checked(tmp_path):
+    raw = saved_cell(tmp_path, held_out_wrong=1)
+    del raw["held_out_wrong"]
+    (tmp_path / "result.json").write_text(json.dumps(raw))
+    assert CellResult.load(tmp_path / "result.json").held_out_wrong is None
+    for bad in ("one", True, 1.5):
+        raw["held_out_wrong"] = bad
+        (tmp_path / "result.json").write_text(json.dumps(raw))
+        with pytest.raises(ValueError, match="held_out_wrong"):
+            CellResult.load(tmp_path / "result.json")
 
 
 @pytest.mark.parametrize(

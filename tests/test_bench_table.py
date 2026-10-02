@@ -329,3 +329,38 @@ def test_an_arm_with_only_infrastructure_cells_has_no_time() -> None:
     [s] = summarize([cell(hidden={}, failure_class="infrastructure")])
     assert s.median_duration_s is None and s.reliable_tasks == 0
     assert "| n/a | 0/0 |" in render_table([cell(hidden={}, failure_class="infrastructure")])
+
+
+def held_cell(wrong: int | None, total: int | None = 3, **over: object) -> CellResult:
+    return firm_cell(
+        0,
+        held_out_wrong=wrong,
+        held_out_passed=None if total is None else 0,
+        held_out_total=total,
+        **over,
+    )
+
+
+def test_wrong_held_out_checks_are_summed_over_the_cells_where_they_were_measured() -> None:
+    results = [
+        held_cell(0, task="t1"),
+        held_cell(2, task="t2"),
+        held_cell(1, total=2, task="t3"),
+        held_cell(None, task="t4"),  # an older result: not measured, so not counted as zero
+        held_cell(4, task="t5", hidden={}, failure_class="infrastructure"),
+    ]
+    [firm] = summarize(results)
+    assert (firm.held_out_wrong, firm.held_out_checks, firm.held_out_wrong_cells) == (3, 8, 2)
+    assert (
+        "Wrong held-out checks: 3 of 8 checks failed on the reference solution, in 2 cells."
+        in render_table(results)
+    )
+
+
+def test_no_wrong_held_out_line_when_nothing_was_measured_or_for_the_single_arm() -> None:
+    [firm] = summarize([held_cell(None)])
+    assert firm.held_out_wrong is None and firm.held_out_wrong_cells is None
+    assert "Wrong held-out checks" not in render_table([held_cell(None)])
+    [single] = summarize(single_set())
+    assert single.held_out_wrong is None
+    assert "Wrong held-out checks" not in render_table(single_set())

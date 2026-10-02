@@ -76,7 +76,7 @@ def run_cell(
     out.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     wrong_checks = None
-    held_out_passed = held_out_total = None
+    held_out_passed = held_out_total = held_out_wrong = None
     if arm == "single":
         workspace, events = _run_single(task, out, environ, model, budget_micros)
     else:
@@ -85,6 +85,7 @@ def run_cell(
         )
         wrong_checks = count_wrong_checks(task, workspace.parent / "checks")
         held_out_passed, held_out_total = _held_out_counts(events)
+        held_out_wrong = count_wrong_checks(task, workspace.parent / "held_out")
 
     hidden = _score(task, workspace)
     passed = all(status == "passed" for status in hidden.values())
@@ -115,6 +116,7 @@ def run_cell(
         wrong_checks=wrong_checks,
         held_out_passed=held_out_passed,
         held_out_total=held_out_total,
+        held_out_wrong=held_out_wrong,
     )
     result.save(out)
     return result
@@ -187,8 +189,6 @@ def _held_out_counts(events: Sequence[Event]) -> tuple[int | None, int | None]:
     run that had none. One the run did not get to grade counts as not passed."""
     if not events:
         return None, None
-    # kn: counts what the product passed, not how many held-out checks are wrong; run the task's
-    # reference solution against them, as `wrong_checks` does for the visible ones.
     report = build_report(list(events))
     total_checks = max(report.held_out_written, len(report.held_out))
     if not total_checks:

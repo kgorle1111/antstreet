@@ -45,6 +45,9 @@ class ArmSummary:
     wrong_checks: int | None = None  # firm only: boss checks the reference solution fails
     boss_checks: int | None = None  # boss checks in the cells where that was measured
     wrong_check_cells: int | None = None  # cells whose draft held at least one wrong check
+    held_out_wrong: int | None = None  # firm only: held-out checks the reference solution fails
+    held_out_checks: int | None = None  # held-out checks in the cells where that was measured
+    held_out_wrong_cells: int | None = None  # cells with at least one wrong held-out check
     median_duration_s: float | None = None  # wall clock per counted cell; None with no cells
     reliable_tasks: int = 0  # tasks whose every counted run passed (pass^k over k runs)
 
@@ -83,6 +86,7 @@ def _summarize_arm(arm: str, results: Sequence[CellResult]) -> ArmSummary:
     low, high = wilson_interval(passed, n)
     firm = arm == "firm"
     measured = [r for r in cells if r.wrong_checks is not None]
+    held = [r for r in cells if r.held_out_wrong is not None]
     return ArmSummary(
         arm=arm,
         cells=n,
@@ -102,6 +106,9 @@ def _summarize_arm(arm: str, results: Sequence[CellResult]) -> ArmSummary:
         wrong_checks=sum(r.wrong_checks or 0 for r in measured) if measured else None,
         boss_checks=sum(r.visible_total or 0 for r in measured) if measured else None,
         wrong_check_cells=sum(bool(r.wrong_checks) for r in measured) if measured else None,
+        held_out_wrong=sum(r.held_out_wrong or 0 for r in held) if held else None,
+        held_out_checks=sum(r.held_out_total or 0 for r in held) if held else None,
+        held_out_wrong_cells=sum(bool(r.held_out_wrong) for r in held) if held else None,
         median_duration_s=statistics.median(r.duration_s for r in cells) if cells else None,
         reliable_tasks=sum(
             all(r.passed for r in cells if r.task == task) for task in {r.task for r in cells}
@@ -227,6 +234,11 @@ def render_table(results: Sequence[CellResult]) -> str:
             out.append(
                 f"Wrong boss checks: {firm.wrong_checks} of {firm.boss_checks} checks failed on "
                 f"the reference solution, in {firm.wrong_check_cells} drafts."
+            )
+        if firm.held_out_wrong is not None:
+            out.append(
+                f"Wrong held-out checks: {firm.held_out_wrong} of {firm.held_out_checks} checks "
+                f"failed on the reference solution, in {firm.held_out_wrong_cells} cells."
             )
 
     tasks = per_task(results)
