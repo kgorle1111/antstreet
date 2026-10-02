@@ -41,6 +41,20 @@ def test_the_shipped_task_set_hash_is_pinned():
     assert task_set_hash(load_tasks(TASKS)) == SHIPPED_SET_HASH
 
 
+MULTI = TASKS.parent / "tasks-multi"  # tasks of 2-3 modules, for measuring a split across workers
+MULTI_SET_HASH = "ed1824911b464045"
+
+
+def test_every_multi_file_task_is_valid_and_needs_more_than_one_module():
+    tasks = load_tasks(MULTI)
+    assert len(tasks) == 8 and task_set_hash(tasks) == MULTI_SET_HASH
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(validate_task, tasks))
+    for task in tasks:
+        modules = sorted(p.name for p in task.reference_dir.glob("*.py"))
+        assert len(modules) >= 2, f"{task.id} is meant to need several modules: {modules}"
+
+
 def test_mutants_are_left_out_of_the_set_hash(task_dir):
     before = task_set_hash([load_task(task_dir)])
     shutil.copytree(task_dir / "mutants" / "pilot_single", task_dir / "mutants" / "one_more")
