@@ -106,3 +106,26 @@ def test_a_result_without_model_usage_keeps_its_cost_and_gains_the_message_token
     result = {"type": "result", "subtype": "success", "total_cost_usd": 0.25}
     reader = feed(message("m1", {"input_tokens": 3}), json.dumps(result))
     assert reader.usage() == Usage(250_000, 3, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    [
+        "stream_budget_capped_2.1.285.jsonl",
+        "stream_structured_status_blocked_2.1.285.jsonl",
+        "stream_resume_after_cap_2.1.285.jsonl",
+    ],
+)
+def test_per_message_output_tokens_are_a_small_fraction_of_the_billed_output(fixture):
+    # Why there is no cost watch (D37): output, a large share of the cost, is not in the stream
+    # until the result, and nothing but the result carries a cost.
+    events = [json.loads(ln) for ln in lines(fixture)]
+    per_message = {
+        e["message"]["id"]: e["message"]["usage"]["output_tokens"]
+        for e in events
+        if e["type"] == "assistant"
+    }
+    result = next(e for e in events if e["type"] == "result")
+    billed = sum(m["outputTokens"] for m in result["modelUsage"].values())
+    assert sum(per_message.values()) * 20 < billed
+    assert not any("cost" in key.lower() for e in events[:-1] for key in e)

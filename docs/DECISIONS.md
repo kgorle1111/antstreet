@@ -573,3 +573,29 @@ with a JSON schema.
   Draft baseline; [../bench/METHOD.md](../bench/METHOD.md). Limits: 65 mutants, 23 taken from Haiku
   runs; the baseline recall is biased down because 16 of those 23 were built against the drafts
   being scored. Whether a better prompt raises these figures is not yet measured.
+
+### D37: No stream-side cost watch: the stream carries no per-message cost or output count
+
+- Status: `in force`
+- Decision: A slice is capped only by the CLI's `--max-budget-usd` plus the reserve (D18). The runner
+  does not estimate spend from the stream to stop a slice early (B13, closed as `wont`).
+- Why: In the recorded streams (CLI 2.1.285) the only cost anywhere is the
+  `result` event's `total_cost_usd`; no assistant event, and no other event, carries one. Input
+  tokens are exact per message (they sum to the final totals), but output is not: each assistant
+  event's `output_tokens` is its count when the response began, 4 summed over the capped stream
+  against 775 billed, and 9 against 2,957 on the resumed one. Output was about half of the capped
+  slice's cost at Haiku list prices, so a running total built from the stream would miss the larger part. The only
+  other signal, `system/thinking_tokens`, is the CLI's own estimate of thinking alone (172 against
+  149 reported at the end). The rest would be invented: a price table per model, which neither the
+  stream nor this repository holds, and output counted from text length. An estimate that is wrong
+  by half cannot be set against a cap without either stopping slices that were fine or missing
+  the one that overshoots, and each assistant event arrives after its block is complete, so the
+  response that crosses the cap is mostly spent before it is seen.
+- Rejected: A price table with output estimated from content length: made-up figures deciding when
+  a worker is cut off. Stopping on the input-side cost alone: it undercounts by the output share and
+  would stop on a bound that is not the cap.
+- Evidence: `tests/fixtures/stream_budget_capped_2.1.285.jsonl`,
+  `tests/test_stream_messages.py::test_per_message_output_tokens_are_a_small_fraction_of_the_billed_output`,
+  `tests/test_stream_messages.py::test_summed_messages_equal_the_recorded_final_totals`. Reopen when
+  the CLI streams a per-message cost or the final output count of each response (check
+  `--include-partial-messages` first: it was not probed).
