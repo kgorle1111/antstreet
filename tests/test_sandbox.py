@@ -79,7 +79,7 @@ def test_bwrap_argv_is_pinned():
         writable=Path("/tmp/run"), readable=[Path("/home/u/.venv"), Path("/usr")],
     )  # fmt: skip
     assert argv == [
-        "/usr/bin/bwrap", "--die-with-parent", "--unshare-net", "--unshare-pid",
+        "/usr/bin/bwrap", "--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc",
         "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
         "--tmpfs", "/home", "--tmpfs", "/root", "--tmpfs", "/tmp", "--tmpfs", "/run",
         "--ro-bind", "/home/u/.venv", "/home/u/.venv", "--ro-bind", "/usr", "/usr",
