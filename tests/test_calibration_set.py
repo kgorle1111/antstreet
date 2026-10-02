@@ -7,6 +7,7 @@ the real `parse_cases` still checks everything else; once the owner labels a fil
 are checked the same way.
 """
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -82,3 +83,81 @@ def test_the_manifest_describes_exactly_the_cases_and_the_spread_is_wide():
             kinds.add(entry["kind"].split("-")[0])
         # clearly good, clearly bad, borderline, adversarial: the scale is spanned on purpose
         assert {"good", "bad", "borderline", "adversarial"} <= kinds
+
+
+# --- the scoring helper -------------------------------------------------------------------------
+
+
+def load_scorer():
+    spec = importlib.util.spec_from_file_location("calibration_score", ROOT / "score.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def two_case_copy(tmp_path: Path) -> Path:
+    path = tmp_path / "cases.jsonl"
+    path.write_text("\n".join(raw_lines("stories")[:2]) + "\n", encoding="utf-8")
+    return path
+
+
+def feeder(answers: list[str]):
+    asked: list[str] = []
+    it = iter(answers)
+
+    def ask(prompt: str) -> str:
+        asked.append(prompt)
+        return next(it)
+
+    return ask, asked
+
+
+def read(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_the_scorer_writes_scores_the_loader_accepts_and_changes_nothing_else(tmp_path):
+    path = two_case_copy(tmp_path)
+    before = read(path)
+    ask, asked = feeder(["x", "0", "6", "4", "3", "5", "2", "1", "1", "1", "1"])
+    scored, total = load_scorer().score_file(path, ask=ask, out=lambda _: None)
+    assert (scored, total) == (2, 2)
+    assert asked[0].startswith("clarity") and len(asked) == 11  # 3 bad answers were re-asked
+    after = read(path)
+    assert after[0]["scores"] == {"clarity": 4, "checkable": 3, "faithful": 5, "complete": 2}
+    for old, new in zip(before, after, strict=True):
+        assert {k: v for k, v in new.items() if k != "scores"} == {
+            k: v for k, v in old.items() if k != "scores"
+        }
+    assert len(parse_cases(path.read_text(encoding="utf-8"))) == 2  # fully labelled: loads as is
+
+
+def test_quitting_keeps_finished_cases_and_drops_a_half_scored_one(tmp_path):
+    path = two_case_copy(tmp_path)
+    ask, _ = feeder(["4", "3", "5", "2", "5", "5", "q"])
+    scored, total = load_scorer().score_file(path, ask=ask, out=lambda _: None)
+    assert (scored, total) == (1, 2)
+    assert all(v is None for v in read(path)[1]["scores"].values())
+
+
+def test_redo_replaces_only_that_case_and_a_quit_keeps_its_old_scores(tmp_path):
+    path = two_case_copy(tmp_path)
+    scorer = load_scorer()
+    ask, _ = feeder(["4", "3", "5", "2", "1", "1", "1", "1"])
+    scorer.score_file(path, ask=ask, out=lambda _: None)
+    first_id = read(path)[0]["id"]
+    ask, _ = feeder(["q"])
+    scorer.score_file(path, redo=first_id, ask=ask, out=lambda _: None)
+    assert read(path)[0]["scores"]["clarity"] == 4
+    ask, _ = feeder(["2", "2", "2", "2"])
+    scorer.score_file(path, redo=first_id, ask=ask, out=lambda _: None)
+    lines = read(path)
+    assert set(lines[0]["scores"].values()) == {2} and set(lines[1]["scores"].values()) == {1}
+
+
+def test_the_rubric_card_shows_every_question_and_anchor():
+    rubric = load_rubric("usage")
+    card = load_scorer().rubric_card(rubric)
+    for criterion in rubric.criteria:
+        assert criterion.question in card
+        assert all(anchor in card for anchor in criterion.anchors)
