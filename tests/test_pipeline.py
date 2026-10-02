@@ -17,7 +17,15 @@ from boss.boss import load_prompt
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
 from boss.firm import FirmConfig
 from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.pipeline import BY_OPTION, Pipeline, RolesError, Setup, parse_roles, recorded_setup
+from boss.pipeline import (
+    BY_OPTION,
+    Pipeline,
+    RolesError,
+    Setup,
+    _with_fix_round,
+    parse_roles,
+    recorded_setup,
+)
 from boss.roles import registry
 from boss.roles.base import system_prompt
 from boss.roles.judge import Calibration, CaseResult, judge_identity, load_rubric
@@ -1743,17 +1751,68 @@ def test_an_amended_sheet_that_does_not_validate_is_not_offered(fx, monkeypatch)
     assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
 
 
-def test_a_fix_round_after_an_early_finish_still_asks_to_fund_the_rounds_that_never_opened(fx):
+def early_finish(fx, *, fixes: bool):
+    """Two rounds planned, both checks pass in round 1, so round 2 never opens; the critic finds
+    a third check's worth of bug. With `fixes` False the worker never repairs it."""
     script_stage_1(fx, stories=TWO_STORIES, design_out=design(("S1", "S2")))
     fx.set("tester", ok(checks_out("S1.1", "S2.1")))
     critic_finds(fx, finding())
+    if not fixes:
+        fx.set("worker", {"files": {"rev.py": BUGGY}})
+
+
+def test_the_fix_round_takes_the_place_of_the_first_round_that_never_opened(fx):
+    early_finish(fx, fixes=True)
     out = fx.fund("--roles", "product_manager,system_designer,tester,critic", "--rounds", "2")
     assert out.code == EXIT_OK
-    [question] = asked(out, "Round 2")  # the firm's own rule, which the amendment does not bypass
-    assert question.startswith("Round 2: 2/3 checks pass. Fund $")
+    # the investor is asked to fund the fix and nothing else: no round stands before it, and the
+    # fix finishes the work, so the round that never opened is never asked for
+    questions = [t for k, t in out.transcript if k == "ask"]
+    assert len(questions) == 2 and questions[0].startswith("[a]pprove") and questions[1] == QUESTION
+    assert out.index("say", "The fix round is round 2") < out.index("ask", "Add these")
     sheet = json.loads((fx.run_dir / "term_sheet.json").read_text())
-    assert [r["n"] for r in sheet["rounds"]] == [1, 2, 3]
-    assert sorted(e.data.get("round", 1) for e in approvals(fx)) == [1, 2, 3]
+    rounds = [(r["n"], r["budget_micros"], r["unlock_checks"]) for r in sheet["rounds"]]
+    assert rounds == [(1, 250_000, 1), (2, 300_000, 2), (3, 250_000, 3)]
+    assert sheet["budget_micros"] == 800_000
+    assert [e.data.get("round", 1) for e in approvals(fx)] == [1, 2]
+    assert product_verdicts(fx) == {"c01": "passed", "c02": "passed", "c03": "passed"}
+
+
+def test_a_round_that_never_opened_still_needs_the_investors_yes_after_the_fix_round(fx):
+    early_finish(fx, fixes=False)
+    # a fix budget of one slice: the fix round runs out of money before the bug is fixed
+    out = fx.fund(
+        "--roles", "product_manager,system_designer,tester,critic", "--rounds", "2",
+        "--fix-budget", "0.11", answers={"Round": "n"},
+    )  # fmt: skip
+    questions = [t for k, t in out.transcript if k == "ask"]
+    assert [q[:9] for q in questions] == ["[a]pprove", "Add these", "Round 3: "]
+    assert questions[2].startswith("Round 3: 2/3 checks pass. Fund $0.25")
+    assert out.code == EXIT_INCOMPLETE
+    assert [e.data.get("round", 1) for e in approvals(fx)] == [1, 2]  # round 3 was not funded
+
+
+THREE = TermSheet(IDEA, 600, (Round(1, 100, 1), Round(2, 200, 2), Round(3, 300, 3)), (), ())
+
+
+@pytest.mark.parametrize(
+    ("approved", "n", "rounds"),
+    [
+        ({1, 2, 3}, 4, [(1, 100, 1), (2, 200, 2), (3, 300, 3), (4, 50, 4)]),  # all opened: last
+        ({1}, 2, [(1, 100, 1), (2, 50, 2), (3, 200, 2), (4, 300, 4)]),
+        ({1, 2}, 3, [(1, 100, 1), (2, 200, 2), (3, 50, 3), (4, 300, 4)]),
+        (set(), 1, [(1, 50, 1), (2, 100, 1), (3, 200, 2), (4, 300, 4)]),
+        # a later round that opened anyway (an older ledger) is never renumbered: fix goes last
+        ({1, 3}, 4, [(1, 100, 1), (2, 200, 2), (3, 300, 3), (4, 50, 4)]),
+    ],
+)
+def test_the_fix_round_goes_in_front_of_the_unopened_rounds_and_the_sheet_stays_valid(
+    approved, n, rounds
+):
+    got_n, got = _with_fix_round(THREE, 50, 4, frozenset(approved))
+    assert (got_n, [(r.n, r.budget_micros, r.unlock_checks) for r in got]) == (n, rounds)
+    unlocks = [r.unlock_checks for r in got]
+    assert unlocks == sorted(unlocks) and unlocks[-1] == 4  # what `validate` asks of rounds
 
 
 # --- Ctrl-C before the sheet is approved ----------------------------------------------------------

@@ -272,8 +272,10 @@ the `started` event, so `boss resume` calls roles the same way.
   one, and a task has no profile field.
 - No role has been measured to pay for its call, so none is on unless you name it. No judge
   calibration file is in the repository.
-- A fix round goes after the last round of the term sheet. If the work finished early and later
-  rounds never opened, the loop asks you to fund those before it reaches the fix round.
+- The fix round takes the place of the first round that never opened, so a sheet whose later
+  rounds were never needed does not ask you to fund them first. Those rounds follow it, one number
+  higher, with their money unchanged and each still asking for your yes; the last one now unlocks
+  only when every check passes, which a sheet requires. You are told this before you answer.
 - A Ctrl-C at the fix question is not an answer. The critic is called again on `resume` (one more
   call, its own cap) and its findings, which may differ, are offered again; its first review stays
   in `critic-N/`. A no, or a cycle that offered nothing, is recorded as an investor `ruled` event

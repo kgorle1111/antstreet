@@ -75,7 +75,8 @@ What it asks you:
   once per review cycle and only when the critic has verified findings and the run did not end
   early. It shows each proposed check and its code first. `y`, `yes`, `a` and `approve` are yes;
   anything else, and end of input, is no. Ctrl-C ends the command with exit 130 and is not an answer:
-  `boss resume` asks the critic again and puts the question again.
+  `boss resume` asks the critic again and puts the question again. When a round of the sheet never
+  opened, the fix round takes its place and that round follows it.
 
 Limits that are not options: a run stops at 60 slices or 16 workers, when spend passes the sum of
 its round budgets plus one reserve per round, or when a worker's folder passes 200 MiB (the gate

@@ -41,6 +41,7 @@ from boss.roles.product import StoryReview, review_stories, uncovered_fragments,
 from boss.roles.stories import Stories
 from boss.rulings import DECLINED
 from boss.rundir import Recorder, RunPaths
+from boss.state import run_state
 from boss.stream import Usage
 from boss.termsheet import CheckSpec, Round, TermSheet, TermSheetError, validate
 from boss.worker import usd
@@ -543,13 +544,16 @@ class Pipeline:
         checks = self._proposed(sheet, review)
         if not checks:
             return None
-        # kn: the fix round goes after every round, so a sheet whose later rounds never opened
-        # (the work finished early) asks the investor to fund those first; reuse a free round.
-        n = len(sheet.rounds) + 1
+        n, rounds = _with_fix_round(
+            sheet,
+            fix_micros,
+            len(sheet.checks) + len(checks),
+            run_state(self._events(), [t.id for t in sheet.tasks]).approved_rounds,
+        )
         amended = dataclasses.replace(
             sheet,
             checks=(*sheet.checks, *checks),
-            rounds=(*sheet.rounds, Round(n, fix_micros, len(sheet.checks) + len(checks))),
+            rounds=rounds,
             budget_micros=sheet.budget_micros + fix_micros,
         )
         try:
@@ -563,6 +567,12 @@ class Pipeline:
             self.say(f"\nCheck {c.id} [{c.task}] {_one_line(c.description, 300)}")
             self.say(f"--- {self.paths.checks / c.file}")
             self.say(_check_text(self.paths.checks / c.file))
+        if n <= len(sheet.rounds):
+            self.say(
+                f"\nThe fix round is round {n}, in the place of the first round that never opened. "
+                "The rounds after it move up one number and keep their money; each still needs "
+                "your yes, and the last now unlocks only when every check passes."
+            )
         question = (
             f"Add these {len(checks)} checks and fund a fix round of ${usd(fix_micros)}? "
             "[y]es / [n]o "
@@ -724,6 +734,25 @@ def _answers_fix_question(event: Event) -> bool:
     if event.event is EventType.APPROVED:
         return "added_checks" in event.data
     return event.event is EventType.RULED and event.data.get("ruling") == DECLINED
+
+
+def _with_fix_round(
+    sheet: TermSheet, fix_micros: int, total_checks: int, approved: frozenset[int]
+) -> tuple[int, tuple[Round, ...]]:
+    """The fix round's number and the sheet's rounds with it in the place of the first round that
+    never opened. The unopened rounds follow it, renumbered, each still asking for its own yes; the
+    last one unlocks only when every check passes, as a sheet requires. The fix round goes last
+    when every round opened, or when a later round was opened anyway (renumbering would move its
+    events)."""
+    first = next((i for i, r in enumerate(sheet.rounds) if r.n not in approved), len(sheet.rounds))
+    if any(r.n in approved for r in sheet.rounds[first:]):
+        first = len(sheet.rounds)
+    rest = [Round(r.n + 1, r.budget_micros, r.unlock_checks) for r in sheet.rounds[first:]]
+    unlock = rest[0].unlock_checks if rest else total_checks
+    if rest:
+        rest[-1] = dataclasses.replace(rest[-1], unlock_checks=total_checks)
+    n = first + 1
+    return n, (*sheet.rounds[:first], Round(n, fix_micros, unlock), *rest)
 
 
 def _last_slice_end(events: Sequence[Event]) -> int:
