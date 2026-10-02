@@ -1764,16 +1764,19 @@ def check_ledger(res: Result) -> None:
                     _fail(res, f"ruled on {check}, which {worker} had not disputed or was ruled")
                 if Decision(task, worker, check, ruling) not in decisions:
                     _fail(res, f"{ruling} {check}: not what the investor answered")
-                # A dispute stands, and calls for a ruling, only if it is credible: as the worker's
-                # last slice ended, every failing check was disputed, and no more than half of the
-                # task's live checks were.
-                end, number = last_end_at[worker], finished[worker]
+                # A dispute stands, and calls for a ruling, only if it is credible: as the task's
+                # current worker's last slice ended, every failing check was disputed, and no more
+                # than half of the task's live checks were. The current worker inherits what the
+                # workers hired before it on the task disputed, so the ruling may name one of them.
+                asked = next(w for w in reversed(list(hired)) if hired[w] == task)
+                end, number = last_end_at[asked], finished[asked]
                 before = {c for j, _, c in ruled_at if j < end}
                 lives = checks_of[task] - {c for j, r, c in ruled_at if j < end and r == "dropped"}
-                failing = {c for c in lives if outcome_of.get((worker, number, c)) == "failed"}
-                standing = {c for w, c in disputed_by if w == worker} - before - (lives - failing)
+                failing = {c for c in lives if outcome_of.get((asked, number, c)) == "failed"}
+                raised = {c for w, c in disputed_by if hired[w] == task}
+                standing = raised - before - (lives - failing)
                 if not (0 < 2 * len(standing) <= len(lives) and failing <= standing):
-                    _fail(res, f"{worker} was put to the investor on {sorted(standing)} of "
+                    _fail(res, f"{asked} was put to the investor on {sorted(standing)} of "
                                f"{len(lives)} checks, failing {sorted(failing)}")  # fmt: skip
                 ruled_checks.add(check)
                 ruled_at.append((i, ruling, check))
@@ -1948,13 +1951,19 @@ def check_rulings_reach_the_worker(res: Result) -> None:
     for i, e in enumerate(ev):
         if e.event is not EventType.RULED:
             continue
-        line = NOTE_TEXT[e.data["ruling"]].format(
-            check=e.data.get("check"), note=e.data.get("note")
-        )
-        who = f"worker:{e.data['worker']}"
-        nxt = next((j for j in starts if j > i and ev[j].actor == who), None)
+        # The reader is whoever works on the task next; it may be the replacement of the worker
+        # the ruling names, which is then told whose dispute or block it was.
+        nxt = next((j for j in starts if j > i and ev[j].data["task"] == e.data["task"]), None)
+        theirs = nxt is not None and ev[nxt].actor != f"worker:{e.data['worker']}"
+        lines = [
+            NOTE_TEXT[e.data["ruling"]].format(check=e.data.get("check"), note=e.data.get("note"))
+        ]
+        if theirs and e.data["ruling"] == "kept":
+            lines = [f"check {e.data['check']} stands. Make it pass.", "your predecessor raised"]
+        elif theirs and e.data["ruling"] == "unblocked":
+            lines = [f"The investor answered your predecessor's block: {e.data['note']}"]
         call = call_at[nxt] if nxt is not None else None
-        if call is not None and line not in call.prompt:
+        if call is not None and not all(line in call.prompt for line in lines):
             _fail(res, f"the investor's ruling {e.data['ruling']} on {e.data['task']} (line {i}) "
                        f"is missing from {ev[nxt].actor}'s next brief")  # fmt: skip
 
