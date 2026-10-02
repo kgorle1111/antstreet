@@ -19,6 +19,7 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
     started      boss        {config}
     resumed      investor    {}
     ruled        investor    {task, worker, ruling, check?, note?}   ruling: dropped|kept|unblocked
+    topped_up    investor    {micros}   adds to the budget of the event's round
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from boss.budget import is_top_up
 from boss.errors import INFRASTRUCTURE, Outcome
 from boss.held_out import SCOPE as HELD_OUT_SCOPE
 from boss.ledger import Event, EventType
@@ -138,7 +140,9 @@ class RunState:
     closed_rounds: frozenset[int]
     approved_rounds: frozenset[int]
     stopped: bool  # a stop that no later `resumed` event lifted
-    locked_rounds: frozenset[int] = frozenset()  # closed below their unlock threshold
+    locked_rounds: frozenset[int] = (
+        frozenset()
+    )  # closed below their unlock threshold, not topped up since
     dropped: frozenset[str] = frozenset()  # checks the investor dropped after a dispute
 
     def passing_total(self) -> int:
@@ -180,10 +184,11 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
             passing=passing,
             abandoned=task in abandoned,
         )
+    closed, locked = _closed_rounds(events)
     return RunState(
         workers=workers,
         tasks=tasks,
-        closed_rounds=frozenset(e.round for e in events if e.event is EventType.ROUND_CLOSED),
+        closed_rounds=closed,
         approved_rounds=frozenset(
             int(e.data.get("round", 1))
             for e in events
@@ -191,12 +196,24 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
         ),
         stopped=_stopped(events),
         dropped=ruled(events, DROPPED),
-        locked_rounds=frozenset(
-            e.round
-            for e in events
-            if e.event is EventType.ROUND_CLOSED and not e.data.get("unlocked", False)
-        ),
+        locked_rounds=locked,
     )
+
+
+def _closed_rounds(events: Sequence[Event]) -> tuple[frozenset[int], frozenset[int]]:
+    """(closed, locked) rounds. An investor top-up recorded after a round closed below its unlock
+    threshold reopens it: the one way past a lock. A top-up of any other round reopens nothing."""
+    closed: set[int] = set()
+    locked: set[int] = set()
+    for e in events:
+        if e.event is EventType.ROUND_CLOSED:
+            closed.add(e.round)
+            if not e.data.get("unlocked", False):
+                locked.add(e.round)
+        elif is_top_up(e) and e.round in locked:
+            locked.discard(e.round)
+            closed.discard(e.round)
+    return frozenset(closed), frozenset(locked)
 
 
 def _stopped(events: Sequence[Event]) -> bool:

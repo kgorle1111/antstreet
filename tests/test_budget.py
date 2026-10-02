@@ -5,6 +5,7 @@ import pytest
 from boss.budget import (
     MIN_SLICE_MICROS,
     RESERVE_MICROS,
+    is_top_up,
     min_round_budget,
     next_slice_cap,
     plan_rounds,
@@ -39,8 +40,10 @@ def ev(
     )
 
 
-def top_up(micros: object, round_n: int = 1) -> Event:
-    return ev(round_n, EventType.TOPPED_UP, micros=micros)
+def top_up(micros: object, round_n: int = 1, actor: str = "investor") -> Event:
+    return Event(
+        run="r", round=round_n, actor=actor, event=EventType.TOPPED_UP, data={"micros": micros}
+    )
 
 
 def test_round_budget_is_sheet_amount_without_events() -> None:
@@ -52,6 +55,21 @@ def test_round_budget_adds_top_ups_of_that_round_only() -> None:
     events = [top_up(50_000), top_up(25_000), top_up(999_000, round_n=2), ev(1, cost=7)]
     assert round_budget(sheet(), events, 1) == 675_000
     assert round_budget(sheet(), events, 2) == 1_399_000
+
+
+@pytest.mark.parametrize("actor", ["worker:a", "boss", "gate", "rule", "role:critic"])
+def test_only_the_investors_top_up_counts(actor: str) -> None:
+    events = [top_up(50_000, actor=actor)]
+    assert round_budget(sheet(), events, 1) == 600_000
+    assert remaining(sheet(), events, 1) == 600_000
+    assert not is_top_up(events[0])
+    assert is_top_up(top_up(1))
+
+
+def test_remaining_counts_an_investor_top_up() -> None:
+    spent = ev(1, cost=590_000)
+    assert remaining(sheet(), [spent], 1) == 10_000
+    assert remaining(sheet(), [spent, top_up(200_000)], 1) == 210_000
 
 
 @pytest.mark.parametrize("bad", [0, -5, 1.5, "10", True, None])

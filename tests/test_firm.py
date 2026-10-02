@@ -323,6 +323,73 @@ def test_round_below_its_unlock_threshold_stops_the_run(paths):
     assert not any(line.startswith("Round 2") for line in said)
 
 
+def add_event(paths, actor, kind, round_n, **data):
+    with LedgerWriter(paths.ledger) as ledger:
+        ledger.append(Event(run="r1", round=round_n, actor=actor, event=kind, data=data))
+
+
+def top_up(paths, round_n, micros, actor="investor"):
+    add_event(paths, actor, EventType.TOPPED_UP, round_n, micros=micros)
+
+
+LOCKS = (Round(1, 204_000, 2), Round(2, 300_000, 2))  # a 100,000 slice leaves 4,000: no more
+
+
+def closed_rounds(paths):
+    return [(e.round, e.data["unlocked"]) for e in events_of(paths, EventType.ROUND_CLOSED)]
+
+
+def test_an_investor_top_up_reopens_a_locked_round_and_the_run_finishes(paths):
+    run(paths, Script(step(HALF, cost=100_000)), sheet(rounds=LOCKS))
+    assert closed_rounds(paths) == [(1, False)]
+    top_up(paths, 1, 100_000)
+    worker = Script(step(GOOD, "done"))
+    report, said = run(paths, worker, sheet(rounds=LOCKS))
+    assert report.all_passed and report.stopped is None and len(worker.specs) == 1
+    assert closed_rounds(paths) == [(1, False), (1, True)]
+    assert events_of(paths, EventType.SLICE_END)[-1].round == 1  # the money is round 1's
+    assert not any(line.startswith("Round 1:") and "Fund" in line for line in said)  # no re-ask
+    assert len(events_of(paths, EventType.HIRED)) == 1  # the same worker carries on
+
+
+@pytest.mark.parametrize("actor", ["worker:w1", "boss", "gate", "rule", "role:critic"])
+def test_a_top_up_from_anyone_but_the_investor_leaves_the_round_locked(paths, actor):
+    run(paths, Script(step(HALF, cost=100_000)), sheet(rounds=LOCKS))
+    top_up(paths, 1, 100_000, actor=actor)
+    worker = Script(step(GOOD, "done"))
+    report, _ = run(paths, worker, sheet(rounds=LOCKS))
+    assert report.stopped == "round 1 closed below its unlock threshold"
+    assert worker.specs == [] and closed_rounds(paths) == [(1, False)]
+
+
+def test_a_top_up_too_small_for_a_slice_closes_the_round_below_its_threshold_again(paths):
+    run(paths, Script(step(HALF, cost=100_000)), sheet(rounds=LOCKS))
+    top_up(paths, 1, 999)  # 4,999 of cap: one micro under the smallest slice
+    worker = Script(step(GOOD, "done"))
+    report, said = run(paths, worker, sheet(rounds=LOCKS))
+    assert worker.specs == [] and report.stopped == "round 1 closed below its unlock threshold"
+    assert closed_rounds(paths) == [(1, False), (1, False)]
+    assert any("cannot fund another slice" in line for line in said)
+    top_up(paths, 1, 100_000)  # a second, sufficient top-up opens it again
+    report, _ = run(paths, Script(step(GOOD, "done")), sheet(rounds=LOCKS))
+    assert report.all_passed
+
+
+def test_a_top_up_raises_the_spend_ceiling_of_its_round(paths):
+    # One slice spends 700,000 against a 150,000 round: the ceiling (250,000) stops the run.
+    s = sheet(rounds=(Round(1, 150_000, 1), Round(2, 300_000, 2)))
+    run(paths, Script(step(HALF, cost=700_000)), s)
+    assert rule_stops(paths) == ["spend $0.7 is over the run ceiling of $0.25"]
+    add_event(paths, "investor", EventType.RESUMED, 1)
+    again = Script(step(GOOD, "done"))
+    run(paths, again, s)
+    assert again.specs == [] and len(rule_stops(paths)) == 2  # no money added: stops again
+    top_up(paths, 1, 1_000_000)  # ceiling 1,150,000 + 100,000
+    add_event(paths, "investor", EventType.RESUMED, 1)
+    report, _ = run(paths, again, s)
+    assert report.all_passed and len(again.specs) == 1 and len(rule_stops(paths)) == 2
+
+
 def test_blocked_worker_is_escalated_not_fired(paths):
     report, _ = run(paths, Script(step(None, "blocked")))
     assert events_of(paths, EventType.FIRED) == []

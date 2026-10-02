@@ -24,11 +24,16 @@ def _round(sheet: TermSheet, round_n: int) -> Round:
     raise ValueError(f"round {round_n} is not in the term sheet")
 
 
+def is_top_up(event: Event) -> bool:
+    """Only the investor adds money: a worker's or a role's `topped_up` event counts for nothing."""
+    return event.event is EventType.TOPPED_UP and event.actor == "investor"
+
+
 def round_budget(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
-    """Term-sheet budget plus every top-up recorded in this round."""
+    """Term-sheet budget plus every investor top-up recorded in this round."""
     budget = _round(sheet, round_n).budget_micros
     for e in events:
-        if e.round == round_n and e.event is EventType.TOPPED_UP:
+        if e.round == round_n and is_top_up(e):
             micros = e.data.get("micros")
             if type(micros) is not int or micros <= 0:
                 raise ValueError(f"topped_up micros must be a positive int, got {micros!r}")

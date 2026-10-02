@@ -284,3 +284,45 @@ def test_an_outcome_this_version_does_not_know_is_refused_by_name():
         slice_history(events)
     with pytest.raises(ValueError, match="'teleported'"):
         run_state(events, ["t1"])
+
+
+def closed(n, unlocked, *, passed=1):
+    data = {"passed": passed, "total": 2, "unlocked": unlocked}
+    return Event(run="r1", round=n, actor="boss", event=EventType.ROUND_CLOSED, data=data)
+
+
+def topped_up(n, actor="investor", micros=100_000):
+    return Event(run="r1", round=n, actor=actor, event=EventType.TOPPED_UP, data={"micros": micros})
+
+
+def test_an_investor_top_up_after_a_lock_reopens_that_round_only():
+    state = run_state([closed(1, True), closed(2, False), topped_up(2)], [])
+    assert state.closed_rounds == {1} and state.locked_rounds == frozenset()
+
+
+def test_a_round_that_closes_below_its_threshold_again_after_a_top_up_is_locked_again():
+    events = [closed(1, False), topped_up(1), closed(1, False)]
+    state = run_state(events, [])
+    assert state.closed_rounds == {1} and state.locked_rounds == {1}
+
+
+def test_a_round_that_closes_unlocked_after_a_top_up_is_closed_and_not_locked():
+    state = run_state([closed(1, False), topped_up(1), closed(1, True)], [])
+    assert state.closed_rounds == {1} and state.locked_rounds == frozenset()
+
+
+def test_a_top_up_made_before_the_lock_or_in_another_round_reopens_nothing():
+    events = [topped_up(1), closed(1, False), topped_up(2)]
+    state = run_state(events, [])
+    assert state.locked_rounds == {1} and state.closed_rounds == {1}
+
+
+def test_a_top_up_of_a_round_that_closed_unlocked_does_not_reopen_it():
+    state = run_state([closed(1, True), topped_up(1)], [])
+    assert state.closed_rounds == {1} and state.locked_rounds == frozenset()
+
+
+def test_only_the_investor_can_reopen_a_locked_round():
+    for actor in ("worker:w1", "boss", "gate", "rule", "role:critic"):
+        state = run_state([closed(1, False), topped_up(1, actor=actor)], [])
+        assert state.locked_rounds == {1} and state.closed_rounds == {1}, actor

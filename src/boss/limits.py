@@ -28,8 +28,9 @@ class RunLimits:
 
 
 def spend_ceiling(round_budgets_micros: Sequence[int], reserve_micros: int) -> int:
-    """The most a run may have spent on its rounds: every round's budget plus one reserve per round
-    (the documented worst case is one response of overshoot per round)."""
+    """The most a run may have spent on its rounds: every round's budget (the caller passes
+    `budget.round_budget`, so investor top-ups are in it) plus one reserve per round (the
+    documented worst case is one response of overshoot per round)."""
     if not round_budgets_micros:
         raise ValueError("round_budgets_micros must not be empty")
     if reserve_micros < 0:
