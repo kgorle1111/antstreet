@@ -393,7 +393,7 @@ def test_a_demo_that_writes_outside_its_folder_is_stopped_by_the_sandbox(make, t
     target = tmp_path / "escaped.txt"
     code = f"open({str(target)!r}, 'w').write('out')\nprint('wrote outside')\n"
     (problem,) = rejected(make, data(code), sandbox=SandboxMode.REQUIRE).problems
-    assert "PermissionError" in problem
+    assert "PermissionError" in problem or "FileNotFoundError" in problem  # bwrap hides the folder
     assert not target.exists()
 
 
