@@ -39,6 +39,7 @@ from boss.roles.engineering import StagedDraftError, draft_staged, render_covera
 from boss.roles.examiner import EXAMINER, run_examiner
 from boss.roles.product import StoryReview, review_stories, uncovered_fragments, write_stories
 from boss.roles.stories import Stories
+from boss.rulings import DECLINED
 from boss.rundir import Recorder, RunPaths
 from boss.stream import Usage
 from boss.termsheet import CheckSpec, Round, TermSheet, TermSheetError, validate
@@ -469,23 +470,25 @@ class Pipeline:
     def _review(
         self, sheet: TermSheet, outcome: FirmReport, rerun: Rerun, cycles: int, fix_micros: int
     ) -> tuple[TermSheet, FirmReport] | int:
-        # The ledger counts the cycles: a resumed run finds them there and adds none.
-        # kn: a cycle counts once its critic call is booked, so findings left unanswered by a
-        # Ctrl-C are not offered again (their tests wait in critic-N/); record the answer to fix.
-        while len(_calls(self._events(), "critic")) < max(1, cycles):
+        # The ledger counts the cycles: a resumed run finds them there and adds none. A cycle with
+        # findings counts once the investor's answer is on it; a Ctrl-C at the question leaves the
+        # cycle open, so a resume asks the critic again (one more call) and offers the findings.
+        while _settled(self._events()) < max(1, cycles):
             review = self._critic(sheet)
             if review is None or not review.verified:
                 break
+            amended = None
             if cycles == 0:
                 self.say(
                     "--review-cycles is 0: the findings are in the report, no fix round is offered."
                 )
-                break
-            if outcome.stopped:
+            elif outcome.stopped:
                 self.say(f"The run ended early ({outcome.stopped}): no fix round is offered.")
-                break
-            amended = self._amend(sheet, review, fix_micros)
+            else:
+                amended = self._amend(sheet, review, fix_micros)
             if amended is None:
+                record = Recorder(self.ledger, self.run_id, 0)
+                record("investor", EventType.RULED, data={"ruling": DECLINED})
                 break
             result = rerun(amended)
             if isinstance(result, int):
@@ -701,6 +704,26 @@ def _calls(events: Sequence[Event], role: str, **match: Any) -> list[Event]:
         and e.data.get("role") == role
         and all(e.data.get(k) == v for k, v in match.items())
     ]
+
+
+def _settled(events: Sequence[Event]) -> int:
+    """Critic cycles that need nothing more: no verified finding to offer, or the investor's answer
+    on the ledger (the amendment's approval, or a decline). A call followed by another critic call
+    with no answer between was interrupted, and counts for nothing."""
+    done, waiting = 0, False
+    for e in events:
+        if e.event is EventType.ROLE_CALL and e.data.get("role") == "critic":
+            waiting = bool(e.data.get("verified"))
+            done += not waiting
+        elif waiting and e.actor == "investor" and _answers_fix_question(e):
+            done, waiting = done + 1, False
+    return done
+
+
+def _answers_fix_question(event: Event) -> bool:
+    if event.event is EventType.APPROVED:
+        return "added_checks" in event.data
+    return event.event is EventType.RULED and event.data.get("ruling") == DECLINED
 
 
 def _last_slice_end(events: Sequence[Event]) -> int:

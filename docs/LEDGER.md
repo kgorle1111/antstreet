@@ -117,7 +117,8 @@ Example:
 the pipeline's only.
 
 `pipeline.py` counts these events to decide what a resumed run still owes: one critic call per
-review cycle, one demo call per build of the product (after the last `slice_end`), and one judge
+review cycle (a cycle with verified findings counts once the investor's answer follows it: an
+amendment's `approved` event, or a `ruled` event with ruling `declined`), one demo call per build of the product (after the last `slice_end`), and one judge
 call per rubric and build.
 
 Example, a critic's call written by a run with every role:
@@ -340,22 +341,26 @@ Example:
 ### `ruled`
 
 - Actor: `investor`
-- Round: the current round
-- Written by `firm.py` after the investor answers a question the worker could not settle. Only an
-  `investor` event counts as a ruling. The term sheet and its approval are not touched: a dropped
-  check is skipped because the ledger says so.
-- Three rulings:
+- Round: the current round; 0 for `declined`
+- Written by `firm.py` after the investor answers a question the worker could not settle, and by
+  `pipeline.py` for `declined`. Only an `investor` event counts as a ruling. The term sheet and its
+  approval are not touched: a dropped check is skipped because the ledger says so.
+- Four rulings:
   - `dropped`: the check is no longer run, counted or required. Unlock thresholds are capped at
     what is left.
   - `kept`: the dispute is settled and the worker is told to satisfy the check.
   - `unblocked`: a blocked worker is funded again; the note is in its next brief.
+  - `declined`: round 0, written by `pipeline.py` when the critic's findings end with no fix round:
+    the investor said no (or input ended), or none was offered (`--review-cycles 0`, the run ended
+    early, no finding could be proposed). It is how a resume tells that from a Ctrl-C at the
+    question, which writes nothing and so leaves the findings to be offered again.
 - Anything but a clear answer (or the end of input) writes `abandoned` instead.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `task` | str | The task id. |
-| `worker` | str | The worker that raised the dispute or the block. |
-| `ruling` | str | `dropped`, `kept` or `unblocked`. |
+| `task` | str | The task id. Absent for `declined`. |
+| `worker` | str | The worker that raised the dispute or the block. Absent for `declined`. |
+| `ruling` | str | `dropped`, `kept`, `unblocked` or `declined`. |
 | `check` | str | The check ruled on. Present for `dropped` and `kept` only. |
 | `note` | str | The investor's note, on one line, secrets masked, at most 1000 characters. Present for `unblocked` only. |
 
@@ -367,6 +372,10 @@ Examples:
 
 ```json
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"note": "use the standard library", "ruling": "unblocked", "task": "t1", "worker": "w1"}, "event": "ruled", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:36.246239+00:00", "v": 1}
+```
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"ruling": "declined"}, "event": "ruled", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T11:53:36.246239+00:00", "v": 1}
 ```
 
 ### `disputed`

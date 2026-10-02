@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from boss.ledger import Event, EventType
 from boss.redact import safe_text
 
-DROPPED, KEPT, UNBLOCKED = "dropped", "kept", "unblocked"
+DROPPED, KEPT, UNBLOCKED, DECLINED = "dropped", "kept", "unblocked", "declined"
 MAX_NOTE_CHARS = 1_000
 
 Ask = Callable[[str], str]

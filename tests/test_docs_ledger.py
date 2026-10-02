@@ -148,7 +148,7 @@ def cli_resumed_events(tmp_path):
     return read_events(run_dir / "ledger.jsonl")
 
 
-def roles_events(folder):
+def roles_events(folder, fix="y"):
     """A run with every role: the real CLI against the fake `claude` of tests/test_pipeline.py,
     which also plays each role. It reaches a disputed check, an approved amendment and both
     judgements."""
@@ -157,7 +157,7 @@ def roles_events(folder):
     folder.mkdir(parents=True)
     fx = staged.Fx(folder)
     staged.every_role(fx)
-    assert fx.fund("--roles", "all", answers={"Task": "d"}).code == 0
+    assert fx.fund("--roles", "all", answers={"Task": "d", "Add these": fix}).code == 0
     return fx.events()
 
 
@@ -225,6 +225,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
     runs.append(cli_resumed_events(where("cli-resumed")))
     runs.append(roles_events(where("cli-roles")))
+    runs.append(roles_events(where("cli-declined"), fix="n"))
     found: dict[str, list[Event]] = defaultdict(list)
     for events in runs:
         for e in events:
@@ -370,13 +371,14 @@ def test_the_started_config_keys_are_documented_with_their_types(produced, text)
 def test_every_ruling_and_when_its_optional_keys_appear_is_documented(produced, text):
     body = sections(text)["ruled"]
     rulings = {e.data["ruling"] for e in produced["ruled"]}
-    assert rulings == {"dropped", "kept", "unblocked"}, "a run no longer reaches every ruling"
+    assert rulings == {"dropped", "kept", "unblocked", "declined"}, "a run no longer reaches all"
     for ruling in rulings:
         assert f"`{ruling}`" in body
     for e in produced["ruled"]:
         assert e.actor == "investor"
-        assert ("check" in e.data) == (e.data["ruling"] != "unblocked")
+        assert ("check" in e.data) == (e.data["ruling"] in ("dropped", "kept"))
         assert ("note" in e.data) == (e.data["ruling"] == "unblocked")
+        assert ("task" in e.data) == (e.data["ruling"] != "declined")
 
 
 def test_each_example_is_a_valid_line_of_the_right_type_with_the_shape_the_code_writes(
@@ -437,13 +439,14 @@ def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(prod
 
 def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(produced, text):
     with_roles = [e for e in produced["started"] if "roles" in e.data]
-    assert [sorted(e.data["roles"]) for e in with_roles] == [["model", "names", "thinking_tokens"]]
-    [event] = with_roles
+    assert with_roles  # every run with roles is a run with every role --roles all names
     chosen = sorted(set(registry()) - set(pipeline.BY_OPTION))
-    assert event.data["roles"]["names"] == chosen
-    assert pipeline.recorded_setup([event]) == pipeline.Setup(
-        tuple(chosen), event.data["roles"]["model"], None
-    )
+    for event in with_roles:
+        assert sorted(event.data["roles"]) == ["model", "names", "thinking_tokens"]
+        assert event.data["roles"]["names"] == chosen
+        assert pipeline.recorded_setup([event]) == pipeline.Setup(
+            tuple(chosen), event.data["roles"]["model"], None
+        )
     # run_firm found this event and wrote none, so there is one per run, and the same config
     assert [e for e in produced["started"] if "roles" not in e.data]  # runs without roles exist
     assert "record_start" in read(SRC / "cli.py") and "Nothing is written without roles" in (

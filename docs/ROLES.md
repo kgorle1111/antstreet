@@ -274,8 +274,10 @@ the `started` event, so `boss resume` calls roles the same way.
   calibration file is in the repository.
 - A fix round goes after the last round of the term sheet. If the work finished early and later
   rounds never opened, the loop asks you to fund those before it reaches the fix round.
-- Findings the critic made are not offered a second time if Ctrl-C ended the question; their tests
-  stay in `critic-N/`.
+- A Ctrl-C at the fix question is not an answer. The critic is called again on `resume` (one more
+  call, its own cap) and its findings, which may differ, are offered again; its first review stays
+  in `critic-N/`. A no, or a cycle that offered nothing, is recorded as an investor `ruled` event
+  and is not asked again.
 - No measurement shows that any skill changes a worker's output. No benchmark cell has used a
   profile. Each skill answers a failure seen in the pilot and rerun or reasoned from a worker with no
   shell; none has been tested by an A/B run.

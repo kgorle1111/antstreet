@@ -74,7 +74,8 @@ What it asks you:
 - With the critic on, after the build: `Add these N checks and fund a fix round of $X? [y]es / [n]o`,
   once per review cycle and only when the critic has verified findings and the run did not end
   early. It shows each proposed check and its code first. `y`, `yes`, `a` and `approve` are yes;
-  anything else, and end of input, is no. Ctrl-C ends the command with exit 130.
+  anything else, and end of input, is no. Ctrl-C ends the command with exit 130 and is not an answer:
+  `boss resume` asks the critic again and puts the question again.
 
 Limits that are not options: a run stops at 60 slices or 16 workers, when spend passes the sum of
 its round budgets plus one reserve per round, or when a worker's folder passes 200 MiB (the gate

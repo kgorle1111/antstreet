@@ -1027,17 +1027,37 @@ def test_anything_but_a_yes_is_a_no_and_the_findings_stay_in_the_report(fx, answ
     assert len(sheet["checks"]) == 1 and len(sheet["rounds"]) == 1
     assert sheet["budget_micros"] == 500_000
     assert fx.role_calls("critic")[0].data["verified"] == 1  # on the ledger, so in the report
+    [ruling] = fx.events(EventType.RULED)  # the no, so that a resume can tell it from a Ctrl-C
+    assert (ruling.actor, ruling.data) == ("investor", {"ruling": "declined"})
 
 
-def test_ctrl_c_at_the_question_is_an_interruption_and_a_resume_does_not_ask_again(fx):
+def test_ctrl_c_at_the_question_leaves_the_cycle_open_and_a_resume_offers_the_findings_again(fx):
     critic_finds(fx, finding())
     out = fx.fund("--roles", "critic", answers={"Add these": KeyboardInterrupt})
     assert out.code == EXIT_INTERRUPTED and "continue with `boss resume" in out.text
     assert len(approvals(fx)) == 1 and len(fx.role_calls("critic")) == 1
+    assert fx.events(EventType.RULED) == []  # no answer was given, so none is recorded
     assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
+    out = fx.run("resume")  # the critic is asked once more: its findings were never answered
+    assert out.code == EXIT_OK and asked(out, "Add these") == [QUESTION]
+    assert [e.data["cycle"] for e in fx.role_calls("critic")] == [1, 2]
+    assert fx.calls() == ["boss", "worker", "critic", "critic", "worker"]
+    assert len(approvals(fx)) == 2 and product_verdicts(fx) == {"c01": "passed", "c02": "passed"}
     before = fx.events()
-    out = fx.run("resume")  # the findings are not offered again: they wait in the critic-1 folder
+    assert fx.run("resume").code == EXIT_OK and fx.events() == before  # answered: nothing is owed
+
+
+def test_a_no_after_a_ctrl_c_is_recorded_and_ends_the_review(fx):
+    critic_finds(fx, finding())
+    fx.fund("--roles", "critic", answers={"Add these": KeyboardInterrupt})
+    out = fx.run("resume", answers={"Add these": "n"})
+    assert out.code == EXIT_OK and "No fix round." in out.text
+    before = fx.events()
+    out = fx.run("resume")
     assert out.code == EXIT_OK and asked(out, "Add these") == [] and fx.events() == before
+    [ruling] = fx.events(EventType.RULED)
+    assert (ruling.actor, ruling.round, ruling.data) == ("investor", 0, {"ruling": "declined"})
+    assert fx.calls().count("critic") == 2
 
 
 def test_review_cycles_zero_reports_the_findings_and_asks_nothing(fx):
@@ -1046,6 +1066,8 @@ def test_review_cycles_zero_reports_the_findings_and_asks_nothing(fx):
     assert out.code == EXIT_OK and f"Critic verified a finding (high): {CLAIM}" in out.text
     assert "--review-cycles is 0" in out.text and asked(out, "Add these") == []
     assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
+    out = fx.run("resume")  # the findings were not offered, not interrupted: no second critic call
+    assert out.code == EXIT_OK and asked(out, "Add these") == [] and fx.calls().count("critic") == 1
 
 
 def test_one_review_cycle_means_the_critic_is_not_asked_again_after_the_fix_round(fx):
