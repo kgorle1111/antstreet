@@ -51,6 +51,7 @@ Argument: `idea`, what to build, in plain words.
 | `--reserve` | `$0.10` | Dollars held back from every slice cap: what one response can cost past the cap. |
 | `--max-tasks` | `1` | Most tasks the boss may split the work into. Above 1 the multi-task prompt is used. |
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
+| `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
@@ -218,7 +219,7 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 | `--boss-model` | `haiku` | Boss model, firm arm. |
 | `--only` | all tasks | Task ids to run. |
 | `--firm-args` | none | Extra `boss fund` options for the firm arm, in one quoted string. Recorded in every result. |
-| `--held-out` | `0` | Held-out checks for the firm arm to ask the examiner for, 0 to 8; 0 is off. It adds `--held-out N` to the firm arm's `boss fund` (`boss fund` has no such option yet, so a cell with it fails until that option is added) and records `held_out_passed` and `held_out_total` in each firm result. The single arm ignores it. |
+| `--held-out` | `0` | Held-out checks for the firm arm to ask the examiner for, 0 to 8; 0 is off. It adds `--held-out N` to the firm arm's `boss fund` and records `held_out_passed` and `held_out_total` in each firm result. The single arm ignores it. |
 | `--jobs` | `2` | Cells to run at once. |
 | `--dry-run` | off | Print the cells and the task set hash, then exit. |
 
@@ -391,7 +392,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 
 A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
 never inside a workspace or `product/`) and, if the examiner's output was refused,
-`examiner_refused.json`. No command creates them yet. `workspaces/`, `logs/` and `product/`
+`examiner_refused.json`; `boss fund --held-out N` creates them. `workspaces/`, `logs/` and `product/`
 exist only once a worker has been hired. `report.md` is
 written by `fund` and `resume`; `boss report` prints it again from the ledger without writing.
 

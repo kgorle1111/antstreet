@@ -38,6 +38,7 @@ from boss.firm import (
     run_firm,
     started_config,
 )
+from boss.held_out import MAX_HELD_OUT
 from boss.ledger import (
     EventType,
     LedgerCorruptError,
@@ -140,6 +141,13 @@ def _parser() -> argparse.ArgumentParser:
         default=1,
         help="tasks to work on at once (each task still has one worker at a time)",
     )
+    fund.add_argument(
+        "--held-out",
+        type=_held_out_arg,
+        default=0,
+        help=f"checks an examiner writes that the workers never see, run on the finished product "
+        f"(0 to {MAX_HELD_OUT}; default 0, off)",
+    )
     fund.add_argument("--max-slices", type=_count_arg, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=_count_arg, default=FiringPolicy().stall_slices)
     fund.add_argument(
@@ -202,6 +210,12 @@ def usd_arg(text: str) -> int:
             f"{text!r} is not a positive dollar amount with at most 6 decimal places"
         )
     return int(micros)
+
+
+def _held_out_arg(text: str) -> int:
+    if not text.isdecimal() or int(text) > MAX_HELD_OUT:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number from 0 to {MAX_HELD_OUT}")
+    return int(text)
 
 
 def _count_arg(text: str) -> int:
@@ -329,8 +343,17 @@ def _fund(
             return EXIT_INTERRUPTED
         if plan is None:
             return EXIT_FAILED
+        held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, args.reserve)
         sheet = review_term_sheet(
-            plan.sheet, paths.checks, paths.root, ledger, run_id, ask=ask, say=say, notes=plan.notes
+            plan.sheet,
+            paths.checks,
+            paths.root,
+            ledger,
+            run_id,
+            ask=ask,
+            say=say,
+            notes=plan.notes,
+            held_out_dir=paths.held_out if held else None,
         )
         if sheet is None:
             return EXIT_FAILED
@@ -344,6 +367,7 @@ def _fund(
             parallel=args.parallel,
             profile=args.profile,
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
+            held_out=args.held_out,
         )
         pipe.record_start(config)
         fix = args.fix_budget or default_fix_budget(config)

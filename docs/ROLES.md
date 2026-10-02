@@ -216,6 +216,7 @@ the `started` event, so `boss resume` calls roles the same way.
 | `consultant` | while a dispute is open | One line, marked as an opinion, before the question on a disputed check | Nothing |
 | `critic` | after the build | Each verified finding and how many were rejected; if any, one question: add these checks and fund a fix round | Proposed checks, only if you say yes |
 | `demo_writer` | after the build | `demo.py` and `USAGE.md` in `product/`, only when every required check passes | Files added to the product |
+| `examiner` | before approval, with `--held-out N` | Its checks in full, marked as never shown to a worker, with the term sheet you approve | The final verdict: the product must pass them too |
 
 - **Nothing is decided by a role.** A note under the term sheet binds nothing: approval is of the
   sheet and its check files, and their hashes are the same with or without the notes. A proposal
@@ -260,8 +261,9 @@ the `started` event, so `boss resume` calls roles the same way.
 ## Not built
 
 - No role is on unless `--roles` names it. The roles return data and usage to their caller and write
-  nothing, except the examiner's `run_examiner`, which books its own call and stores its checks
-  (no command calls it yet); `src/boss/pipeline.py` books the other roles' spend.
+  nothing, except the examiner's `run_examiner`, which books its own call and stores its checks;
+  for every other role, `src/boss/pipeline.py` books their spend. The examiner is chosen with
+  `--held-out N`, not with `--roles` (`--roles examiner` is refused and names the option).
   `src/boss/firm.py` and `src/boss/cli.py` import only `registry`, `PROFILES`, `org_chart`,
   `render_org` and `builder_system_prompt` from the roles package.
 - Nothing assigns a profile to a task. The investor picks one for the run; the boss does not pick

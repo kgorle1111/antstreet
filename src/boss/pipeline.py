@@ -36,6 +36,7 @@ from boss.roles.base import RoleError, RoleSpec, ledger_fields
 from boss.roles.critic import Finding, Review, findings_as_checks, review_product, write_check_files
 from boss.roles.delivery import USAGE_FILE, install_demo, write_demo
 from boss.roles.engineering import StagedDraftError, draft_staged, render_coverage, stories_text
+from boss.roles.examiner import EXAMINER, run_examiner
 from boss.roles.product import StoryReview, review_stories, uncovered_fragments, write_stories
 from boss.roles.stories import Stories
 from boss.rundir import Recorder, RunPaths
@@ -68,11 +69,19 @@ class RolesError(ValueError):
     """The roles asked for cannot be run. The message says what to change."""
 
 
+# Roles chosen by their own option, never by --roles: the examiner's checks need a count.
+BY_OPTION = {EXAMINER.name: "--held-out N"}
+
+
 def parse_roles(text: str, known: Iterable[str]) -> tuple[str, ...]:
     """The role names in a `--roles a,b,c` list ("all" is every known role), sorted, or RolesError.
     Checked before anything is spent."""
-    names_known = sorted(known)
+    names_known = sorted(set(known) - set(BY_OPTION))
     names = {n.strip() for n in text.split(",") if n.strip()}
+    if own := sorted(names & set(BY_OPTION)):
+        raise RolesError(
+            "; ".join(f"{n} is not chosen with --roles: use {BY_OPTION[n]}" for n in own) + "."
+        )
     if unknown := sorted(names - {"all", *names_known}):
         shown = ", ".join(repr(n) for n in unknown)
         raise RolesError(f"Unknown role(s) {shown}. Known roles: {', '.join(names_known)}, or all.")
@@ -203,6 +212,23 @@ class Pipeline:
                 f"{spec.name}: FAILED ({why}). No opinion was given; that is not a clean result."
             )
         return None
+
+    def examine(self, sheet: TermSheet, n: int, reserve_micros: int) -> bool:
+        """Held-out checks for this run, before the investor's review: the examiner sees the idea
+        and the names the product must expose, never a visible check's body. True when some were
+        kept; it books its own call, in round 1."""
+        return run_examiner(
+            sheet,
+            self.paths,
+            self.ledger,
+            self.run_id,
+            n=n,
+            env=self.env,
+            model=self.setup.model,
+            reserve_micros=reserve_micros,
+            executable=self.executable,
+            say=self.say,
+        )
 
     def record_start(self, config: FirmConfig) -> None:
         """Write the run's `started` event with the chosen roles on it. `run_firm` then finds it

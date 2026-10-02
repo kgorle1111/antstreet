@@ -110,8 +110,8 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
 5. With `--rounds N` above 1, the round plan is replaced by an equal split.
 6. The investor reads the term sheet and every check, and approves, rejects or edits. Approval is
    an `approved` event holding hashes of the term sheet and each check file, and of the held-out
-   files when the run has them. (A caller that wants held-out checks runs the examiner,
-   `roles.examiner.run_examiner`, between steps 4 and 6; `boss fund` does not yet.)
+   files when the run has them. With `--held-out N`, `boss fund` first has the examiner write
+   them (`Pipeline.examine`, which calls `roles.examiner.run_examiner`), between steps 4 and 6.
 7. `run_firm` verifies the approval, writes `started` once (the run's configuration), then for each
    round asks for the investor's yes (rounds after the first) and runs the round.
 8. The round loop plans a wave: the first tasks whose checks do not all pass, at most `--parallel`

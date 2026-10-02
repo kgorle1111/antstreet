@@ -428,7 +428,8 @@ def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(prod
     assert "ledger_fields" not in read(SRC / "report.py")
     # Every event the pipeline wrote is under a role actor, in round 0, with the two keys it adds.
     written = [e for e in produced["role_call"] if e.actor != "role:examiner"]
-    assert {e.actor for e in written} == {f"role:{name}" for name in registry()} - {"role:examiner"}
+    chosen = set(registry()) - set(pipeline.BY_OPTION)  # what `--roles all` names
+    assert {e.actor for e in written} == {f"role:{name}" for name in chosen}
     for e in written:
         assert e.round == 0 and e.data["result"] in {"ok", "failed", "unused"}
         assert isinstance(e.data["detail"], str) and e.data["role"] == e.actor.removeprefix("role:")
@@ -438,9 +439,10 @@ def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(p
     with_roles = [e for e in produced["started"] if "roles" in e.data]
     assert [sorted(e.data["roles"]) for e in with_roles] == [["model", "names", "thinking_tokens"]]
     [event] = with_roles
-    assert event.data["roles"]["names"] == sorted(registry())
+    chosen = sorted(set(registry()) - set(pipeline.BY_OPTION))
+    assert event.data["roles"]["names"] == chosen
     assert pipeline.recorded_setup([event]) == pipeline.Setup(
-        tuple(sorted(registry())), event.data["roles"]["model"], None
+        tuple(chosen), event.data["roles"]["model"], None
     )
     # run_firm found this event and wrote none, so there is one per run, and the same config
     assert [e for e in produced["started"] if "roles" not in e.data]  # runs without roles exist

@@ -89,6 +89,7 @@ STAGES = {
     "consultant": ("advisor", "while a dispute is open"),
     "critic": ("_critic", "after the build"),
     "demo_writer": ("_write_demo", "after the build"),
+    "examiner": ("examine", "before approval, with `--held-out N`"),
 }
 REACHED_BY = {  # the entry point that reaches each method
     "plan": ("_stories", "_user_agent", "_staged", "_audit", "_judge_stories"),
@@ -102,7 +103,8 @@ def test_the_document_lists_each_specialist_role_once_with_the_stage_the_pipelin
     for name, (method, stage) in STAGES.items():
         assert rows[name][1] == stage, f"{name}: the document says {rows[name][1]!r}"
         source = inspect.getsource(getattr(pipeline.Pipeline, method))
-        assert f'_spec("{name}")' in source, f"Pipeline.{method} does not call {name}"
+        calls = f"run_{name}(" if name in pipeline.BY_OPTION else f'_spec("{name}")'
+        assert calls in source, f"Pipeline.{method} does not call {name}"
     for entry, methods in REACHED_BY.items():
         source = inspect.getsource(getattr(pipeline.Pipeline, entry))
         for method in methods:
@@ -114,6 +116,7 @@ def test_the_document_lists_each_specialist_role_once_with_the_stage_the_pipelin
     # the consultant's line reaches the loop through `run_firm(advise=...)`
     assert "advise=advise" in inspect.getsource(cli._run)
     assert "pipe.advisor(" in inspect.getsource(cli._build)
+    assert "pipe.examine(" in inspect.getsource(cli._fund)  # the examiner, with --held-out
     assert "`render_org`" in text and "python -m boss.roles.org" in text
 
 

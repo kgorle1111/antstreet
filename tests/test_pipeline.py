@@ -17,7 +17,7 @@ from boss.boss import load_prompt
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
 from boss.firm import FirmConfig
 from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.pipeline import Pipeline, RolesError, Setup, parse_roles, recorded_setup
+from boss.pipeline import BY_OPTION, Pipeline, RolesError, Setup, parse_roles, recorded_setup
 from boss.roles import registry
 from boss.roles.base import system_prompt
 from boss.roles.judge import Calibration, CaseResult, judge_identity, load_rubric
@@ -456,7 +456,8 @@ def test_the_role_list_is_sorted_deduplicated_and_all_means_every_role():
         "system_designer",
         "tester",
     )
-    assert parse_roles("all", known) == tuple(sorted(known))
+    assert parse_roles("all", known) == tuple(sorted(set(known) - set(BY_OPTION)))
+    assert "examiner" in known and "examiner" not in parse_roles("all", known)
     assert parse_roles("  ", known) == ()
     with pytest.raises(RolesError):
         parse_roles("all,nobody", known)
@@ -1502,7 +1503,8 @@ def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
         "product_manager", "user_agent", "system_designer", "tester", "check_auditor", "judge",
         "worker", "consultant", "critic", "worker", "demo_writer", "judge",
     ]  # fmt: skip
-    assert {e.actor for e in fx.role_calls()} == {f"role:{n}" for n in registry()}
+    chosen = set(registry()) - set(BY_OPTION)  # the examiner comes with --held-out, not --roles
+    assert {e.actor for e in fx.role_calls()} == {f"role:{n}" for n in chosen}
     assert all(e.round == 0 and e.data["result"] == "ok" for e in fx.role_calls())
     events = fx.events()
     spent = {}
@@ -1748,3 +1750,62 @@ def test_ctrl_c_while_a_call_runs_before_approval_ends_the_run_cleanly(fx, who):
     assert fx.events(EventType.APPROVED) == [] and not (fx.run_dir / "workspaces").exists()
     again = fx.run("resume")
     assert again.code == EXIT_FAILED and "it cannot be resumed" in again.text  # no sheet yet
+
+
+# --- held-out checks: the examiner is reached with --held-out, never with --roles ---------------
+
+HELD = "from rev import reverse\n\n\ndef test_held_empty():\n    assert reverse('') == ''\n"
+EXAMINED = {"checks": [{"id": "h01", "source": Q2, "code": HELD}]}
+
+
+def test_the_examiner_is_refused_by_name_in_roles_and_points_to_its_option(fx):
+    out = fx.fund("--roles", "examiner,critic")
+    assert out.code == EXIT_USAGE
+    assert "examiner is not chosen with --roles: use --held-out N" in out.text
+    assert fx.calls() == [] and not (fx.project / ".boss").exists()
+
+
+@pytest.mark.parametrize("bad", ["-1", "9", "two", "1.5"])
+def test_a_held_out_count_outside_0_to_8_is_a_usage_error(fx, bad, capsys):
+    with pytest.raises(SystemExit) as info:
+        fx.fund("--held-out", bad)
+    assert info.value.code == 2 and "--held-out" in capsys.readouterr().err
+
+
+def test_held_out_checks_are_written_before_review_approved_and_run_on_the_product(fx):
+    fx.set("examiner", ok(EXAMINED))
+    fx.set("worker", {"files": {"rev.py": GOOD}})
+    out = fx.fund("--held-out", "1")
+    assert out.code == EXIT_OK
+    assert fx.calls() == ["boss", "examiner", "worker"]
+    # the examiner ran before the investor's review, which showed its check in full
+    shown = out.index("say", "Held-out check h01 verifies")
+    assert shown < out.index("ask", "[a]pprove") and HELD.strip() in out.text
+    [approved] = fx.events(EventType.APPROVED, "investor")
+    assert sorted(approved.data["held_out_hashes"]) == ["manifest.json", "test_h01.py"]
+    [started] = fx.events(EventType.STARTED)
+    assert started.data["config"]["held_out"] == 1
+    held = [e for e in fx.events(EventType.CHECK_RESULT) if e.data.get("scope") == "held_out"]
+    assert [(e.data["check"], e.data["status"]) for e in held] == [("h01", "passed")]
+    assert HELD not in fx.last_prompt("worker")  # the worker never saw it
+    report = (fx.run_dir / "report.md").read_text()
+    assert "1 of 1 passed on the product" in report and "the workers never saw them" in report
+
+
+def test_held_out_off_by_default_calls_no_examiner_and_records_none(fx):
+    fx.set("worker", {"files": {"rev.py": GOOD}})
+    assert fx.fund().code == EXIT_OK
+    assert "examiner" not in fx.calls()
+    [approved] = fx.events(EventType.APPROVED, "investor")
+    assert "held_out_hashes" not in approved.data or approved.data["held_out_hashes"] == {}
+    assert not (fx.run_dir / "held_out").exists()
+
+
+def test_a_failed_examiner_is_said_and_the_run_goes_on_without_held_out_checks(fx):
+    fx.set("examiner", bad(0.003))
+    fx.set("worker", {"files": {"rev.py": GOOD}})
+    out = fx.fund("--held-out", "2")
+    assert out.code == EXIT_OK and "No held-out checks" in out.text
+    [call] = fx.role_calls("examiner")
+    assert call.round == 1 and call.cost_micros == 3_000 and call.data["kept"] == 0
+    assert not [e for e in fx.events(EventType.CHECK_RESULT) if e.data.get("scope") == "held_out"]

@@ -87,8 +87,8 @@ Example:
   - `run_examiner` in `roles/examiner.py`, for the examiner. Round 1, before the investor
     approves, so the call counts in that round's spend and against its budget; it is skipped
     (cost 0, outcome `skipped`) when round 1 could not then fund a worker slice. It adds
-    `requested`, `kept` and `problems`. No command calls `run_examiner` yet: `boss fund` has no
-    `--held-out` option.
+    `requested`, `kept` and `problems`. `boss fund --held-out N` calls it through
+    `Pipeline.examine`.
 - `boss report` reads these events for its Roles section.
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
   for a call that was not made (`outcome` `not_called` or `skipped`). Billing is `api` or
@@ -157,7 +157,7 @@ Config keys:
 | `limits.max_workspace_bytes` | int | Most bytes a worker's folder or the assembled product may hold. The gate copies the folder for every check, so a larger one is not gated. |
 | `parallel` | int | Tasks worked on at once (`--parallel`). Each task still has one worker at a time. |
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
-| `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. `boss fund` has no option for it yet. A run started before the key existed loads with 0. |
+| `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. Set by `boss fund --held-out N`. A run started before the key existed loads with 0. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:

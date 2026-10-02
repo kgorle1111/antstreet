@@ -12,7 +12,7 @@ what changed for someone using the tool, not which commit did it.
 
 - Held-out checks, off by default: an examiner writes checks from your idea and the product's
   public names alone. You approve them with the term sheet; they run once on `product/`, unseen
-  by any worker. `boss fund` has no option for them yet.
+  by any worker. Ask for them with `boss fund --held-out N` (0 to 8).
 - The report shows held-out results apart ("Held-out checks: 2 of 3 passed on the product; the
   workers never saw them."). A run passes only when they pass too. If the examiner fails you are
   told and the run goes on without them.
