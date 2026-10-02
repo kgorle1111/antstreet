@@ -46,6 +46,20 @@ def test_the_commands_ci_runs_are_the_ones_stated(text):
     assert "The coverage floor is 96" in text
 
 
+def test_ci_installs_bubblewrap_and_requires_the_sandbox_on_linux_only(text):
+    workflow = read(ROOT / ".github" / "workflows" / "ci.yml")
+    install = "sudo apt-get install -y bubblewrap"
+    assert re.search(rf"^\s*{re.escape(install)}$", workflow, re.M), "CI does not install bwrap"
+    install_step = workflow.split(install)[0].rsplit("- name:", 1)[1]
+    assert "if: runner.os == 'Linux'" in install_step, "bubblewrap must be installed on Linux only"
+    # `require` on Linux and the default (`auto`) elsewhere, on the test step and nowhere else.
+    env = "BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}"
+    before_tests, test_step = workflow.split("- name: Test")
+    assert env in test_step and "uv run pytest" in test_step
+    assert "BOSS_GATE_SANDBOX:" not in before_tests
+    assert "BOSS_GATE_SANDBOX=require" in text and "`bubblewrap`" in text
+
+
 def test_the_only_runtime_dependency_is_the_one_stated(text):
     names = {re.split(r"[<>=!~ ]", d)[0] for d in pyproject()["project"]["dependencies"]}
     assert names == {"pytest"}, "a dependency was added: discuss it, then update CONTRIBUTING.md"

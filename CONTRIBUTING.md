@@ -37,7 +37,9 @@ uv run mypy
 - CI runs, on Linux and macOS: `uv sync --locked`, `uv run ruff check .`,
   `uv run ruff format --check .`, `uv run mypy` (strict, over `src/boss`) and
   `uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30`. The coverage floor is 96;
-  it only ever goes up.
+  it only ever goes up. On Linux it first installs `bubblewrap` and runs the tests with
+  `BOSS_GATE_SANDBOX=require`, so the sandbox tests fail instead of skipping when `bwrap` cannot
+  start (docs/SANDBOX.md).
 
 ## Rules
 
