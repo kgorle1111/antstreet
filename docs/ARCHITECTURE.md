@@ -11,7 +11,7 @@ Related: [LEDGER.md](LEDGER.md) (event schema), [CLI.md](CLI.md) (commands, run 
 
 | Role | What it is | Ledger actor |
 |---|---|---|
-| Investor | The human. Gives the idea and budget, reads every check, approves, rejects or edits. Later rules on a disputed check or a blocked task, and lifts a stop with `boss resume`. | `investor` |
+| Investor | The human. Gives the idea and budget, reads every check, approves, rejects or edits. Later rules on a disputed check or a blocked task, adds money to a round with `boss topup`, and lifts a stop with `boss resume`. | `investor` |
 | Boss | One model call with no tools. Drafts tasks and pytest checks. Nothing else. | `boss` |
 | Worker | A headless `claude` CLI session. Tools: `Read`, `Write`, `Edit`, all scoped to its own folder. No shell. | `worker:<name>` |
 | Rule | Plain code (`rule.decide`). Decides from a worker's slice history: continue, done, fire, escalate, retry. | `rule` |
@@ -41,7 +41,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `boss.py` | The boss's one model call: command line, draft schema, turning a draft into a term sheet. | Take ids, file names, money or round plan from the model; give the boss a tool. |
 | `briefs.py` | What a worker is told: first brief, continuation after a gate run, reassignment brief, and the note about checks the investor added. | Call a model; present a worker's earlier words as instructions. |
 | `budget.py` | Round budgets, top-ups, remaining money, slice caps, the reserve, unlock test, round plan. Charges a slice that did work with no cost, or that never ended, at its cap. | Use floats; read a clock. |
-| `cli.py` | The `boss` command: parsing, validating counts, amounts and role lists, wiring, exit codes, `resume`, `roles`; the `--profile`, `--parallel`, `--roles`, `--review-cycles` and `--fix-budget` options. | Decide pass, fire or money itself; call a role (it hands the pipeline to the loop). |
+| `cli.py` | The `boss` command: parsing, validating counts, amounts and role lists, wiring, exit codes, `resume`, `topup`, `roles`; the `--profile`, `--parallel`, `--roles`, `--review-cycles` and `--fix-budget` options. | Decide pass, fire or money itself; call a role (it hands the pipeline to the loop). |
 | `doctor.py` | Preflight checks, each with a one-line fix: the gate sandbox, and with `--live` one real worker slice that tries to write outside its folder. | Raise on an expected failure; print an environment value. |
 | `errors.py` | Names the outcome of one CLI run from its stream signals. | Trust `subtype` alone. |
 | `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`, with the held-out checks when the run has any. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own; let a held-out result reach a per-worker decision. |
@@ -145,12 +145,23 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
    command is the investor's act; nothing else lifts a stop.
 4. It calls `run_firm` as in step 7. Approval, budget and every hard limit are checked again as
    the loop goes; a round that was interrupted stays open and continues; a round that closed below
-   its unlock threshold stays locked.
+   its unlock threshold stays locked until the investor tops it up.
 5. A slice with a `slice_start` and no `slice_end` is charged to its round at its cap. If the last
    slice was never gated, the loop gates it; a firing, an escalation or a half-asked set of
    disputes that was owed is carried out. A product verdict cut short is completed: only the
    checks with no `scope: product` result are run, and likewise the held-out checks with no
    `scope: held_out` result.
+
+`boss topup [run] --round N --amount D` records the investor's money for one round:
+
+1. It repairs a cut last ledger line as `resume` does, loads `term_sheet.json`, and takes the
+   ledger's exclusive lock; a lock held by another process ends the command with exit 1.
+2. Holding the lock it reads the ledger and refuses a round the term sheet does not have, or one
+   that closed unlocked (exit 2).
+3. It writes one `topped_up` event (actor `investor`, the round, `micros`) and prints the round's
+   new budget. It spends nothing: the next `boss resume` runs the loop, which counts the event in
+   `budget.round_budget` (so also in the spend ceiling) and, for a locked round, treats the lock
+   as lifted (`state.run_state`).
 
 ## Control flow of `firm.py`
 
@@ -162,7 +173,7 @@ Each row is one decision in `_Firm.run`, `_run_round`, `_current_worker`, `_slic
 | Approval missing or not matching at start | None; `NotApprovedError` is raised | Nothing is spent |
 | Start of `run_firm`, first time | `started` (actor `boss`, holds the configuration) | Nothing else is written on a resume |
 | A `stopped` event exists and no `resumed` after it | None | Run ends ("stopped earlier") |
-| Round already has `round_closed` with `unlocked` false | None | Run ends (the round stays locked, also after a resume) |
+| Round already has `round_closed` with `unlocked` false, and no investor `topped_up` for it since | None | Run ends (the round stays locked, also after a resume) |
 | Round already has `round_closed` | None | Next round |
 | Round not approved, investor answers no or input ends | `stopped` (actor `investor`) | Run ends |
 | Round not approved, investor answers yes | `approved` (actor `investor`, `round`) | Run the round |
@@ -292,6 +303,6 @@ usage judgement per build of the product (the last `slice_end`).
   tested on macOS, never run on Linux, and not a guard against a forged verdict.
 - An investor ruling on a task that was already set aside. It stays set aside for the run,
   resumed or not.
-- A writer for `topped_up` and `denied` events. The budget code reads `topped_up`; nothing writes it.
+- A writer for `denied` events. Nothing writes it.
 - A reserve per model. There is one figure for all.
 - API-key (`--bare`) mode verified against the real CLI.

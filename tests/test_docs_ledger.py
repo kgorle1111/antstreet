@@ -148,6 +148,14 @@ def cli_resumed_events(tmp_path):
     return read_events(run_dir / "ledger.jsonl")
 
 
+def cli_topped_up_events(tmp_path):
+    """A round that closed below its unlock threshold because its budget ran out ($0.108 funds one
+    slice and leaves less than the $0.105 another needs), then `boss topup` on it."""
+    run_cli(tmp_path, ["fund", "Reverse a string.", "--budget", "0.108"], broken=True)
+    _, run_dir, _ = run_cli(tmp_path, ["topup", "--round", "1", "--amount", "0.25"])
+    return read_events(run_dir / "ledger.jsonl")
+
+
 def roles_events(folder, fix="y"):
     """A run with every role: the real CLI against the fake `claude` of tests/test_pipeline.py,
     which also plays each role. It reaches a disputed check, an approved amendment and both
@@ -224,6 +232,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
     runs.append(cli_resumed_events(where("cli-resumed")))
+    runs.append(cli_topped_up_events(where("cli-topped-up")))
     runs.append(roles_events(where("cli-roles")))
     runs.append(roles_events(where("cli-declined"), fix="n"))
     found: dict[str, list[Event]] = defaultdict(list)
@@ -274,7 +283,7 @@ def examples_of(body: str) -> list[Event]:
     return [Event.from_json(block) for block in blocks]
 
 
-NO_WRITER = {"topped_up", "denied"}
+NO_WRITER = {"denied"}
 
 
 def test_every_event_type_has_a_section_and_no_section_names_another_type(text):
@@ -301,7 +310,7 @@ def test_actor_forms_and_the_writer_rules_are_documented(text):
         assert f"`{actor}`" in body
 
 
-def test_only_two_types_have_no_writer_and_the_document_says_so(produced, text):
+def test_only_denied_has_no_writer_and_the_document_says_so(produced, text):
     # role_call has two: `pipeline.py` (`boss fund --roles`) and `roles/examiner.py`.
     unwritten = {e.value for e in EventType} - set(produced)
     assert unwritten == NO_WRITER, f"types with no writer changed: {sorted(unwritten)}"
@@ -400,6 +409,7 @@ def test_the_topped_up_example_is_what_the_budget_reads(text):
     base = sheet().rounds[0].budget_micros
     grown = budget.round_budget(sheet(), [example], example.round)
     assert example.round == 1 and grown == base + example.data["micros"]
+    assert example.actor == "investor"
 
 
 def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(produced, text):

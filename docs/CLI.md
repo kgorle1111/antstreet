@@ -10,8 +10,8 @@ Every command also accepts `-h` and `--help`.
 
 ## `boss`
 
-`boss [--version] <command> ...` where the command is `fund`, `resume`, `report`, `status`,
-`roles` or `doctor`.
+`boss [--version] <command> ...` where the command is `fund`, `resume`, `topup`, `report`,
+`status`, `roles` or `doctor`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -113,8 +113,8 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   The approval, the budget and every hard limit are checked again as the loop goes, so a lifted
   stop can stop again at once. The wall-clock limit (`--max-minutes`) counts from the start of
   each `resume`, so a resumed run gets the whole time again.
-- An interrupted round continues. A round that closed below its unlock threshold stays locked. A
-  task that was set aside stays set aside.
+- An interrupted round continues. A round that closed below its unlock threshold stays locked
+  until you reopen it with `boss topup`. A task that was set aside stays set aside.
 - A slice that started and never ended is charged to its round at its cap. If the last slice was
   never gated, or a firing or a question to you was owed, it is done first.
 - The roles are the ones recorded when the run started. Their first stage (stories, staged draft,
@@ -130,6 +130,40 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 - If another `boss` process is still writing the run's ledger, `resume` says so and exits 1.
   Nothing is changed, not even a cut-off last line.
 - Exit codes are those of `boss fund`.
+
+## `boss topup`
+
+`boss topup [--dir DIR] [RUN] --round N --amount D`. Adds money to one round of an existing run:
+you pay more for the same term sheet. It records one `topped_up` event (actor `investor`, the round,
+`micros`) and spends nothing itself; `boss resume` continues the run.
+
+Argument: `run`, a run id. Default: the latest run in the folder.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder. |
+| `--round` | required | The round to add money to, a whole number of 1 or more. |
+| `--amount` | required | Dollars to add, more than 0 and at most 6 decimal places, e.g. `0.20`. |
+
+- The round's budget becomes its term-sheet amount plus every top-up, and the run's spend ceiling
+  grows with it. The command prints the new budget and what is left, and says so when that is
+  still less than a slice needs (the reserve plus the smallest slice).
+- A round that closed below its unlock threshold (its budget ran out, or too few checks passed)
+  stays locked on `boss resume` until you top it up. A top-up recorded after the lock reopens that
+  round: the loop funds it again, with no new approval, and closes it again when it ends. A round
+  whose lock was already lifted by an earlier top-up needs another one to be reopened a second
+  time. A top-up of a round that is open, or not yet opened, only adds to its budget.
+- Only an event whose actor is `investor` counts: a `topped_up` event written by a worker, a role
+  or the loop adds nothing and reopens nothing.
+- Refused with exit 2, writing nothing: a bad `--round` or `--amount`; a round the term sheet does
+  not have; a round that closed with its checks unlocked (the run has moved on, so the money would
+  never be spent).
+- Refused with exit 1, writing nothing: no run found; no usable `term_sheet.json`; a damaged
+  ledger. A ledger whose last line was cut by a hard kill is repaired first, as `resume` does.
+- If another `boss` process is still writing the run's ledger, `topup` says so and exits 1.
+  Nothing is changed, not even a cut-off last line.
+- There is no upper limit on `--amount`: check the figure, `0.20` is twenty cents.
+- Exit 0 once the event is written.
 
 ## `boss report`
 
@@ -192,9 +226,9 @@ run `--live` again. The other checks make no paid call. The two costs are the CL
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `report`, `status`, `roles`, `doctor`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
-| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. |
+| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
 | `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 

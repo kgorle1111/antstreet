@@ -1,4 +1,4 @@
-"""Command line: `boss fund`, `boss resume`, `boss report`, `boss status`, `boss doctor`.
+"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `roles` and `doctor`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
@@ -28,7 +28,14 @@ from pathlib import Path
 from boss import __version__
 from boss.approval import NotApprovedError, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
-from boss.budget import MIN_SLICE_MICROS, RESERVE_MICROS, min_round_budget, plan_rounds
+from boss.budget import (
+    MIN_SLICE_MICROS,
+    RESERVE_MICROS,
+    min_round_budget,
+    plan_rounds,
+    remaining,
+    round_budget,
+)
 from boss.firm import (
     DEFAULT_SLICE_MICROS,
     DEFAULT_WORKER_MODEL,
@@ -40,6 +47,7 @@ from boss.firm import (
 )
 from boss.held_out import MAX_HELD_OUT
 from boss.ledger import (
+    Event,
     EventType,
     LedgerCorruptError,
     LedgerLockedError,
@@ -90,6 +98,8 @@ def main(
         return _fund(args, project, environ, ask, say)
     if args.command == "resume":
         return _resume(args, project, environ, ask, say)
+    if args.command == "topup":
+        return _topup(args, project, say)
     if args.command == "roles":
         say(render_org(org_chart(registry(), PROFILES, FirmConfig().profile)).rstrip("\n"))
         return EXIT_OK
@@ -181,6 +191,12 @@ def _parser() -> argparse.ArgumentParser:
         shown.add_argument("run", nargs="?", help="run id (default: the latest)")
         if name == "resume":
             _review_options(shown)
+    topup = sub.add_parser(
+        "topup", parents=[common], help="add money to a round of a run; reopens a locked round"
+    )
+    topup.add_argument("run", nargs="?", help="run id (default: the latest)")
+    topup.add_argument("--round", required=True, type=_count_arg, help="round to add money to")
+    topup.add_argument("--amount", required=True, type=usd_arg, help="dollars to add, e.g. 0.20")
     sub.add_parser(
         "roles", parents=[common], help="print the organisation: roles, profiles, skills"
     )
@@ -481,11 +497,15 @@ def _resume(
     try:
         return _resume_run(args, run, project, environ, ask, say)
     except LedgerLockedError:  # the repair and the writer take the lock before writing anything
-        say(
-            f"Run {run} is still being written by another `boss` process. Nothing was changed; "
-            "let it finish or stop it, then resume."
-        )
+        say(_held_by_another(run, "resume"))
         return EXIT_FAILED
+
+
+def _held_by_another(run: str, then: str) -> str:
+    return (
+        f"Run {run} is still being written by another `boss` process. Nothing was changed; "
+        f"let it finish or stop it, then {then}."
+    )
 
 
 def _resume_run(
@@ -533,6 +553,63 @@ def _resume_run(
         fix = args.fix_budget or default_fix_budget(config)
         outcome = _build(pipe, sheet, None, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _topup(args: argparse.Namespace, project: Path, say: Say) -> int:
+    """Record the investor's top-up of one round. The loop, not this command, spends it."""
+    run = _find_run(args, project, say)
+    if run is None:
+        return EXIT_FAILED
+    paths = RunPaths(project / RUNS_DIR / run)
+    try:
+        # Repaired before the writer opens: appending after a cut line would bury it mid-file.
+        torn = repair_torn_tail(paths.ledger)
+        if torn is not None:
+            say(f"The ledger's last line was cut off and has been removed: {torn[:80]!r}")
+        sheet = TermSheet.from_json((paths.root / "term_sheet.json").read_text(encoding="utf-8"))
+        with LedgerWriter(paths.ledger) as ledger:  # held from the checks to the write
+            events = read_events(paths.ledger)
+            refusal = _topup_refusal(sheet, events, args.round, run)
+            if refusal is not None:
+                say(refusal)
+                return EXIT_USAGE
+            Recorder(ledger, run, args.round)(
+                "investor", EventType.TOPPED_UP, data={"micros": args.amount}
+            )
+            events = read_events(paths.ledger)
+    except LedgerLockedError:
+        say(_held_by_another(run, "top up"))
+        return EXIT_FAILED
+    except LedgerCorruptError as exc:
+        say(f"Run {run} cannot be topped up: its ledger is damaged ({exc}).")
+        return EXIT_FAILED
+    except (OSError, ValueError, TermSheetError) as exc:
+        say(f"Run {run} cannot be topped up: {exc}")
+        return EXIT_FAILED
+    left = remaining(sheet, events, args.round)
+    say(
+        f"Topped up round {args.round} of run {run} by ${usd(args.amount)}: its budget is now "
+        f"${usd(round_budget(sheet, events, args.round))}, ${usd(max(left, 0))} left."
+    )
+    config = started_config(events)
+    needed = min_round_budget(config.reserve_micros) if config is not None else 0
+    if left < needed:
+        say(f"That cannot fund a slice yet: a round needs ${usd(needed)} left (reserve + slice).")
+    say(f"Continue with `boss resume {run}`.")
+    return EXIT_OK
+
+
+def _topup_refusal(sheet: TermSheet, events: Sequence[Event], round_n: int, run: str) -> str | None:
+    if round_n not in {r.n for r in sheet.rounds}:
+        rounds = ", ".join(str(r.n) for r in sheet.rounds)
+        return f"Run {run} has no round {round_n}; its rounds are {rounds}."
+    state = run_state(events, [t.id for t in sheet.tasks])
+    if round_n in state.closed_rounds and round_n not in state.locked_rounds:
+        return (
+            f"Round {round_n} of run {run} closed with its checks unlocked: money added there "
+            "would never be spent. Top up a round that is open or locked."
+        )
+    return None
 
 
 def _find_run(args: argparse.Namespace, project: Path, say: Say) -> str | None:

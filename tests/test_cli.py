@@ -422,6 +422,164 @@ def test_a_ledger_damaged_in_the_middle_is_reported_not_repaired(boss):
     assert ledger.read_text() == before
 
 
+def locked_run(boss):
+    """A run whose only round closed below its unlock threshold because its budget ran out: a
+    $0.108 round funds one slice (cap $0.008, the fake spends $0.006) and then has $0.102 left,
+    short of the $0.105 a slice needs."""
+    wrong_product(boss)
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.108")
+    assert code == EXIT_INCOMPLETE, output
+    [closed] = [e for e in events_of_run(boss) if e.event is EventType.ROUND_CLOSED]
+    assert closed.data["unlocked"] is False
+    (boss.project.parent / "fake_product.py").unlink()  # a slice from here on is right
+
+
+def slices_started(boss):
+    return sum(e.event is EventType.SLICE_START for e in events_of_run(boss))
+
+
+def test_topup_writes_one_investor_event_for_the_round_in_micros(boss):
+    locked_run(boss)
+    before = events_of_run(boss)
+    code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert code == EXIT_OK
+    assert "Topped up round 1" in output and "by $0.2:" in output and "$0.308" in output
+    assert "Continue with `boss resume" in output
+    events = events_of_run(boss)
+    assert events[:-1] == before
+    assert [(e.actor, e.event, e.round, e.data) for e in events[-1:]] == [
+        ("investor", EventType.TOPPED_UP, 1, {"micros": 200_000})
+    ]
+
+
+def test_a_locked_round_stays_locked_on_resume_until_the_investor_tops_it_up(boss):
+    locked_run(boss)
+    code, output = boss("resume")
+    assert code == EXIT_INCOMPLETE and slices_started(boss) == 1
+    assert "Ended early: round 1 closed below its unlock threshold" in output
+    assert boss("topup", "--round", "1", "--amount", "0.20")[0] == EXIT_OK
+    code, output = boss("resume")
+    assert code == EXIT_OK and slices_started(boss) == 2
+    closed = [e.data["unlocked"] for e in events_of_run(boss) if e.event is EventType.ROUND_CLOSED]
+    assert closed[-1] is True and closed[0] is False
+    assert EventType.RESUMED not in [e.event for e in events_of_run(boss)]  # a lock is no stop
+
+
+def test_topup_too_small_for_a_slice_says_so(boss):
+    locked_run(boss)
+    code, output = boss("topup", "--round", "1", "--amount", "0.001")
+    assert code == EXIT_OK and "cannot fund a slice yet" in output and "$0.105" in output
+    code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert "cannot fund a slice" not in output
+
+
+def test_topup_names_the_run_it_is_given_not_only_the_latest(boss):
+    locked_run(boss)
+    first = boss.runs()[0].name
+    wrong_product(boss)
+    boss("fund", "Reverse a string.", "--budget", "0.108")
+    assert len(boss.runs()) == 2
+    assert boss("topup", first, "--round", "1", "--amount", "0.20")[0] == EXIT_OK
+    assert events_of_run(boss, 0)[-1].event is EventType.TOPPED_UP
+    assert events_of_run(boss, 1)[-1].event is not EventType.TOPPED_UP
+
+
+def test_topup_refuses_a_round_the_run_does_not_have_and_writes_nothing(boss):
+    locked_run(boss)
+    before = events_of_run(boss)
+    code, output = boss("topup", "--round", "2", "--amount", "0.20")
+    assert code == EXIT_USAGE and "has no round 2; its rounds are 1" in output
+    assert events_of_run(boss) == before
+
+
+def test_topup_refuses_a_round_that_closed_unlocked(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50")
+    before = events_of_run(boss)
+    code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert code == EXIT_USAGE and "closed with its checks unlocked" in output
+    assert events_of_run(boss) == before
+
+
+@pytest.mark.parametrize("amount", ["0", "-1", "abc", "0.0000001", ""])
+def test_topup_refuses_an_amount_that_is_not_a_positive_dollar_figure(boss, amount):
+    locked_run(boss)
+    before = events_of_run(boss)
+    with pytest.raises(SystemExit) as info:
+        boss("topup", "--round", "1", "--amount", amount)
+    assert info.value.code == 2 and events_of_run(boss) == before
+
+
+@pytest.mark.parametrize("round_arg", ["0", "-1", "x", "1.5"])
+def test_topup_refuses_a_round_that_is_not_a_whole_number_of_one_or_more(boss, round_arg):
+    locked_run(boss)
+    with pytest.raises(SystemExit) as info:
+        boss("topup", "--round", round_arg, "--amount", "0.20")
+    assert info.value.code == 2
+
+
+@pytest.mark.parametrize("missing", ["--round", "--amount"])
+def test_topup_needs_both_a_round_and_an_amount(boss, missing):
+    locked_run(boss)
+    args = {"--round": "1", "--amount": "0.20"}
+    del args[missing]
+    with pytest.raises(SystemExit) as info:
+        boss("topup", *(x for pair in args.items() for x in pair))
+    assert info.value.code == 2 and events_of_run(boss)[-1].event is not EventType.TOPPED_UP
+
+
+def test_topup_without_a_run_says_what_to_do(boss):
+    code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert code == EXIT_FAILED and "No runs under" in output
+    assert not (boss.project / ".boss").exists()
+
+
+def test_topup_of_a_run_without_a_usable_term_sheet_writes_nothing(boss):
+    locked_run(boss)
+    (boss.runs()[0] / "term_sheet.json").write_text("{}")
+    before = events_of_run(boss)
+    code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert code == EXIT_FAILED and "cannot be topped up" in output and "Traceback" not in output
+    assert events_of_run(boss) == before
+
+
+def test_topup_while_another_process_writes_the_run_is_refused_and_changes_nothing(boss):
+    locked_run(boss)
+    ledger = boss.runs()[0] / "ledger.jsonl"
+    with ledger.open("a") as fh:
+        fh.write('{"actor": "boss", "event": "hir')  # a torn tail the repair would cut
+    before = ledger.read_bytes()
+    with LedgerWriter(ledger):  # the other process, still running
+        code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert code == EXIT_FAILED
+    assert "still being written by another `boss` process" in output and "top up" in output
+    assert "Traceback" not in output and "cut off" not in output
+    assert ledger.read_bytes() == before
+
+
+def test_topup_repairs_a_cut_last_line_before_it_appends(boss):
+    locked_run(boss)
+    ledger = boss.runs()[0] / "ledger.jsonl"
+    whole = len(read_events(ledger))
+    with ledger.open("a") as fh:
+        fh.write('{"actor": "boss", "event": "hir')
+    code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert code == EXIT_OK and "last line was cut off" in output
+    events = read_events(ledger)  # raises if the new line was glued onto the cut one
+    assert len(events) == whole + 1 and events[-1].event is EventType.TOPPED_UP
+
+
+def test_topup_of_a_ledger_damaged_in_the_middle_is_reported_and_not_changed(boss):
+    locked_run(boss)
+    ledger = boss.runs()[0] / "ledger.jsonl"
+    lines = ledger.read_text().splitlines()
+    lines[2] = "not json"
+    ledger.write_text("\n".join(lines) + "\n")
+    before = ledger.read_text()
+    code, output = boss("topup", "--round", "1", "--amount", "0.20")
+    assert code == EXIT_FAILED and "its ledger is damaged" in output and ":3" in output
+    assert ledger.read_text() == before
+
+
 def test_roles_prints_the_organisation(boss):
     code, output = boss("roles")
     assert code == EXIT_OK

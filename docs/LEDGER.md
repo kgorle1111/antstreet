@@ -7,8 +7,8 @@ read state from it and from nothing else.
 `tests/test_docs_ledger.py` runs the code (a scripted firm with the real gate, and the real CLI
 against a fake `claude`) and fails if it writes an event type, an actor, a `data` key or a value
 type that this file does not document. The example line under each event was produced by that
-run, except for the two types that no code writes (`topped_up`, `denied`): those are built with
-the code that reads or would write them.
+run, except for the one type that no code writes (`denied`): its example is built with the code
+that would write it.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 
@@ -478,7 +478,8 @@ Example:
 - Round: the round that ended
 - Written by `firm.py` when a round runs to its end: every task done or set aside, or the round
   cannot fund another slice. A pause or a stop leaves the round open, so a resume continues it.
-- A round closed with `unlocked` false stays locked: a resume does not fund the next round.
+- A round closed with `unlocked` false stays locked: a resume does not fund the next round. Only
+  an investor `topped_up` event for that round, recorded after this one, reopens it.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -539,18 +540,24 @@ An amendment:
 
 ### `topped_up`
 
-- Actor: `investor` (intended)
-- No code writes this event. `budget.round_budget` reads it and adds `micros` to a round's budget,
-  for events whose `round` is that round.
+- Actor: `investor`
+- Round: the round that gets the money
+- Written by `cli.py` when `boss topup` adds money to a round. Only an `investor` event counts:
+  `budget.round_budget` adds `micros` to the budget of the round of each such event, and
+  `state.run_state` takes the round out of `locked_rounds` and `closed_rounds` when the event comes
+  after the `round_closed` that locked it, so the loop funds that round again and writes another
+  `round_closed` when it ends. The same event raises the run's spend ceiling. The same event from
+  any other actor adds nothing and reopens nothing.
+- `boss topup` writes it only for a round of the term sheet, and not for one that closed unlocked.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `micros` | int | Extra budget for the round, a positive integer. Anything else makes the budget code raise. |
 
-Example, built with the `Event` class to show the shape the budget code accepts:
+Example, `boss topup --round 1 --amount 0.25` on a round that had run out of money:
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"micros": 250000}, "event": "topped_up", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:37.222182+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"micros": 250000}, "event": "topped_up", "round": 1, "run": "20261002T204817Z-75dfce", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:48:19.193786+00:00", "v": 1}
 ```
 
 ### `paused`
