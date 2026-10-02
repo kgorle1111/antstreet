@@ -10,6 +10,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `bench/calibration/`: 20 unlabelled cases each for the stories and usage rubrics, and `score.py` to
+  label them; until you do and run `calibrate`, every judgement stays `uncalibrated`.
 - Held-out checks, off by default: an examiner writes checks from your idea and the product's
   public names alone. You approve them with the term sheet; they run once on `product/`, unseen
   by any worker. Ask for them with `boss fund --held-out N` (0 to 8).
