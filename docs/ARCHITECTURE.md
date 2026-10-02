@@ -45,7 +45,8 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `doctor.py` | Preflight checks, each with a one-line fix: the gate sandbox, and with `--live` one real worker slice that tries to write outside its folder. | Raise on an expected failure; print an environment value. |
 | `errors.py` | Names the outcome of one CLI run from its stream signals and its stderr. | Trust `subtype` alone. |
 | `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`, with the held-out checks when the run has any. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own; let a held-out result reach a per-worker decision. |
-| `gate.py` | Running checks against a fresh copy of the workspace, inside the OS sandbox when there is one; the verdict. | Read the exit code alone; run a check from the workspace; modify the original workspace. |
+| `gate.py` | Running checks against a fresh copy of the workspace, inside the OS sandbox when there is one; the verdict. | Read the exit code alone; accept a pass without the plugin's signed proof; run a check from the workspace; modify the original workspace. |
+| `_gate_plugin.py` | The pytest plugin inside every gate run: writes a signed proof that each collected test really ran and passed. Copied by the gate, never imported by boss. | Import `boss`; read pytest's reports as evidence. |
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
 | `held_out.py` | The `held_out/` folder of a run: its manifest, its content hashes, and the gate its files must pass (ids, parse, a test function, failing on an empty workspace). | Hold a check's body anywhere but that folder; let a file it does not list stand. |
 | `ledger.py` | The event schema, the exclusive appender that chains each line to the one before, the reader that checks the chain, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0. |
@@ -304,7 +305,8 @@ usage judgement per build of the product (the last `slice_end`).
 ## Not built
 
 - Container isolation for the code the gate runs. An OS sandbox exists (`docs/SANDBOX.md`): run and
-  tested on macOS, never run on Linux, and not a guard against a forged verdict.
+  tested on macOS, never run on Linux, and not a guard against a forged verdict: the gate's
+  signed proof stops generic forgery but not code that reads its nonce (T12).
 - An investor ruling on a task that was already set aside. It stays set aside for the run,
   resumed or not.
 - A writer for `denied` events. Nothing writes it.

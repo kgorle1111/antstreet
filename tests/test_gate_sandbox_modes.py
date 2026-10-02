@@ -142,10 +142,10 @@ def test_a_sandbox_wraps_the_pytest_command_with_the_run_folder_writable(dirs, r
     [result] = gate(dirs)
     [(argv, writable, readable)] = recorder.calls
     assert result.status is CheckStatus.PASSED and result.sandboxed is True
-    assert argv[1:5] == ["-I", "-B", "-m", "pytest"]
+    assert argv[1:4] == ["-I", "-B", "-c"]
     assert writable.name.startswith("boss_gate_") and writable == writable.resolve()
     assert readable == list(python_readable())
-    assert Path(argv[5]).resolve().is_relative_to(writable)  # the copied check is inside it
+    assert Path(argv[6]).resolve().is_relative_to(writable)  # the copied check is inside it
 
 
 def test_every_check_gets_its_own_folder_and_every_result_says_it_was_sandboxed(dirs, recorder):

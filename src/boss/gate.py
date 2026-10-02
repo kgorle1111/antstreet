@@ -2,14 +2,19 @@
 
 Each check runs in its own pytest process against a fresh copy of the workspace. The worker's
 files can execute during a check, so the gate never trusts the exit code alone: a check passes
-only when pytest exits 0 *and* its JUnit report shows at least one test, all of them passing.
-Where the platform has one, the process runs inside an OS sandbox (`boss.sandbox`).
+only when pytest exits 0, its JUnit report shows at least one test and all of them passing, *and*
+a plugin the gate loaded (`boss._gate_plugin`) left a proof signed with a per-run nonce that says
+every collected test really passed, with the same count as the report. Where the platform has one,
+the process runs inside an OS sandbox (`boss.sandbox`).
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import importlib.util
 import os
+import secrets
 import shutil
 import signal
 import subprocess
@@ -28,9 +33,16 @@ DEFAULT_TIMEOUT_S = 60.0
 SANDBOX_ENV = "BOSS_GATE_SANDBOX"
 OUTPUT_TAIL_CHARS = 4000
 _COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", ".git")
-# kn: in-process verdicts are forgeable by deliberately adversarial code, sandboxed or not (the
-# report sits in the one folder the check may write); the benchmark's hidden checks measure that
-# gap. Reading the report from outside a container is parked until untrusted ideas are supported.
+# kn: in-process verdicts are forgeable by deliberately adversarial code that reads the plugin's
+# nonce from the check's own process (gc, sys.modules); closing that needs the verdict read from
+# outside the process that runs worker code (a container or an out-of-process runner), parked until
+# untrusted ideas are supported.
+_PLUGIN_SOURCE = Path(__file__).with_name("_gate_plugin.py")
+_PROOF_MAX_BYTES = 512  # a proof is "<n> <n> <64 hex>"; never read more of a file the check wrote
+_BOOTSTRAP = (  # not `-m pytest`: the plugin folder joins sys.path, the workspace still does not
+    "import sys; sys.path.insert(0, sys.argv[1]); import pytest\n"
+    "sys.exit(pytest.main(sys.argv[2:]))"
+)
 _INI = "[pytest]\npythonpath = ws\n"
 
 
@@ -124,10 +136,16 @@ def _run_one(
         (tmp / "pytest.ini").write_text(_INI)
         (tmp / "home").mkdir()
         report = tmp / "report.xml"
+        nonce, plugin = secrets.token_hex(32), f"_boss_gate_{secrets.token_hex(8)}"
+        proof = tmp / f"proof_{secrets.token_hex(8)}"
+        (tmp / "plugin").mkdir()
+        (tmp / "plugin" / f"{plugin}.py").write_text(
+            _PLUGIN_SOURCE.read_text().replace("@NONCE@", nonce).replace("@PROOF@", str(proof))
+        )
         cmd = [
-            sys.executable, "-I", "-B", "-m", "pytest", str(target),
+            sys.executable, "-I", "-B", "-c", _BOOTSTRAP, str(tmp / "plugin"), str(target),
             "-c", str(tmp / "pytest.ini"), "--rootdir", str(tmp), "-p", "no:cacheprovider",
-            f"--junitxml={report}", "-q", "--no-header",
+            "-p", plugin, f"--junitxml={report}", "-q", "--no-header",
         ]  # fmt: skip
         if tool is not None:
             cmd = tool.wrap(cmd, writable=tmp.resolve(), readable=python_readable())
@@ -141,7 +159,7 @@ def _run_one(
             return CheckResult(
                 check.id, CheckStatus.TIMEOUT, None, detail, tail, duration, sandboxed
             )
-        ok, detail = _verdict(exit_code, report)
+        ok, detail = _verdict(exit_code, report, proof, nonce)
         status = CheckStatus.PASSED if ok else CheckStatus.FAILED
         return CheckResult(check.id, status, exit_code, detail, tail, duration, sandboxed)
 
@@ -181,7 +199,7 @@ def _run_bounded(
         return None, out, True
 
 
-def _verdict(exit_code: int | None, report: Path) -> tuple[bool, str]:
+def _verdict(exit_code: int | None, report: Path, proof: Path, nonce: str) -> tuple[bool, str]:
     if exit_code != 0:
         return False, f"pytest exited {exit_code}"
     if not report.is_file():
@@ -200,4 +218,25 @@ def _verdict(exit_code: int | None, report: Path) -> tuple[bool, str]:
         return False, "report shows {failures} failed, {errors} errors, {skipped} skipped".format(
             **counts
         )
+    proved = _proof_count(proof, nonce)
+    if proved is None:
+        return False, "exit 0 but the gate's pytest plugin left no valid proof of a clean session"
+    if proved != counts["tests"]:
+        return False, f"report shows {counts['tests']} tests but the proof covers {proved}"
     return True, f"{counts['tests']} passed"
+
+
+def _proof_count(proof: Path, nonce: str) -> int | None:
+    """The test count the plugin signed, or None if the file is missing, forged or malformed."""
+    try:
+        if proof.is_symlink() or not proof.is_file():
+            return None
+        with proof.open("rb") as fh:
+            parts = fh.read(_PROOF_MAX_BYTES).decode("ascii").split(" ")
+        total, passed, mac = parts
+        expected = hmac.new(nonce.encode(), f"{total}:{passed}".encode(), hashlib.sha256)
+        if total != passed or not hmac.compare_digest(mac, expected.hexdigest()):
+            return None
+        return int(total)
+    except (OSError, ValueError):
+        return None

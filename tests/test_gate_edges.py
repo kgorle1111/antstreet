@@ -1,6 +1,9 @@
 """Gate edge cases: environment failures, the verdict rules, and how the workspace is copied."""
 
+import hashlib
+import hmac
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -154,11 +157,28 @@ def test_timeout_reports_the_limit_and_no_exit_code(dirs):
 JUNIT_OK = '<testsuite tests="2" failures="0" errors="0" skipped="0"></testsuite>'
 
 
-def verdict(tmp_path: Path, exit_code, xml: str | None):
-    report = tmp_path / "report.xml"
+NONCE = "ab" * 32
+NO_PROOF_DETAIL = "exit 0 but the gate's pytest plugin left no valid proof of a clean session"
+
+
+def sign(total: object, passed: object = None, nonce: str = NONCE) -> str:
+    passed = total if passed is None else passed
+    mac = hmac.new(nonce.encode(), f"{total}:{passed}".encode(), hashlib.sha256).hexdigest()
+    return f"{total} {passed} {mac}"
+
+
+def verdict(tmp_path: Path, exit_code, xml: str | None, proof: str | bytes | None = "auto"):
+    """`proof="auto"` signs the number of tests the report claims, as an honest run would."""
+    report, proof_file = tmp_path / "report.xml", tmp_path / "proof"
     if xml is not None:
         report.write_text(xml)
-    return _verdict(exit_code, report)
+    if proof == "auto":
+        proof = sign(sum(int(n) for n in re.findall(r'<testsuite tests="(\d+)"', xml or "")))
+    if isinstance(proof, str):
+        proof = proof.encode()
+    if proof is not None:
+        proof_file.write_bytes(proof)
+    return _verdict(exit_code, report, proof_file, NONCE)
 
 
 @pytest.mark.parametrize(
@@ -196,6 +216,52 @@ def verdict(tmp_path: Path, exit_code, xml: str | None):
 )
 def test_verdict_rules(tmp_path, exit_code, xml, expected):
     assert verdict(tmp_path, exit_code, xml) == expected
+
+
+@pytest.mark.parametrize(
+    ("proof", "expected"),
+    [
+        ("auto", (True, "2 passed")),
+        (None, (False, NO_PROOF_DETAIL)),
+        ("", (False, NO_PROOF_DETAIL)),
+        (sign(2, nonce="cd" * 32), (False, NO_PROOF_DETAIL)),  # signed with a nonce we never gave
+        (sign(2)[:-1], (False, NO_PROOF_DETAIL)),  # truncated mac
+        (sign(2).upper(), (False, NO_PROOF_DETAIL)),
+        (sign(2, 1), (False, NO_PROOF_DETAIL)),  # a test that did not pass, though properly signed
+        (sign(3), (False, "report shows 2 tests but the proof covers 3")),
+        (sign(1), (False, "report shows 2 tests but the proof covers 1")),
+        (sign(0), (False, "report shows 2 tests but the proof covers 0")),
+        (sign(2) + " extra", (False, NO_PROOF_DETAIL)),
+        (sign("two"), (False, NO_PROOF_DETAIL)),
+        ("2 2", (False, NO_PROOF_DETAIL)),
+        ("2 2 " + "0" * 64, (False, NO_PROOF_DETAIL)),
+        (b"\xff\xfe 2 2 zz", (False, NO_PROOF_DETAIL)),
+        (b"x" * 100_000, (False, NO_PROOF_DETAIL)),
+        (sign(2).encode() + b"\n", (False, NO_PROOF_DETAIL)),  # the plugin writes no newline
+    ],
+)
+def test_a_pass_needs_a_proof_signed_with_this_runs_nonce_and_matching_the_report(
+    tmp_path, proof, expected
+):
+    assert verdict(tmp_path, 0, JUNIT_OK, proof) == expected
+
+
+def test_a_proof_never_rescues_a_report_or_exit_code_that_says_failed(tmp_path):
+    failing = '<testsuite tests="2" failures="1" errors="0" skipped="0"></testsuite>'
+    assert verdict(tmp_path, 0, failing, sign(2)) == (
+        False,
+        "report shows 1 failed, 0 errors, 0 skipped",
+    )
+    assert verdict(tmp_path, 1, JUNIT_OK, sign(2)) == (False, "pytest exited 1")
+
+
+def test_a_symlinked_proof_is_not_read(tmp_path):
+    real = tmp_path / "real"
+    real.write_text(sign(2))
+    (tmp_path / "report.xml").write_text(JUNIT_OK)
+    link = tmp_path / "proof"
+    link.symlink_to(real)
+    assert _verdict(0, tmp_path / "report.xml", link, NONCE) == (False, NO_PROOF_DETAIL)
 
 
 def test_verdict_truncated_report_is_unreadable_not_a_pass(tmp_path):

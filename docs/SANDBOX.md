@@ -2,7 +2,7 @@
 
 The gate (`src/boss/gate.py`) runs worker- and boss-written code with pytest. `src/boss/sandbox.py`
 wraps that one process in an OS sandbox where the platform has one. It narrows what the code can
-do to the machine. It does not make the verdict unforgeable (T12) and it is not a container.
+do to the machine. It does not make the verdict unforgeable (T12, only partly closed by the gate's plugin) and it is not a container.
 Threat rows: T05, T12, T13, T14, T39 in `THREAT_MODEL.md`.
 
 ## Turning it on, off, or making it mandatory
@@ -49,7 +49,7 @@ check passed, then removing each rule to see whether anything noticed (mutation 
 | read `/usr/share/zoneinfo.default` | The built-in time zone copy. `/usr/share/zoneinfo` resolves here on a Mac that has not downloaded a time zone update (a fresh CI runner), and `zoneinfo.ZoneInfo(...)` fails without it. |
 | read `/usr/share/locale` | Without it `locale.getpreferredencoding()` returns `utf-8` instead of `UTF-8`. |
 | read and write `/dev/null` | pytest opens `os.devnull`. |
-| write the run folder | Workspace copy, check, report, `HOME`, `TMPDIR`. The report is here, hence T12. |
+| write the run folder | Workspace copy, check, report, proof file, `HOME`, `TMPDIR`. The report is here, hence T12. |
 
 Not needed, so not allowed: `/usr`, `/bin`, `/System`, `/Library`, `/private/etc`,
 `/dev/urandom` (Python uses `getentropy`). System binaries still run without a read grant
@@ -63,8 +63,10 @@ a profile that interpolated the path fails it on quote, backslash and injection 
 
 ## What it does not protect against
 
-- **A forged verdict (T12).** The report is in the writable folder; a check can rewrite it.
-  Test: `test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox`.
+- **A forged verdict aimed at the gate's plugin (T12).** Rewriting the report, exiting 0 or patching
+  pytest no longer passes (`test_a_report_rewritten_from_inside_the_sandbox_is_not_a_pass`). Code that
+  reads the per-run nonce from the plugin's module in its own process still can
+  (`test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox`).
 - **The run folder itself.** The check file, `pytest.ini`, the workspace copy and `HOME` are
   writable by the code under test.
 - **Existence probing.** `stat` works everywhere (pinned by `test_the_names_of_files_are_still_visible_to_stat`).

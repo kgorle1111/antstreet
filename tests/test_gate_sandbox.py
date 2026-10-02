@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from gate_forgers import NONCE_READER
 
 from boss.gate import Check, CheckStatus, run_gate
 from boss.sandbox import SandboxMode, detect, python_readable
@@ -469,10 +470,19 @@ def test_a_hostile_directory_name_grants_that_directory_and_nothing_else(tmp_pat
 
 
 @requires_sandbox
-def test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox(tmp_path):
+def test_a_report_rewritten_from_inside_the_sandbox_is_not_a_pass(tmp_path):
     result = gate(tmp_path, HONEST, FORGER + WRONG, ON)
     assert result.sandboxed is True
-    assert result.status is CheckStatus.PASSED  # the report lives in the one folder it may write
+    assert result.status is CheckStatus.FAILED
+    assert "no valid proof" in result.detail
+
+
+@requires_sandbox
+def test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox(tmp_path):
+    # The plugin's nonce is in the one process the sandbox confines the check to (T12).
+    result = gate(tmp_path, HONEST, NONCE_READER + WRONG, ON)
+    assert result.sandboxed is True
+    assert result.status is CheckStatus.PASSED
     assert result.detail == "1 passed"
 
 
