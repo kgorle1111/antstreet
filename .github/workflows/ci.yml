@@ -42,6 +42,9 @@ jobs:
       - name: Format check
         run: uv run ruff format --check .
 
+      - name: Type check
+        run: uv run mypy
+
       # No model calls and no secrets: the live test is skipped unless BOSS_LIVE=1.
       # The coverage floor (line + branch over src/boss) is 2 points below the 98.58% measured
       # when the gate was added, rounded down: 96. That leaves room for normal work and still
