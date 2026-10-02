@@ -79,7 +79,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
 | B39 | Package name and licence | The investor's decision; `boss` is taken on PyPI | open |
-| B40 | Static type checking in CI | A new dev dependency needs the investor's yes | open |
+| B40 | Static type checking in CI | A new dev dependency needs the investor's yes | done: `mypy --strict` over `src/boss` passes and runs in CI after the format check (`pyproject.toml` `[tool.mypy]`, `.github/workflows/ci.yml`); `tests/` are not type-checked yet |
 | B41 | Release workflow, versioning, install from a package index | After B39 | open |
 
 ## Small findings not yet fixed

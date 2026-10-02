@@ -10,6 +10,7 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- Type checking: `uv run mypy` (strict, over `src/boss`) runs locally and in CI after the format check.
 - `bench/calibration/`: 20 unlabelled cases each for the stories and usage rubrics, and `score.py` to
   label them; until you do and run `calibrate`, every judgement stays `uncalibrated`.
 - Held-out checks, off by default: an examiner writes checks from your idea and the product's
