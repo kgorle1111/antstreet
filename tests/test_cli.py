@@ -212,6 +212,34 @@ def test_worker_thinking_reaches_every_slice_and_the_started_config(boss):
     assert (boss.project.parent / "worker_thinking.txt").read_text() == "unset"
 
 
+def started_reserve(boss, n=0):
+    started = next(e for e in events_of_run(boss, n) if e.event is EventType.STARTED)
+    return started.data["config"]["reserve_micros"]
+
+
+@pytest.mark.parametrize(
+    ("model", "micros"),
+    [("haiku", 100_000), ("sonnet", 300_000), ("opus", 500_000), ("x", 100_000)],
+)
+def test_the_reserve_defaults_by_worker_model_and_is_recorded_on_started(boss, model, micros):
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.80", "--model", model)
+    assert code == EXIT_OK
+    assert started_reserve(boss) == micros
+
+
+def test_an_explicit_reserve_beats_the_model_default(boss):
+    argv = ("fund", "Reverse a string.", "--budget", "0.50", "--model", "opus", "--reserve", "0.02")
+    code, _ = boss(*argv)
+    assert code == EXIT_OK
+    assert started_reserve(boss) == 20_000
+
+
+def test_a_budget_below_the_model_reserve_plus_a_slice_is_refused_before_anything_is_spent(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.30", "--model", "sonnet")
+    assert code == EXIT_USAGE and "at least $0.305" in output and "$0.3 reserve" in output
+    assert not (boss.project / ".boss").exists()
+
+
 def test_boss_thinking_option_reaches_the_boss_call_and_the_ledger(boss):
     boss("fund", "Reverse a string.", "--budget", "0.50", "--boss-thinking", "0")
     assert (boss.project.parent / "boss_thinking.txt").read_text() == "0"

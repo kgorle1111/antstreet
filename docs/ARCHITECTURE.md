@@ -272,6 +272,9 @@ Values in code, checked by the test.
 | Checks in a draft | 1 to 8 | `boss.MAX_CHECKS` |
 | Oldest supported `claude` CLI | 2.1.277 | `worker.MIN_CLI_VERSION` |
 
+The reserve row is Haiku's, and the figure for any model not recognised. `budget.reserve_for`
+scales it for larger models: 3x for Sonnet, 5x for Opus (output-price ratios, not measured).
+
 ## The roles around the loop
 
 `boss fund --roles a,b` makes `cli.py` build a `Pipeline` (`pipeline.py`) and hand it to the loop.
@@ -305,5 +308,5 @@ usage judgement per build of the product (the last `slice_end`).
 - An investor ruling on a task that was already set aside. It stays set aside for the run,
   resumed or not.
 - A writer for `denied` events. Nothing writes it.
-- A reserve per model. There is one figure for all.
+- A measured reserve for Sonnet and Opus. Their figures scale Haiku's by output price; only Haiku was measured.
 - API-key (`--bare`) mode verified against the real CLI.

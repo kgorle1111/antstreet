@@ -11,10 +11,24 @@ from boss.termsheet import Round, TermSheet
 # The CLI checks a slice's cap only between model responses, so a slice can overshoot by one whole
 # response whatever the cap is: measured on Haiku, a $0.030 cap spent $0.099. The reserve is that
 # one response, held back from every cap. A percentage of the cap cannot cover it.
-# kn: one figure for every model; make it per-model when workers run on larger ones.
-RESERVE_MICROS = 100_000
+# A larger model's response costs more, so the figure is per model family. Only Haiku was measured;
+# the others scale it by the ratio of output-token list prices (3x for Sonnet, 5x for Opus), so
+# re-measure them as D18 did before relying on the tighter side of them.
+RESERVE_MICROS = 100_000  # Haiku, and the figure for a model whose family is not recognised
+_FAMILY_RESERVES = (
+    ("haiku", RESERVE_MICROS),
+    ("sonnet", 3 * RESERVE_MICROS),
+    ("opus", 5 * RESERVE_MICROS),
+)
+MODEL_RESERVE = -1  # in a FirmConfig: "the reserve for this config's model"
 MIN_SLICE_MICROS = 5_000
 _INFRASTRUCTURE = frozenset(str(outcome) for outcome in INFRASTRUCTURE)
+
+
+def reserve_for(model: str) -> int:
+    """The reserve for a worker model, from an alias (`sonnet`) or a full id."""
+    name = model.lower()
+    return next((micros for family, micros in _FAMILY_RESERVES if family in name), RESERVE_MICROS)
 
 
 def _round(sheet: TermSheet, round_n: int) -> Round:

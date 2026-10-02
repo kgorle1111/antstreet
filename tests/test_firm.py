@@ -1001,6 +1001,21 @@ def test_a_recorded_configuration_survives_the_round_trip_through_the_ledger():
     assert config_from_data(json.loads(json.dumps(config_data(config)))) == config
 
 
+@pytest.mark.parametrize(
+    ("model", "micros"),
+    [("haiku", 100_000), ("sonnet", 300_000), ("opus", 500_000), ("z", 100_000)],
+)
+def test_the_reserve_default_follows_the_model_and_an_explicit_one_wins(model, micros):
+    from boss.firm import config_data, config_from_data
+
+    config = FirmConfig(model=model)
+    assert config.reserve_micros == micros
+    assert FirmConfig(model=model, reserve_micros=7_000).reserve_micros == 7_000
+    # A run resumes with the figure it started with, not the one the model would get today.
+    assert config_data(config)["reserve_micros"] == micros
+    assert config_from_data(config_data(config)) == config
+
+
 # The investor rules on what a worker could not settle. Four checks, so one can be disputed.
 C04 = "from rev import reverse\n\ndef test_three():\n    assert reverse('abc') == 'cba'\n"
 C05 = "from rev import reverse\n\ndef test_wrong():\n    assert reverse('ab') == 'WRONG'\n"

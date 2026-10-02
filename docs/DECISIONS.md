@@ -262,7 +262,7 @@ with a JSON schema.
 
 - Status: `in force`
 - Decision: A slice's cap is the smaller of the slice size and what is left in the round minus a
-  reserve (default $0.10, `--reserve`). A round that cannot fund a cap of $0.005 is not started, and a
+  reserve (default $0.10, `--reserve`, larger for Sonnet and Opus). A round that cannot fund a cap of $0.005 is not started, and a
   budget that cannot fund one slice per round is refused before the boss is called.
 - Why: The CLI checks a cap only between responses, so a slice overshoots by one whole response.
   Probe P4: cap $0.006 spent $0.0079. Real runs: cap $0.030 spent $0.099 and $0.075. The overshoot is
@@ -272,7 +272,9 @@ with a JSON schema.
 - Evidence: `tests/test_budget.py::test_a_round_never_exceeds_its_budget_when_each_overshoot_fits_the_reserve`,
   `tests/test_firm.py::test_a_slice_cap_holds_back_the_reserve_so_an_overshoot_stays_inside_the_round`;
   `tests/fixtures/stream_budget_capped_2.1.285.jsonl`. Rerun: no round went over budget; the largest
-  cell cost $0.365 of $0.40. One figure serves all models.
+  cell cost $0.365 of $0.40. The reserve is still one absolute figure per model, never a share of the
+  cap: Haiku, the only model measured, keeps $0.10, and Sonnet and Opus scale it by output price
+  (3x, 5x) until they are measured (`budget.reserve_for`).
 
 ### D19: A disputed check goes to the investor instead of getting the worker fired
 

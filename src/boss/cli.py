@@ -30,10 +30,10 @@ from boss.approval import NotApprovedError, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from boss.budget import (
     MIN_SLICE_MICROS,
-    RESERVE_MICROS,
     min_round_budget,
     plan_rounds,
     remaining,
+    reserve_for,
     round_budget,
 )
 from boss.firm import (
@@ -135,8 +135,8 @@ def _parser() -> argparse.ArgumentParser:
     fund.add_argument(
         "--reserve",
         type=usd_arg,
-        default=RESERVE_MICROS,
-        help="dollars held back from every slice cap: what one response of the worker model costs",
+        help="dollars held back from every slice cap: what one response of the worker model costs "
+        "(default: by model, $0.10 for haiku, $0.30 for sonnet, $0.50 for opus)",
     )
     fund.add_argument(
         "--max-tasks", type=_count_arg, default=1, help="most tasks the boss may split into"
@@ -278,11 +278,12 @@ def _fund(
     if args.slice < MIN_SLICE_MICROS:
         say(f"--slice must be at least ${usd(MIN_SLICE_MICROS)}: a smaller slice is never funded.")
         return EXIT_USAGE
-    needed = min_round_budget(args.reserve)
+    reserve = args.reserve if args.reserve is not None else reserve_for(args.model)
+    needed = min_round_budget(reserve)
     if args.budget // args.rounds < needed:  # refused before anything is spent
         say(
             f"${usd(args.budget)} over {args.rounds} round(s) cannot fund one worker "
-            f"slice: a round needs at least ${usd(needed)} (${usd(args.reserve)} reserve plus a "
+            f"slice: a round needs at least ${usd(needed)} (${usd(reserve)} reserve plus a "
             f"${usd(MIN_SLICE_MICROS)} slice). Raise --budget or lower --reserve."
         )
         return EXIT_USAGE
@@ -292,7 +293,7 @@ def _fund(
         say(str(exc))
         return EXIT_USAGE
     if args.fix_budget is not None and args.fix_budget < needed:
-        say(_fix_budget_refusal(needed, args.reserve))
+        say(_fix_budget_refusal(needed, reserve))
         return EXIT_USAGE
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
     paths = RunPaths(project / RUNS_DIR / run_id)
@@ -388,7 +389,7 @@ def _fund(
         config = FirmConfig(
             model=args.model,
             slice_micros=args.slice,
-            reserve_micros=args.reserve,
+            reserve_micros=reserve,
             policy=FiringPolicy(stall_slices=args.stall_slices, max_slices=args.max_slices),
             firing=not args.no_firing,
             parallel=args.parallel,

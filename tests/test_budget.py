@@ -10,6 +10,7 @@ from boss.budget import (
     next_slice_cap,
     plan_rounds,
     remaining,
+    reserve_for,
     round_budget,
     round_spend,
     unlocked,
@@ -272,6 +273,30 @@ def test_a_lost_slice_of_another_worker_is_not_covered_by_this_workers_session()
     )
     events = [other, s_start(1, 40_000, "S"), s_end(1, 30_000, 30_000)]
     assert remaining(sheet(), events, 1) == 600_000 - 30_000 - 90_000
+
+
+@pytest.mark.parametrize(
+    ("model", "micros"),
+    [
+        ("haiku", RESERVE_MICROS),
+        ("sonnet", 3 * RESERVE_MICROS),
+        ("opus", 5 * RESERVE_MICROS),
+        ("claude-haiku-4-5", RESERVE_MICROS),
+        ("claude-sonnet-4-5-20250929", 3 * RESERVE_MICROS),
+        ("Opus[1m]", 5 * RESERVE_MICROS),
+        ("", RESERVE_MICROS),
+        ("gpt-x", RESERVE_MICROS),  # an unknown model keeps the one figure there has always been
+    ],
+)
+def test_the_reserve_is_per_model_family_and_unknown_models_keep_the_default(
+    model: str, micros: int
+) -> None:
+    assert reserve_for(model) == micros
+
+
+def test_a_larger_model_needs_a_larger_round_to_fund_one_slice() -> None:
+    assert min_round_budget(reserve_for("haiku")) < min_round_budget(reserve_for("sonnet"))
+    assert min_round_budget(reserve_for("sonnet")) < min_round_budget(reserve_for("opus"))
 
 
 def test_remaining_negative_after_overshoot() -> None:

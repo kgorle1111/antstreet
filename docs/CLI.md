@@ -48,7 +48,7 @@ Argument: `idea`, what to build, in plain words.
 | `--model` | `haiku` | Worker model. |
 | `--rounds` | `1` | Funding rounds to split the budget into. With more than one, the budget splits equally (the earliest rounds take any remainder), the count is capped at the number of checks, and each round after the first needs your yes. |
 | `--slice` | `$0.10` | Dollars a worker may spend in one slice, before the gate looks again. At least $0.005; a smaller slice is never funded (exit 2). |
-| `--reserve` | `$0.10` | Dollars held back from every slice cap: what one response can cost past the cap. |
+| `--reserve` | by `--model` | Dollars held back from every slice cap: what one response can cost past the cap. `$0.10` for `haiku` and any model not recognised, `$0.30` for `sonnet`, `$0.50` for `opus` (a name that contains the family). An explicit value wins and is recorded on `started`. |
 | `--max-tasks` | `1` | Most tasks the boss may split the work into. Above 1 the multi-task prompt is used. |
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
 | `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |

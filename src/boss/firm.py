@@ -74,7 +74,8 @@ Say = Callable[[str], None]
 class FirmConfig:
     model: str = DEFAULT_WORKER_MODEL
     slice_micros: int = DEFAULT_SLICE_MICROS
-    reserve_micros: int = budget.RESERVE_MICROS  # held back from every cap: one model response
+    # Held back from every cap: one response of `model`. MODEL_RESERVE resolves to its figure.
+    reserve_micros: int = budget.MODEL_RESERVE
     policy: FiringPolicy = field(default_factory=FiringPolicy)
     firing: bool = True  # False: a stalled worker keeps being funded (the benchmark's control arm)
     limits: limits.RunLimits = field(default_factory=limits.RunLimits)
@@ -97,6 +98,8 @@ class FirmConfig:
 
     def __post_init__(self) -> None:
         check_thinking(self.thinking_tokens)
+        if self.reserve_micros == budget.MODEL_RESERVE:
+            object.__setattr__(self, "reserve_micros", budget.reserve_for(self.model))
         if type(self.held_out) is not int or not 0 <= self.held_out <= held_out_store.MAX_HELD_OUT:
             raise ValueError(
                 f"held_out must be a whole number from 0 to {held_out_store.MAX_HELD_OUT}, "
