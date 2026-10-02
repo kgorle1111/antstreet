@@ -21,7 +21,7 @@ from pathlib import Path
 from boss import cli
 from boss.bench.results import ARMS, CellResult, cell_dir
 from boss.bench.score import count_wrong_checks
-from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
+from boss.bench.tasks import BenchTask, grade_imported, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
 from boss.errors import INFRASTRUCTURE, Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
@@ -83,7 +83,8 @@ def run_cell(
         workspace, events = _run_firm(
             task, out, environ, model, boss_model, budget_micros, firm_args
         )
-        wrong_checks = count_wrong_checks(task, workspace.parent / "checks")
+        if not task.imported:  # no reference solution to judge the boss's checks against
+            wrong_checks = count_wrong_checks(task, workspace.parent / "checks")
         held_out_passed, held_out_total = _held_out_counts(events)
         held_out_wrong = count_wrong_checks(task, workspace.parent / "held_out")
 
@@ -197,6 +198,8 @@ def _held_out_counts(events: Sequence[Event]) -> tuple[int | None, int | None]:
 
 
 def _score(task: BenchTask, workspace: Path) -> dict[str, str]:
+    if task.imported:
+        return grade_imported(task, workspace)
     checks = task.hidden_checks()
     if not workspace.is_dir():
         return {c.id: "failed" for c in checks}
