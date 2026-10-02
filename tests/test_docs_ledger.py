@@ -5,6 +5,7 @@ and every event it writes is checked against the document: type, actor, key, val
 example line under each heading.
 """
 
+import dataclasses
 import inspect
 import json
 import re
@@ -300,8 +301,13 @@ def test_top_level_fields_are_the_event_fields_plus_the_version(text):
     assert LEDGER_VERSION == 1 and "`v` | int | Always 1" in text
     for billing in Billing:
         assert f"`{billing.value}`" in rows["billing"][2]
-    line = json.loads(Event(run="r", round=0, actor="boss", event=EventType.STOPPED).to_json())
-    assert set(line) == set(rows)
+    plain = json.loads(Event(run="r", round=0, actor="boss", event=EventType.STOPPED).to_json())
+    assert set(plain) | {"prev"} == set(rows)  # `prev` is written by the writer, not by the event
+    chained = json.loads(
+        dataclasses.replace(Event(run="r", round=0, actor="boss", event=EventType.STOPPED),
+                            prev="0" * 64).to_json()
+    )  # fmt: skip
+    assert set(chained) == set(rows)
 
 
 def test_actor_forms_and_the_writer_rules_are_documented(text):

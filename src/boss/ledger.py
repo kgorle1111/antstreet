@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
+import threading
 from collections.abc import Callable, Hashable, Iterable
 from contextlib import suppress
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import IO, Any
 
 LEDGER_VERSION = 1
+# `prev` of the first line of a chained ledger. Fixed, so a deleted first line is detected too.
+GENESIS = "0" * 64
+_HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
 _ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+|role:[a-z][a-z_]*)\Z")
 
 
@@ -89,6 +94,9 @@ class Event:
     billing: Billing = Billing.UNKNOWN
     data: dict[str, Any] = field(default_factory=dict)
     ts: str = field(default_factory=_now)
+    # The chain link, set by `LedgerWriter` and read back by `read_events`; it is a property of
+    # the line in its file, so two equal events at different places stay equal.
+    prev: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         for name in ("run", "actor", "ts"):
@@ -108,9 +116,16 @@ class Event:
             _require_count(name, getattr(self, name))
         if not isinstance(self.data, dict):
             raise ValueError("data must be a dict")
+        if self.prev is not None and not (
+            isinstance(self.prev, str) and _HASH_RE.fullmatch(self.prev)
+        ):
+            raise ValueError(f"prev must be 64 lower-case hex digits, got {self.prev!r}")
 
     def to_json(self) -> str:
-        return json.dumps({"v": LEDGER_VERSION, **asdict(self)}, sort_keys=True)
+        line = {"v": LEDGER_VERSION, **asdict(self)}
+        if line["prev"] is None:  # an unchained event has no `prev` key at all
+            del line["prev"]
+        return json.dumps(line, sort_keys=True)
 
     @classmethod
     def from_json(cls, line: str) -> Event:
@@ -123,9 +138,30 @@ class Event:
         if type(version) is not int or version != LEDGER_VERSION:
             raise ValueError(f"not a v{LEDGER_VERSION} ledger event")
         expected = {f.name for f in fields(cls)}
+        if "prev" not in raw:  # a line from before the chain existed
+            raw["prev"] = None
+        elif not isinstance(raw["prev"], str):  # `"prev": null` is not a way to opt out
+            raise ValueError("prev must be a string")
         if set(raw) != expected:
             raise ValueError(f"fields differ from schema: {sorted(set(raw) ^ expected)}")
         return cls(**raw)
+
+
+def _sha256(line: bytes) -> str:
+    return hashlib.sha256(line).hexdigest()
+
+
+def _last_line_hash(path: Path) -> str:
+    """What the next line's `prev` must be: the hash of the file's last line, without its newline.
+
+    Reads the whole file once per open. A cut-off last line (no newline) is hashed as it is: a
+    line appended to it is glued on and the file is corrupt either way, which `read_events`
+    reports; `repair_torn_tail` has to run before a writer opens.
+    """
+    data = Path(path).read_bytes()
+    if not data:
+        return GENESIS
+    return _sha256(data.removesuffix(b"\n").rsplit(b"\n", 1)[-1])
 
 
 class LedgerWriter:
@@ -134,6 +170,8 @@ class LedgerWriter:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self._fh: IO[str] | None = None
+        self._prev = GENESIS
+        self._append_lock = threading.Lock()  # parallel slices append from several threads
 
     def __enter__(self) -> LedgerWriter:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,6 +181,12 @@ class LedgerWriter:
         except BlockingIOError:
             fh.close()
             raise LedgerLockedError(f"{self.path} is held by another writer") from None
+        try:
+            self._prev = _last_line_hash(self.path)  # under the lock: nobody appends meanwhile
+        except BaseException:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+            fh.close()
+            raise
         self._fh = fh
         return self
 
@@ -155,10 +199,13 @@ class LedgerWriter:
     def append(self, event: Event) -> None:
         if self._fh is None:
             raise LedgerError("writer is not open; use `with LedgerWriter(path) as w:`")
-        line = event.to_json()  # serialise first so a bad event never leaves a partial line
-        self._fh.write(line + "\n")
-        self._fh.flush()
-        os.fsync(self._fh.fileno())  # money records must survive a crash right after append
+        with self._append_lock:  # the link, the write and the next link are one step
+            # serialise first so a bad event never leaves a partial line
+            line = replace(event, prev=self._prev).to_json()
+            self._fh.write(line + "\n")
+            self._fh.flush()
+            os.fsync(self._fh.fileno())  # money records must survive a crash right after append
+            self._prev = _sha256(line.encode("utf-8"))
 
 
 def repair_torn_tail(path: Path) -> str | None:
@@ -199,15 +246,32 @@ def repair_torn_tail(path: Path) -> str | None:
 def read_events(path: Path) -> list[Event]:
     """Parse every line; any invalid line raises with its line number.
 
-    A torn final line raises too (fail closed); `repair_torn_tail` is the one way past it.
+    A torn final line raises too (fail closed); `repair_torn_tail` is the one way past it. Once a
+    line carries `prev`, every later line must, and each must be the hash of the line before it
+    (the first chained line follows the genesis value, or the last line written before the chain
+    existed). A ledger with no `prev` at all is an older one and loads as it always did.
     """
     events: list[Event] = []
-    with Path(path).open(encoding="utf-8") as fh:
-        for lineno, line in enumerate(fh, start=1):
-            try:
-                events.append(Event.from_json(line))
-            except (ValueError, TypeError) as exc:
-                raise LedgerCorruptError(f"{path}:{lineno}: {exc}") from exc
+    expected = GENESIS
+    chained = False
+    lines = Path(path).read_bytes().split(b"\n")
+    if lines[-1] == b"":  # the file ends in a newline (or is empty)
+        lines.pop()
+    for lineno, raw in enumerate(lines, start=1):
+        try:
+            event = Event.from_json(raw.decode("utf-8"))
+        except (ValueError, TypeError) as exc:
+            raise LedgerCorruptError(f"{path}:{lineno}: {exc}") from exc
+        if event.prev is not None:
+            chained = True
+            if event.prev != expected:
+                raise LedgerCorruptError(
+                    f"{path}:{lineno}: broken chain: `prev` is not the hash of the line before it"
+                )
+        elif chained:
+            raise LedgerCorruptError(f"{path}:{lineno}: no `prev`, after lines that have one")
+        expected = _sha256(raw)
+        events.append(event)
     return events
 
 

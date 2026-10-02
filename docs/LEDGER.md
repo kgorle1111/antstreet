@@ -20,7 +20,27 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   A torn last line counts. `boss resume` calls `ledger.repair_torn_tail` before it reads the file:
   it cuts an incomplete last line (only when every earlier line is valid) and says what it removed.
   No other command repairs: `boss report` and `boss status` report a torn ledger as damaged.
-- The version `v` must be the integer 1: `true` and `1.0` make the line corrupt.
+- The version `v` must be the integer 1: `true` and `1.0` make the line corrupt. Adding `prev`
+  (below) did not change the version: it is an optional key, a reader older than the chain refuses
+  a line that has it (its fields differ from the schema), and a reader that knows the chain reads
+  every older line unchanged.
+- Hash chain. Each line written by `LedgerWriter` carries `prev`, the SHA-256 (lower-case hex) of
+  the previous line's exact bytes, without its newline. The first line of a file carries the
+  genesis value, 64 zeros. The writer takes the link from the file's real last line when it opens
+  the file, under the exclusive lock, so a ledger resumed later (including one written before the
+  chain existed) continues from what is on disk.
+- `read_events` checks the chain. A line whose `prev` is not the hash of the line before it, or
+  a line without `prev` after a line that has one, raises `LedgerCorruptError` naming the first
+  such line. A ledger in which no line has `prev` was written before the chain and loads as it
+  always did; a ledger that begins that way and goes on with chained lines is checked from its
+  first chained line, which must hash the last older line. After `repair_torn_tail` cuts a torn
+  last line the next line chains from the new last line.
+- What the chain proves. It is unkeyed, so it catches any edit that does not also recompute every
+  later line: a changed byte, a deleted, inserted or reordered line, a line from another ledger.
+  It does not stop a forger who recomputes it; that is what the signature on an approval is for
+  (below). It also cannot see the end of the file: dropping the last lines leaves a valid chain,
+  and the last line is not covered until another line follows it. A ledger with every `prev`
+  removed reads as an older one. `docs/THREAT_MODEL.md` T29 states the limits.
 - Keys are sorted. Timestamps are UTC ISO 8601.
 - `state.py`'s docstring lists the `data` contract for thirteen event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
@@ -41,6 +61,7 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 | `billing` | str | `api`, `subscription` or `unknown`. `unknown` unless the event is a spend. |
 | `data` | object | The keys below, by event type. |
 | `ts` | str | When the event was written. |
+| `prev` | str | The chain link: SHA-256 hex of the previous line's bytes, or 64 zeros on a file's first line. Set by `LedgerWriter` (it overwrites any value on the event), so it is on every line the code writes now. Absent from lines written before the chain; once one line has it, every later line must. |
 
 - Counts and costs are non-negative integers. A bool is refused.
 - Costs are the CLI's client-side estimates, not a bill.
