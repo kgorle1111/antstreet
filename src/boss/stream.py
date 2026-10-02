@@ -75,7 +75,11 @@ class StreamReader:
             self.retry_errors.append(str(event.get("error", "unknown")))
         elif subtype == "permission_denied":
             self.denials.append(
-                {"tool": event.get("tool_name"), "reason": event.get("decision_reason_type")}
+                {
+                    "tool": event.get("tool_name"),
+                    "reason": event.get("decision_reason_type"),
+                    "message": event.get("message"),
+                }
             )
         elif subtype.startswith("hook_"):
             self.hook_events += 1

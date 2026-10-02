@@ -78,7 +78,7 @@ def test_api_retry_without_an_error_field_is_recorded_as_unknown():
 
 def test_permission_denied_without_details_records_none_values():
     r = reader({"type": "system", "subtype": "permission_denied"})
-    assert r.denials == [{"tool": None, "reason": None}]
+    assert r.denials == [{"tool": None, "reason": None, "message": None}]
 
 
 def test_rate_limit_event_without_an_info_object_is_ignored():

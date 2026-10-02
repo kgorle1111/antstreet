@@ -280,12 +280,13 @@ Example:
 | `exit_code` | int or null | The CLI process's exit code. |
 | `denials` | int | How many tool calls the CLI refused. |
 | `denied_tools` | list | The distinct names of the refused tools, sorted. |
+| `denial_reasons` | list | One `{tool, reason}` object per distinct refused call the CLI gave a message for, at most 5: `reason` is the first sentence of that message, secrets masked and at most 160 characters. The next brief quotes them. Empty when the CLI gave no message. |
 | `log` | str | Path of the worker's raw stream log. |
 
 Example:
 
 ```json
-{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
+{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
 ```
 
 ### `check_result`

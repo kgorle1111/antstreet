@@ -5,7 +5,8 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
 
     hired        boss        {worker, task, model, prompt}
     slice_start  worker:<w>  {slice, task, cap_micros, session}
-    slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, denied_tools, ...}
+    slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, denied_tools,
+                              denial_reasons, ...}
                              with the event's cost_micros = this slice's own spend
     check_result gate        {check, task, status, detail, worker, slice}   after a slice
                  gate        {check, task, status, detail, scope: "product"}  the final product

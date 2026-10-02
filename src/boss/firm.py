@@ -631,6 +631,7 @@ class _Firm:
                 history[-1].denied_tools,
                 task.paths[0],
                 notes,
+                _last_denial_reasons(events, worker),
             )
         else:
             # A new session starts from the first brief; what the investor ruled still applies.
@@ -823,6 +824,17 @@ def _last_reason(events: Sequence[Event], worker: str) -> str | None:
     since = _after_last_slice(events, worker)
     status = events[since - 1].data.get("status") if since else None
     return (status or {}).get("reason") or None
+
+
+def _last_denial_reasons(events: Sequence[Event], worker: str) -> list[dict[str, str]]:
+    """The reasons the CLI gave for the refused calls of the worker's last slice, as recorded."""
+    since = _after_last_slice(events, worker)
+    raw = events[since - 1].data.get("denial_reasons") if since else None
+    return [
+        {"tool": str(r["tool"]), "reason": str(r["reason"])}
+        for r in raw or ()
+        if isinstance(r, dict) and "tool" in r and "reason" in r
+    ]
 
 
 def _disputes(events: Sequence[Event], task: str) -> dict[str, tuple[str, str]]:

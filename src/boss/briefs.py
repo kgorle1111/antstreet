@@ -68,10 +68,12 @@ def continuation_prompt(
     denied_tools: Sequence[str] = (),
     example_path: str = "module.py",
     investor_notes: Sequence[str] = (),
+    denial_reasons: Sequence[Mapping[str, str]] = (),
 ) -> str:
     """The brief for a later slice: which checks pass now, the gate's output for the rest, which
     of the failing ones this worker has already disputed, and what to do about refused tool
-    calls (a worker that names a path outside its folder tends to give up as "blocked")."""
+    calls, with the reason the CLI gave for each (a worker whose call is refused tends to give up
+    as "blocked"). `denial_reasons` holds cleaned, bounded text: see rundir.denial_reasons."""
     passing = sorted(r.check_id for r in results if r.passed)
     parts = [
         "Continue your task. After your last slice the gate ran your checks.",
@@ -89,11 +91,17 @@ def continuation_prompt(
             "do not bend your code to them."
         )
     if denied_tools:
+        if denial_reasons:
+            lines = (f'- {r["tool"]}: "{r["reason"]}"' for r in denial_reasons)
+            refused = "these tool calls were refused, for the reasons the CLI gave:\n" + "\n".join(
+                lines
+            )
+        else:
+            refused = f"your {', '.join(denied_tools)} calls were refused."
         parts.append(
-            f"In your last slice your {', '.join(denied_tools)} calls were refused because they "
-            "named a path outside your folder. Nothing is wrong with your permissions: the "
-            "current folder is your whole workspace. Use relative paths, for example "
-            f"`{example_path}`, and do the work again."
+            f"In your last slice {refused}\nRead, Write and Edit work on files inside your "
+            "current folder, which is your whole workspace; nothing else is available. "
+            f"Use relative paths, for example `{example_path}`, and do the work again."
         )
     parts.append("Fix what is failing. When you stop, report your status.")
     return "\n\n".join(parts)

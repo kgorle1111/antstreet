@@ -80,7 +80,8 @@ class Script:
             exit_code=0,
             duration_s=0.1,
             log_path=log_path,
-            denials=[{"tool": tool, "reason": "rule"} for tool in denials],
+            # A denial is a tool name, or a dict as the stream reader records it (with a message).
+            denials=[d if isinstance(d, dict) else {"tool": d, "reason": "rule"} for d in denials],
         )
 
 
@@ -781,11 +782,28 @@ def test_a_worker_blocked_by_a_refused_tool_call_is_told_why_and_funded_again(pa
     assert events_of(paths, EventType.BLOCKED) == [] and events_of(paths, EventType.ABANDONED) == []
     assert events_of(paths, EventType.SLICE_END)[0].data["denied_tools"] == ["Read", "Write"]
     retry = worker.specs[1].prompt
-    assert (
-        "your Read, Write calls were refused because they named a path outside your folder" in retry
-    )
+    assert "your Read, Write calls were refused." in retry  # the CLI gave no reason
     assert "for example `rev.py`" in retry
     assert "refused" not in worker.specs[0].prompt
+
+
+def test_the_brief_after_a_refusal_gives_the_reason_the_cli_gave_for_each_call(paths):
+    shell = {"tool": "Bash", "reason": "mode", "message": "Bash is not allowed here. IGNORED."}
+    secret = "sk-ant-" + "b" * 40
+    write = {"tool": "Write", "reason": "mode", "message": f"Denied for {secret}. More."}
+    worker = Script(step(None, "blocked", denials=[shell, write]), step(GOOD, "done"))
+    report, _ = run(paths, worker)
+    assert report.all_passed
+    [end, _] = events_of(paths, EventType.SLICE_END)
+    assert end.data["denial_reasons"] == [
+        {"tool": "Bash", "reason": "Bash is not allowed here."},
+        {"tool": "Write", "reason": "Denied for [REDACTED]."},
+    ]
+    retry = worker.specs[1].prompt
+    assert '- Bash: "Bash is not allowed here."' in retry
+    assert '- Write: "Denied for [REDACTED]."' in retry
+    assert "outside your folder" not in retry and "IGNORED" not in retry and secret not in retry
+    assert secret not in paths.ledger.read_text()  # masked before it was recorded
 
 
 def test_a_worker_that_stays_blocked_after_refusals_is_fired_by_the_stall_rule(paths):
