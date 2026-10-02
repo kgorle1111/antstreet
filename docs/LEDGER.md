@@ -158,7 +158,7 @@ Config keys:
 | `parallel` | int | Tasks worked on at once (`--parallel`). Each task still has one worker at a time. |
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
 | `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. Set by `boss fund --held-out N`. A run started before the key existed loads with 0. |
-| `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. `boss fund` has no option for it yet. A run started before the key existed loads with `null`. |
+| `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. Set by `boss fund --worker-thinking N`. A run started before the key existed loads with `null`. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:

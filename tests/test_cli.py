@@ -42,6 +42,8 @@ if argv[argv.index("--output-format") + 1] == "json":   # the boss drafting a te
     say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
 else:                                                    # a worker slice
     say({INIT!r})
+    thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
+    open(os.path.join(os.environ["HOME"], "worker_thinking.txt"), "w").write(thinking)
     if os.path.exists(os.path.join(os.environ["HOME"], "fake_interrupt")):
         os.kill(os.getppid(), 2)  # Ctrl-C in the investor's terminal, mid-slice
         import time; time.sleep(30)
@@ -199,6 +201,15 @@ def test_reserve_option_reaches_the_slice_cap(boss):
     assert code == EXIT_OK
     [start] = [e for e in read_events(boss.runs()[0] / "ledger.jsonl") if e.event == "slice_start"]
     assert start.data["cap_micros"] == 40_000  # 0.05 budget - 0.01 reserve, under the 0.10 slice
+
+
+def test_worker_thinking_reaches_every_slice_and_the_started_config(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--worker-thinking", "0")
+    assert (boss.project.parent / "worker_thinking.txt").read_text() == "0"
+    [started] = [e for e in events_of_run(boss) if e.event is EventType.STARTED]
+    assert started.data["config"]["thinking_tokens"] == 0
+    boss("fund", "Reverse a string.", "--budget", "0.50")
+    assert (boss.project.parent / "worker_thinking.txt").read_text() == "unset"
 
 
 def test_boss_thinking_option_reaches_the_boss_call_and_the_ledger(boss):

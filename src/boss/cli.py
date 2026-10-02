@@ -161,6 +161,11 @@ def _parser() -> argparse.ArgumentParser:
         help="thinking tokens the boss may use per call; 0 turns thinking off (default: the CLI's)",
     )
     fund.add_argument(
+        "--worker-thinking",
+        type=_tokens_arg,
+        help="thinking tokens per worker slice; 0 turns thinking off (default: the CLI's)",
+    )
+    fund.add_argument(
         "--roles",
         default="",
         help="specialist roles to run, comma separated, or 'all' (default: none); see `boss roles`",
@@ -368,6 +373,7 @@ def _fund(
             profile=args.profile,
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
             held_out=args.held_out,
+            thinking_tokens=args.worker_thinking,
         )
         pipe.record_start(config)
         fix = args.fix_budget or default_fix_budget(config)
