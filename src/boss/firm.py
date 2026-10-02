@@ -337,7 +337,7 @@ class _Firm:
                 record(
                     "gate",
                     EventType.CHECK_RESULT,
-                    data=data | {"detail": r.detail, "scope": scope},
+                    data=data | {"detail": r.detail, "scope": scope, "sandboxed": r.sandboxed},
                 )
                 verdicts[r.check_id] = r.passed
         return verdicts
@@ -661,7 +661,12 @@ class _Firm:
         results = [r for r in self.run_gate(task, worker) if r.check_id not in graded]
         for r in results:
             data: dict[str, Any] = {"check": r.check_id, "task": task.id, "status": str(r.status)}
-            data |= {"detail": r.detail, "worker": worker, "slice": number}
+            data |= {
+                "detail": r.detail,
+                "worker": worker,
+                "slice": number,
+                "sandboxed": r.sandboxed,
+            }
             record("gate", EventType.CHECK_RESULT, data=data)
         # Only a check of this task that fails right now can be disputed, once, and never one
         # the investor has ruled on.

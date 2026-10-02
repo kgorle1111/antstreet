@@ -302,19 +302,20 @@ Example:
 | `worker` | str | The worker whose files were checked. Absent when `scope` is `product`. |
 | `slice` | int | The slice after which the gate ran. Absent when `scope` is `product`. |
 | `scope` | str | `product` for a visible check's verdict on the assembled product, `held_out` for a held-out check's. Absent on a worker's result. |
+| `sandboxed` | bool | The gate ran this check inside an OS sandbox. `false` also means the sandbox was off or none worked (T39). Absent in ledgers written before it was recorded; the report says "not recorded" for those. |
 
 Examples:
 
 ```json
-{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "pytest exited 1", "slice": 1, "status": "failed", "task": "t1", "worker": "w1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:26.170363+00:00", "v": 1}
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "pytest exited 1", "sandboxed": true, "slice": 1, "status": "failed", "task": "t1", "worker": "w1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:26.170363+00:00", "v": 1}
 ```
 
 ```json
-{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "1 passed", "scope": "product", "status": "passed", "task": "t1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:50.832951+00:00", "v": 1}
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "1 passed", "sandboxed": true, "scope": "product", "status": "passed", "task": "t1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:50.832951+00:00", "v": 1}
 ```
 
 ```json
-{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "h01", "detail": "1 passed", "scope": "held_out", "status": "passed"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:17:34.333908+00:00", "v": 1}
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "h01", "detail": "1 passed", "sandboxed": true, "scope": "held_out", "status": "passed"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:17:34.333908+00:00", "v": 1}
 ```
 
 ### `blocked`

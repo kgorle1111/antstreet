@@ -96,7 +96,8 @@ def test_held_out_checks_are_graded_on_the_product_and_recorded_with_their_own_s
     [first, _] = [
         e for e in events_of(paths, EventType.CHECK_RESULT) if e.data.get("scope") == "held_out"
     ]
-    assert (first.actor, set(first.data)) == ("gate", {"check", "status", "detail", "scope"})
+    assert first.actor == "gate"
+    assert set(first.data) == {"check", "status", "detail", "scope", "sandboxed"}
     assert first.data["scope"] == "held_out"
 
 

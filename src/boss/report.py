@@ -96,6 +96,7 @@ class Report:
     )  # graded on the product, apart from checks
     held_out_written: int = 0  # held-out checks the investor approved
     held_out_summary: str | None = None  # the one line about them; None for a run that never asked
+    sandbox_summary: str | None = None  # whether the checks ran confined (T39); None: none ran
 
 
 def build_report(events: Sequence[Event]) -> Report:
@@ -121,6 +122,11 @@ def build_report(events: Sequence[Event]) -> Report:
             rounds.append(RoundLine(e.round, e.data["passed"], e.data["total"], e.data["unlocked"]))
 
     held_out = [latest_held_out[k] for k in sorted(latest_held_out)]
+    ran = [
+        e.data.get("sandboxed")
+        for e in events
+        if e.event is EventType.CHECK_RESULT and not _missing(e)
+    ]
     written, summary = _held_out_summary(events, held_out)
     return Report(
         run=events[0].run,
@@ -151,7 +157,26 @@ def build_report(events: Sequence[Event]) -> Report:
         held_out=held_out,
         held_out_written=written,
         held_out_summary=summary,
+        sandbox_summary=_sandbox_summary(ran),
     )
+
+
+def _sandbox_summary(flags: Sequence[object]) -> str | None:
+    """One line on whether the gate ran the checks confined. It counts every recorded run, not
+    only the latest per check, so an unconfined run a later one superseded still shows. A ledger
+    from before the flag, or a flag that is not a bool, counts as not recorded."""
+    if not flags:
+        return None
+    confined = sum(f is True for f in flags)
+    loose = sum(f is False for f in flags)
+    unknown = len(flags) - confined - loose
+    if not confined and not loose:
+        return "Checks ran sandboxed: not recorded (a ledger from before the flag existed)."
+    notes = [f"{loose} UNCONFINED"] * bool(loose) + [f"{unknown} not recorded"] * bool(unknown)
+    line = f"Checks ran sandboxed: {confined} of {len(flags)}" + (
+        f" ({', '.join(notes)})" if notes else ""
+    )
+    return f"WARNING: {line}; see T39 in the threat model." if loose else line + "."
 
 
 def _held_out_summary(
@@ -277,6 +302,9 @@ def render_report(report: Report) -> str:
     out += [f"  {c.check}  {c.status:<8} {_detail(c.detail)}" for c in report.checks] or [
         "  none run"
     ]
+
+    if report.sandbox_summary:
+        out += ["", report.sandbox_summary]
 
     if report.held_out_summary:
         out += ["", report.held_out_summary]
