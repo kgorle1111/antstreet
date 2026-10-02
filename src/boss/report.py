@@ -300,11 +300,11 @@ def render_report(report: Report) -> str:
         out.append("  none hired")
     if report.roles:
         out += ["", "Roles (each call, in order; their spend is in the lines above)"]
-        for r in report.roles:
-            cost = "unknown cost" if r.cost_micros is None else dollars(r.cost_micros)
-            detail = f": {_detail(r.detail)}" if r.detail else ""
-            how = f"{_detail(r.result) or '?'} ({_detail(r.outcome)})"
-            out.append(f"  {_detail(r.role)}  {how}, {cost}{detail}")
+        for role in report.roles:
+            cost = "unknown cost" if role.cost_micros is None else dollars(role.cost_micros)
+            detail = f": {_detail(role.detail)}" if role.detail else ""
+            how = f"{_detail(role.result) or '?'} ({_detail(role.outcome)})"
+            out.append(f"  {_detail(role.role)}  {how}, {cost}{detail}")
     if report.disputes:
         out += ["", "Disputed checks (yours to rule on; a disputed check never counts as passing)"]
         out += [f'  {d.check} by {d.worker}: "{d.reason}"' for d in report.disputes]

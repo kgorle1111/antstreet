@@ -161,9 +161,7 @@ def parse_rubric(rubric_id: str, raw: str) -> Rubric:
             raise fail(f"{name}: anchors must be exactly {', '.join(ANCHOR_POINTS)}")
         if not all(isinstance(a, str) and a.strip() for a in anchors.values()):
             raise fail(f"{name}: every anchor needs text")
-        criteria.append(
-            Criterion(name, item["question"], tuple(anchors[p] for p in ANCHOR_POINTS))  # type: ignore[arg-type]
-        )
+        criteria.append(Criterion(name, item["question"], tuple(anchors[p] for p in ANCHOR_POINTS)))
     return Rubric(rubric_id, version, data["title"], tuple(criteria))
 
 

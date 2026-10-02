@@ -23,7 +23,7 @@ SCHEMA_TOOL = "StructuredOutput"  # added by the CLI whenever --json-schema is s
 # Path rules keep reads and writes inside the workspace; a bare `Write` wrote outside it (probe P5).
 # No Bash: allowing even `pytest` lets a worker run any code it writes. The gate runs tests instead.
 WORKER_TOOL_RULES = " ".join(f"{tool}(./**)" for tool in WORKER_TOOLS)
-STATUS_SCHEMA = {
+STATUS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "status": {"type": "string", "enum": ["done", "continuing", "blocked"]},

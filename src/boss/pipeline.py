@@ -188,11 +188,13 @@ class Pipeline:
             value, usage = fn()
         except RoleError as exc:
             why = _one_line(str(exc).removeprefix(f"{exc.role}: "), 300)
-            return self._failed(spec, exc.usage, str(exc.outcome), why, notes, data)
+            self._failed(spec, exc.usage, str(exc.outcome), why, notes, data)
+            return None
         except (ValueError, OSError) as exc:  # refused before any call was made: nothing spent
-            return self._failed(
+            self._failed(
                 spec, Usage(0, 0, 0, 0), "not_called", _one_line(str(exc), 300), notes, data
             )
+            return None
         self._book(spec, usage, "completed", "ok", **describe(value) | data)
         return value
 

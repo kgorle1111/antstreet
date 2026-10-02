@@ -284,7 +284,12 @@ def _shape(n: int, item: object, idea: str) -> tuple[Finding | None, str | None]
     severity, claim, quote, code = (
         item.get(k) for k in ("severity", "claim", "quote", "test_code")
     )
-    if not all(isinstance(v, str) for v in (severity, claim, quote, code)):
+    if not (
+        isinstance(severity, str)
+        and isinstance(claim, str)
+        and isinstance(quote, str)
+        and isinstance(code, str)
+    ):
         return None, "malformed: severity, claim, quote and test_code must all be text"
     if severity not in SEVERITIES:
         return None, f"malformed: severity must be one of {', '.join(SEVERITIES)}"

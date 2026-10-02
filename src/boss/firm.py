@@ -558,7 +558,7 @@ class _Firm:
             handoff.prepare_workspace(self.paths.workspace(current), self.paths.workspace(name))
             data = {"task": task.id, "from": current, "to": name}
             record("boss", EventType.REASSIGNED, data=data)
-        hired = {"worker": name, "task": task.id, "model": self.config.model}
+        hired: dict[str, Any] = {"worker": name, "task": task.id, "model": self.config.model}
         hired |= {"prompt": BUILDER_PROMPT, "profile": self.config.profile}
         record("boss", EventType.HIRED, data=hired)
         return name
@@ -654,7 +654,7 @@ class _Firm:
         # A run killed between two results leaves the slice half graded: grade the rest.
         results = [r for r in self.run_gate(task, worker) if r.check_id not in graded]
         for r in results:
-            data = {"check": r.check_id, "task": task.id, "status": str(r.status)}
+            data: dict[str, Any] = {"check": r.check_id, "task": task.id, "status": str(r.status)}
             data |= {"detail": r.detail, "worker": worker, "slice": number}
             record("gate", EventType.CHECK_RESULT, data=data)
         # Only a check of this task that fails right now can be disputed, once, and never one
@@ -700,7 +700,7 @@ class _Firm:
         elif verdict.decision is Decision.FIRE and (
             self.config.firing or verdict.reason == "slice limit"
         ):
-            data = {"worker": worker, "task": task.id, "reason": verdict.reason}
+            data: dict[str, Any] = {"worker": worker, "task": task.id, "reason": verdict.reason}
             data |= {"evidence": verdict.evidence, "last_reason": _last_reason(events, worker)}
             record("rule", EventType.FIRED, data=data)
         return None

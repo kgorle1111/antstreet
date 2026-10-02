@@ -410,7 +410,7 @@ def draft_staged(
         raise ValueError("budget_micros must be a positive int")
     if max_tasks < 1 or n_rounds < 1:
         raise ValueError("max_tasks and n_rounds must be at least 1")
-    call = {
+    call: dict[str, Any] = {
         "env": env,
         "model": model,
         "executable": executable,

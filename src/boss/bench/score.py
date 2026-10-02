@@ -59,7 +59,8 @@ class DraftScore:
             names = raw[key]
             if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
                 raise ValueError(f"draft score field {key!r} must be a list of names")
-        return cls(**{k: tuple(v) if isinstance(v, list) else v for k, v in raw.items()})
+        fields: dict[str, Any] = {k: tuple(v) if isinstance(v, list) else v for k, v in raw.items()}
+        return cls(**fields)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
