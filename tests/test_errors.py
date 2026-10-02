@@ -93,6 +93,41 @@ def test_only_provider_side_failures_are_infrastructure():
         Outcome.RATE_LIMITED,
         Outcome.USAGE_LIMIT,
         Outcome.API_ERROR,
+        Outcome.SESSION_LOST,
     } == INFRASTRUCTURE
     assert Outcome.CAPPED not in INFRASTRUCTURE
     assert Outcome.TIMEOUT not in INFRASTRUCTURE
+
+
+# Probe (CLI 2.1.285): resuming a session that does not exist answers "No conversation found".
+# The probe was not saved, so the phrase is placed in each stream it might arrive in.
+GONE = "No conversation found with session ID: 6f1c1c5e-0d6e-4c53-a4a6-9ad1d5c6a001"
+
+
+def test_a_session_the_cli_no_longer_has_is_read_from_stderr_when_no_result_arrived():
+    assert classify(RunSignals(result=None, stderr_tail=GONE + "\n")) is Outcome.SESSION_LOST
+    assert classify(RunSignals(result=None, stderr_tail="Error: something else")) is Outcome.CRASHED
+    assert classify(RunSignals(result=None)) is Outcome.CRASHED
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"is_error": True, "result": GONE},
+        {"is_error": True, "subtype": "error_during_execution", "errors": [GONE]},
+        {"is_error": True, "errors": GONE},
+    ],
+)
+def test_a_session_the_cli_no_longer_has_is_read_from_the_error_result(overrides):
+    assert classify(signals_from_fixture(OK, **overrides)) is Outcome.SESSION_LOST
+
+
+def test_the_phrase_does_not_turn_a_finished_slice_into_a_lost_session():
+    # A worker that quotes it, or a stray stderr line, must not discard a slice that completed.
+    ok = signals_from_fixture(OK)
+    assert classify(RunSignals(result=ok.result, stderr_tail=GONE)) is Outcome.COMPLETED
+    quoted = signals_from_fixture(OK, result=GONE)
+    assert classify(quoted) is Outcome.COMPLETED
+    assert classify(RunSignals(result=ok.result, timed_out=True, stderr_tail=GONE)) is (
+        Outcome.TIMEOUT
+    )

@@ -371,3 +371,40 @@ def test_a_worker_with_no_hire_on_the_ledger_inherits_nothing():
     data = {"task": "t1", "check": "c01", "reason": "r", "worker": "w1", "slice": 1}
     events = [slice_end("w2", 1, 1_000), ev("worker:w1", EventType.DISPUTED, data=data)]
     assert slice_history(events)["w2"][0].disputed == frozenset()
+
+
+def test_a_session_the_cli_lost_is_no_longer_resumed_and_its_total_is_dropped():
+    lost = worker_of(
+        start("w1", 1, "a"),
+        ended("w1", 1, 5_000),
+        start("w1", 2, "a"),
+        ended("w1", 2, None, "session_lost"),
+    )
+    assert (lost.session, lost.session_total_micros, lost.slices) == (None, 0, 2)
+    again = worker_of(
+        start("w1", 1, "a"),
+        ended("w1", 1, 5_000),
+        start("w1", 2, "a"),
+        ended("w1", 2, None, "session_lost"),
+        start("w1", 3, "b"),  # the new attempt, a new session
+        ended("w1", 3, 3_000),
+    )
+    assert (again.session, again.session_total_micros) == ("b", 3_000)
+    # Only the live session is forgotten: a new attempt that fails the same way proves nothing.
+    other = worker_of(
+        start("w1", 1, "a"),
+        ended("w1", 1, 5_000),
+        start("w1", 2, "b"),
+        ended("w1", 2, None, "session_lost"),
+    )
+    assert (other.session, other.session_total_micros) == ("a", 5_000)
+
+
+def test_a_slice_that_ended_session_lost_is_not_counted_against_the_worker():
+    history = slice_history(
+        [
+            ev("boss", EventType.HIRED, data={"worker": "w1", "task": "t1"}),
+            slice_end("w1", 1, None, outcome="session_lost"),
+        ]
+    )
+    assert history["w1"][0].outcome is Outcome.SESSION_LOST

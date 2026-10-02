@@ -24,11 +24,18 @@ class Outcome(StrEnum):
     RATE_LIMITED = "rate_limited"
     USAGE_LIMIT = "usage_limit"
     API_ERROR = "api_error"
+    SESSION_LOST = "session_lost"  # the session to resume is gone from the CLI's store
 
 
 # Never counted against a worker when deciding whether to fire it.
 INFRASTRUCTURE = frozenset(
-    {Outcome.LOGIN, Outcome.RATE_LIMITED, Outcome.USAGE_LIMIT, Outcome.API_ERROR}
+    {
+        Outcome.LOGIN,
+        Outcome.RATE_LIMITED,
+        Outcome.USAGE_LIMIT,
+        Outcome.API_ERROR,
+        Outcome.SESSION_LOST,
+    }
 )
 
 _AUTH_ERRORS = frozenset({"authentication_failed", "oauth_org_not_allowed", "account_on_hold"})
@@ -40,12 +47,19 @@ _USAGE_LIMIT_RE = re.compile(
 )
 
 
+# Probe (CLI 2.1.285): resuming a session that was never created answers "No conversation found".
+# Not recorded as a fixture, so which stream carries it (stderr, or a result's text) is not known:
+# both are read.
+_SESSION_GONE_RE = re.compile(r"No conversation found", re.I)
+
+
 @dataclass(frozen=True, slots=True)
 class RunSignals:
     result: Mapping[str, Any] | None  # the final `result` event, or None if none arrived
     retry_errors: tuple[str, ...] = ()  # `error` field of each `system/api_retry` event, in order
     rate_limit_status: str | None = None  # `status` of the last `rate_limit_event`
     timed_out: bool = False
+    stderr_tail: str = ""  # the CLI's own stderr, already redacted
 
 
 def _str(value: object) -> str:
@@ -65,7 +79,11 @@ def classify(signals: RunSignals) -> Outcome:
         return Outcome.TIMEOUT
     result = signals.result
     if not isinstance(result, Mapping):
-        return Outcome.CRASHED
+        return (
+            Outcome.SESSION_LOST
+            if _SESSION_GONE_RE.search(signals.stderr_tail)
+            else Outcome.CRASHED
+        )
 
     subtype = _str(result.get("subtype"))
     terminal = _str(result.get("terminal_reason"))
@@ -85,6 +103,8 @@ def _classify_error(result: Mapping[str, Any], signals: RunSignals) -> Outcome:
     status = raw_status if type(raw_status) is int else None
     retries = set(_strings(signals.retry_errors))
     text = " ".join([_str(result.get("result")), *_strings(result.get("errors"))])
+    if _SESSION_GONE_RE.search(text) or _SESSION_GONE_RE.search(signals.stderr_tail):
+        return Outcome.SESSION_LOST
     if status in (401, 403) or retries & _AUTH_ERRORS:
         return Outcome.LOGIN
     if signals.rate_limit_status == "rejected" or _USAGE_LIMIT_RE.search(text):

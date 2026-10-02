@@ -215,3 +215,10 @@ def test_recorded_sample_at_low_threshold_names_the_later_window():
     assert action.until_epoch == 1791165600
     assert "seven_day" in action.reason
     assert "11%" in action.reason
+
+
+def test_a_lost_session_is_retried_at_once_with_a_new_one_and_only_once():
+    first = infra_action(Outcome.SESSION_LOST, 1, None)
+    assert first == Wait(0.0, "the session to resume no longer exists; starting a new one")
+    second = infra_action(Outcome.SESSION_LOST, 2, None)
+    assert isinstance(second, GiveUp) and "session store" in second.fix

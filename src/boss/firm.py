@@ -29,7 +29,7 @@ from boss.briefs import (
     reassignment_brief,
     task_prompt,
 )
-from boss.errors import INFRASTRUCTURE
+from boss.errors import INFRASTRUCTURE, Outcome
 from boss.gate import Check, CheckResult, run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events
 from boss.redact import safe_text
@@ -791,7 +791,9 @@ class _Firm:
     def _infrastructure(self, run: SliceRun, history: list[Any], record: Recorder) -> str | None:
         attempt = 0
         for r in reversed(history):
-            if r.outcome not in INFRASTRUCTURE:
+            # A lost session is retried on its own count: it says nothing of a provider's health.
+            lost = Outcome.SESSION_LOST
+            if r.outcome not in INFRASTRUCTURE or (r.outcome is lost) != (run.outcome is lost):
                 break
             attempt += 1
         action = retry.infra_action(run.outcome, attempt, run.rate_limit)

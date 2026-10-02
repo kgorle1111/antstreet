@@ -487,7 +487,11 @@ with a JSON schema.
   `tests/test_firm.py::test_a_resumed_slice_that_was_interrupted_resumes_the_same_session_and_recovers_its_cost`,
   `tests/test_state.py::test_a_session_is_resumable_only_after_a_slice_in_it_got_past_infrastructure`,
   `tests/test_state.py::test_ledgers_from_before_per_slice_sessions_fall_back_to_the_hired_session`.
-  Open: a session that was resumable and is gone (B11).
+  A session that was resumable and is gone ends the slice `session_lost`, an infrastructure outcome:
+  never counted toward firing, retried at once under a new session id and the first brief, and a
+  second loss in a row stops the run with a fix (B11; `tests/test_session_lost.py`,
+  `tests/test_firm.py::test_a_session_the_cli_lost_is_replaced_by_a_new_one_and_never_counts_against_the_worker`).
+  Which stream carries the CLI's "No conversation found" was not recorded, so both are read.
 
 ### D33: A slice that reported no cost, or never ended, is charged at its cap
 

@@ -274,7 +274,7 @@ Example:
 |---|---|---|
 | `slice` | int | The slice number. |
 | `task` | str | The task id. |
-| `outcome` | str | How the run ended: `completed`, `capped`, `max_turns`, `refusal`, `timeout`, `crashed`, `login`, `rate_limited`, `usage_limit` or `api_error`. |
+| `outcome` | str | How the run ended: `completed`, `capped`, `max_turns`, `refusal`, `timeout`, `crashed`, `login`, `rate_limited`, `usage_limit`, `api_error` or `session_lost` (the CLI no longer had the session to resume; the next attempt starts a new one). |
 | `status` | object or null | The worker's own report, cleaned: `status` (`done`, `continuing`, `blocked` or `none`) and `reason` (secrets masked, control characters shown as escapes, at most 500 characters). `null` if it gave none. A note, never a pass. |
 | `session_total_micros` | int or null | The CLI's cumulative cost for the session after this slice; `null` if unknown. |
 | `exit_code` | int or null | The CLI process's exit code. |

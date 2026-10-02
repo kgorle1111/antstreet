@@ -108,12 +108,13 @@ class StreamReader:
         output = (self.result or {}).get("structured_output")
         return output if isinstance(output, dict) else None
 
-    def signals(self, *, timed_out: bool = False) -> RunSignals:
+    def signals(self, *, timed_out: bool = False, stderr_tail: str = "") -> RunSignals:
         return RunSignals(
             result=self.result,
             retry_errors=tuple(self.retry_errors),
             rate_limit_status=(self.rate_limit or {}).get("status"),
             timed_out=timed_out,
+            stderr_tail=stderr_tail,
         )
 
     def usage(self) -> Usage:

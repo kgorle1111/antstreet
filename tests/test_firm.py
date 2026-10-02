@@ -420,6 +420,47 @@ def test_login_failure_stops_the_run_with_a_fix(paths):
     assert "claude auth login" in stop.data["fix"]
 
 
+LOST = step(None, outcome=Outcome.SESSION_LOST, cost=None)
+
+
+def test_a_session_the_cli_lost_is_replaced_by_a_new_one_and_never_counts_against_the_worker(paths):
+    # Slice 1 proves its session; slice 2 resumes it and the CLI says it is gone (B11).
+    worker = Script(step(HALF), LOST, step(HALF), step(GOOD, "done"))
+    config = FirmConfig(policy=FiringPolicy(stall_slices=3))  # a counted loss would fire at slice 3
+    sleeps = []
+    report, _ = run(paths, worker, config=config, sleeps=sleeps)
+    assert report.all_passed and events_of(paths, EventType.FIRED) == []
+    resumes = [s.resume for s in worker.specs]
+    assert resumes == [False, True, False, True]  # slice 3 starts anew, slice 4 resumes that one
+    lost, fresh = worker.specs[1], worker.specs[2]
+    assert fresh.session_id != lost.session_id and fresh.session_id == worker.specs[3].session_id
+    assert "> Reverse a string." in fresh.prompt  # the first brief again, not a continuation
+    starts = events_of(paths, EventType.SLICE_START)
+    assert [e.data["session"] for e in starts][2] == str(fresh.session_id)
+    assert [e.data["outcome"] for e in events_of(paths, EventType.SLICE_END)][1] == "session_lost"
+    assert sleeps == [0.0]
+    assert {e.data["slice"] for e in slice_results(paths)} == {1, 3, 4}  # the lost one: not gated
+
+
+def test_a_lost_session_that_is_lost_again_stops_the_run_with_a_fix(paths):
+    report, _ = run(paths, Script(step(HALF), LOST, LOST))
+    assert report.stopped.startswith("stopped:")
+    [stop] = events_of(paths, EventType.STOPPED)
+    assert "lost as well" in stop.data["reason"] and "session store" in stop.data["fix"]
+
+
+def test_a_lost_session_is_counted_apart_from_a_providers_failures(paths):
+    # A rate limit before it, and one after it, must not be the second attempt of a lost session
+    # (which stops the run) nor push the rate limit's own backoff on.
+    limited = step(None, outcome=Outcome.RATE_LIMITED, cost=None)
+    worker = Script(step(HALF), limited, LOST, limited, step(GOOD, "done"))
+    sleeps = []
+    report, _ = run(paths, worker, sleeps=sleeps)
+    assert report.all_passed and events_of(paths, EventType.STOPPED) == []
+    assert len(sleeps) == 3 and sleeps[0] <= 5.0 and sleeps[2] <= 5.0  # first attempts: base 5s
+    assert sleeps[1] == 0.0
+
+
 def test_nothing_is_spawned_without_approval(paths):
     worker = Script(step(GOOD, "done"))
     with pytest.raises(NotApprovedError):
