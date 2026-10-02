@@ -1,0 +1,45 @@
+# compact writes the records in insertion order instead of ordered by key.
+def _check_key(key):
+    if not isinstance(key, str) or not key:
+        raise ValueError("key must be a non-empty str")
+
+
+class KVStore:
+    def __init__(self, log):
+        self._log = log
+        self._data = {}
+        for op, key, value in log.replay():
+            if op == "set":
+                self._data[key] = value
+            else:
+                self._data.pop(key, None)
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    def set(self, key, value):
+        _check_key(key)
+        if not isinstance(value, str):
+            raise ValueError("value must be a str")
+        self._log.append("set", key, value)
+        self._data[key] = value
+
+    def delete(self, key):
+        _check_key(key)
+        if key not in self._data:
+            return False
+        self._log.append("delete", key)
+        del self._data[key]
+        return True
+
+    def keys(self):
+        return sorted(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def compact(self):
+        self._log.rewrite([("set", k, v) for k, v in self._data.items()])
