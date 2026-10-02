@@ -20,6 +20,17 @@ DRAFT = {
     "tasks": [{"id": "t1", "brief": "Create rev.py with reverse(s).", "paths": ["rev.py"]}],
     "checks": [{"description": "reverses a word", "task": "t1", "code": CHECK}],
 }
+TWO_CHECKS = {
+    "tasks": DRAFT["tasks"],
+    "checks": [
+        *DRAFT["checks"],
+        {
+            "description": "reverses the empty string",
+            "task": "t1",
+            "code": "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n",
+        },
+    ],
+}
 INIT = {
     "type": "system",
     "subtype": "init",
@@ -39,7 +50,10 @@ result = {{"type": "result", "subtype": "success", "is_error": False,
 if argv[argv.index("--output-format") + 1] == "json":   # the boss drafting a term sheet
     thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
     open(os.path.join(os.environ["HOME"], "boss_thinking.txt"), "w").write(thinking)
-    say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
+    draft = {DRAFT!r}
+    if os.path.exists(os.path.join(os.environ["HOME"], "fake_two_checks")):
+        draft = {TWO_CHECKS!r}
+    say(result | {{"total_cost_usd": 0.004, "structured_output": draft}})
 else:                                                    # a worker slice
     say({INIT!r})
     thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
@@ -189,11 +203,35 @@ def test_a_budget_too_small_for_one_slice_is_refused_before_anything_is_spent(bo
     assert not (boss.project / ".boss").exists()  # no run folder, no boss call, no ledger
 
 
-def test_the_budget_check_is_per_round(boss):
-    code, output = boss("fund", "Reverse a string.", "--budget", "0.20", "--rounds", "2")
-    assert code == EXIT_USAGE and "over 2 round(s)" in output
-    code, _ = boss("fund", "Reverse a string.", "--budget", "0.21", "--rounds", "2")
+def test_the_early_budget_check_refuses_only_what_no_round_plan_could_fund(boss):
+    # The boss may draft one check, which makes one round of the whole budget: $0.30 over three
+    # rounds is fundable until the draft says otherwise.
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.30", "--rounds", "3")
     assert code == EXIT_OK
+    [closed] = [e for e in events_of_run(boss) if e.event is EventType.ROUND_CLOSED]
+    assert closed.round == 1  # the one-check draft planned one round, with all $0.30
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.104999", "--rounds", "3")
+    assert code == EXIT_USAGE and "cannot fund one worker slice" in output
+    assert len(boss.runs()) == 1  # the refusal made no run folder
+
+
+def test_the_real_round_plan_is_checked_after_the_draft_and_before_approval(boss):
+    (boss.project.parent / "fake_two_checks").write_text("")
+    # No answers are given: asking the investor to approve would raise.
+    argv = ("fund", "Reverse a string.", "--budget", "0.20", "--rounds", "3")
+    code, output = boss(*argv, answers=())
+    # Two checks make two rounds of $0.10: each is below the $0.105 one slice needs.
+    assert code == EXIT_FAILED and "smallest has $0.1" in output and "at least $0.105" in output
+    events = read_events(boss.runs()[0] / "ledger.jsonl")
+    assert [e.event for e in events] == [EventType.BOSS_CALL, EventType.STOPPED]  # paid, no hire
+    assert "smallest has $0.1" in events[-1].data["reason"]
+    # The earliest round takes the remainder, so it is the last round that is a micro-dollar short.
+    argv = ("fund", "Reverse a string.", "--budget", "0.209999", "--rounds", "3")
+    code, output = boss(*argv, answers=())
+    assert code == EXIT_FAILED and "smallest has $0.104999" in output
+    argv = ("fund", "Reverse a string.", "--budget", "0.21", "--rounds", "3")
+    code, output = boss(*argv, answers=("r",))  # two rounds of $0.105 each can fund a slice
+    assert code == EXIT_FAILED and "Rejected. Nothing was funded." in output  # it got to approval
 
 
 def test_reserve_option_reaches_the_slice_cap(boss):

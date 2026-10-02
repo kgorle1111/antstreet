@@ -262,8 +262,9 @@ with a JSON schema.
 
 - Status: `in force`
 - Decision: A slice's cap is the smaller of the slice size and what is left in the round minus a
-  reserve (default $0.10, `--reserve`, larger for Sonnet and Opus). A round that cannot fund a cap of $0.005 is not started, and a
-  budget that cannot fund one slice per round is refused before the boss is called.
+  reserve (default $0.10, `--reserve`, larger for Sonnet and Opus). A round that cannot fund a cap
+  of $0.005 is not started. A budget that cannot fund one slice at all is refused before the boss is
+  called; the round plan is checked again after the draft, when the number of rounds is known.
 - Why: The CLI checks a cap only between responses, so a slice overshoots by one whole response.
   Probe P4: cap $0.006 spent $0.0079. Real runs: cap $0.030 spent $0.099 and $0.075. The overshoot is
   an absolute amount, so a percentage cannot cover it.

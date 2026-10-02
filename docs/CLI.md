@@ -82,7 +82,10 @@ Limits that are not options: a run stops at 60 slices or 16 workers, when spend 
 its round budgets plus one reserve per round, or when a worker's folder passes 200 MiB (the gate
 copies it for every check). See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
 
-A budget per round below one reserve plus $0.005 is refused before anything is spent.
+A `--budget` below one reserve plus $0.005 is refused before anything is spent. With `--rounds`
+above 1 the number of rounds depends on how many checks the boss drafts, so the round plan is
+checked again after the draft, before approval: if its smallest round is below one reserve plus
+$0.005, the run stops (exit 1) with the draft paid for and nobody hired.
 
 When a disputed check or a blocked worker needs you, the run asks (`boss resume` asks the same):
 

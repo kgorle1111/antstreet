@@ -280,11 +280,13 @@ def _fund(
         return EXIT_USAGE
     reserve = args.reserve if args.reserve is not None else reserve_for(args.model)
     needed = min_round_budget(reserve)
-    if args.budget // args.rounds < needed:  # refused before anything is spent
+    # Rounds are capped at the number of checks, which the boss has not drafted yet: only the best
+    # case (one round) can be judged here. The real round plan is checked after the draft.
+    if args.budget < needed:  # refused before anything is spent
         say(
-            f"${usd(args.budget)} over {args.rounds} round(s) cannot fund one worker "
-            f"slice: a round needs at least ${usd(needed)} (${usd(reserve)} reserve plus a "
-            f"${usd(MIN_SLICE_MICROS)} slice). Raise --budget or lower --reserve."
+            f"${usd(args.budget)} cannot fund one worker slice: a round needs at least "
+            f"${usd(needed)} (${usd(reserve)} reserve plus a ${usd(MIN_SLICE_MICROS)} slice). "
+            "Raise --budget or lower --reserve."
         )
         return EXIT_USAGE
     try:
@@ -366,7 +368,16 @@ def _fund(
             return EXIT_INTERRUPTED
         if plan is None:
             return EXIT_FAILED
-        held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, args.reserve)
+        thinnest = min(r.budget_micros for r in plan.sheet.rounds)
+        if thinnest < needed:  # the draft is paid for, but nothing is funded: no worker is hired
+            reason = (
+                f"the plan has {len(plan.sheet.rounds)} round(s) and the smallest has "
+                f"${usd(thinnest)}, but a round needs at least ${usd(needed)}"
+            )
+            record("boss", EventType.STOPPED, data={"reason": reason})
+            say(f"Stopped before approval: {reason}. Raise --budget, lower --rounds or --reserve.")
+            return EXIT_FAILED
+        held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, reserve)
         try:
             sheet = review_term_sheet(
                 plan.sheet,
