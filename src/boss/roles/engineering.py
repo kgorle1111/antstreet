@@ -595,10 +595,6 @@ def _parse_tests(data: Mapping[str, Any]) -> tuple[list[_RawCheck], list[Untesta
     for n, item in enumerate(raw_checks, start=1):
         where = f"check {n}"
         code = _text_in(item, "code", where, problems)
-        try:
-            code.encode("utf-8")
-        except UnicodeEncodeError:
-            problems.append(f"{where}: code is not valid text")
         checks.append(
             _RawCheck(
                 _texts_in(item, "criteria", where, problems),

@@ -308,11 +308,7 @@ def _test_problem(
     the product, and to being new. A test that fails a guard is deleted again, so the folder holds
     exactly what the gate will run."""
     target = checks_dir / finding.file
-    try:
-        payload = finding.test_code.encode("utf-8")
-    except UnicodeEncodeError:  # a lone surrogate, which JSON can carry
-        return "the test is not valid UTF-8 text"
-    target.write_bytes(payload)
+    target.write_bytes(finding.test_code.encode("utf-8"))  # StreamReader removed lone surrogates
     problems = check_file_problems(CheckSpec(finding.id, "", finding.file, "critic"), checks_dir)
     if problems:
         why = "; ".join(problems)
