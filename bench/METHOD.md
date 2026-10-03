@@ -138,6 +138,29 @@ start as `unlabelled` and are classified by hand, with the evidence kept in the 
   the firm's visible checks were satisfied while hidden checks failed.
 - Model output varies between runs. Each task is run several times per arm and all runs are kept.
 
+## Paired comparison
+
+The table pools runs, so a task run more often counts more and the two arms are not compared on
+the same tasks. `python -m boss.bench.paired DIR_A DIR_B` compares two arms task by task.
+
+- A task is compared when both sides have at least one counted run of it. Infrastructure failures
+  are excluded and counted, as in the table.
+- Per task and arm, one value: `delivery` is the share of the task's runs that passed every hidden
+  check; `time` the median duration of its runs; `cost_per_delivery` the mean cost of its runs
+  (all of them, delivered or not: a task that delivered nothing has no cost per delivery, and
+  dropping it would favour the arm that fails more); `false_pass` the share of its runs that passed
+  every visible check and failed a hidden one (firm arms only).
+- The difference A minus B is taken per task. The report gives the number of tasks, the mean
+  difference and a 95% percentile interval from 10,000 resamples of tasks with replacement, with a
+  fixed seed so the same results give the same interval.
+- The verdict is `shown` when the interval excludes 0 in A's favour (above 0 for `delivery`, below
+  0 for `false_pass`, cost and time), otherwise `not shown`. With one task it is always
+  `not shown`: every resample is the same task.
+- Results that ran different task sets are refused. A different model or budget between the sides
+  prints a warning, since the difference would then not be the arm's.
+- Limit: a percentile bootstrap over few tasks is too narrow. Nothing is enforced beyond two tasks,
+  so read `shown` from a small set as a lead to repeat, not a finding.
+
 ## Draft evaluation
 
 The arms above are scored on products. The boss's checks are the weak point (some are wrong; some

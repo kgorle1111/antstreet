@@ -307,6 +307,26 @@ Argument: `results_dir`, a folder written by `run`.
 
 Exit codes: `0`; `1` when no results are found or a result file is invalid; `2` for a usage error.
 
+## `python -m boss.bench.paired`
+
+`python -m boss.bench.paired [options] DIR_A DIR_B`. Compares two arms by task and prints the
+number of tasks, the mean difference, its 95% interval and a verdict, `shown` or `not shown`.
+See [../bench/METHOD.md](../bench/METHOD.md). It reads results and makes no model call.
+
+Arguments: `dir_a` and `dir_b`, results folders written by `run` (they may be the same folder).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--arm-a` | `firm` | The arm taken from `DIR_A`: `single`, `firm` or `single-review`. |
+| `--arm-b` | `single` | The arm taken from `DIR_B`. The difference is A minus B. |
+| `--kpi` | `delivery` | `delivery`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`. |
+| `--resamples` | `10000` | Task resamples for the interval. |
+| `--seed` | `0` | Seed of the resampling; the same seed gives the same interval. |
+
+Exit codes: `0`; `1` when a folder holds no results for its arm, the two sides ran different task
+sets, no task is on both sides, or a result file is invalid; `2` for a usage error. A different
+model or budget between the sides prints a warning and still runs.
+
 ## `python -m boss.bench.replay`
 
 `python -m boss.bench.replay [--stall N ...] [--max-slices N ...] RESULTS_DIR`. Replays firing

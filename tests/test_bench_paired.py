@@ -3,6 +3,7 @@
 import dataclasses
 
 import pytest
+from docs_support import ROOT, captured_parser
 
 from boss.bench.paired import (
     KPIS,
@@ -229,3 +230,21 @@ def test_a_confounded_comparison_is_warned_about(tmp_path, capsys):
     assert main([str(tmp_path / "x"), str(tmp_path / "y")]) == 0
     out = capsys.readouterr().out
     assert "WARNING: model differs" in out and "WARNING: budget_micros differs" in out
+
+
+def test_every_option_and_kpi_is_documented_where_the_docs_say_it():
+    cli = (
+        (ROOT / "docs" / "CLI.md")
+        .read_text(encoding="utf-8")
+        .split("`python -m boss.bench.paired`")[1]
+    )
+    cli = cli.split("\n## ")[0]
+    options = {s for a in captured_parser(main)._actions for s in a.option_strings} - {
+        "-h",
+        "--help",
+    }
+    assert options == {"--arm-a", "--arm-b", "--kpi", "--resamples", "--seed"}
+    for text in (cli, (ROOT / "bench" / "METHOD.md").read_text(encoding="utf-8")):
+        assert all(kpi in text for kpi in KPIS)
+    assert all(f"`{o}`" in cli for o in options)
+    assert "`shown`" in cli and "`not shown`" in cli
