@@ -6,7 +6,7 @@ import json
 from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
 
-ARMS = ("single", "firm")
+ARMS = ("single", "firm", "single-review")
 RESULT_FILE = "result.json"
 # Set by the runner when it can tell; everything else is labelled by hand with evidence kept.
 FAILURE_CLASSES = ("product", "model", "grading", "infrastructure", "unlabelled")

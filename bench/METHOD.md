@@ -73,8 +73,29 @@ tests instead of hidden checks written here.
   (`boss resume` is not used). A real run has a human there, who is also the filter for a wrong
   boss check and the one who rules on a dispute.
 - Extra `boss fund` options given with `--firm-args` are recorded in every result.
+- A third arm, `single-review`, is the single arm with a self-review slice; see its own section.
 - The single arm gets one slice. The firm may use several within the same budget: the gate's
   feedback between slices is part of what is being measured.
+
+## The self-review arm (`single-review`)
+
+For experiment E4: does a single agent that reviews its own work do as well as the firm's loop?
+It is the `single` arm with a second slice, and it is graded exactly like `single`.
+
+- Slice 1 is the `single` build. If it ended normally or at its cap, the same session is resumed
+  once (`--resume`) with the fixed prompt `src/boss/prompts/self_review_v1.md`, which asks it to
+  review its work against the request and fix what it finds. A build that ended any other way is
+  not reviewed and stands as the cell's outcome.
+- The two caps share what `single` gets: 80% of the cell budget, split 75% to the build and 25%
+  to the review (`BUILD_SHARE` in `bench/run.py`). A $0.40 cell caps the build at $0.24 and the
+  review at $0.08. The arm never spends more than `single` may.
+- The review prompt does not mention tests, checks, grading, benchmarks or another arm
+  (`tests/test_blinding.py` screens it with every other prompt). It carries no checks of any kind:
+  the agent re-reads its request and its files and nothing else.
+- Results record the arm as `single-review`. `--arms` runs it only when named; it is not in the
+  default `single firm`.
+- Limit: the review's cost is its own slice, but its words are one fixed prompt; a different
+  wording is a different arm.
 
 ## Scoring
 

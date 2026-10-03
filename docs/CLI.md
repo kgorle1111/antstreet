@@ -254,7 +254,7 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 |---|---|---|
 | `--tasks` | `bench/tasks` | Folder of task folders. |
 | `--out` | required | Results folder for this run. |
-| `--arms` | `single firm` | Which arms to run: `single`, `firm`, or both. |
+| `--arms` | `single firm` | Which arms to run: `single`, `firm` and `single-review` (the single agent, then its own session resumed once to review its work; never run unless named). |
 | `--reps` | `1` | Repetitions per task and arm. |
 | `--budget` | required | Dollars per cell. The boss's drafting call is on top. |
 | `--model` | `haiku` | Worker model, both arms. |
@@ -450,3 +450,5 @@ written by `fund` and `resume`; `boss report` prints it again from the ledger wi
 | `logs/solo.jsonl` | single | The single agent's raw stream. |
 | `transcript.txt` | firm | What `boss fund` printed. |
 | `.boss/runs/<id>/` | firm | A complete run folder, as above. Its `product/` is scored. |
+
+A `single-review` cell holds the same files as a `single` cell; its ledger and stream have two slices.

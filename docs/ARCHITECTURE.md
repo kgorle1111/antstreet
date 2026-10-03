@@ -86,14 +86,15 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `bench/paired.py` | A paired comparison of two arms by task: the mean per-task difference of one KPI with a task-level bootstrap interval (`python -m boss.bench.paired`). | Compare results of different task sets; count an infrastructure failure; call one task enough to show a difference. |
 | `bench/replay.py` | Replaying a firing policy over recorded ledgers, offline. | Call a model; use a different rule from the live one; walk past DONE or ESCALATE. |
 | `bench/results.py` | One benchmark cell's result record and its load checks. | Accept a wrongly typed field. |
-| `bench/run.py` | Running benchmark cells through the single and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
+| `bench/run.py` | Running benchmark cells through the single, single-review and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
 | `bench/score.py` | Scoring a draft's checks (precision on the reference, recall on the mutants) and a critic's verified findings against the reference. | Spend money; count a mutant killed only by a wrong check as caught. |
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
 
 Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/term_sheet_v1.md`
 (one task), `term_sheet_v2.md` (several tasks), `builder_v4.md` (every worker) and `solo_v2.md` (the
-benchmark's single agent). Each role has its own: `product_manager_v1.md`, `user_agent_v1.md`,
+benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
+has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
 `check_auditor_v1.md`, `consultant_v1.md` and `examiner_v1.md`. Skills are Markdown files under `src/boss/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
