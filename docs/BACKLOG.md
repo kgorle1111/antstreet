@@ -15,34 +15,34 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B03 | Run every check on `product/` after assembly and report that result | Only matters with several tasks | done: feat(firm): the final verdict is the gate's result on the assembled product |
 | B04 | Parallel workers for tasks that own disjoint paths | Sequential was enough for one task | done: feat(firm): work on several tasks at once |
 | B05 | One-line status after every slice (spend against budget, checks passing, worker) | Not needed for correctness | done: feat(firm): the final verdict is the gate's result on the assembled product (status line) |
-| B06 | `boss topup`: add money to a round; a locked round can be reopened by the investor | Top-up events are read by `budget.py`, nothing writes them | open |
+| B06 | `boss topup`: add money to a round; a locked round can be reopened by the investor | Top-up events are read by `budget.py`, nothing writes them | done: `boss topup` (`cli.py`), investor-only top-ups in `budget.py`, a top-up reopens a locked round in `state.py` (T45) |
 | B07 | Pause before a plan limit is hit (plan pressure), not only after | `retry.plan_pressure` exists, the loop does not call it | done: feat(firm): pause before the plan limit is hit |
-| B08 | A replacement worker inherits its predecessor's disputes | Disputes are per worker today | open |
-| B09 | The refusal brief names the real reason for each refused tool call | It assumes a path outside the folder; true for every case seen | open |
+| B08 | A replacement worker inherits its predecessor's disputes | Disputes are per worker today | done: `state.slice_history` adds the unruled disputes of earlier workers of the task; brief, question and rulings in `firm.py`, `briefs.py`, `rulings.py` |
+| B09 | The refusal brief names the real reason for each refused tool call | It assumes a path outside the folder; true for every case seen | done: `slice_end` records `denial_reasons`; the continuation brief quotes them (`stream.py`, `rundir.py`, `briefs.py`) |
 | B10 | Tolerate a torn final ledger line on resume; `ledger.py` kn: a torn final line after a hard kill also raises | Failing closed was the safe first step | done: fix(cli): resume repairs a torn ledger line |
-| B11 | Recover when a session to resume no longer exists ("No conversation found") | Only happens if the CLI's session store is cleared between runs | open |
+| B11 | Recover when a session to resume no longer exists ("No conversation found") | Only happens if the CLI's session store is cleared between runs | done: `Outcome.SESSION_LOST`, a new session on the next attempt, a second loss in a row stops the run; which stream carries the CLI's message is unprobed (both are read) |
 
 ## Money
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B12 | A reserve per model; `budget.py` kn: one figure for every model; make it per-model when workers run on larger ones | Only Haiku has been measured | open |
-| B13 | A stream-side cost watch that kills a slice in flight when it passes its cap | The CLI checks its cap only between responses | open |
-| B14 | No double count when a lost slice's session is resumed; `budget.py` kn: if the lost slice's session is later resumed | Over-counting after an interruption is the safe side | open |
-| B15 | Thinking budget for workers, not only the boss | Would make the benchmark arms unequal until the single arm has it too | open |
+| B12 | A reserve per model; `budget.py` kn: one figure for every model; make it per-model when workers run on larger ones | Only Haiku has been measured | done: `budget.reserve_for` by model family; Sonnet and Opus figures are price-ratio estimates, measure them (D18) |
+| B13 | A stream-side cost watch that kills a slice in flight when it passes its cap | The CLI checks its cap only between responses | wont: D37. The stream has no per-message cost and its output counts are placeholders; an estimate would need invented prices |
+| B14 | No double count when a lost slice's session is resumed; `budget.py` kn: if the lost slice's session is later resumed | Over-counting after an interruption is the safe side | done: `budget._unknown_slice_charges` drops a lost slice's charge once a later slice of its session reports its total |
+| B15 | Thinking budget for workers, not only the boss | Would make the benchmark arms unequal until the single arm has it too | done: `FirmConfig.thinking_tokens` and `boss fund --worker-thinking N` (`worker.py`, `runner.py`, `firm.py`, `cli.py`) |
 | B16 | `--effort` for models that honour it | No reliable effect on Haiku in 4 drafts | wont: revisit when workers run on a model where it changes cost |
-| B17 | Recover input tokens from per-message usage; `stream.py` kn: input tokens could be recovered from per-message usage | The cumulative figure is enough for cost | open |
+| B17 | Recover input tokens from per-message usage; `stream.py` kn: input tokens could be recovered from per-message usage | The cumulative figure is enough for cost | done: `stream.py` sums per-message input tokens when the result has none; output tokens stay 0, cost stays unknown |
 
 ## Safety
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
 | B18 | Run checks inside an OS sandbox (no network, no writes outside a temp folder, no reads of the home folder) | The largest accepted risk (T13) | done: feat(gate): run checks inside the sandbox when the platform has one; run and tested on macOS, never run on Linux (B50) |
-| B19 | A check cannot forge its own verdict; `gate.py` kn: in-process verdicts are forgeable by deliberately adversarial code | Needs the report read from outside the process that runs worker code | open |
+| B19 | A check cannot forge its own verdict; `gate.py` kn: in-process verdicts are forgeable by deliberately adversarial code | Needs the report read from outside the process that runs worker code | building: the gate needs a plugin-signed proof (`_gate_plugin.py`), so a report rewrite, an exit 0 or a patched pytest is FAILED; code that reads the nonce from the check's own process can still forge a pass (T12) |
 | B20 | `boss doctor` canary: prove at run time that a write outside the workspace is refused | Tests pin the flags only (T18) | done: `src/boss/doctor.py` `_check_path_rules`, run by `boss doctor --live` (one paid call; it reports "inconclusive" when the worker does not try the write) |
 | B21 | Re-check isolation after the init event; verify the boss call's isolation | Checked once at init (T21) | building: half done. fix(runner): a late hook event fails the slice as an isolation failure. The boss call's isolation is still unverified (its output has no init event) |
 | B22 | Size caps on a workspace, a log and the gate's copy | Bounded by time and money only (T37) | done: `src/boss/limits.py` `max_workspace_bytes` (200 MB), checked in `src/boss/firm.py` before every gate run and before the product gate, so the gate never copies a larger folder; `src/boss/runner.py` `DEFAULT_MAX_LOG_BYTES` (50 MB) |
-| B23 | Hash-chain the ledger and sign approvals | Single-user machine (T29) | open |
+| B23 | Hash-chain the ledger and sign approvals | Single-user machine (T29) | done: hash chain (`ledger.py` `prev`) and signed investor approvals (`signing.py`, T46). Open: sign rulings and round approvals, anchor the last hash, refuse unchained ledgers once no old runs remain |
 | B24 | Probe API-key mode; `worker.py` kn: --bare not yet probed. | Needs an API key | open |
 | B25 | A recorded fixture for a plan usage limit; `errors.py` kn: no recorded fixture for a plan usage limit yet | One has not occurred | open |
 | B26 | Probe whether `Read(./**)` also confines Glob and Grep | Workers are not given those tools | wont: they are not in the tool list; revisit if they are added |
@@ -92,15 +92,15 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B45 | `retry.infra_action` overflows for an attempt number over about 1000 | done: fix(retry): backoff and plan pressure hold for any input |
 | B46 | `retry.plan_pressure` assumes utilisation is a fraction, not a percentage | done: fix(retry): backoff and plan pressure hold for any input |
 | B47 | `FiringPolicy` accepts bool and float | done: fix(rule): the firing policy's counts must be whole numbers |
-| B48 | `redact` masks some ordinary text (a word containing `sk-` followed by 20 characters; `max_tokens: 1000000`) | open |
+| B48 | `redact` masks some ordinary text (a word containing `sk-` followed by 20 characters; `max_tokens: 1000000`) | done: `redact._mask_bare_sk` and `_mask_assignment`; a hex-only `sk-` key glued after a vowel is not masked (T17) |
 | B49 | The early budget check refuses `--budget 0.30 --rounds 3` even when the boss would draft fewer checks than rounds | open |
 
 ## Sandbox, added later
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B50 | Run the Linux (`bwrap`) sandbox on a Linux host, then tighten its root to an allowlist; `sandbox.py` kn: root read-only with /home, /root, /tmp and /run hidden; not run on this machine | No `bwrap` on the machine it was written on; `docs/SANDBOX.md` step 1 is the check | open |
-| B51 | Show `sandboxed` in `boss report` | The flag is on every check result and in `boss doctor`; the report does not print it yet (T39) | open |
+| B50 | Run the Linux (`bwrap`) sandbox on a Linux host, then tighten its root to an allowlist; `sandbox.py` kn: root read-only with /home, /root, /tmp and /run hidden; not run on this machine | No `bwrap` on the machine it was written on; `docs/SANDBOX.md` step 1 is the check | building: CI installs bubblewrap, lets it through AppArmor and requires the sandbox on ubuntu; done only when a Linux CI run is green; the root is not yet an allowlist |
+| B51 | Show `sandboxed` in `boss report` | The flag is on every check result and in `boss doctor`; the report does not print it yet (T39) | done: the firm records `sandboxed` on every `check_result`; `boss report` prints it and warns on an unconfined check (T39) |
 
 ## Measurement and staffing, added later
 
@@ -108,15 +108,15 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|---|
 | B52 | Held-out checks: a tester with no contact with the workers writes checks the workers never see, run only at the final product gate | In the final run 12 of 36 firm cells passed every visible check and failed a hidden one. The visible checks stay the spec; the held-out ones decide the verdict | done: `src/boss/held_out.py` (the folder, its hashes, its gate), `src/boss/roles/examiner.py` (the role and `run_examiner`), `src/boss/approval.py` (review and approval), `src/boss/firm.py` (`_gate_held_out`, `FirmConfig.held_out`), `src/boss/report.py`, `src/boss/bench/run.py`; the command-line option is B56, and whether a held-out failure predicts a hidden one is not measured yet |
 | B53 | Staff by need: one worker by default, more only when the design splits into tasks with separate files, or when a worker is fired or stuck | The firm cost 2.4x per cell and took 2.8x the time for 69% against 63%, within the noise. A model's guess at "complexity" is not a signal the gate can check | open: designed; the measured firm arm already runs one task and one worker (final3: every cell had `--max-tasks 1`, `--parallel 1`); its extra cost is the boss call (40% of spend) and the gate-feedback slices, which staffing does not touch, and all 17 tasks are single-module, so a split signal never fires. Plan: a pure `plan_staffing` over check imports versus task paths (fail closed to one worker), behind `--staffing need`. First, with no code: run `--firm-args "--max-tasks 3 --parallel 3"` on multi-file tasks; build nothing unless that beats the firm on cost or time |
-| B54 | An external benchmark: NL2Repo-Bench, its easy tasks first (spec in, Python library out, graded by upstream tests the agent never sees) | Needs an adapter and network blocking for the workers; no published cost per task, so one task is measured before any more | open |
+| B54 | An external benchmark: NL2Repo-Bench, its easy tasks first (spec in, Python library out, graded by upstream tests the agent never sees) | Needs an adapter and network blocking for the workers; no published cost per task, so one task is measured before any more | building: imported tasks (`gate.run_tree`, `bench/imported.py`); decouple converted and validated locally; the paid run is not done |
 | B55 | pass^k and time per cell in the table | Asked for with B54 | done: `bench/table.py` shows the median time per cell and the tasks passed on every run |
 
 ## Roles in `boss fund`, added later
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B56 | Offer the critic's findings again after Ctrl-C at the fix question; `pipeline.py` kn: a cycle counts once its critic call is booked, so findings left unanswered by a Ctrl-C are not offered again | The investor's answer is not on the ledger, so a resume cannot tell a no from an interruption | open: record the answer as an event, then count a cycle only once it is answered |
-| B57 | Give the fix round the place of the first round that never opened; `pipeline.py` kn: the fix round goes after every round, so a sheet whose later rounds never opened | The round loop's own rule asks the investor to fund the unopened rounds first, and changing an approved sheet's rounds is the investor's decision | open |
+| B56 | Offer the critic's findings again after Ctrl-C at the fix question; `pipeline.py` kn: a cycle counts once its critic call is booked, so findings left unanswered by a Ctrl-C are not offered again | The investor's answer is not on the ledger, so a resume cannot tell a no from an interruption | done: a no is an investor `ruled` event (`declined`); a cycle counts only once answered; a resume asks the critic again (one more capped call) |
+| B57 | Give the fix round the place of the first round that never opened; `pipeline.py` kn: the fix round goes after every round, so a sheet whose later rounds never opened | The round loop's own rule asks the investor to fund the unopened rounds first, and changing an approved sheet's rounds is the investor's decision | done: the fix round takes the first unopened round's number; later unopened rounds follow it, each still needing your yes |
 | B58 | `tests/test_pipeline.py::test_resume_can_offer_the_fix_round_with_its_own_budget` failed once in a full-suite run and passed in 70 reruns, 40 of them with six other test processes running; the cause is not known | The failing output was not kept, and the failure did not come back | open: the next failure's output decides; run the suite with `-rf` and keep it |
 
 ## Held-out checks, added later
@@ -124,6 +124,11 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
 | B59 | `boss fund --held-out N`: call `run_examiner` between the boss's draft and the investor's review, pass `held_out_dir` to `review_term_sheet`, build `FirmConfig(held_out=N)` | `cli.py` and `pipeline.py` were being changed by other work when the feature was built. The benchmark already passes `--held-out N`, so a benchmark cell that asks for it fails until this is done | done: `boss fund --held-out N` (`cli.py` `_fund`, `Pipeline.examine` in `pipeline.py`); `--roles examiner` is refused and names the option |
-| B60 | Give the examiner the design's interfaces, not only backticked names and imports; `roles/examiner.py` kn: names come from code-quoted words in briefs and imports in check files; a brief that | A brief that names an interface in prose only gives the examiner nothing to import, and it then writes checks that fail a correct product on the import | open |
-| B61 | Count the held-out checks the task's reference solution fails, as `wrong_checks` does for the visible ones; `bench/run.py` kn: counts what the product passed, not how many held-out checks are wrong; run the | The investor's review is the control for a wrong held-out check and the benchmark approves automatically, so it cannot yet say how often the examiner is wrong | open |
+| B60 | Give the examiner the design's interfaces, not only backticked names and imports; `roles/examiner.py` kn: names come from code-quoted words in briefs and imports in check files; a brief that | A brief that names an interface in prose only gives the examiner nothing to import, and it then writes checks that fail a correct product on the import | done: call shapes and `*.py` names in briefs are public names; a visible check's file never is |
+| B61 | Count the held-out checks the task's reference solution fails, as `wrong_checks` does for the visible ones; `bench/run.py` kn: counts what the product passed, not how many held-out checks are wrong; run the | The investor's review is the control for a wrong held-out check and the benchmark approves automatically, so it cannot yet say how often the examiner is wrong | done: `held_out_wrong` per firm cell (`bench/run.py`, `results.py`, `table.py`) |
 | B62 | The usage judge's `accurate` criterion ("matches the code shown") is scored from `USAGE.md` alone: the judge sees the demo and its printed output, never the product's source | Found while building the calibration set; the labelling guide tells the investor to score from the same material, so calibration stays fair | open: decide whether the judge should see the product's public API |
+| B63 | Token totals of a resumed session: `rundir.py` books each slice's `modelUsage` tokens, which are cumulative after a resume, so the report may count them twice (cost is differenced, tokens are not) | Found during the B17 work; not traced | open |
+| B64 | A `LedgerWriter` opened on a file whose last line is cut off glues the next line onto the fragment | Pre-existing; `repair_torn_tail` runs first on `resume` and `topup`, but nothing stops another writer | open |
+| B65 | `plan_rounds_by_priority` floors rounds at the default reserve, ignoring `--reserve` and the per-model figure | Found during B12; the post-draft round check now refuses such a plan, after the roles were paid | open |
+| B66 | The round-funding question shows the term sheet's budget, not `budget.round_budget` after a top-up | Found during B06 | open |
+| B67 | Keep the critic's verified findings so a resume after Ctrl-C offers them again without a new call | B56 re-asks the critic (one more capped call); the investor decides | open |

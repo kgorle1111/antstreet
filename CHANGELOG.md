@@ -10,6 +10,14 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss topup [RUN] --round N --amount D`: you add money to a round; only your top-up reopens a
+  round that ran out.
+- `boss report` says whether every check ran sandboxed, and warns when any ran unconfined.
+- The worker reserve is set per model (Haiku $0.10, Sonnet $0.30, Opus $0.50); `--reserve` still wins.
+- `--worker-thinking N` sets the thinking budget of every worker slice; unset keeps the CLI's default.
+- Imported benchmark tasks, graded per test by an external suite: `python -m boss.bench.imported`.
+- The benchmark records the held-out checks the reference solution fails (`held_out_wrong`).
+- CI is set up to run the Linux (bwrap) gate sandbox with `BOSS_GATE_SANDBOX=require`.
 - 18 benchmark tasks (text, data structures, numbers and dates): 35 tasks, and
   recall on 156 known-wrong solutions; earlier results stay on the original 17. Plus 8 multi-file tasks.
 - Type checking: `uv run mypy` (strict, over `src/boss`) runs locally and in CI after the format check.
@@ -136,6 +144,16 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- A replacement worker inherits the disputes its predecessor raised that you have not ruled on.
+- After a refused tool call, the worker's next brief gives the reason the CLI gave.
+- A session the CLI lost ("No conversation found") starts a new one instead of failing the worker.
+- A lost slice whose session is later resumed is counted once, not at its cap and again.
+- `--budget` with `--rounds` is judged against the real round plan, after the draft.
+- A slice killed before its result records its input tokens instead of 0.
+- Ctrl-C at the critic's fix question no longer loses its findings; a no is recorded as a ruling.
+- The critic's fix round takes the place of the first round that never opened.
+- The examiner reads interfaces a task brief states in prose, never a visible check's file.
+- `redact` no longer masks `task-...` style words or token counts; URL redaction is linear again.
 - A slice that did work but reported no cost, or started and never ended, is charged at its cap, so
   a round can no longer fund such slices without end. Its cost stays unknown in the ledger.
 - A run interrupted during a worker's first slice can be resumed; before, the retry reused a
@@ -173,6 +191,10 @@ what changed for someone using the tool, not which commit did it.
 
 ### Security
 
+- Every ledger line carries `prev`, the hash of the line before it, and approvals are signed with
+  `.boss/investor.key`: a worker without the key cannot forge one (T46).
+- The gate needs a plugin-signed proof, so a check cannot fake a pass by rewriting its report or
+  exiting 0; code aimed at the plugin itself still can (T12).
 - Checks are stored outside the worker's folder and copied fresh into every gate run; a pass needs
   exit code 0 and a test report with at least one test and no failures.
 - Workers have no shell, and their tool rules are limited to their own folder.
