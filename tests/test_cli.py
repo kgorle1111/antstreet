@@ -1,6 +1,7 @@
 """CLI tests. `boss fund` runs end to end against a fake `claude` that plays boss and worker."""
 
 import json
+import signal
 import sys
 
 import pytest
@@ -354,6 +355,10 @@ def test_resume_continues_a_run_that_was_stopped_and_records_who_lifted_the_stop
     resumed = next(e for e in events_of_run(boss) if e.event is EventType.RESUMED)
     assert resumed.actor == "investor"
     assert kinds.count(EventType.STARTED) == 1 and kinds.count(EventType.SLICE_START) == 0
+
+
+def test_ctrl_c_reaches_the_tests_even_when_pytest_was_started_in_the_background():
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler  # see conftest.py
 
 
 def test_resume_finishes_an_interrupted_run_without_a_new_draft_or_a_second_hire(boss):
