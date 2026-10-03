@@ -951,6 +951,7 @@ def test_the_consultant_is_not_called_when_nothing_is_disputed(fx):
     assert out.code == EXIT_OK and fx.role_calls() == [] and "consultant" not in fx.calls()
 
 
+@pytest.mark.sigint
 def test_resume_takes_its_roles_from_the_ledger_and_does_not_run_stage_one_again(fx):
     script_stage_1(fx)
     fx.set("tester", ok(checks_out("S1.1", "S1.2", codes=(CHECK1, WRONG))))
@@ -1317,6 +1318,7 @@ def test_resuming_after_the_investor_said_no_does_not_ask_again(fx):
     assert out.code == EXIT_OK and fx.events() == before and asked(out, "Add these") == []
 
 
+@pytest.mark.sigint
 def test_a_run_interrupted_before_stage_three_gets_its_critic_on_resume_exactly_once(fx):
     critic_finds(fx, finding())
     (fx.folder / "interrupt").write_text("")
@@ -1330,6 +1332,7 @@ def test_a_run_interrupted_before_stage_three_gets_its_critic_on_resume_exactly_
     assert fx.events() == before
 
 
+@pytest.mark.sigint
 def test_resume_can_offer_the_fix_round_with_its_own_budget(fx):
     critic_finds(fx, finding())
     (fx.folder / "interrupt").write_text("")
@@ -1501,6 +1504,7 @@ def test_a_refused_demo_is_not_asked_for_again_on_resume(fx):
     assert fx.events() == before and not usage_file(fx).exists()
 
 
+@pytest.mark.sigint
 def test_a_run_interrupted_before_the_demo_gets_it_on_resume(fx):
     fx.set("demo_writer", ok(DEMO))
     (fx.folder / "interrupt").write_text("")
@@ -1510,6 +1514,7 @@ def test_a_run_interrupted_before_the_demo_gets_it_on_resume(fx):
     assert len(fx.role_calls("demo_writer")) == 1
 
 
+@pytest.mark.sigint
 def test_an_interrupted_fix_round_continues_on_resume_without_a_second_critic(fx):
     critic_finds(fx, finding())
     fx.set("demo_writer", ok(DEMO))
@@ -1643,6 +1648,7 @@ def test_the_default_model_is_the_bosss_and_the_cli_chooses_the_thinking(fx):
     assert model_and_thinking(fx, "check_auditor") == [("haiku", "unset")]
 
 
+@pytest.mark.sigint
 def test_a_resumed_run_calls_its_roles_with_the_model_and_thinking_it_was_started_with(fx):
     with_a_wrong_check(fx)
     fx.set("consultant", ok(ADVICE))
@@ -1653,6 +1659,7 @@ def test_a_resumed_run_calls_its_roles_with_the_model_and_thinking_it_was_starte
     assert model_and_thinking(fx, "consultant") == [("sonnet", "0")]
 
 
+@pytest.mark.sigint
 def test_a_run_started_without_roles_resumes_without_roles(fx):
     (fx.folder / "interrupt").write_text("")
     fx.fund()
@@ -1856,6 +1863,7 @@ def test_the_fix_round_goes_in_front_of_the_unopened_rounds_and_the_sheet_stays_
 
 
 @pytest.mark.parametrize("who", ["user_agent", "boss"])
+@pytest.mark.sigint
 def test_ctrl_c_while_a_call_runs_before_approval_ends_the_run_cleanly(fx, who):
     script_stage_1(fx)
     (fx.folder / f"interrupt_{who}").write_text("")

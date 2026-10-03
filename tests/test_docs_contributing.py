@@ -39,8 +39,8 @@ def test_the_commands_ci_runs_are_the_ones_stated(text):
         "uv run ruff check .",
         "uv run ruff format --check .",
         "uv run mypy",
-        "uv run pytest -n auto --dist loadgroup --cov --cov-report=term-missing"
-        " --cov-fail-under=96 --durations=30",
+        'uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30',
+        "uv run pytest -m sigint --cov --cov-append --cov-report=term-missing --cov-fail-under=96",
     ]
     for command in stated:
         assert command in text, f"CONTRIBUTING.md does not state: {command}"
@@ -68,10 +68,19 @@ def test_ci_installs_bubblewrap_and_requires_the_sandbox_on_linux_only(text):
     assert "if: runner.os == 'Linux'" in install_step, "bubblewrap must be installed on Linux only"
     # `require` on Linux and the default (`auto`) elsewhere, on the test step and nowhere else.
     env = "BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}"
-    before_tests, test_step = workflow.split("- name: Test")
-    assert env in test_step and "uv run pytest" in test_step
+    before_tests, *test_steps = workflow.split("- name: Test")
+    assert len(test_steps) == 2 and all(env in step for step in test_steps)
+    assert all("uv run pytest" in step for step in test_steps)
     assert "BOSS_GATE_SANDBOX:" not in before_tests
     assert "BOSS_GATE_SANDBOX=require" in text and "`bubblewrap`" in text
+
+
+def test_the_tests_that_signal_their_own_process_run_serially_and_the_document_says_so(text):
+    markers = pyproject()["tool"]["pytest"]["ini_options"]["markers"]
+    assert [m.split(":")[0] for m in markers] == ["sigint"]
+    marked = sum(read(p).count("@pytest.mark.sigint") for p in ROOT.glob("tests/test_*.py"))
+    assert marked >= 1, "the marker exists so that some test carries it"
+    assert "`sigint`" in text and "`-m sigint`" in text and '`-m "not sigint"`' in text
 
 
 def test_the_only_runtime_dependency_is_the_one_stated(text):

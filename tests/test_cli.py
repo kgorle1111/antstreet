@@ -361,6 +361,7 @@ def test_ctrl_c_reaches_the_tests_even_when_pytest_was_started_in_the_background
     assert signal.getsignal(signal.SIGINT) is signal.default_int_handler  # see conftest.py
 
 
+@pytest.mark.sigint
 def test_resume_finishes_an_interrupted_run_without_a_new_draft_or_a_second_hire(boss):
     (boss.project.parent / "fake_interrupt").write_text("")
     code, output = boss("fund", "Reverse a string.", "--budget", "0.50")
