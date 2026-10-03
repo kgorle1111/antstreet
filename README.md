@@ -56,8 +56,9 @@ uv run boss fund "A function is_palindrome(text) that ignores case, spaces and p
 
 1. The boss drafts a term sheet. You see the task brief and every check's code.
 2. You approve, reject, or edit the files and have them re-validated. With `--held-out N`, an
-   examiner first writes up to N more checks from your idea alone; you approve them too, no worker
-   ever sees them, and the finished product must pass them as well.
+   examiner first writes up to N more checks from your idea and the public names the product must
+   expose (never a visible check); you approve them too, no worker ever sees them, and the
+   finished product must pass them as well.
 3. A worker builds the task in `.boss/runs/<run>/workspaces/w1/`, one capped slice at a time. It
    is given your idea word for word, then the boss's brief and checks.
 4. The gate runs the checks after every slice. The worker's next brief shows what failed.
