@@ -477,3 +477,12 @@ def test_o4b_counts_triples_by_anchor_presence_and_skips_the_draft_a_product_cam
     assert (o4.missing.killed, o4.missing.total) == (0, 2)
     assert o4.gap == 100 and o4.by_missing_type["non_ascii"].total == 2
     assert "no criterion" in ev.render_o4b(o4, 1)
+
+
+def test_all_means_the_five_pre_registered_steps_and_never_the_extra_one_unless_named(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ev, "run", lambda steps, **kw: seen.append(steps) or "")
+    ev.main(["all"])
+    ev.main(["all", "o4b"])
+    ev.main(["o4b"])
+    assert seen == [ev.STEPS, (*ev.STEPS, "o4b"), ("o4b",)]

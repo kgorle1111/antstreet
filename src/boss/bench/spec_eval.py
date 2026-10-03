@@ -900,7 +900,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--cache", type=Path, help="kill results per draft, to resume a long run")
     args = parser.parse_args(argv)
-    steps = STEPS if "all" in args.steps else tuple(args.steps)
+    steps = tuple(args.steps)
+    if "all" in steps:  # the five pre-registered steps, plus any extra one asked for by name
+        steps = (*STEPS, *(x for x in steps if x in EXTRA_STEPS))
     try:
         text = run(
             steps,
