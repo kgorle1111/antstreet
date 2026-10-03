@@ -168,13 +168,13 @@ def test_a_draft_is_saved_with_its_checks_cost_tokens_and_real_score(env):
 
 
 def test_the_boss_sees_the_idea_with_the_chosen_prompt_model_and_thinking_and_nothing_else(env):
-    settings = settings_for("solo_v1.md", "sonnet", 0)
+    settings = settings_for("solo_v2.md", "sonnet", 0)
     env.environ["SECRET_TOKEN"] = "hunter2"
     cell(env, settings=settings)
     [call] = env.calls()
     argv = call["argv"]
     assert argv[argv.index("--model") + 1] == "sonnet"
-    assert argv[argv.index("--system-prompt") + 1] == load_prompt("solo_v1.md")
+    assert argv[argv.index("--system-prompt") + 1] == load_prompt("solo_v2.md")
     assert env.task("alpha").idea in argv[-1]
     assert "SECRET_TOKEN" not in call["env"]
     assert env.thinking() == ["0"]
@@ -304,7 +304,7 @@ def test_drafts_made_with_other_settings_are_refused_before_anything_is_spent(
     for extra in (
         ["--boss-model", "opus"],
         ["--boss-thinking", "1000"],
-        ["--prompt", "solo_v1.md"],
+        ["--prompt", "solo_v2.md"],
     ):
         assert env.run(extra) == 1
         err = capsys.readouterr().err

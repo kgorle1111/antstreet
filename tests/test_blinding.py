@@ -13,7 +13,9 @@ GIVEN_TO_MODELS = sorted(
     [*(SRC / "prompts").glob("*.md"), *(SRC / "skills").rglob("*.md"), *(SRC / "rubrics").glob("*")]
 )
 TELLS = re.compile(
-    r"bench(mark)?|hidden (check|test)|graded by|\barm\b|single[- ]agent|"
+    r"bench(mark)?|hidden (check|test)|(graded|judged) by (checks|tests)|"
+    r"(checks?|tests?) you (can ?not|can't|do not|don't) see|"
+    r"\barm\b|single[- ]agent|"
     r"evaluat(ed|ion) (run|set)|test set|leaderboard",
     re.IGNORECASE,
 )
@@ -38,6 +40,10 @@ def test_no_text_a_model_is_given_says_it_is_being_measured(path):
 def test_the_screen_finds_a_tell_and_covers_every_kind_of_model_text():
     assert TELLS.search("in benchmark runs about half the cells")
     assert TELLS.search("checks you cannot see: the hidden checks")
+    assert TELLS.search("Your work will be judged by checks you cannot see.")  # the leak of solo_v1
+    assert not TELLS.search(
+        "A check is judged by its weakest assertion"
+    )  # about checks, not the model
     assert HELD_OUT.search("a held-out check") and not TELLS.search("a held-out check")
     assert is_examiners(SRC / "skills" / "examiner" / "x.md")
     assert not is_examiners(SRC / "skills" / "builder" / "x.md")

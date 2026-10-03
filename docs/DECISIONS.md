@@ -197,7 +197,7 @@ with a JSON schema.
 - Why: The gate runs checks with the interpreter that runs `boss`, so an install step per run would
   need its own environment and a network.
 - Rejected: Third-party dependencies in built products, for now. Whether they come in is open.
-- Evidence: `src/boss/prompts/builder_v3.md`,
+- Evidence: `src/boss/prompts/builder_v4.md` (the same lines as `builder_v3.md`),
   `tests/test_bench_tasks.py::test_reference_must_be_stdlib_only`.
 
 ### D14: The gate runs worker code on the host, with no container

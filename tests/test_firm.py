@@ -237,9 +237,9 @@ def test_every_worker_is_given_the_investors_idea_word_for_word(paths):
     for spec in (first, replacement):
         assert "> Reverse a string." in spec.prompt
         assert spec.prompt.index("> Reverse a string.") < spec.prompt.index("Create rev.py")
-        assert spec.append_system_prompt == load_prompt("builder_v3.md")
-    assert "source of truth" in load_prompt("builder_v3.md")
-    assert [e.data["prompt"] for e in events_of(paths, EventType.HIRED)] == ["builder_v3.md"] * 2
+        assert spec.append_system_prompt == load_prompt("builder_v4.md")
+    assert "source of truth" in load_prompt("builder_v4.md")
+    assert [e.data["prompt"] for e in events_of(paths, EventType.HIRED)] == ["builder_v4.md"] * 2
 
 
 def test_a_task_is_reassigned_only_once_then_abandoned(paths):
@@ -1465,7 +1465,7 @@ def test_the_slice_limit_counts_every_slice_of_a_wave(paths):
 def test_a_worker_gets_the_bare_builder_prompt_unless_a_profile_is_chosen(paths):
     worker = Script(step(GOOD, "done"))
     run(paths, worker)
-    assert worker.specs[0].append_system_prompt == load_prompt("builder_v3.md")
+    assert worker.specs[0].append_system_prompt == load_prompt("builder_v4.md")
     assert events_of(paths, EventType.HIRED)[0].data["profile"] is None
 
 
@@ -1476,7 +1476,7 @@ def test_a_chosen_profile_adds_its_skills_to_every_slice_and_is_recorded(paths):
     run(paths, worker, config=FirmConfig(profile="backend_engineer"))
     expected = builder_system_prompt("backend_engineer")
     assert [s.append_system_prompt for s in worker.specs] == [expected, expected]
-    assert expected.startswith(load_prompt("builder_v3.md")) and "validate" in expected.lower()
+    assert expected.startswith(load_prompt("builder_v4.md")) and "validate" in expected.lower()
     assert events_of(paths, EventType.HIRED)[0].data["profile"] == "backend_engineer"
     [started] = events_of(paths, EventType.STARTED)
     assert started.data["config"]["profile"] == "backend_engineer"  # a resume keeps it

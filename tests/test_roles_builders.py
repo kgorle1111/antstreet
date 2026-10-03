@@ -52,7 +52,7 @@ def test_the_default_base_prompt_is_the_one_the_live_loop_runs_today():
 def test_with_no_skills_the_prompt_is_the_base_prompt_byte_for_byte(monkeypatch):
     without_skills(monkeypatch)
     assert builder_system_prompt("generalist") == load_prompt(firm.BUILDER_PROMPT)
-    assert builder_system_prompt("generalist", "solo_v1.md") == load_prompt("solo_v1.md")
+    assert builder_system_prompt("generalist", "solo_v2.md") == load_prompt("solo_v2.md")
 
 
 def test_the_generalist_prompt_is_the_base_prompt_plus_its_skills_and_nothing_else():
@@ -89,7 +89,7 @@ def test_a_profile_changes_the_skills_only_never_the_tools_or_the_base_prompt():
         "name", "purpose", "skills", "suited_to",
     }  # fmt: skip
     for p in PROFILES:
-        assert builder_system_prompt(p.name, "solo_v1.md").startswith(load_prompt("solo_v1.md"))
+        assert builder_system_prompt(p.name, "solo_v2.md").startswith(load_prompt("solo_v2.md"))
 
 
 def test_every_specialist_carries_everything_the_generalist_does():

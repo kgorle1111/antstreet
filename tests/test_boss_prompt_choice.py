@@ -57,10 +57,10 @@ def test_without_a_name_the_current_prompts_are_used(draft):
 
 
 def test_a_named_prompt_replaces_the_system_prompt_whatever_the_task_limit(draft):
-    draft(prompt_name="solo_v1.md")
-    assert draft.system_prompt() == load_prompt("solo_v1.md") != load_prompt(TERM_SHEET_PROMPT)
-    draft(prompt_name="solo_v1.md", max_tasks=3)
-    assert draft.system_prompt() == load_prompt("solo_v1.md")
+    draft(prompt_name="solo_v2.md")
+    assert draft.system_prompt() == load_prompt("solo_v2.md") != load_prompt(TERM_SHEET_PROMPT)
+    draft(prompt_name="solo_v2.md", max_tasks=3)
+    assert draft.system_prompt() == load_prompt("solo_v2.md")
 
 
 @pytest.mark.parametrize(
@@ -89,6 +89,6 @@ def test_a_prompt_that_does_not_exist_is_an_error_before_any_call(draft):
 
 
 def test_load_prompt_itself_refuses_a_name_that_could_leave_the_prompts_folder():
-    assert load_prompt("solo_v1.md")
+    assert load_prompt("solo_v2.md")
     with pytest.raises(ValueError, match="prompt name"):
-        load_prompt("../prompts/solo_v1.md")
+        load_prompt("../prompts/solo_v2.md")

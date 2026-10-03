@@ -92,7 +92,7 @@ says how many to ask for (0 is off, up to 8), and `boss fund` has no option for 
 
 ## What a worker profile is
 
-- The same worker, the same three tools, the same base prompt (`builder_v3.md`), the same gate.
+- The same worker, the same three tools, the same base prompt (`builder_v4.md`), the same gate.
   Only the list of skills after the base prompt differs. A profile cannot grant a permission.
 - `builder_system_prompt(name)` is the base prompt, a blank line, then the profile's skills in
   order. With no skills it is the base prompt byte for byte.

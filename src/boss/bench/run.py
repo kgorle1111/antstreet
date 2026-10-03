@@ -41,7 +41,7 @@ from boss.worker import (
     worker_env,
 )
 
-SOLO_PROMPT = "solo_v1.md"
+SOLO_PROMPT = "solo_v2.md"
 _INFRA_OUTCOMES = {str(o) for o in INFRASTRUCTURE} | {"isolation"}
 
 
