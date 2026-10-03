@@ -150,9 +150,10 @@ def _callers(name: str, *, skip: tuple[str, ...]) -> list[str]:
 
 def test_not_built_claims_are_still_true(text):
     body = section(text, "Not built")
-    # nothing writes denied; `topped_up` is read by the budget and written by `boss topup` only
+    # nothing writes denied; `topped_up` is read by the budget (and counted by the KPIs as a step
+    # the investor took) and written by `boss topup` only
     assert _uses("DENIED") == [] and "`denied`" in body
-    assert _uses("TOPPED_UP") == ["budget.py", "cli.py"] and "topped_up" not in body
+    assert _uses("TOPPED_UP") == ["budget.py", "cli.py", "kpi.py"] and "topped_up" not in body
     # the amendment is no longer a gap: it is written (see the test below), so it is not listed
     assert "added_checks" not in body and "amendment" not in body
     # a set-aside task is never re-opened: state keeps it abandoned and the loop skips it
