@@ -45,7 +45,7 @@ _BOOTSTRAP = (  # not `-m pytest`: the plugin folder joins sys.path, the workspa
     "import sys; sys.path.insert(0, sys.argv[1]); import pytest\n"
     "sys.exit(pytest.main(sys.argv[2:]))"
 )
-_INI = "[pytest]\npythonpath = ws\n"
+DEFAULT_PYTHONPATH = ("ws",)
 
 
 class GateError(Exception):
@@ -97,10 +97,13 @@ def run_gate(
     checks: Sequence[Check],
     timeout_s: float = DEFAULT_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
+    pythonpath: Sequence[str] = DEFAULT_PYTHONPATH,
 ) -> list[CheckResult]:
     """Run every check against a fresh copy of `workspace`. The original is never modified.
 
     `sandbox=None` defers to `BOSS_GATE_SANDBOX`, then to AUTO: the one place the variable is read.
+    `pythonpath` is what the check can import from, as folders inside the copy: `ws` is the
+    workspace itself, `ws/src` a src-layout package folder. See `_ini`.
     """
     mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
@@ -108,13 +111,32 @@ def run_gate(
     workspace, checks_dir = Path(workspace).resolve(), Path(checks_dir).resolve()
     if not workspace.is_dir():
         raise GateError(f"workspace {workspace} does not exist")
+    ini = _ini(pythonpath)
     sources = [_check_source(checks_dir, c) for c in checks]
     try:
         tool = select(mode) if checks else None
     except SandboxUnavailable as exc:
         raise GateError(str(exc)) from exc
     runs = zip(checks, sources, strict=True)
-    return [_run_one(workspace, c, src, timeout_s, tool) for c, src in runs]
+    return [_run_one(workspace, c, src, timeout_s, tool, ini) for c, src in runs]
+
+
+def _ini(pythonpath: Sequence[str]) -> str:
+    """The pytest.ini of a check. Entries are checked because each becomes a line of the file and
+    a folder on `sys.path`: one that names a place outside the copy, or carries a newline, would
+    let the caller's data write config or import from the host."""
+    if isinstance(pythonpath, str) or not pythonpath:
+        raise GateError("pythonpath must be a non-empty list of folders inside `ws`, e.g. ['ws']")
+    for entry in pythonpath:
+        parts = PurePosixPath(entry).parts
+        if not entry.isprintable() or not parts or parts[0] != "ws" or ".." in parts:
+            raise GateError(
+                f"pythonpath entry {entry!r} is not inside the workspace copy; "
+                "use `ws` or a folder under it such as `ws/src`"
+            )
+        if any(c in entry for c in " ,:"):
+            raise GateError(f"pythonpath entry {entry!r} has a space or separator; rename it")
+    return "[pytest]\npythonpath = " + " ".join(pythonpath) + "\n"
 
 
 def _check_source(checks_dir: Path, check: Check) -> Path:
@@ -127,7 +149,7 @@ def _check_source(checks_dir: Path, check: Check) -> Path:
 
 
 def _run_one(
-    workspace: Path, check: Check, src: Path, timeout_s: float, tool: Sandbox | None
+    workspace: Path, check: Check, src: Path, timeout_s: float, tool: Sandbox | None, ini: str
 ) -> CheckResult:
     with tempfile.TemporaryDirectory(prefix="boss_gate_") as tmp_name:
         tmp = Path(tmp_name)
@@ -135,7 +157,7 @@ def _run_one(
         (tmp / "checks").mkdir()
         target = tmp / "checks" / src.name
         shutil.copy2(src, target)
-        (tmp / "pytest.ini").write_text(_INI)
+        (tmp / "pytest.ini").write_text(ini)
         (tmp / "home").mkdir()
         report = tmp / "report.xml"
         nonce, plugin = secrets.token_hex(32), f"_boss_gate_{secrets.token_hex(8)}"
@@ -317,7 +339,7 @@ def run_tree(
         shutil.copytree(tree, target, symlinks=True, ignore=_COPY_IGNORE)
         if support is not None:
             shutil.copytree(support, ws, dirs_exist_ok=True)
-        (tmp / "pytest.ini").write_text(_INI)
+        (tmp / "pytest.ini").write_text(_ini(DEFAULT_PYTHONPATH))
         (tmp / "home").mkdir()
         report = tmp / "report.xml"
         # xunit1 puts the test's file on every testcase, which is how a node id is rebuilt.
