@@ -25,10 +25,11 @@ Costs are the CLI's client-side estimates.
   prints `not shown`; the interval is below 0. This is not an effect of held-out checks alone:
   the code changed between the two runs (see Limits).
 - Against the single agent in `final3`: delivery -0.078 [-0.216, +0.039], not shown. The firm costs
-  $0.1852 more per run, averaged by task [+0.161, +0.209], and takes 262 s longer [+220, +304].
-- One cell, `heldout3/linediff/firm/rep2`, hit the plan's usage limit and is counted as delivered
-  (backlog B71). Without it, or counted as not delivered, delivery is 27/50 or 27/51. Nothing in the
-  conclusions moves.
+  $0.1859 more per run, averaged by task [+0.162, +0.210], and takes 262 s longer [+220, +304].
+- One cell of the first `heldout3` run (`linediff` rep 2) ended on the plan's usage limit. By the
+  rule decided for backlog B71, a cell that ends on an infrastructure stop is excluded whatever its
+  product scored, and the gap is rerun. It was rerun with the same options and the figures here
+  are the rerun's (51 cells, none excluded). Section 2 says what the cut-off cell had changed.
 - NL2Repo: one task, one run per arm. The single agent delivered, the firm did not. That is all
   one task supports.
 
@@ -42,11 +43,8 @@ Costs are the CLI's client-side estimates.
    `held_out_*` fields of each `result.json`, and `held_out_wrong` is recomputed with
    `boss.bench.score.count_wrong_checks` on each cell's saved `held_out/` folder. That is the same
    function the runner calls. The script is not committed.
-4. While this note was written, the `linediff` rep 2 cell of `heldout3` was being run again in the
-   raw folder. The figures here are the 51 cells as first saved; the original cell is kept in
-   `bench/results/raw/superseded-2026-10-03-usage-limit/`. The commands were run on a scratch copy of
-   `heldout3` that holds the original cell. The two B71 variants (section 2) are scratch copies too:
-   one without the cell, one with a single hidden check of it set to `failed`.
+4. `heldout3` is the folder as it now stands: 51 cells, none ended on an infrastructure stop. The
+   cut-off cell it first held is kept in `bench/results/raw/superseded-2026-10-03-usage-limit/`.
 
 ## 1. The 17 tasks: `heldout3` against `final3`
 
@@ -57,13 +55,13 @@ single):
 | KPI | heldout3/firm (haiku, $0.4000, --slice 0.20 --held-out 3) | final3/firm (haiku, $0.4000, --slice 0.20) | final3/single (haiku, $0.4000) |
 | --- | --- | --- | --- |
 | 1 Delivery rate | 55% [41-68%] (28/51) | 69% [55-80%] (35/51) | 63% [49-75%] (32/51) |
-| 2 False-pass rate | 42% [29-58%] (17/40) | 33% [20-50%] (12/36) | 38% [26-52%] (19/50) |
-| 3 Cost per delivered task | $0.5058 | $0.3202 | $0.1474 |
+| 2 False-pass rate | 41% [28-57%] (17/41) | 33% [20-50%] (12/36) | 38% [26-52%] (19/50) |
+| 3 Cost per delivered task | $0.5071 | $0.3202 | $0.1474 |
 |   events of unknown cost | 0 | 0 | 0 |
 | 4 Time to delivery (median) | delivered 5m22s; all counted 5m32s | delivered 4m00s; all counted 4m04s | delivered 1m25s; all counted 1m28s |
 | 5 Reliability (pass^k) | 5/17 (k=3) | 9/17 (k=3) | 8/17 (k=3) |
 | 6 Investor questions | 1.04 per run (53 in 51 runs) | 1.18 per run (60 in 51 runs) | 0 (the single arm asks none) |
-| 7 Check quality | 19/391 wrong (5%) | 20/397 wrong (5%) | n/a (no boss checks) |
+| 7 Check quality | 18/397 wrong (5%) | 20/397 wrong (5%) | n/a (no boss checks) |
 ```
 
 `python -m boss.bench.table heldout3` (the table of `final3` is in
@@ -71,10 +69,10 @@ single):
 
 ```
 | arm | cells | tasks | passed | pass rate [95% CI] | hidden checks | mean cost/cell | cost/pass | boss share | unknown-cost events | infrastructure excluded | median time/cell | tasks passed every run |
-| firm | 51 | 17 | 28 | 55% [41-68%] | 91% | $0.2777 | $0.5058 | 34% | 0 | 0 | 5m32s | 5/17 |
+| firm | 51 | 17 | 28 | 55% [41-68%] | 91% | $0.2784 | $0.5071 | 34% | 0 | 0 | 5m32s | 5/17 |
 
-Visible vs hidden: 41 of 51 firm cells passed every visible check; 17 of those failed a hidden check.
-Wrong boss checks: 19 of 391 checks failed on the reference solution, in 14 drafts.
+Visible vs hidden: 42 of 51 firm cells passed every visible check; 17 of those failed a hidden check.
+Wrong boss checks: 18 of 397 checks failed on the reference solution, in 13 drafts.
 ```
 
 Passed cells out of 3 runs, by task (`final3` firm / `heldout3` firm):
@@ -100,7 +98,7 @@ Paired by task, 17 tasks, `heldout3` firm minus the baseline (`--arm-a firm --ar
 |---|---|---|---|---|
 | delivery (share of runs) | -0.1373 [-0.2549, -0.0196] | not shown | -0.0784 [-0.2157, +0.0392] | not shown |
 | false pass (share of runs) | +0.0980 [-0.0392, +0.2549] | not shown | n/a, firm arms only | |
-| cost per delivery ($) | +0.0580 [+0.0340, +0.0794] | not shown | +0.1852 [+0.1613, +0.2092] | not shown |
+| cost per delivery ($) | +0.0587 [+0.0344, +0.0804] | not shown | +0.1859 [+0.1620, +0.2098] | not shown |
 | time (s) | +83.6 [+17.6, +143.0] | not shown | +261.8 [+220.0, +304.4] | not shown |
 
 How to read the verdicts: `shown` means the interval excludes 0 in the first directory's favour
@@ -110,42 +108,32 @@ cost more and took longer. The tool prints `not shown` for those; it has no word
 The paired `cost_per_delivery` is the mean cost of a task's runs, delivered or not; it differs from
 the KPI row, which divides all spend by delivered cells.
 
-## 2. The cell that hit the usage limit (B71)
+## 2. What the cut-off cell changed (B71)
 
-`heldout3/linediff/firm/rep2`: outcome `usage_limit`, all 8 hidden checks passed, 3 of 3 held-out
-checks passed, cost $0.297, 404 s, 1 wrong boss check. `visible_passed` is not recorded, so the cell
-is in neither false-pass count. The runner scored the product it found and called it delivered. It
-touches delivery, cost per delivered task, time and pass^k only.
+Rule (project owner, for B71): a cell that ends on an infrastructure stop is excluded whatever its
+product scored, and the gap is rerun.
 
-`python -m boss.bench.kpi` on the two variants (without the cell; with the cell counted as not
-delivered):
+`heldout3/linediff/firm/rep2` ended on the plan's usage limit. Its product passed all 8 hidden
+checks, so the runner called it delivered; it had no `visible_passed`, so it was in neither
+false-pass count. It was moved to `raw/superseded-2026-10-03-usage-limit/` and rerun: the rerun
+completed, 8 of 8 hidden checks, 3 of 3 held-out checks, $0.3348 (the cut-off cell cost $0.297).
 
-```
-| KPI | heldout3-without-B71/firm | heldout3-B71-not-delivered/firm |
-| --- | --- | --- |
-| 1 Delivery rate | 54% [40-67%] (27/50) | 53% [40-66%] (27/51) |
-| 2 False-pass rate | 42% [29-58%] (17/40) | 42% [29-58%] (17/40) |
-| 3 Cost per delivered task | $0.5135 | $0.5245 |
-| 4 Time to delivery (median) | delivered 5m21s; all counted 5m31s | delivered 5m21s; all counted 5m32s |
-| 5 Reliability (pass^k) | 5/17 (k varies: k=2: 1 task, k=3: 16 tasks) | 4/17 (k=3) |
-```
+What it had changed, from the same commands on scratch copies of the first run (the cut-off cell
+kept, and dropped without a rerun):
 
-| | as saved (51 cells) | without the cell (50) | counted as not delivered (51) |
+| | cut-off cell kept | cut-off cell dropped (50 cells) | rerun (this note) |
 |---|---|---|---|
-| Delivery | 28/51, 55% [41-68%] | 27/50, 54% [40-67%] | 27/51, 53% [40-66%] |
-| False pass | 17/40, 42% | 17/40, 42% | 17/40, 42% |
-| Cost per delivered task | $0.5058 | $0.5135 | $0.5245 |
-| Median time, delivered | 5m22s | 5m21s | 5m21s |
-| pass^k | 5/17 | 5/17 | 4/17 |
-| Paired delivery, against `final3` firm | -0.1373 [-0.2549, -0.0196] | -0.1373 [-0.2549, -0.0196] | -0.1569 [-0.2745, -0.0392] |
-| Paired delivery, against `final3` single | -0.0784 [-0.2157, +0.0392] | -0.0784 [-0.2157, +0.0392] | -0.0980 [-0.2353, +0.0392] |
+| Delivery | 28/51 | 27/50 | 28/51 |
+| False pass (KPI) | 17/40 | 17/40 | 17/41 |
+| Cost per delivered task | $0.5058 | $0.5135 | $0.5071 |
+| pass^k | 5/17 | 5/17 (one task with k=2) | 5/17 |
+| Paired delivery, against `final3` firm | -0.1373 [-0.2549, -0.0196] | -0.1373 [-0.2549, -0.0196] | -0.1373 [-0.2549, -0.0196] |
 
-The false-pass rate and the E1 verdict do not depend on the cell. The "not delivered" column is a
-sensitivity check, not a correction: the product did pass every hidden check.
+The E1 verdict is the same in all three.
 
 ## 3. Held-out checks
 
-The 51 cells wrote 150 held-out checks in 50 cells (3 each). `intervals` rep 3 has none.
+50 of the 51 cells wrote held-out checks, 3 each. `intervals` rep 3 has none.
 
 | | count |
 |---|---|
@@ -158,19 +146,20 @@ The 51 cells wrote 150 held-out checks in 50 cells (3 each). `intervals` rep 3 h
 The one failing held-out check (`lrucache` rep 3, `h02`) is the wrong one: the reference solution
 fails it. The product passed every hidden check.
 
-Visible-pass cells that had held-out checks (40 of the 41 visible-pass cells):
+Visible-pass cells that had held-out checks (41 of the 42 visible-pass cells):
 
 | | hidden failed | hidden passed |
 |---|---|---|
 | held-out failed | 0 | 1 |
-| held-out passed | 17 | 22 |
+| held-out passed | 17 | 23 |
 
 - Sensitivity of the held-out checks to a hidden failure: 0 of 17.
 - The KPI false-pass rate counts a cell as "said done" when every visible check passed and, if it
-  had held-out checks, every held-out check passed. That is 40 cells, 17 of them false passes.
-  The audit in `2026-10-03-false-pass-audit` counts 17 of the 41 visible-pass cells; it is the same 17
-  cells. The 41 includes `lrucache` rep 3 (failed a held-out check, passed every hidden check),
-  which the 40 leaves out.
+  had held-out checks, every held-out check passed. That is 41 cells, 17 of them false passes.
+  The audit in `2026-10-03-false-pass-audit` counts 17 of 41 visible-pass cells, taken before the
+  rerun; it is the same 17 cells. The rerun cell added one visible-pass cell that passed every
+  hidden check, and `lrucache` rep 3 (failed a held-out check, passed every hidden check) is in
+  the 42 and not in the 41.
 - That audit read all 17 against the task text: each is a real departure from the idea, and the
   held-out checks passed in all of them.
 - `PREREG.md` says a run is marked not delivered when a held-out check fails. The delivery figures
@@ -185,8 +174,8 @@ not have a lower false-pass rate than the firm without them, by the paired test.
 - Paired false-pass share, `heldout3` firm minus `final3` firm: +0.0980, 95% interval
   [-0.0392, +0.2549], 17 tasks. The interval includes 0. **Verdict: not shown.**
 - The point estimate is higher with held-out checks, not lower. Raw: 17 of 51 runs with a visible-pass
-  and a hidden failure, against 12 of 51 in `final3`. By the KPI definition: 17 of 40 (42%
-  [29-58%]) against 12 of 36 (33% [20-50%]); the intervals overlap.
+  and a hidden failure, against 12 of 51 in `final3`. By the KPI definition: 17 of 41 (41%
+  [28-57%]) against 12 of 36 (33% [20-50%]); the intervals overlap.
 - The E1 arm "single at the firm's mean dollar spend" was not run here.
 - The result is a failure to show a benefit. It does not show that held-out checks do harm: the
   interval reaches +0.255 and -0.039.
@@ -244,14 +233,14 @@ Visible vs hidden: 1 of 1 firm cells passed every visible check; 1 of those fail
   per run over all runs and ignores held-out results; the KPI figure counts held-out results.
 - Haiku writes both the checks and the code, and no worker can run code.
 - Held-out counts come from a one-off script over the saved results, not from a repo command.
-- The raw `heldout3` folder is being changed (one cell re-run). Re-running the commands above on it
-  will not reproduce these numbers until that run finishes and the cell is accounted for.
+- One cell was rerun, so `heldout3` is not a single unbroken run; the rerun used the same options
+  and the same frozen snapshot of the code.
 
 ## What may be published
 
 > On 17 small Python tasks (3 runs each, Haiku), giving the boss's drafting step 3 held-out checks
 > per run did not lower the share of runs that passed every visible check and still failed a hidden
-> one: 17 of 40 against 12 of 36 without them. Paired by task the difference is +0.098 [-0.039,
+> one: 17 of 41 against 12 of 36 without them. Paired by task the difference is +0.098 [-0.039,
 > +0.255]: not shown. The held-out checks passed in all 17 of those runs.
 
 What this does not support: any statement about held-out checks that holds the code fixed, any
