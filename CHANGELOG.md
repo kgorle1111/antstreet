@@ -10,6 +10,14 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
+  pass, cost, time) with a task-level bootstrap interval and a verdict of `shown` or `not shown`;
+  refuses results from different task sets.
+- A `single-review` benchmark arm: the single agent resumes its own session once to review its
+  work, within the single arm's total cap (75% build, 25% review). It runs only when asked for.
+- A fixed seven-KPI scorecard (`python -m boss.bench.kpi`: delivery, false pass, cost and time per
+  delivery, pass^k, investor questions, check quality) and a KPIs section in `boss report`;
+  definitions are in `bench/METHOD.md`.
 - `boss topup [RUN] --round N --amount D`: you add money to a round; only your top-up reopens a
   round that ran out.
 - `boss report` says whether every check ran sandboxed, and warns when any ran unconfined.
@@ -144,6 +152,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- A benchmark cell cut off before its result is refused, naming the folder to move aside, instead
+  of being run on top of the cut-off run.
 - A resumed worker slice books only its own tokens, not the session's running total (B63).
 - The ledger writer refuses a file whose last line was cut off and names `boss resume` (B64).
 - Round plans use the run's own reserve, so a Sonnet or Opus run never gets an unfundable round (B65).
@@ -195,6 +205,15 @@ what changed for someone using the tool, not which commit did it.
 
 ### Security
 
+- Boss and role calls run with stream-json and have their init event checked like a worker's (only
+  the structured-output tool, no MCP servers, mode dontAsk, no hook events); a call that fails the
+  check is discarded and its spend booked (B21).
+- Every investor event (ruling, `resumed`, top-up, stop, round approval) is signed over the whole
+  line including `prev`, so it cannot be edited, replayed or moved; a bad one is refused (B23).
+- The ledger writer will not append to a ledger the key does not vouch for; older ledgers without a
+  chain load unchanged (B23).
+- The ledger's last line hash and line count are anchored in `.boss/anchors/<run>`; a dropped tail
+  or an edited last line is refused with the line count (B23).
 - Every ledger line carries `prev`, the hash of the line before it, and approvals are signed with
   `.boss/investor.key`: a worker without the key cannot forge one (T46).
 - The gate needs a plugin-signed proof, so a check cannot fake a pass by rewriting its report or
