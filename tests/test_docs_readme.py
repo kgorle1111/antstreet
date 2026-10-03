@@ -132,10 +132,19 @@ def test_the_benchmark_figures_agree_with_the_final_runs_table_and_the_task_coun
     tasks = len(original_tasks())  # the figures below are from runs on the original task set
     assert f"{tasks}-task benchmark" in status
     assert "| single | 51 | 17 | 32 |" in table and "| firm | 51 | 17 | 35 |" in table
-    for figure in ("35 of 51 (69%)", "32 of 51 (63%)"):
-        assert figure in status, f"README lost {figure}"
-    for figure in ("$0.2197", "$0.0925", "4m04s", "1m28s", "69%", "63%"):
-        assert figure in status and figure in table, f"{figure} is not the final run's figure"
+    # Each figure bound to its arm, firm first, so swapping the two arms fails.
+    for phrase in (
+        "firm passed 35 of 51 (69%) against 32 of 51 (63%) for a single agent",
+        "($0.2197 against $0.0925 a task)",
+        "(median 4m04s against 1m28s)",
+    ):
+        assert phrase in status, f"README lost: {phrase}"
+    rows = {
+        line.split("|")[1].strip(): line for line in table.splitlines() if line.startswith("| ")
+    }
+    assert rows["single"].startswith("| single | 51 | 17 | 32 | 63% [49-75%] | 92% | $0.0925 |")
+    assert rows["firm"].startswith("| firm | 51 | 17 | 35 | 69% [55-80%] | 94% | $0.2197 |")
+    assert "| 1m28s |" in rows["single"] and "| 4m04s |" in rows["firm"]
 
 
 def test_the_roles_table_names_the_roles_the_architecture_defines(text):
