@@ -69,11 +69,23 @@ class Script:
         session = str(spec.session_id)
         if cost is not None:
             self.totals[session] = self.totals.get(session, 0) + cost
+        # Like the CLI, a reported result carries the session's cumulative tokens (10 in and 5 out
+        # per slice, kept beside the cost in `totals` so a copied `totals` carries both); a slice
+        # that reports nothing still spent them, and has only its own messages to show.
+        tokens = self.totals[f"{session}/tokens"] = tuple(
+            a + b
+            for a, b in zip(self.totals.get(f"{session}/tokens", (0, 0)), (10, 5), strict=True)
+        )
+        usage = (
+            Usage(self.totals[session], *tokens, 0, cumulative=True)
+            if cost is not None
+            else Usage(None, 10, 5, 0)
+        )
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text("{}\n")
         return SliceRun(
             outcome=outcome,
-            usage=Usage(self.totals.get(session) if cost is not None else None, 10, 5, 0),
+            usage=usage,
             status={"status": status, "reason": f"scripted {status}"}
             | ({"disputed_checks": disputes} if disputes else {}),
             session_id=session,
@@ -208,6 +220,28 @@ def test_second_slice_resumes_the_session_with_gate_feedback_and_costs_are_delta
     assert [e.cost_micros for e in ends] == [5_000, 7_000]
     assert [e.data["session_total_micros"] for e in ends] == [5_000, 12_000]
     assert total(read_events(paths.ledger)).cost_micros == 12_000
+    # Tokens are differenced the same way: the session reports 10/5 and then 20/10 in/out.
+    assert [(e.tokens_in, e.tokens_out) for e in ends] == [(10, 5), (10, 5)]
+    assert [e.data["session_total_tokens"] for e in ends] == [[10, 5, 0], [20, 10, 0]]
+    assert (
+        total(read_events(paths.ledger)).tokens_in,
+        total(read_events(paths.ledger)).tokens_out,
+    ) == (20, 10)
+
+
+def test_tokens_of_a_slice_that_reported_no_totals_are_not_booked_twice(paths):
+    # Slice 2 is killed (no total, only its messages' 10 in); slice 3's cumulative total covers
+    # both, and books only its own 10.
+    worker = Script(
+        step(HALF, cost=5_000),
+        step(None, outcome=Outcome.TIMEOUT, cost=None),
+        step(GOOD, "done", cost=9_000),
+    )
+    run(paths, worker)
+    ends = events_of(paths, EventType.SLICE_END)
+    assert [e.tokens_in for e in ends] == [10, 10, 10]
+    assert [e.data["session_total_tokens"] for e in ends] == [[10, 5, 0], None, [30, 15, 0]]
+    assert total(read_events(paths.ledger)).tokens_in == 30
 
 
 def test_stalled_worker_is_fired_and_its_replacement_gets_the_files_and_notes(paths):

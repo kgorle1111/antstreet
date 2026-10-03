@@ -45,6 +45,26 @@ def test_resumed_session_reports_cumulative_totals():
     assert resumed.usage().cost_micros > capped.usage().cost_micros
 
 
+def test_a_resumed_sessions_tokens_are_cumulative_too_and_top_level_usage_is_the_slice():
+    capped, resumed = (
+        read("stream_budget_capped_2.1.285.jsonl").usage(),
+        read("stream_resume_after_cap_2.1.285.jsonl"),
+    )
+    own = resumed.result["usage"]  # recorded: only the resumed slice's own response(s)
+    after = resumed.usage()
+    assert after.cumulative and capped.cumulative
+    assert (
+        after.tokens_in - capped.tokens_in
+        == own["input_tokens"] + own["cache_creation_input_tokens"]
+    )
+    assert after.tokens_out - capped.tokens_out == own["output_tokens"]
+    assert after.tokens_cached - capped.tokens_cached == own["cache_read_input_tokens"]
+
+
+def test_usage_without_totals_is_not_cumulative():
+    assert not read("stream_auth_expired_2.1.285.jsonl").usage().cumulative
+
+
 def test_outcomes_flow_through_to_the_classifier():
     assert classify(read("stream_auth_expired_2.1.285.jsonl").signals()) is Outcome.LOGIN
     assert classify(read("stream_budget_capped_2.1.285.jsonl").signals()) is Outcome.CAPPED

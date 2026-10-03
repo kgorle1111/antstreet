@@ -143,6 +143,7 @@ class WorkerState:
     session: str | None  # the session to resume; None until a slice has got past infrastructure
     slices: int  # finished slices, infrastructure ones included
     session_total_micros: int  # the CLI's cumulative total for that session; 0 without one
+    session_total_tokens: tuple[int, int, int]  # its token totals (in, out, cached); 0s without
     fired: bool
 
 
@@ -185,13 +186,16 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
     for e in events:
         if e.event is EventType.HIRED and "worker" in e.data:
             name, task = str(e.data["worker"]), str(e.data.get("task", ""))
-            session, session_total = _live_session(events, name, e.data.get("session"))
+            session, session_total, session_tokens = _live_session(
+                events, name, e.data.get("session")
+            )
             workers[name] = WorkerState(
                 name=name,
                 task=task,
                 session=session,
                 slices=len(history.get(name, [])),
                 session_total_micros=session_total,
+                session_total_tokens=session_tokens,
                 fired=name in fired,
             )
             by_task.setdefault(task, []).append(name)
@@ -254,10 +258,25 @@ def _stopped(events: Sequence[Event]) -> bool:
     return stopped
 
 
+_NO_TOKENS = (0, 0, 0)
+
+
+def _session_tokens(value: object) -> tuple[int, int, int] | None:
+    """A slice_end's `session_total_tokens`, or None when it holds no valid total."""
+    if (
+        isinstance(value, list)
+        and len(value) == 3
+        and all(type(n) is int and n >= 0 for n in value)
+    ):
+        return value[0], value[1], value[2]
+    return None
+
+
 def _live_session(
     events: Sequence[Event], worker: str, hired_session: object
-) -> tuple[str | None, int]:
-    """The session a worker's next slice should resume, and the CLI's cumulative cost for it.
+) -> tuple[str | None, int, tuple[int, int, int]]:
+    """The session a worker's next slice should resume, and the CLI's cumulative cost and token
+    totals for it (in, out, cached).
 
     Every attempt that is not a resume starts a new session id, recorded on its slice_start: the
     CLI refuses an id that is already in use, and an interrupted or failed attempt may or may not
@@ -265,10 +284,15 @@ def _live_session(
     reported the session's total, which proves it exists. A slice that ends `session_lost` on the
     live session shows the CLI no longer has it: the next attempt starts a new one. Ledgers
     written before slice_start carried a session fall back to the one recorded at hiring.
+
+    A slice in the live session that reported no token totals booked the tokens of its own
+    messages; the next total covers them, so they are added to what is carried and the next
+    slice books only what is new. Ledgers from before `session_total_tokens` carry none: their
+    slices booked cumulative figures that cannot be told apart from the slice's own.
     """
     fallback = str(hired_session) if hired_session else None
     live: str | None = None
-    total, attempt = 0, fallback
+    total, attempt, tokens = 0, fallback, _NO_TOKENS
     for e in events:
         if worker_name(e.actor) != worker:
             continue
@@ -279,13 +303,23 @@ def _live_session(
             # A slice that crashed or was killed before reporting proves nothing.
             known = e.data.get("session_total_micros")
             if _outcome(e) is Outcome.SESSION_LOST and attempt == live:
-                live, total = None, 0  # the CLI no longer has it: the next attempt starts anew
+                live, total, tokens = None, 0, _NO_TOKENS  # the CLI no longer has it: start anew
             worked = _outcome(e) not in INFRASTRUCTURE
             if worked and isinstance(known, int) and attempt != live:
-                live, total = attempt, 0
+                live, total, tokens = attempt, 0, _NO_TOKENS
             if attempt == live and isinstance(known, int):
                 total = known
-    return live, total
+            reported = _session_tokens(e.data.get("session_total_tokens"))
+            if live is not None and attempt == live:
+                if reported is not None:
+                    tokens = reported
+                elif "session_total_tokens" in e.data:
+                    tokens = (
+                        tokens[0] + e.tokens_in,
+                        tokens[1] + e.tokens_out,
+                        tokens[2] + e.tokens_cached,
+                    )
+    return live, total, tokens
 
 
 def _latest_gated(records: Sequence[SliceRecord]) -> frozenset[str]:

@@ -156,6 +156,7 @@ class _Pending:
     spec: SliceSpec
     start: dict[str, Any]  # the slice_start event's data
     previous_total: int  # the session's running total before this slice
+    previous_tokens: tuple[int, int, int]  # its token totals: in, out, cached
 
 
 @dataclass(slots=True)
@@ -484,7 +485,11 @@ class _Firm:
                 failure = failure or result
             else:
                 fields = slice_end_fields(
-                    result, pending.number, pending.task.id, pending.previous_total
+                    result,
+                    pending.number,
+                    pending.task.id,
+                    pending.previous_total,
+                    pending.previous_tokens,
                 )
                 record(actor, EventType.SLICE_END, billing=billing_mode(self.env), **fields)
                 finished.append((pending, result))
@@ -651,7 +656,9 @@ class _Firm:
         )
         number = ws.slices + 1
         start = {"slice": number, "task": task.id, "cap_micros": cap, "session": session}
-        return _Pending(task, worker, number, spec, start, ws.session_total_micros)
+        return _Pending(
+            task, worker, number, spec, start, ws.session_total_micros, ws.session_total_tokens
+        )
 
     def _status_line(self, task: Task, worker: str, number: int, round_n: int) -> None:
         events = self.events()

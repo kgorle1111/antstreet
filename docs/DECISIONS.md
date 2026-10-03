@@ -157,13 +157,13 @@ with a JSON schema.
 - Status: `in force`
 - Decision: A worker runs in slices: one that starts a session uses `--session-id` with a new id
   (D32), later ones `--resume` it, each with `--max-budget-usd`. Between slices the gate runs and the rule decides. A slice's spend
-  is the session total after it minus the total before. The CLI must be 2.1.277 or newer.
+  and tokens are the session totals after it minus the totals before. The CLI must be 2.1.277 or newer.
 - Why: Spend cannot be read reliably mid-run (output tokens are placeholders until a response
   ends) and a killed process leaves no result. Probe P4: from 2.1.277 a resumed call reports the
   session's cumulative total, and a resume after a capped slice was coherent (one sample).
 - Rejected: Killing a worker on a mid-run cost reading. Summing per-call figures.
-- Evidence: `tests/test_firm.py::test_second_slice_resumes_the_session_with_gate_feedback_and_costs_are_deltas`;
-  `tests/fixtures/stream_resume_after_cap_2.1.285.jsonl`.
+- Evidence: `tests/test_firm.py::test_second_slice_resumes_the_session_with_gate_feedback_and_costs_are_deltas`,
+  `tests/test_slice_tokens.py`; `tests/fixtures/stream_resume_after_cap_2.1.285.jsonl`.
 
 ### D11: Outcomes are classified from structured signals, and provider failures never count against a worker
 

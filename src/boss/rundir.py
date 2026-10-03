@@ -163,21 +163,36 @@ def denial_reasons(denials: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]
     return found[:MAX_DENIAL_REASONS]
 
 
-def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int) -> dict[str, Any]:
-    """Ledger fields for a finished slice. The CLI reports the session's cumulative cost, so the
-    slice's own spend is the difference from the total after the previous slice."""
-    total = run.usage.cost_micros
+def slice_end_fields(
+    run: SliceRun,
+    number: int,
+    task: str,
+    previous_total: int,
+    previous_tokens: tuple[int, int, int],
+) -> dict[str, Any]:
+    """Ledger fields for a finished slice. The CLI reports the session's cumulative cost and
+    tokens, so the slice's own are the difference from the totals after the previous slice. A
+    slice with no totals books the tokens of its own messages and reports no session tokens."""
+    total, usage = run.usage.cost_micros, run.usage
+    tokens = (usage.tokens_in, usage.tokens_out, usage.tokens_cached)
+    if usage.cumulative:
+        tokens_in, tokens_out, tokens_cached = (
+            max(0, now - before) for now, before in zip(tokens, previous_tokens, strict=True)
+        )
+    else:
+        tokens_in, tokens_out, tokens_cached = tokens
     return {
         "cost_micros": None if total is None else max(0, total - previous_total),
-        "tokens_in": run.usage.tokens_in,
-        "tokens_out": run.usage.tokens_out,
-        "tokens_cached": run.usage.tokens_cached,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "tokens_cached": tokens_cached,
         "data": {
             "slice": number,
             "task": task,
             "outcome": str(run.outcome),
             "status": clean_status(run.status),
             "session_total_micros": total,
+            "session_total_tokens": list(tokens) if usage.cumulative else None,
             "exit_code": run.exit_code,
             "denials": len(run.denials),
             "denied_tools": sorted({safe_text(str(d.get("tool")), limit=40) for d in run.denials}),

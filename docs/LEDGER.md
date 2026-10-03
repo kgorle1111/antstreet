@@ -266,7 +266,10 @@ Example:
 - Round: the current round
 - Written by `firm.py` when the CLI process ends, whatever the outcome.
 - Cost and tokens: this slice's own spend, the difference between the CLI's cumulative session
-  totals; `null` if unknown. Billing is `api` or `subscription`.
+  totals (never below zero); cost is `null` if unknown. A slice that got no totals (it was
+  killed, or the CLI zeroed them) books the input-side tokens of its own messages and no output
+  tokens; the next slice's difference includes its real spend. Billing is `api` or
+  `subscription`.
 - The benchmark's single arm writes it with `slice`, `outcome` and `status` only. `status` there
   is cleaned the same way.
 
@@ -277,6 +280,7 @@ Example:
 | `outcome` | str | How the run ended: `completed`, `capped`, `max_turns`, `refusal`, `timeout`, `crashed`, `login`, `rate_limited`, `usage_limit`, `api_error` or `session_lost` (the CLI no longer had the session to resume; the next attempt starts a new one). |
 | `status` | object or null | The worker's own report, cleaned: `status` (`done`, `continuing`, `blocked` or `none`) and `reason` (secrets masked, control characters shown as escapes, at most 500 characters). `null` if it gave none. A note, never a pass. |
 | `session_total_micros` | int or null | The CLI's cumulative cost for the session after this slice; `null` if unknown. |
+| `session_total_tokens` | list or null | The CLI's cumulative tokens for the session after this slice, as `[in, out, cached]`; `null` if the slice got no totals. The next slice of the session is booked against it. Ledgers from before this key carry none. |
 | `exit_code` | int or null | The CLI process's exit code. |
 | `denials` | int | How many tool calls the CLI refused. |
 | `denied_tools` | list | The distinct names of the refused tools, sorted. |
@@ -286,7 +290,7 @@ Example:
 Example:
 
 ```json
-{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
+{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "session_total_tokens": [10, 5, 0], "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
 ```
 
 ### `check_result`
