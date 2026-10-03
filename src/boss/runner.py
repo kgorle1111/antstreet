@@ -217,6 +217,9 @@ def _stop(proc: subprocess.Popen[str], grace_s: float) -> None:
             os.killpg(proc.pid, sig)
         except ProcessLookupError:
             return
+        except PermissionError:  # macOS: the leader already exited; its group cannot be signalled
+            proc.wait()
+            return
         try:
             proc.wait(timeout=grace_s)
             return

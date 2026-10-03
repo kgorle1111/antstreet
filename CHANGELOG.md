@@ -125,6 +125,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Changed
 
+- The test suite runs in parallel with the `pytest-xdist` dev dependency (see CONTRIBUTING.md), and
+  pull-request CI fully validates only the benchmark tasks the pull request changes.
 - A slice cap now leaves a fixed reserve (default $0.10) of the round unspent, instead of a 25%
   headroom, because a slice overshoots by one whole response.
 - A budget too small to fund one slice per round is refused before the boss is called.
@@ -154,6 +156,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- On macOS, stopping a worker that exits at that same moment no longer fails the slice with
+  "Operation not permitted".
 - A benchmark cell whose run ended on an infrastructure stop (usage limit, login, isolation) is
   excluded from every count even when its product passed; old results are read the same way (B71).
 - A benchmark cell cut off before its result is refused, naming the folder to move aside, instead

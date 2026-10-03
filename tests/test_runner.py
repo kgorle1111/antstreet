@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -10,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from boss.errors import Outcome
-from boss.runner import WorkspaceError, run_slice
+from boss.runner import WorkspaceError, _stop, run_slice
 from boss.worker import SCHEMA_TOOL, WORKER_TOOLS, IsolationError, SliceSpec
 
 INIT = {
@@ -224,3 +225,11 @@ def test_stopping_a_hung_slice_kills_it_and_its_children(fake):
 def test_an_unset_stop_event_changes_nothing(fake):
     run = fake("ok", stop=threading.Event())
     assert run.outcome is Outcome.COMPLETED
+
+
+def test_stopping_a_worker_that_already_exited_reaps_it_instead_of_raising():
+    # An exited, unreaped group leader is a zombie; macOS refuses killpg on its group with EPERM.
+    proc = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    time.sleep(1.0)  # let it exit; nothing reaps it until _stop does
+    _stop(proc, grace_s=1.0)
+    assert proc.returncode == 0
