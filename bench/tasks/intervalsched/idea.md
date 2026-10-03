@@ -21,7 +21,7 @@ intervals:
    for an empty list. `max_overlap([(1, 3), (3, 5)])` is 1, `max_overlap([(1, 4), (2, 5), (3, 6)])`
    is 3 and `max_overlap([(1, 5), (2, 3), (2, 3)])` is 3.
 4. Both functions check every interval in the list, including ones that would not be chosen or
-   counted. A `intervals` argument that is not a list or tuple raises `TypeError`. An item that is
+   counted. An `intervals` argument that is not a list or tuple raises `TypeError`. An item that is
    not a list or tuple of exactly two values raises `ValueError`. An end that is not an int or
    float (`bool` is not one, nor a string or `None`) raises `TypeError`. A pair with
    `start >= end` (an empty or backwards interval) raises `ValueError`. When one list has several
