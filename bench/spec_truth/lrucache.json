@@ -1,0 +1,69 @@
+{
+  "idea_sha256": "f03b7d423811b4fe294974a3602a1150fc0efda8c8d4f43b3b62d2be8c34ba86",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "basic": [
+      "R11",
+      "R16",
+      "R17",
+      "R18",
+      "R19"
+    ],
+    "contains_readonly": [
+      "R26",
+      "R27",
+      "R28"
+    ],
+    "eviction_expired_first": [
+      "R21",
+      "R22",
+      "R23"
+    ],
+    "expiry": [
+      "R12",
+      "R14",
+      "R15",
+      "R25"
+    ],
+    "recency": [
+      "R16",
+      "R21",
+      "R24"
+    ],
+    "rewrite_resets_expiry": [
+      "R13",
+      "R20"
+    ],
+    "validation": [
+      "R05",
+      "R06",
+      "R07",
+      "R08"
+    ]
+  },
+  "rules": {
+    "R05": "`capacity` below 1 raises `ValueError`.",
+    "R06": "A `ttl` that is given and not greater than 0 raises `ValueEr",
+    "R07": "`ttl=None` means entries never expire.",
+    "R08": "`clock` is a function taking no arguments that returns the c",
+    "R11": "An entry is written by `put`.",
+    "R12": "It is live while `clock() - written_at < ttl` and expired fr",
+    "R13": "Reading an entry with `get` or `in` does not extend its life",
+    "R14": "An expired entry is gone: `get` returns the default for it, ",
+    "R15": "Putting a key whose entry has expired inserts a new entry.",
+    "R16": "`get(key, default=None)` returns the value of a live entry a",
+    "R17": "For a missing or expired key it returns `default` and change",
+    "R18": "A stored `None` is a real value: `get` returns it, not `defa",
+    "R19": "`put(key, value)` inserts a new entry or replaces the value ",
+    "R20": "Either way the entry becomes the most recently used and its ",
+    "R21": "Inserting a new key when the cache already holds `capacity` ",
+    "R22": "Replacing the value of an existing live key never evicts any",
+    "R23": "After any `put`, `len(cache)` is at most `capacity`.",
+    "R24": "`keys()` returns a new list of the live keys ordered from le",
+    "R25": "`len(cache)` is the number of live entries.",
+    "R26": "`key in cache` is `True` exactly when the key has a live ent",
+    "R27": "It does not change recency.",
+    "R28": "Neither do `keys()` and `len()`."
+  }
+}

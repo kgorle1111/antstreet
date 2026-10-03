@@ -1,0 +1,60 @@
+{
+  "idea_sha256": "f818ee000bb959c47f60b83b0a5b87c6684805a78eb542b89e932797b34f3f1b",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "invalid_input": [
+      "R07"
+    ],
+    "merge_basic": [
+      "R05",
+      "R08",
+      "R10",
+      "R11",
+      "R12"
+    ],
+    "merge_empty": [
+      "R06",
+      "R09",
+      "R13"
+    ],
+    "merge_touching": [
+      "R10",
+      "R11"
+    ],
+    "no_mutation": [
+      "R20"
+    ],
+    "subtract_basic": [
+      "R14",
+      "R16"
+    ],
+    "subtract_edges": [
+      "R14",
+      "R15"
+    ],
+    "total_length": [
+      "R17",
+      "R18",
+      "R19"
+    ]
+  },
+  "rules": {
+    "R05": "Values may be negative or zero.",
+    "R06": "An interval with `start == end` is empty and covers nothing.",
+    "R07": "An interval with `start > end` is invalid: every function ra",
+    "R08": "`merge` returns a new list of `(start, end)` tuples covering",
+    "R09": "An empty input gives `[]`.",
+    "R10": "Overlapping intervals are merged, and so are touching ones: ",
+    "R11": "Intervals separated by a gap of at least one uncovered integ",
+    "R12": "The input of `merge` may be unsorted and may contain overlap",
+    "R13": "Empty intervals are dropped.",
+    "R14": "`subtract(a, b)` returns a new list in exactly the form of r",
+    "R15": "Both arguments may be unsorted, overlapping or contain empty",
+    "R16": "Example: `subtract([(0, 10)], [(3, 5)])` is `[(0, 3), (5, 10",
+    "R17": "`total_length(intervals)` returns how many integers are cove",
+    "R18": "An integer covered by several intervals is counted once.",
+    "R19": "An empty input gives 0.",
+    "R20": "No function mutates its arguments: the lists passed in keep "
+  }
+}
