@@ -21,7 +21,7 @@ than a single agent given the idea directly?
   The hash encoding was made unambiguous on 2026-09-30: the same 17 task files were
   `7a212cdcc5f4f466` before and are `c130282a6eec5fe8` after. Results recorded under the old
   value ran against identical files.
-- On 2026-10-02, 18 tasks were added: the set has 35 tasks, hash `767892a59e311ab5`. Every result
+- On 2026-10-02, 18 tasks were added, and on 2026-10-03 24 more: the set has 59 tasks, hash `0a83fc97a753b08c`. Every result
   recorded before then ran on the original 17, whose files and hash are unchanged.
 - `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
   make old and new results look like they ran against different tasks. A test pins the hash.

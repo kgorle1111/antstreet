@@ -26,13 +26,13 @@ def problems(task_dir) -> list[str]:
 
 # What the benchmark arms are scored against: the idea, hidden checks and reference of all 17
 # tasks. It must not move when mutants are added: results recorded under it stay comparable.
-SHIPPED_SET_HASH = "767892a59e311ab5"  # 35 tasks since 2026-10-02
+SHIPPED_SET_HASH = "0a83fc97a753b08c"  # 59 tasks since 2026-10-03
 ORIGINAL_SET_HASH = "c130282a6eec5fe8"  # the first 17, which every earlier result ran on
 
 
 def test_every_shipped_task_is_valid():
     tasks = load_tasks(TASKS)
-    assert len(tasks) == 35, "benchmark tasks are missing"
+    assert len(tasks) == 59, "benchmark tasks are missing"
     # Each validation is many short pytest processes; running four tasks at once keeps it quick.
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(validate_task, tasks))

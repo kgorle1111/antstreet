@@ -18,8 +18,8 @@ what changed for someone using the tool, not which commit did it.
 - Imported benchmark tasks, graded per test by an external suite: `python -m boss.bench.imported`.
 - The benchmark records the held-out checks the reference solution fails (`held_out_wrong`).
 - CI is set up to run the Linux (bwrap) gate sandbox with `BOSS_GATE_SANDBOX=require`.
-- 18 benchmark tasks (text, data structures, numbers and dates): 35 tasks, and
-  recall on 156 known-wrong solutions; earlier results stay on the original 17. Plus 8 multi-file tasks.
+- 42 benchmark tasks (text, data structures, numbers, dates, protocols, algorithms, stateful systems): 59 tasks,
+  and recall on 276 known-wrong solutions; earlier results stay on the original 17. Plus 8 multi-file tasks.
 - Type checking: `uv run mypy` (strict, over `src/boss`) runs locally and in CI after the format check.
 - `bench/calibration/`: 20 unlabelled cases each for the stories and usage rubrics, and `score.py` to
   label them; until you do and run `calibrate`, every judgement stays `uncalibrated`.
@@ -144,6 +144,10 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- A resumed worker slice books only its own tokens, not the session's running total (B63).
+- The ledger writer refuses a file whose last line was cut off and names `boss resume` (B64).
+- Round plans use the run's own reserve, so a Sonnet or Opus run never gets an unfundable round (B65).
+- The round-funding question includes top-ups made before the round opened (B66).
 - A replacement worker inherits the disputes its predecessor raised that you have not ruled on.
 - After a refused tool call, the worker's next brief gives the reason the CLI gave.
 - A session the CLI lost ("No conversation found") starts a new one instead of failing the worker.
