@@ -20,6 +20,11 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   A torn last line counts. `boss resume` calls `ledger.repair_torn_tail` before it reads the file:
   it cuts an incomplete last line (only when every earlier line is valid) and says what it removed.
   No other command repairs: `boss report` and `boss status` report a torn ledger as damaged.
+- `LedgerWriter` never appends to a cut-off last line, because the next line would be glued onto
+  it and the file could no longer be repaired. Opening a file whose last line has no newline and
+  does not parse as an event raises `LedgerCorruptError` naming `boss resume`, and changes nothing.
+  A last line that is a complete event and only lost its newline gets the newline, under the
+  writer's lock; the next `prev` is the same either way.
 - The version `v` must be the integer 1: `true` and `1.0` make the line corrupt. Adding `prev`
   (below) did not change the version: it is an optional key, a reader older than the chain refuses
   a line that has it (its fields differ from the schema), and a reader that knows the chain reads

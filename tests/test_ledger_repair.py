@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 import pytest
 
 from boss.ledger import (
@@ -115,10 +118,15 @@ def test_repair_leaves_an_intact_last_line_that_only_lost_its_newline(path):
 
 
 def test_repair_is_refused_while_a_writer_holds_the_file(path):
-    torn_file(path)
-    before = path.read_bytes()
-    with LedgerWriter(path), pytest.raises(LedgerLockedError):
-        repair_torn_tail(path)
+    # A writer cannot open a torn file, so the tear happens under it, as a hard kill of another
+    # process's append would leave it.
+    write_all(path, [ev(), ev(round=2)])
+    with LedgerWriter(path):
+        with path.open("ab") as fh:
+            fh.write(b'{"v": 1, "run": "r1", "rou')
+        before = path.read_bytes()
+        with pytest.raises(LedgerLockedError):
+            repair_torn_tail(path)
     assert path.read_bytes() == before
 
 
@@ -140,3 +148,48 @@ def test_a_writer_is_refused_while_repair_holds_the_file(path, monkeypatch):
     monkeypatch.undo()
     with LedgerWriter(path) as w:  # the lock is released afterwards
         w.append(ev(round=9))
+
+
+# A writer never appends to a cut-off line: the next line would be glued on, and then the file is
+# corrupt in a way `repair_torn_tail` cannot fix.
+
+
+@pytest.mark.parametrize("cut", [1, 20, 90])
+def test_a_writer_refuses_a_file_whose_last_line_is_cut_off_and_names_the_repair(path, cut):
+    torn_file(path, cut=cut)
+    before = path.read_bytes()
+    with pytest.raises(LedgerCorruptError, match=r"boss resume"), LedgerWriter(path):
+        pass
+    assert path.read_bytes() == before
+
+
+def test_a_writer_refuses_a_tear_inside_a_multibyte_character_and_a_lone_fragment(path):
+    path.parent.mkdir(parents=True)
+    for torn in (b'{"v": 1, "note": "' + "é".encode()[:1], b"garbage"):
+        path.write_bytes(torn)
+        with pytest.raises(LedgerCorruptError, match=r"boss resume"), LedgerWriter(path):
+            pass
+        assert path.read_bytes() == torn
+
+
+def test_a_refused_writer_leaves_the_file_unlocked_and_resume_then_lets_it_append(path):
+    complete, _ = torn_file(path)
+    with pytest.raises(LedgerCorruptError), LedgerWriter(path):
+        pass
+    assert repair_torn_tail(path) is not None  # not LedgerLockedError: the refusal let go
+    with LedgerWriter(path) as w:
+        w.append(ev(round=9))
+    events = read_events(path)  # the chain holds across the cut
+    assert [e.round for e in events] == [1, 2, 9]
+
+
+def test_a_complete_last_line_that_only_lost_its_newline_is_ended_and_chained_not_refused(path):
+    write_all(path, [ev(), ev(round=2)])
+    path.write_bytes(path.read_bytes().rstrip(b"\n"))
+    last = path.read_bytes().rsplit(b"\n", 1)[-1]
+    with LedgerWriter(path) as w:
+        w.append(ev(round=3))
+    lines = path.read_bytes().split(b"\n")
+    assert lines[1] == last and len(lines) == 4  # a newline now ends every line
+    assert json.loads(lines[2])["prev"] == hashlib.sha256(last).hexdigest()
+    assert [e.round for e in read_events(path)] == [1, 2, 3]  # read_events checks the chain

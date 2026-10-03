@@ -154,14 +154,35 @@ def _sha256(line: bytes) -> str:
 def _last_line_hash(path: Path) -> str:
     """What the next line's `prev` must be: the hash of the file's last line, without its newline.
 
-    Reads the whole file once per open. A cut-off last line (no newline) is hashed as it is: a
-    line appended to it is glued on and the file is corrupt either way, which `read_events`
-    reports; `repair_torn_tail` has to run before a writer opens.
+    Reads the whole file once per open.
     """
     data = Path(path).read_bytes()
     if not data:
         return GENESIS
     return _sha256(data.removesuffix(b"\n").rsplit(b"\n", 1)[-1])
+
+
+def _end_last_line(fh: IO[str], path: Path) -> None:
+    """Make a file whose last line has no newline safe to append to, or refuse it.
+
+    A complete event that only lost its newline gets one: nothing is lost, and its hash (what the
+    next `prev` is) does not include the newline. A cut-off fragment is refused: a line appended
+    to it is glued on and the file can no longer be repaired, and cutting it is `boss resume`'s
+    decision (`repair_torn_tail`), which tells the investor what it removed.
+    """
+    data = path.read_bytes()
+    if not data or data.endswith(b"\n"):
+        return
+    try:
+        Event.from_json(data[data.rfind(b"\n") + 1 :].decode("utf-8"))
+    except (ValueError, TypeError):
+        raise LedgerCorruptError(
+            f"{path}: the last line is cut off, so nothing can be appended to it; "
+            "`boss resume` repairs it"
+        ) from None
+    fh.write("\n")
+    fh.flush()
+    os.fsync(fh.fileno())
 
 
 class LedgerWriter:
@@ -181,8 +202,9 @@ class LedgerWriter:
         except BlockingIOError:
             fh.close()
             raise LedgerLockedError(f"{self.path} is held by another writer") from None
-        try:
-            self._prev = _last_line_hash(self.path)  # under the lock: nobody appends meanwhile
+        try:  # under the lock: nobody appends meanwhile
+            _end_last_line(fh, self.path)
+            self._prev = _last_line_hash(self.path)
         except BaseException:
             fcntl.flock(fh, fcntl.LOCK_UN)
             fh.close()

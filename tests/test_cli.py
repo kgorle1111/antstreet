@@ -484,10 +484,10 @@ def test_resume_while_another_process_writes_the_run_is_refused_and_changes_noth
     wrong_product(boss)
     boss("fund", "Reverse a string.", "--budget", "0.50", "--max-slices", "1")
     ledger = boss.runs()[0] / "ledger.jsonl"
-    with ledger.open("a") as fh:
-        fh.write('{"actor": "boss", "event": "hir')  # a torn tail the repair would cut
-    before = ledger.read_bytes()
     with LedgerWriter(ledger):  # the other process, still running
+        with ledger.open("a") as fh:  # its append cut short: a torn tail the repair would cut
+            fh.write('{"actor": "boss", "event": "hir')
+        before = ledger.read_bytes()
         code, output = boss("resume")
     assert code == EXIT_FAILED
     assert "still being written by another `boss` process" in output
@@ -644,10 +644,10 @@ def test_topup_of_a_run_without_a_usable_term_sheet_writes_nothing(boss):
 def test_topup_while_another_process_writes_the_run_is_refused_and_changes_nothing(boss):
     locked_run(boss)
     ledger = boss.runs()[0] / "ledger.jsonl"
-    with ledger.open("a") as fh:
-        fh.write('{"actor": "boss", "event": "hir')  # a torn tail the repair would cut
-    before = ledger.read_bytes()
     with LedgerWriter(ledger):  # the other process, still running
+        with ledger.open("a") as fh:  # its append cut short: a torn tail the repair would cut
+            fh.write('{"actor": "boss", "event": "hir')
+        before = ledger.read_bytes()
         code, output = boss("topup", "--round", "1", "--amount", "0.20")
     assert code == EXIT_FAILED
     assert "still being written by another `boss` process" in output and "top up" in output
