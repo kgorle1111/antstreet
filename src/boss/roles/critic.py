@@ -284,7 +284,12 @@ def _shape(n: int, item: object, idea: str) -> tuple[Finding | None, str | None]
     severity, claim, quote, code = (
         item.get(k) for k in ("severity", "claim", "quote", "test_code")
     )
-    if not all(isinstance(v, str) for v in (severity, claim, quote, code)):
+    if not (
+        isinstance(severity, str)
+        and isinstance(claim, str)
+        and isinstance(quote, str)
+        and isinstance(code, str)
+    ):
         return None, "malformed: severity, claim, quote and test_code must all be text"
     if severity not in SEVERITIES:
         return None, f"malformed: severity must be one of {', '.join(SEVERITIES)}"
@@ -308,11 +313,7 @@ def _test_problem(
     the product, and to being new. A test that fails a guard is deleted again, so the folder holds
     exactly what the gate will run."""
     target = checks_dir / finding.file
-    try:
-        payload = finding.test_code.encode("utf-8")
-    except UnicodeEncodeError:  # a lone surrogate, which JSON can carry
-        return "the test is not valid UTF-8 text"
-    target.write_bytes(payload)
+    target.write_bytes(finding.test_code.encode("utf-8"))  # StreamReader removed lone surrogates
     problems = check_file_problems(CheckSpec(finding.id, "", finding.file, "critic"), checks_dir)
     if problems:
         why = "; ".join(problems)

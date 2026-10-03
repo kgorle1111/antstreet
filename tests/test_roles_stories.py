@@ -261,6 +261,15 @@ def test_a_quote_may_elide_text_when_every_piece_is_word_for_word_and_in_order()
     assert not is_fragment("...", MARKDOWN_IDEA) and quote_pieces(" ... ") == []
 
 
+def test_a_word_for_word_quote_of_an_idea_holding_a_literal_ellipsis_is_a_fragment():
+    # Found in a benchmark run: the wildcard idea says "`[...]` is a set." and a role quoted it
+    # exactly; split on the "..." it became "[" and "] is a set.", and "[" is too short.
+    idea = "`*` matches any run. `[...]` is a set. `?` matches one character."
+    assert is_fragment("`[...]` is a set.", idea, min_chars=8)
+    assert not is_fragment("`[...]` is a list.", idea, min_chars=8)  # still word for word
+    assert not is_fragment("[...]", idea, min_chars=8)  # still long enough to mean something
+
+
 def test_the_story_gate_accepts_those_quotes_and_still_refuses_an_invented_one():
     data = changed(["stories", 0, "criteria", 0, "source"], "join words with SINGLE hyphens")
     assert problems(data) == []

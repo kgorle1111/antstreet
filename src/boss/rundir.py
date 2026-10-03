@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -12,6 +14,7 @@ from boss.handoff import SKIPPED_NAMES
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import safe_text
 from boss.runner import SliceRun
+from boss.signing import KEY_FILE
 from boss.state import RunState
 from boss.termsheet import TermSheet
 from boss.worker import clean_status
@@ -22,12 +25,29 @@ class RunPaths:
     root: Path
 
     @property
+    def investor_key(self) -> Path | None:
+        """The project's investor key when this folder is `<project>/.boss/runs/<id>`, else None
+        (a folder laid out any other way, such as a test's, has no project to hold one)."""
+        runs = self.root.parent
+        if runs.name != "runs" or runs.parent.name != ".boss":
+            return None
+        return runs.parent / KEY_FILE
+
+    @property
     def ledger(self) -> Path:
         return self.root / "ledger.jsonl"
 
     @property
     def checks(self) -> Path:
         return self.root / "checks"
+
+    @property
+    def held_out(self) -> Path:
+        return self.root / "held_out"
+
+    @property
+    def examiner_refused(self) -> Path:
+        return self.root / "examiner_refused.json"
 
     @property
     def product(self) -> Path:
@@ -119,6 +139,30 @@ def assemble_product(paths: RunPaths, sheet: TermSheet, state: RunState) -> list
     return skipped
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s")
+MAX_DENIAL_REASONS = 5
+MAX_DENIAL_REASON_CHARS = 160
+
+
+def denial_reasons(denials: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """One cleaned, short reason per distinct refused call, for the next brief: the first
+    sentence of the CLI's message about it. A call the CLI gave no message for has none."""
+    found: list[dict[str, str]] = []
+    for denial in denials:
+        message = denial.get("message")
+        if not isinstance(message, str):
+            continue
+        # Bounded before the split: the message is the CLI's text about a worker's call.
+        sentence = _SENTENCE_END.split(" ".join(message[:2_000].split()), maxsplit=1)[0]
+        reason = {
+            "tool": safe_text(str(denial.get("tool")), limit=40),
+            "reason": safe_text(sentence, limit=MAX_DENIAL_REASON_CHARS),
+        }
+        if reason["reason"] and reason not in found:
+            found.append(reason)
+    return found[:MAX_DENIAL_REASONS]
+
+
 def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int) -> dict[str, Any]:
     """Ledger fields for a finished slice. The CLI reports the session's cumulative cost, so the
     slice's own spend is the difference from the total after the previous slice."""
@@ -137,6 +181,7 @@ def slice_end_fields(run: SliceRun, number: int, task: str, previous_total: int)
             "exit_code": run.exit_code,
             "denials": len(run.denials),
             "denied_tools": sorted({safe_text(str(d.get("tool")), limit=40) for d in run.denials}),
+            "denial_reasons": denial_reasons(run.denials),
             "log": str(run.log_path),
         },
     }

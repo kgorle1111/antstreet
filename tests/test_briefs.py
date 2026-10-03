@@ -2,9 +2,24 @@
 these tests pin what is in it, in what order, and that nothing in it can pose as something else."""
 
 import uuid
+from pathlib import Path
 
-from boss.briefs import FEEDBACK_TAIL_CHARS, continuation_prompt, task_prompt
+from boss.briefs import (
+    FEEDBACK_TAIL_CHARS,
+    continuation_prompt,
+    predecessor_disputes_note,
+    task_prompt,
+)
+from boss.errors import Outcome
 from boss.gate import CheckResult, CheckStatus
+from boss.rundir import (
+    MAX_DENIAL_REASON_CHARS,
+    MAX_DENIAL_REASONS,
+    denial_reasons,
+    slice_end_fields,
+)
+from boss.runner import SliceRun
+from boss.stream import StreamReader, Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
 from boss.worker import SliceSpec
 
@@ -125,12 +140,80 @@ def test_continuation_tells_a_worker_why_its_tool_calls_were_refused_and_what_to
     prompt = continuation_prompt(
         [result("c01")], denied_tools=["Read", "Write"], example_path="a.py"
     )
-    assert (
-        "your Read, Write calls were refused because they named a path outside your folder"
-        in prompt
-    )
-    assert "Nothing is wrong with your permissions" in prompt and "for example `a.py`" in prompt
+    # No reason on record (an older ledger, or a CLI that gave none): it says no more than it knows.
+    assert "your Read, Write calls were refused." in prompt
+    assert "outside your folder" not in prompt
+    assert "Read, Write and Edit work on files inside your current folder" in prompt
+    assert "for example `a.py`" in prompt
     assert "refused" not in continuation_prompt([result("c01")])
+
+
+def test_continuation_names_the_reason_for_each_refused_call():
+    reasons = [
+        {"tool": "Bash", "reason": "Permission to use Bash has been denied."},
+        {"tool": "Write", "reason": "Permission to use Write has been denied."},
+    ]
+    prompt = continuation_prompt(
+        [result("c01")], denied_tools=["Bash", "Write"], denial_reasons=reasons
+    )
+    assert '- Bash: "Permission to use Bash has been denied."' in prompt
+    assert '- Write: "Permission to use Write has been denied."' in prompt
+    assert "outside your folder" not in prompt  # the reason is the CLI's, not an assumption
+    # Reasons only matter when a call was refused.
+    assert "refused" not in continuation_prompt([result("c01")], denial_reasons=reasons)
+
+
+def test_the_recorded_refusals_give_a_short_clean_reason_for_each_call():
+    reader = StreamReader()
+    fixture = Path(__file__).parent / "fixtures" / "stream_permission_denials_2.1.285.jsonl"
+    for line in fixture.read_text().splitlines():
+        reader.feed(line)
+    run = SliceRun(
+        Outcome.COMPLETED, Usage(1, 0, 0, 0), None, None, 0, 0.1, Path("x"), denials=reader.denials
+    )
+    data = slice_end_fields(run, 1, "t1", 0)["data"]
+    # Recorded with CLI 2.1.285: both refusals carry the same long message; only its first
+    # sentence is kept, once per tool.
+    assert data["denial_reasons"] == [
+        {
+            "tool": "Write",
+            "reason": "Permission to use Write has been denied because Claude Code is running in "
+            "don't ask mode.",
+        },
+        {
+            "tool": "Read",
+            "reason": "Permission to use Read has been denied because Claude Code is running in "
+            "don't ask mode.",
+        },
+    ]
+    assert data["denied_tools"] == ["Read", "Write"]
+    prompt = continuation_prompt(
+        [result("c01")], denied_tools=data["denied_tools"], denial_reasons=data["denial_reasons"]
+    )
+    assert '- Read: "Permission to use Read has been denied because' in prompt
+    assert "IMPORTANT" not in prompt  # the rest of the CLI's message is not passed on
+
+
+def test_a_refusal_reason_is_bounded_masked_distinct_and_never_trusted_for_its_type():
+    secret = "sk-ant-" + "a" * 40
+    denials = [
+        {"tool": "Bash", "message": f"Denied {secret}. Second sentence."},
+        {"tool": "Bash", "message": f"Denied {secret}. Different tail."},  # same first sentence
+        {"tool": "Edit", "message": "x" * 5_000},
+        {"tool": "Write", "message": "Line one\nstill one.\x1b[31m Next."},
+        {"tool": "Read", "message": 7},  # not text: no reason
+        {"tool": "Read"},  # no message at all
+        {"tool": "Glob", "message": "   "},
+    ]
+    found = denial_reasons(denials)
+    assert [r["tool"] for r in found] == ["Bash", "Edit", "Write"]
+    assert secret not in str(found) and "\x1b" not in str(found)
+    assert found[0]["reason"] == "Denied [REDACTED]."
+    assert len(found[1]["reason"]) <= MAX_DENIAL_REASON_CHARS
+    assert found[1]["reason"].endswith(" [cut]")
+    assert found[2]["reason"] == "Line one still one.\\x1b[31m Next."  # one line, ESC made visible
+    many = [{"tool": f"T{i}", "message": f"Reason {i}."} for i in range(MAX_DENIAL_REASONS + 3)]
+    assert len(denial_reasons(many)) == MAX_DENIAL_REASONS
 
 
 def test_a_note_about_added_checks_shows_their_code_and_only_theirs(tmp_path):
@@ -144,3 +227,12 @@ def test_a_note_about_added_checks_shows_their_code_and_only_theirs(tmp_path):
     assert "REVERSE_MARKER" not in note
     assert check_sections(s, {"c01", "c02"}, directory)[0].startswith("--- check c01")
     assert check_sections(s, set(), directory) == []
+
+
+def test_a_predecessors_disputes_are_quoted_as_unverified_claims_not_instructions():
+    secret = "sk-ant-" + "a" * 40
+    note = predecessor_disputes_note({"c05": 'says "WRONG" is wrong', "c06": f"key {secret}"})
+    assert note.startswith("Your predecessor disputed these checks as wrong.")
+    assert "not verified" in note and "has not ruled" in note
+    assert '- c05: "says "WRONG" is wrong"' in note
+    assert secret not in note

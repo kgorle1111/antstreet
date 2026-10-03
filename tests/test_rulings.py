@@ -118,3 +118,27 @@ def test_notes_for_the_worker_cover_only_its_task_after_its_last_slice_and_only_
         "The investor answered your block: use slicing",
     ]
     assert notes_since(events, "t1", len(events)) == []
+
+
+def test_a_ruling_on_a_dispute_another_worker_raised_is_worded_as_its_predecessors():
+    raised = Event(
+        run="r",
+        round=1,
+        actor="worker:w1",
+        event=EventType.DISPUTED,
+        data={"task": "t1", "worker": "w1", "check": "c05", "reason": "the idea says otherwise"},
+    )
+    events = [
+        raised,
+        ruling(KEPT, check="c05"),
+        ruling(UNBLOCKED, check=None, note="use slicing"),
+        ruling(DROPPED, check="c06"),
+    ]
+    assert notes_since(events, "t1", 0, "w2") == [
+        "The investor ruled on the dispute your predecessor raised "
+        '(its reason: "the idea says otherwise"): check c05 stands. Make it pass.',
+        "The investor answered your predecessor's block: use slicing",
+        "The investor dropped check c06. It is no longer required.",
+    ]
+    assert notes_since(events, "t1", 0, "w1")[0].startswith("The investor ruled on your dispute")
+    assert notes_since(events, "t1", 0)[1] == "The investor answered your block: use slicing"

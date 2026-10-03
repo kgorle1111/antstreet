@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 MASK = "[REDACTED]"
 _MIN_KNOWN_SECRET_LEN = 8  # shorter values would mask ordinary words
@@ -28,24 +28,51 @@ _KEY_END = re.compile(r"^-----END [A-Z ]*PRIVATE KEY-----", re.M)
 _KEY_LINE = re.compile(r"[A-Za-z0-9+/=]+\r?")
 _SAFE_TEXT_LOOKAHEAD = 4_096  # longer than any single-line secret shape
 
-_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+_VOWELS = frozenset("aeiouAEIOU")
+_BARE_SK = re.compile(r"sk-[A-Za-z0-9_-]{20,}")
+# A number under a name that counts tokens (max_tokens, tokens_used) is a budget, not a
+# credential; a bare TOKEN=123456789 is not exempt.
+_COUNT_NAME = re.compile(
+    r"(?i)tokens|max_?token|token_?(?:count|limit|budget|usage|len|length|ttl|total)"
+)
+_NUMBER = re.compile(r"[0-9][0-9_,]*")
+
+
+def _mask_bare_sk(m: re.Match[str]) -> str:
+    """Mask a vendor-less `sk-` key, but not a word that merely ends in "sk" ("task-", "disk-").
+
+    A bare body is told from a word by its shape. Real keys are random, so a body with a digit,
+    an upper-case and a lower-case letter is masked wherever it sits, even with - or _ in it.
+    Otherwise only a hyphen-free body counts, and not when a vowel precedes the `sk`: "sk" after
+    a vowel closes an English word (ask, task, disk, desk, risk, mask).
+    """
+    body = m.group()[3:]
+    if all(re.search(c, body) for c in ("[0-9]", "[A-Z]", "[a-z]")):
+        return MASK
+    glued_to_word = m.start() > 0 and m.string[m.start() - 1] in _VOWELS
+    return m.group() if glued_to_word or "-" in body or "_" in body else MASK
+
+
+def _mask_assignment(m: re.Match[str]) -> str:
+    key, sep, quote, value = m.groups()
+    if _NUMBER.fullmatch(value) and _COUNT_NAME.search(key):
+        return m.group()
+    return f"{key}{sep}{quote}{MASK}{quote}"
+
+
+_PATTERNS: tuple[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]], ...] = (
     # No leading \b on the prefixed shapes: gate output is cut mid-line, so a key can be glued to
-    # the text before it. Bare `sk-` is too common inside words ("task-runner-...") to match there
-    # unless the body is hyphen-free, so hyphenated bodies still need a word boundary.
-    (
-        re.compile(
-            r"sk-(?:ant|proj|svcacct|admin)-[A-Za-z0-9_-]{20,}"  # Anthropic / OpenAI-style keys
-            r"|(?<!\w)sk-[A-Za-z0-9_-]{20,}"
-            r"|sk-[A-Za-z0-9]{20,}"
-        ),
-        MASK,
-    ),
+    # the text before it.
+    (re.compile(r"sk-(?:ant|proj|svcacct|admin|or-v1|None)-[A-Za-z0-9_-]{20,}"), MASK),
+    (_BARE_SK, _mask_bare_sk),
     (re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})"), MASK),
     (re.compile(r"AKIA[0-9A-Z]{16}"), MASK),  # AWS access key id
     (re.compile(r"xox[abprs]-[A-Za-z0-9-]{10,}"), MASK),  # Slack
     (re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"), MASK),  # JWT
     (re.compile(r"(?i)(bearer|basic)\s+[A-Za-z0-9._~+/=-]{16,}"), rf"\1 {MASK}"),
-    (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://)[^\s/:@]+:[^\s/@]+@"), rf"\1{MASK}@"),  # URL creds
+    # The scheme is length-capped: unbounded, a long run of scheme characters is retried from every
+    # word boundary inside it (24 s on 120 KB of "ab-").
+    (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]{0,63}://)[^\s/:@]+:[^\s/@]+@"), rf"\1{MASK}@"),
     (  # a quoted key, as in JSON: "password": "value"
         re.compile(
             r"(?i)(['\"])([A-Z0-9_]*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*)\1"
@@ -56,9 +83,9 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
             r"(?i)\b([A-Z0-9_]*(?:API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Z0-9_]*)"
-            r"(\s*[=:]\s*)(['\"]?)[^\s'\"]{6,}\3"
+            r"(\s*[=:]\s*)(['\"]?)([^\s'\"]{6,})\3"
         ),
-        rf"\1\2\3{MASK}\3",
+        _mask_assignment,
     ),
 )
 

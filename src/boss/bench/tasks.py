@@ -13,6 +13,16 @@ Validation runs the gate on an empty workspace, the reference and every mutant: 
 must fail on the empty one and pass on the reference, and every mutant must import and fail at
 least one hidden check. A benchmark whose checks cannot pass, or pass for free, measures nothing;
 a mutant that passes every hidden check is not wrong.
+
+An imported task (`meta.json` has an `imported` key) comes from an external benchmark and is graded
+by that benchmark's own test suite instead:
+
+    <id>/idea.md     the external spec, shown to both arms
+    <id>/hidden/     the whole pytest tree, subfolders and data files included; never shown
+    <id>/support/    optional harness-owned files laid over the product root while grading
+
+It has no reference and no mutants. Its tests are copied into a copy of the product at
+`imported.test_path` and graded one by one (`grade_imported`).
 """
 
 from __future__ import annotations
@@ -26,9 +36,9 @@ import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from boss.gate import Check, run_gate
+from boss.gate import Check, run_gate, run_tree
 from boss.termsheet import CheckSpec, check_file_problems
 
 MIN_HIDDEN_CHECKS = 5
@@ -39,6 +49,8 @@ DIFFICULTIES = ("easy", "medium", "hard")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}\Z")
 _MUTANT_RE = re.compile(r"^[a-z0-9][a-z0-9_]{1,60}\Z")
 _META_KEYS = {"id", "title", "difficulty"}
+_IMPORTED_KEYS = {"source", "test_path", "test_count"}
+IMPORTED_SOURCES = ("nl2repo",)
 
 
 class TaskError(Exception):
@@ -48,11 +60,19 @@ class TaskError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class ImportedMeta:
+    source: str  # one of IMPORTED_SOURCES
+    test_path: str  # where the hidden tree goes inside the product, e.g. "tests"
+    test_count: int  # tests the external suite has; a shortfall in a run counts as failed
+
+
+@dataclass(frozen=True, slots=True)
 class BenchTask:
     id: str
     title: str
     difficulty: str
     root: Path
+    imported: ImportedMeta | None = None
 
     @property
     def idea(self) -> str:
@@ -60,7 +80,11 @@ class BenchTask:
 
     @property
     def hidden_dir(self) -> Path:
-        return self.root / "hidden_checks"
+        return self.root / ("hidden" if self.imported else "hidden_checks")
+
+    @property
+    def support_dir(self) -> Path:
+        return self.root / "support"
 
     @property
     def reference_dir(self) -> Path:
@@ -79,6 +103,8 @@ class BenchTask:
         )
 
     def hidden_checks(self) -> list[Check]:
+        if self.imported:  # one pytest tree, graded per test by `grade_imported`, not per file
+            return []
         files = sorted(p.name for p in self.hidden_dir.glob("test_*.py"))
         return [Check(name.removesuffix(".py").removeprefix("test_"), name) for name in files]
 
@@ -88,11 +114,23 @@ def load_task(root: Path) -> BenchTask:
         meta = json.loads((root / "meta.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise TaskError(root.name, [f"meta.json unreadable: {exc}"]) from exc
-    if not isinstance(meta, dict) or set(meta) != _META_KEYS:
+    if not isinstance(meta, dict) or not _META_KEYS <= set(meta) <= _META_KEYS | {"imported"}:
         raise TaskError(root.name, [f"meta.json must have exactly the keys {sorted(_META_KEYS)}"])
     if not all(isinstance(meta[k], str) for k in _META_KEYS):
         raise TaskError(root.name, ["meta.json values must be strings"])
-    return BenchTask(meta["id"], meta["title"], meta["difficulty"], root)
+    imported = _load_imported(root.name, meta["imported"]) if "imported" in meta else None
+    return BenchTask(meta["id"], meta["title"], meta["difficulty"], root, imported)
+
+
+def _load_imported(task: str, raw: object) -> ImportedMeta:
+    if not isinstance(raw, dict) or set(raw) != _IMPORTED_KEYS:
+        raise TaskError(task, [f"meta.json imported must have exactly {sorted(_IMPORTED_KEYS)}"])
+    count = raw["test_count"]
+    if type(count) is not int or count < 1:
+        raise TaskError(task, ["imported.test_count must be a whole number of at least 1"])
+    if not all(isinstance(raw[k], str) for k in ("source", "test_path")):
+        raise TaskError(task, ["imported.source and imported.test_path must be strings"])
+    return ImportedMeta(raw["source"], raw["test_path"], count)
 
 
 def load_tasks(tasks_dir: Path) -> list[BenchTask]:
@@ -118,6 +156,8 @@ def structural_problems(task: BenchTask) -> list[str]:
         return [*p, "idea.md is missing or empty"]
     if task.idea.startswith("-"):
         p.append("idea.md must not start with '-'")
+    if task.imported:  # an external spec may embed code; both arms see it equally
+        return p + _imported_problems(task, task.imported)
     if "def test_" in task.idea:
         p.append("idea.md contains test code; hidden checks must stay hidden")
     checks = task.hidden_checks()
@@ -187,6 +227,8 @@ def _imported_modules(tree: ast.Module) -> set[str]:
 
 
 def gate_problems(task: BenchTask) -> list[str]:
+    if task.imported:
+        return _imported_gate_problems(task, task.imported)
     checks = task.hidden_checks()
     with tempfile.TemporaryDirectory(prefix="boss_bench_empty_") as empty:
         on_empty = run_gate(Path(empty), task.hidden_dir, checks, timeout_s=30.0)
@@ -246,6 +288,120 @@ def _import_problem(mutant: Path, modules: list[str]) -> str | None:
     if done.returncode == 0:
         return None
     return (done.stderr.strip().splitlines() or [f"exit {done.returncode}"])[-1]
+
+
+# Third-party test imports the gate's interpreter lacks, and the module that stands in for each.
+# Written into `support/` by the converter; a missing one makes every test that imports it fail.
+SHIMS = {"mock": "from unittest.mock import *  # noqa: F403  (the backport is the stdlib module)\n"}
+
+
+def _imported_problems(task: BenchTask, meta: ImportedMeta) -> list[str]:
+    p: list[str] = []
+    if meta.source not in IMPORTED_SOURCES:
+        p.append(f"imported.source must be one of {IMPORTED_SOURCES}")
+    rel = PurePosixPath(meta.test_path)
+    if rel.is_absolute() or ".." in rel.parts or rel.parts in ((), (".",)):
+        p.append("imported.test_path must be a relative path inside the product")
+    if not task.hidden_dir.is_dir():
+        return [*p, "hidden/ must hold the pytest tree"]
+    p += [
+        f"{f.relative_to(task.root)} is a symlink; the tree must be plain files"
+        for tree in (task.hidden_dir, task.support_dir)
+        for f in sorted(tree.rglob("*"))
+        if f.is_symlink()
+    ]
+    for source in sorted(task.hidden_dir.rglob("*.py")):
+        try:
+            ast.parse(source.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            p.append(f"hidden/{source.relative_to(task.hidden_dir)} does not parse: {exc}")
+    if p:
+        return p
+    counted = _static_test_count(task.hidden_dir)
+    if counted is not None and counted != meta.test_count:
+        p.append(f"hidden/ defines {counted} tests but imported.test_count says {meta.test_count}")
+    return p
+
+
+def _test_files(tree: Path) -> list[str]:
+    """Paths (posix, relative to the tree) of the files pytest collects tests from."""
+    found = (p for p in tree.rglob("*.py") if "__pycache__" not in p.parts)
+    return sorted(
+        p.relative_to(tree).as_posix()
+        for p in found
+        if p.name.startswith("test_") or p.name.endswith("_test.py")
+    )
+
+
+def _static_test_count(tree: Path) -> int | None:
+    """Tests the tree defines, read from the source; None when a parametrize is not a literal list
+    (the count then needs a run, and a run needs the product)."""
+    total = 0
+    for name in _test_files(tree):
+        for node in ast.parse((tree / name).read_text(encoding="utf-8")).body:
+            in_class = isinstance(node, ast.ClassDef) and node.name.startswith("Test")
+            for fn in node.body if isinstance(node, ast.ClassDef) and in_class else [node]:
+                if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and fn.name.startswith(
+                    "test"
+                ):
+                    cases = _cases(fn)
+                    if cases is None:
+                        return None
+                    total += cases
+    return total
+
+
+def _cases(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> int | None:
+    n = 1
+    for deco in fn.decorator_list:
+        if isinstance(deco, ast.Call) and getattr(deco.func, "attr", "") == "parametrize":
+            values = deco.args[1] if len(deco.args) > 1 else None
+            if not isinstance(values, ast.List | ast.Tuple):
+                return None
+            n *= len(values.elts)
+    return n
+
+
+def _imported_gate_problems(task: BenchTask, meta: ImportedMeta) -> list[str]:
+    """An empty product must pass nothing, and the suite must have run at all: a sandbox or an
+    import the gate lacks that kills every test would otherwise look like a hard task."""
+    support = task.support_dir if task.support_dir.is_dir() else None
+    with tempfile.TemporaryDirectory(prefix="boss_bench_empty_") as empty:
+        got = run_tree(Path(empty), task.hidden_dir, meta.test_path, support=support)
+    if not got.tests:
+        return [f"hidden tree produced no results on an empty product ({got.detail})"]
+    seen = {node.split("::")[0] for node in got.tests}
+    problems = [
+        f"hidden/{path} was not collected on an empty product"
+        for path in _test_files(task.hidden_dir)
+        if f"{meta.test_path}/{path}" not in seen
+    ]
+    if passing := sum(s == "passed" for s in got.tests.values()):
+        problems.append(f"{passing} hidden tests pass on an empty product")
+    problems += [
+        f"hidden tests import {m!r}, which the gate lacks; support/{m}.py must stand in for it"
+        for m in got.missing_modules
+        if m in SHIMS
+    ]
+    return problems
+
+
+def grade_imported(task: BenchTask, workspace: Path) -> dict[str, str]:
+    """Node id -> status of every hidden test on this product, always `test_count` entries or more.
+
+    A test that never ran (collection error, timeout, a missing product) is a failure, so the pass
+    fraction is over the suite and not over whatever happened to get collected.
+    """
+    meta = task.imported
+    assert meta is not None  # callers branch on task.imported
+    support = task.support_dir if task.support_dir.is_dir() else None
+    seen: dict[str, str] = {}
+    if workspace.is_dir():
+        run = run_tree(workspace, task.hidden_dir, meta.test_path, support=support)
+        seen = {node: str(status) for node, status in run.tests.items()}
+    for i in range(1, meta.test_count - len(seen) + 1):
+        seen[f"(not run {i})"] = "failed"
+    return seen
 
 
 def task_set_hash(tasks: list[BenchTask]) -> str:

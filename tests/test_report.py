@@ -148,3 +148,73 @@ def test_disputed_checks_get_their_own_section_for_the_investor():
     assert "Disputed checks (yours to rule on; a disputed check never counts as passing)" in text
     assert '  c01 by w1: "idea says X"' in text
     assert "Disputed checks" not in render_report(build_report(EVENTS))
+
+
+def role_call(role, outcome="completed", result="ok", cost=4_000, detail="", **data) -> Event:
+    data = {"role": role, "outcome": outcome, "result": result, "detail": detail, **data}
+    return ev(f"role:{role}", EventType.ROLE_CALL, round=0, cost_micros=cost, data=data)
+
+
+ROLE_EVENTS = [
+    role_call("product_manager", detail="2 stories, 3 criteria"),
+    role_call("system_designer", result="unused", detail="not used: the staged draft failed"),
+    role_call("tester", outcome="api_error", result="failed", cost=2_000, detail="boom"),
+    role_call("demo_writer", outcome="not_called", result="failed", cost=0),
+    role_call("critic", cost=None, detail="1 verified, 0 rejected"),
+]
+
+
+def test_every_role_call_is_one_line_in_a_roles_section_in_ledger_order():
+    lines = render_report(build_report([*EVENTS, *ROLE_EVENTS])).split("\n")
+    at = lines.index("Roles (each call, in order; their spend is in the lines above)")
+    assert lines[at + 1 : at + 6] == [
+        "  product_manager  ok (completed), $0.0040: 2 stories, 3 criteria",
+        "  system_designer  unused (completed), $0.0040: not used: the staged draft failed",
+        "  tester  failed (api_error), $0.0020: boom",
+        "  demo_writer  failed (not_called), $0.0000",
+        "  critic  ok (completed), unknown cost: 1 verified, 0 rejected",
+    ]
+    assert lines[at + 6].startswith("Notes") or lines[at + 6] == ""
+    assert lines.index("Workers") < at
+
+
+def test_role_spend_is_in_the_spend_section_and_the_total():
+    report = build_report([*EVENTS, *ROLE_EVENTS])
+    assert report.total == total([*EVENTS, *ROLE_EVENTS])
+    assert report.by_actor["role:tester"].cost_micros == 2_000
+    assert report.total.cost_micros == 48_300 + 5_896 + 4_000 * 2 + 2_000
+    text = render_report(report)
+    assert "  role:product_manager $0.0040" in text
+    assert "  role:critic  $0.0000 + 1 event(s) of unknown cost" in text
+
+
+def test_a_report_without_role_calls_has_no_roles_section_so_old_reports_are_unchanged():
+    assert "Roles" not in render_report(build_report(EVENTS))
+    assert build_report(EVENTS).roles == []
+
+
+def test_the_roles_section_is_built_from_role_call_events_only():
+    imposter = ev("boss", EventType.BOSS_CALL, data={"role": "critic", "outcome": "completed"})
+    assert build_report([*EVENTS, imposter]).roles == []
+    [line] = build_report([*EVENTS, role_call("critic", detail="x")]).roles
+    assert (line.role, line.outcome, line.result, line.cost_micros, line.detail) == (
+        "critic",
+        "completed",
+        "ok",
+        4_000,
+        "x",
+    )
+
+
+def test_a_role_call_missing_its_keys_is_a_note_and_not_a_roles_line():
+    broken = ev("role:critic", EventType.ROLE_CALL, round=0, data={"role": "critic"})
+    report = build_report([*EVENTS, broken])
+    assert report.roles == []
+    assert any("role:critic role_call is incomplete (missing outcome)" in n for n in report.notes)
+
+
+def test_what_a_model_wrote_in_a_role_line_is_made_safe():
+    hostile = role_call("critic", result="failed", detail="\x1b[2Jline\nsk-" + "a" * 30)
+    text = render_report(build_report([*EVENTS, hostile]))
+    [line] = [x for x in text.split("\n") if x.startswith("  critic")]
+    assert "\x1b" not in text and "\\x1b" in line and "sk-aaaa" not in line

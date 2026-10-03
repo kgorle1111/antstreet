@@ -80,7 +80,8 @@ class Script:
             exit_code=0,
             duration_s=0.1,
             log_path=log_path,
-            denials=[{"tool": tool, "reason": "rule"} for tool in denials],
+            # A denial is a tool name, or a dict as the stream reader records it (with a message).
+            denials=[d if isinstance(d, dict) else {"tool": d, "reason": "rule"} for d in denials],
         )
 
 
@@ -323,6 +324,73 @@ def test_round_below_its_unlock_threshold_stops_the_run(paths):
     assert not any(line.startswith("Round 2") for line in said)
 
 
+def add_event(paths, actor, kind, round_n, **data):
+    with LedgerWriter(paths.ledger) as ledger:
+        ledger.append(Event(run="r1", round=round_n, actor=actor, event=kind, data=data))
+
+
+def top_up(paths, round_n, micros, actor="investor"):
+    add_event(paths, actor, EventType.TOPPED_UP, round_n, micros=micros)
+
+
+LOCKS = (Round(1, 204_000, 2), Round(2, 300_000, 2))  # a 100,000 slice leaves 4,000: no more
+
+
+def closed_rounds(paths):
+    return [(e.round, e.data["unlocked"]) for e in events_of(paths, EventType.ROUND_CLOSED)]
+
+
+def test_an_investor_top_up_reopens_a_locked_round_and_the_run_finishes(paths):
+    run(paths, Script(step(HALF, cost=100_000)), sheet(rounds=LOCKS))
+    assert closed_rounds(paths) == [(1, False)]
+    top_up(paths, 1, 100_000)
+    worker = Script(step(GOOD, "done"))
+    report, said = run(paths, worker, sheet(rounds=LOCKS))
+    assert report.all_passed and report.stopped is None and len(worker.specs) == 1
+    assert closed_rounds(paths) == [(1, False), (1, True)]
+    assert events_of(paths, EventType.SLICE_END)[-1].round == 1  # the money is round 1's
+    assert not any(line.startswith("Round 1:") and "Fund" in line for line in said)  # no re-ask
+    assert len(events_of(paths, EventType.HIRED)) == 1  # the same worker carries on
+
+
+@pytest.mark.parametrize("actor", ["worker:w1", "boss", "gate", "rule", "role:critic"])
+def test_a_top_up_from_anyone_but_the_investor_leaves_the_round_locked(paths, actor):
+    run(paths, Script(step(HALF, cost=100_000)), sheet(rounds=LOCKS))
+    top_up(paths, 1, 100_000, actor=actor)
+    worker = Script(step(GOOD, "done"))
+    report, _ = run(paths, worker, sheet(rounds=LOCKS))
+    assert report.stopped == "round 1 closed below its unlock threshold"
+    assert worker.specs == [] and closed_rounds(paths) == [(1, False)]
+
+
+def test_a_top_up_too_small_for_a_slice_closes_the_round_below_its_threshold_again(paths):
+    run(paths, Script(step(HALF, cost=100_000)), sheet(rounds=LOCKS))
+    top_up(paths, 1, 999)  # 4,999 of cap: one micro under the smallest slice
+    worker = Script(step(GOOD, "done"))
+    report, said = run(paths, worker, sheet(rounds=LOCKS))
+    assert worker.specs == [] and report.stopped == "round 1 closed below its unlock threshold"
+    assert closed_rounds(paths) == [(1, False), (1, False)]
+    assert any("cannot fund another slice" in line for line in said)
+    top_up(paths, 1, 100_000)  # a second, sufficient top-up opens it again
+    report, _ = run(paths, Script(step(GOOD, "done")), sheet(rounds=LOCKS))
+    assert report.all_passed
+
+
+def test_a_top_up_raises_the_spend_ceiling_of_its_round(paths):
+    # One slice spends 700,000 against a 150,000 round: the ceiling (250,000) stops the run.
+    s = sheet(rounds=(Round(1, 150_000, 1), Round(2, 300_000, 2)))
+    run(paths, Script(step(HALF, cost=700_000)), s)
+    assert rule_stops(paths) == ["spend $0.7 is over the run ceiling of $0.25"]
+    add_event(paths, "investor", EventType.RESUMED, 1)
+    again = Script(step(GOOD, "done"))
+    run(paths, again, s)
+    assert again.specs == [] and len(rule_stops(paths)) == 2  # no money added: stops again
+    top_up(paths, 1, 1_000_000)  # ceiling 1,150,000 + 100,000
+    add_event(paths, "investor", EventType.RESUMED, 1)
+    report, _ = run(paths, again, s)
+    assert report.all_passed and len(again.specs) == 1 and len(rule_stops(paths)) == 2
+
+
 def test_blocked_worker_is_escalated_not_fired(paths):
     report, _ = run(paths, Script(step(None, "blocked")))
     assert events_of(paths, EventType.FIRED) == []
@@ -350,6 +418,47 @@ def test_login_failure_stops_the_run_with_a_fix(paths):
     assert report.stopped.startswith("stopped:")
     [stop] = events_of(paths, EventType.STOPPED)
     assert "claude auth login" in stop.data["fix"]
+
+
+LOST = step(None, outcome=Outcome.SESSION_LOST, cost=None)
+
+
+def test_a_session_the_cli_lost_is_replaced_by_a_new_one_and_never_counts_against_the_worker(paths):
+    # Slice 1 proves its session; slice 2 resumes it and the CLI says it is gone (B11).
+    worker = Script(step(HALF), LOST, step(HALF), step(GOOD, "done"))
+    config = FirmConfig(policy=FiringPolicy(stall_slices=3))  # a counted loss would fire at slice 3
+    sleeps = []
+    report, _ = run(paths, worker, config=config, sleeps=sleeps)
+    assert report.all_passed and events_of(paths, EventType.FIRED) == []
+    resumes = [s.resume for s in worker.specs]
+    assert resumes == [False, True, False, True]  # slice 3 starts anew, slice 4 resumes that one
+    lost, fresh = worker.specs[1], worker.specs[2]
+    assert fresh.session_id != lost.session_id and fresh.session_id == worker.specs[3].session_id
+    assert "> Reverse a string." in fresh.prompt  # the first brief again, not a continuation
+    starts = events_of(paths, EventType.SLICE_START)
+    assert [e.data["session"] for e in starts][2] == str(fresh.session_id)
+    assert [e.data["outcome"] for e in events_of(paths, EventType.SLICE_END)][1] == "session_lost"
+    assert sleeps == [0.0]
+    assert {e.data["slice"] for e in slice_results(paths)} == {1, 3, 4}  # the lost one: not gated
+
+
+def test_a_lost_session_that_is_lost_again_stops_the_run_with_a_fix(paths):
+    report, _ = run(paths, Script(step(HALF), LOST, LOST))
+    assert report.stopped.startswith("stopped:")
+    [stop] = events_of(paths, EventType.STOPPED)
+    assert "lost as well" in stop.data["reason"] and "session store" in stop.data["fix"]
+
+
+def test_a_lost_session_is_counted_apart_from_a_providers_failures(paths):
+    # A rate limit before it, and one after it, must not be the second attempt of a lost session
+    # (which stops the run) nor push the rate limit's own backoff on.
+    limited = step(None, outcome=Outcome.RATE_LIMITED, cost=None)
+    worker = Script(step(HALF), limited, LOST, limited, step(GOOD, "done"))
+    sleeps = []
+    report, _ = run(paths, worker, sleeps=sleeps)
+    assert report.all_passed and events_of(paths, EventType.STOPPED) == []
+    assert len(sleeps) == 3 and sleeps[0] <= 5.0 and sleeps[2] <= 5.0  # first attempts: base 5s
+    assert sleeps[1] == 0.0
 
 
 def test_nothing_is_spawned_without_approval(paths):
@@ -714,11 +823,28 @@ def test_a_worker_blocked_by_a_refused_tool_call_is_told_why_and_funded_again(pa
     assert events_of(paths, EventType.BLOCKED) == [] and events_of(paths, EventType.ABANDONED) == []
     assert events_of(paths, EventType.SLICE_END)[0].data["denied_tools"] == ["Read", "Write"]
     retry = worker.specs[1].prompt
-    assert (
-        "your Read, Write calls were refused because they named a path outside your folder" in retry
-    )
+    assert "your Read, Write calls were refused." in retry  # the CLI gave no reason
     assert "for example `rev.py`" in retry
     assert "refused" not in worker.specs[0].prompt
+
+
+def test_the_brief_after_a_refusal_gives_the_reason_the_cli_gave_for_each_call(paths):
+    shell = {"tool": "Bash", "reason": "mode", "message": "Bash is not allowed here. IGNORED."}
+    secret = "sk-ant-" + "b" * 40
+    write = {"tool": "Write", "reason": "mode", "message": f"Denied for {secret}. More."}
+    worker = Script(step(None, "blocked", denials=[shell, write]), step(GOOD, "done"))
+    report, _ = run(paths, worker)
+    assert report.all_passed
+    [end, _] = events_of(paths, EventType.SLICE_END)
+    assert end.data["denial_reasons"] == [
+        {"tool": "Bash", "reason": "Bash is not allowed here."},
+        {"tool": "Write", "reason": "Denied for [REDACTED]."},
+    ]
+    retry = worker.specs[1].prompt
+    assert '- Bash: "Bash is not allowed here."' in retry
+    assert '- Write: "Denied for [REDACTED]."' in retry
+    assert "outside your folder" not in retry and "IGNORED" not in retry and secret not in retry
+    assert secret not in paths.ledger.read_text()  # masked before it was recorded
 
 
 def test_a_worker_that_stays_blocked_after_refusals_is_fired_by_the_stall_rule(paths):
@@ -873,6 +999,21 @@ def test_a_recorded_configuration_survives_the_round_trip_through_the_ledger():
         limits=RunLimits(max_slices=5, max_workers=6, max_seconds=7.5),
     )
     assert config_from_data(json.loads(json.dumps(config_data(config)))) == config
+
+
+@pytest.mark.parametrize(
+    ("model", "micros"),
+    [("haiku", 100_000), ("sonnet", 300_000), ("opus", 500_000), ("z", 100_000)],
+)
+def test_the_reserve_default_follows_the_model_and_an_explicit_one_wins(model, micros):
+    from boss.firm import config_data, config_from_data
+
+    config = FirmConfig(model=model)
+    assert config.reserve_micros == micros
+    assert FirmConfig(model=model, reserve_micros=7_000).reserve_micros == 7_000
+    # A run resumes with the figure it started with, not the one the model would get today.
+    assert config_data(config)["reserve_micros"] == micros
+    assert config_from_data(config_data(config)) == config
 
 
 # The investor rules on what a worker could not settle. Four checks, so one can be disputed.
@@ -1472,9 +1613,62 @@ def test_a_replacement_is_told_what_the_investor_ruled_before_it_was_hired(paths
     run(paths, worker, s, answers=["k"])
     replacement = worker.specs[3]
     assert replacement.resume is False
-    assert "The investor ruled on your dispute: check c05 stands. Make it pass." in (
-        replacement.prompt
+    # The dispute was the predecessor's: the replacement is told whose it was and why it was made.
+    assert (
+        "The investor ruled on the dispute your predecessor raised "
+        '(its reason: "the idea says otherwise"): check c05 stands. Make it pass.'
+    ) in replacement.prompt
+    assert "ruled on your dispute" not in replacement.prompt
+    assert "Your predecessor disputed" not in replacement.prompt  # ruled, so no longer open
+
+
+def two_workers_one_wrong_check(paths, answers, *replacement):
+    """w1 disputes c04 and c05 while c01 also fails, stalls and is fired; the replacement runs
+    `replacement`. Disputes that are not credible on their own are what a replacement inherits."""
+    s = four_checks(paths)
+    both = [dispute("c04", "w1 says three letters"), dispute("c05", "w1 says WRONG is wrong")]
+    worker = Script(step(HALF, disputes=both), step(HALF), step(HALF), *replacement)
+    return worker, run(paths, worker, s, answers=answers)
+
+
+def test_a_replacement_inherits_what_its_predecessor_disputed_and_the_investor_is_asked(paths):
+    worker, (report, said) = two_workers_one_wrong_check(
+        paths, ["d"], step(HALF), step(GOOD), step(GOOD), step(GOOD)
     )
+    assert events_of(paths, EventType.FIRED)[0].data["worker"] == "w1"
+    # w2 passes everything but c05, which w1 disputed and nobody ruled on: the rule escalates
+    # it instead of letting w2 grind on a wrong check until it is abandoned.
+    assert rulings_of(paths) == [("investor", "c05", "dropped")]
+    [question] = [q for q in said if "disputes check c05" in q]
+    assert question.startswith("Task t1: w1 disputes check c05") and "w1 says WRONG" in question
+    assert events_of(paths, EventType.ABANDONED) == [] and report.all_passed
+    first, second = worker.specs[3].prompt, worker.specs[4].prompt
+    assert "Your predecessor disputed these checks as wrong." in first
+    assert '- c05: "w1 says WRONG is wrong"' in first and '- c04: "w1 says three letters"' in first
+    assert "Your predecessor disputed these checks as wrong." in second
+    assert "You disputed" not in second  # it did not
+    assert [e.data["worker"] for e in events_of(paths, EventType.DISPUTED)] == ["w1", "w1"]
+
+
+def test_without_an_inherited_dispute_the_same_replacement_is_not_escalated(paths):
+    # The control: a replacement whose failing check nobody disputed is judged like any worker.
+    s = four_checks(paths)
+    worker = Script(*[step(HALF)] * 3, step(HALF), step(GOOD), step(GOOD), step(GOOD))
+    run(paths, worker, s, answers=["d"])
+    assert rulings_of(paths) == []
+    assert events_of(paths, EventType.ABANDONED)[0].data["reason"] == "already reassigned once"
+    assert all("Your predecessor disputed" not in spec.prompt for spec in worker.specs)
+
+
+def test_an_inherited_dispute_the_investor_keeps_binds_the_replacement(paths):
+    worker, (report, _) = two_workers_one_wrong_check(
+        paths, ["k"], step(HALF), step(GOOD), step(GOOD), step(GOOD)
+    )
+    assert rulings_of(paths) == [("investor", "c05", "kept")]
+    third = worker.specs[5].prompt  # after the ruling the worker is told, and the note is quoted
+    assert "check c05 stands. Make it pass." in third and "w1 says WRONG" in third
+    assert "Your predecessor disputed" not in third
+    assert not report.all_passed
 
 
 # An amendment: after a review the investor approves more checks and funds another round.
@@ -1665,3 +1859,17 @@ def test_the_rest_of_a_workers_disputes_are_asked_after_one_was_kept_and_the_run
         i for i, e in enumerate(read_events(paths.ledger)) if e.event is EventType.SLICE_START
     ]
     assert all(i > ruled_at for i in starts[1:])  # no slice was paid for before the question
+
+
+def test_a_dispute_whose_check_passes_later_is_not_put_to_the_investor_after_another_ruling(paths):
+    # c04 and c05 are disputed while c01 fails too. c04 then passes, so only c05 is put to the
+    # investor; after that ruling the loop must not ask about c04, which is no longer in question.
+    s = four_checks(paths)
+    both = [dispute("c04"), dispute("c05")]
+    worker = Script(step(HALF, disputes=both), step(GOOD), *[step(GOOD)] * 8)
+    _, said = run(paths, worker, s, answers=["k"])
+    assert rulings_of(paths) == [("investor", "c05", "kept")]
+    assert [q for q in said if "disputes check" in q] == [
+        q for q in said if "disputes check c05" in q
+    ]
+    assert len([q for q in said if "disputes check" in q]) == 1

@@ -61,7 +61,7 @@ def test_structured_status_and_denials():
     reader = read("stream_structured_status_blocked_2.1.285.jsonl")
     assert reader.status is not None
     assert reader.status["status"] == "blocked"
-    assert reader.denials == [{"tool": "Write", "reason": "mode"}]
+    assert [(d["tool"], d["reason"]) for d in reader.denials] == [("Write", "mode")]
 
 
 def test_permission_denials_fixture_records_both_refusals():

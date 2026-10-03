@@ -84,14 +84,16 @@ def seatbelt_argv(
 
 # kn: root read-only with /home, /root, /tmp and /run hidden; not run on this machine (no bwrap on
 # macOS). /proc is remounted inside a new PID namespace, or the host's /proc/<pid>/environ would
-# leak the caller's environment. No --new-session: the gate already starts the check in its own
+# leak the caller's environment. --unshare-ipc hides the host's SysV shared memory, semaphores and
+# message queues (the seatbelt profile denies them by default); /dev/shm is not covered by it but
+# `--dev /dev` replaces it. No --new-session: the gate already starts the check in its own
 # session, and bwrap's setsid() fails for a process that already leads one. Upgrade path: an
 # allowlist root (--ro-bind /usr, /lib*, /bin) once it can be verified on a Linux host.
 def bwrap_argv(
     executable: str, argv: Sequence[str], *, writable: Path, readable: Sequence[Path]
 ) -> list[str]:
     out = [
-        executable, "--die-with-parent", "--unshare-net", "--unshare-pid",
+        executable, "--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc",
         "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
         "--tmpfs", "/home", "--tmpfs", "/root", "--tmpfs", "/tmp", "--tmpfs", "/run",
     ]  # fmt: skip

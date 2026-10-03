@@ -20,6 +20,7 @@ from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
+from typing import Any
 
 from boss import cli
 from boss.bench.results import CellResult, cell_dir, load_results
@@ -211,7 +212,7 @@ def _staged_draft(
     """Stories, then a design, then checks that must cover every criterion: three calls in
     place of the boss's one. Returns what all of them cost; a failure at any stage raises
     BossError carrying what was paid up to and including it."""
-    call = {
+    call: dict[str, Any] = {
         "env": worker_env(environ),
         "model": settings.boss_model,
         "executable": environ.get(cli.EXECUTABLE_VAR, CLI),

@@ -306,7 +306,7 @@ def behaviour(scn: Scenario, key: Any) -> Behaviour:
     )
     outcome = rng.choices(
         list(Outcome),
-        weights=[62, 12, 4, 3, 4, 3, 1, 5, 1, 5],  # in enum order: completed ... api_error
+        weights=[62, 12, 4, 3, 4, 3, 1, 5, 1, 5, 2],  # in enum order: completed ... session_lost
     )[0]
     weights = [46, 12, 16, 8, 3, 8, 7, 10]
     if scn.mode == "cheap":  # nothing but the firing rule and the limits can stop a stalling worker
@@ -1126,25 +1126,40 @@ def spent_by_round(
     """Per round, what the ledger charges: every recorded cost, plus the cap of every slice that
     did work and reported no cost (an infrastructure failure did none), plus the cap of every
     slice_start that never got its slice_end (an orphan), whether the run ended there or started
-    the slice again."""
+    the slice again. A charge ends when a later slice of the same session reports the session's
+    total: that total holds the lost slice's spend, which the later slice's cost books."""
+    upto = len(events) if upto is None else upto
     spent: dict[int, int] = {r.n: 0 for r in sheet.rounds}
-    unfinished: dict[tuple[int, str, Any], int] = {}
-    for e in events[: upto if upto is not None else len(events)]:
+    for e in events[:upto]:
+        if e.round >= 1 and e.cost_micros is not None:
+            spent[e.round] += e.cost_micros
+    for n, cap, _, _ in _lost_slices(events[:upto]):
+        spent[n] += cap
+    return spent
+
+
+def _lost_slices(events: list[Event]) -> list[tuple[int, int, Any, bool]]:
+    """(round, cap, session, orphan) of every slice charged at its cap and not yet covered: an
+    orphan never got its slice_end; the others ended with no cost after doing work. A slice_end
+    carrying a session total covers every earlier lost slice of that session, in any round."""
+    open_slices: dict[tuple[int, str, Any], tuple[int, Any]] = {}
+    lost: list[tuple[int, int, Any, bool]] = []
+    for e in events:
         if e.round < 1:
             continue
         key = (e.round, e.actor, e.data.get("slice"))
-        if e.cost_micros is not None:
-            spent[e.round] += e.cost_micros
         if e.event is EventType.SLICE_START:
-            spent[e.round] += unfinished.pop(key, 0)
-            unfinished[key] = e.data["cap_micros"]
+            if key in open_slices:
+                lost.append((e.round, *open_slices[key], True))
+            open_slices[key] = (e.data["cap_micros"], e.data.get("session"))
         elif e.event is EventType.SLICE_END:
-            cap = unfinished.pop(key, 0)
+            cap, session = open_slices.pop(key, (0, None))
+            if session is not None and isinstance(e.data.get("session_total_micros"), int):
+                lost = [x for x in lost if x[2] != session]
+                open_slices = {k: v for k, v in open_slices.items() if v[1] != session}
             if e.cost_micros is None and e.data["outcome"] not in INFRA:
-                spent[e.round] += cap
-    for (n, _, _), cap in unfinished.items():
-        spent[n] += cap
-    return spent
+                lost.append((e.round, cap, session, False))
+    return lost + [(k[0], cap, session, True) for k, (cap, session) in open_slices.items()]
 
 
 def known_spend(events: list[Event]) -> int:
@@ -1164,19 +1179,7 @@ def orphan_charge(events: list[Event], round_n: int, upto: int) -> int:
 
 
 def _orphan_caps(events: list[Event], round_n: int) -> list[int]:
-    unfinished: dict[tuple[str, Any], int] = {}
-    lost: list[int] = []
-    for e in events:
-        if e.round != round_n:
-            continue
-        key = (e.actor, e.data.get("slice"))
-        if e.event is EventType.SLICE_START:
-            if key in unfinished:
-                lost.append(unfinished[key])
-            unfinished[key] = e.data["cap_micros"]
-        elif e.event is EventType.SLICE_END:
-            unfinished.pop(key, None)
-    return lost + list(unfinished.values())
+    return [cap for n, cap, _, orphan in _lost_slices(events) if orphan and n == round_n]
 
 
 def _canon(
@@ -1308,8 +1311,14 @@ def check_termination(res: Result) -> None:
         )
     if w.violations:
         _fail(res, f"worker protocol violated: {w.violations}")
+    lost = sum(
+        e.event is EventType.SLICE_END and e.data["outcome"] == Outcome.SESSION_LOST.value
+        for e in res.events
+    )
+    if sum(seconds == 0.0 for seconds in w.sleeps) > lost:  # only a lost session retries at once
+        _fail(res, f"{w.sleeps.count(0.0)} immediate retries for {lost} lost sessions")
     for seconds in w.sleeps:
-        if not 2.5 <= seconds <= 120:
+        if seconds != 0.0 and not 2.5 <= seconds <= 120:
             _fail(res, f"backoff of {seconds}s outside the documented 2.5-120s")
 
 
@@ -1325,7 +1334,7 @@ def check_money(res: Result) -> None:
     2. The ledger's charge for a round never exceeds its budget by more than the largest amount the
        costed slices of one wave took together past their own caps + reserve (ledger costs only; a
        later slice's cost can contain the spend of an earlier unknown-cost slice of the same
-       session, which was charged at its cap as well: the documented over-count, on the safe side).
+       session, which is why this excess is taken from the ledger's costs, not the true ones).
        For waves of one slice this is the serial statement.
     3. What the workers truly spent in a round (the simulated CLI knows) never exceeds its budget by
        more than that excess in true terms, plus the true overshoot beyond cap of every slice the
@@ -1470,7 +1479,7 @@ def check_product(res: Result) -> None:
             done += got
             for e in ev[b.start : b.end + 1]:
                 task = next(c.task for c in sheet.checks if c.id == e.data["check"])
-                shape = {"check", "task", "status", "detail", "scope"}
+                shape = {"check", "task", "status", "detail", "scope", "sandboxed"}
                 if e.actor != "gate" or set(e.data) != shape or e.data["task"] != task:
                     _fail(res, f"a malformed product result {e.data}")
             after = ev[b.end + 1] if b.end + 1 < len(ev) else None
@@ -1666,6 +1675,8 @@ def check_ledger(res: Result) -> None:
             outcome_of_slice[(worker, d["slice"])] = d["outcome"]
             last_end[worker] = e
             last_end_at[worker] = i
+            if d["outcome"] == Outcome.SESSION_LOST.value:
+                proven.pop(worker, None)  # the CLI no longer has it: the next slice starts anew
             if d["outcome"] not in INFRA:
                 counted[worker] += 1
                 if isinstance(d["session_total_micros"], int) and worker not in proven:
@@ -1764,16 +1775,19 @@ def check_ledger(res: Result) -> None:
                     _fail(res, f"ruled on {check}, which {worker} had not disputed or was ruled")
                 if Decision(task, worker, check, ruling) not in decisions:
                     _fail(res, f"{ruling} {check}: not what the investor answered")
-                # A dispute stands, and calls for a ruling, only if it is credible: as the worker's
-                # last slice ended, every failing check was disputed, and no more than half of the
-                # task's live checks were.
-                end, number = last_end_at[worker], finished[worker]
+                # A dispute stands, and calls for a ruling, only if it is credible: as the task's
+                # current worker's last slice ended, every failing check was disputed, and no more
+                # than half of the task's live checks were. The current worker inherits what the
+                # workers hired before it on the task disputed, so the ruling may name one of them.
+                asked = next(w for w in reversed(list(hired)) if hired[w] == task)
+                end, number = last_end_at[asked], finished[asked]
                 before = {c for j, _, c in ruled_at if j < end}
                 lives = checks_of[task] - {c for j, r, c in ruled_at if j < end and r == "dropped"}
-                failing = {c for c in lives if outcome_of.get((worker, number, c)) == "failed"}
-                standing = {c for w, c in disputed_by if w == worker} - before - (lives - failing)
+                failing = {c for c in lives if outcome_of.get((asked, number, c)) == "failed"}
+                raised = {c for w, c in disputed_by if hired[w] == task}
+                standing = raised - before - (lives - failing)
                 if not (0 < 2 * len(standing) <= len(lives) and failing <= standing):
-                    _fail(res, f"{worker} was put to the investor on {sorted(standing)} of "
+                    _fail(res, f"{asked} was put to the investor on {sorted(standing)} of "
                                f"{len(lives)} checks, failing {sorted(failing)}")  # fmt: skip
                 ruled_checks.add(check)
                 ruled_at.append((i, ruling, check))
@@ -1948,13 +1962,19 @@ def check_rulings_reach_the_worker(res: Result) -> None:
     for i, e in enumerate(ev):
         if e.event is not EventType.RULED:
             continue
-        line = NOTE_TEXT[e.data["ruling"]].format(
-            check=e.data.get("check"), note=e.data.get("note")
-        )
-        who = f"worker:{e.data['worker']}"
-        nxt = next((j for j in starts if j > i and ev[j].actor == who), None)
+        # The reader is whoever works on the task next; it may be the replacement of the worker
+        # the ruling names, which is then told whose dispute or block it was.
+        nxt = next((j for j in starts if j > i and ev[j].data["task"] == e.data["task"]), None)
+        theirs = nxt is not None and ev[nxt].actor != f"worker:{e.data['worker']}"
+        lines = [
+            NOTE_TEXT[e.data["ruling"]].format(check=e.data.get("check"), note=e.data.get("note"))
+        ]
+        if theirs and e.data["ruling"] == "kept":
+            lines = [f"check {e.data['check']} stands. Make it pass.", "your predecessor raised"]
+        elif theirs and e.data["ruling"] == "unblocked":
+            lines = [f"The investor answered your predecessor's block: {e.data['note']}"]
         call = call_at[nxt] if nxt is not None else None
-        if call is not None and line not in call.prompt:
+        if call is not None and not all(line in call.prompt for line in lines):
             _fail(res, f"the investor's ruling {e.data['ruling']} on {e.data['task']} (line {i}) "
                        f"is missing from {ev[nxt].actor}'s next brief")  # fmt: skip
 
@@ -2691,10 +2711,10 @@ def test_an_unknown_cost_slice_is_no_longer_charged_twice():
     check_all(res)
 
 
-def test_the_documented_over_count_of_an_unknown_cost_slice_in_a_proven_session():
-    # What remains of the double charge, on the safe side: slice 1 proves the session, slice 2's
-    # cost is unknown (truly 40,000; charged its cap, 100,000), and slice 3, resuming the session,
-    # reports a total that contains slice 2's spend, so it is charged twice: 190,000 for 90,000.
+def test_an_unknown_cost_slice_in_a_proven_session_is_counted_once_when_the_session_resumes():
+    # Slice 1 proves the session, slice 2's cost is unknown (truly 40,000; charged its cap,
+    # 100,000, until something covers it), and slice 3, resuming the session, reports a total that
+    # contains slice 2's spend: the cap is dropped, and the round is charged the true 90,000.
     scn = hand(
         [beh(exact=30_000, progress="progress"), beh(cost_kind="unknown", exact=40_000),
          beh(exact=20_000, progress="all", status="done")],
@@ -2703,9 +2723,11 @@ def test_the_documented_over_count_of_an_unknown_cost_slice_in_a_proven_session(
     res = run_in_tmp(scn)
     assert [c.resume for c in res.world.calls] == [False, True, True]
     assert sum(c.true_cost for c in res.world.calls) == 90_000
-    assert spent_by_round(res.events, scn.sheet)[1] == 190_000
+    assert spent_by_round(res.events, scn.sheet)[1] == 90_000
     known = [e.cost_micros for e in some(res, EventType.SLICE_END) if e.cost_micros is not None]
-    assert sum(known) == 90_000  # the ledger's own costs still sum to what the CLI reported
+    assert sum(known) == 90_000  # the ledger's own costs sum to what the CLI reported
+    remaining_after = budget_mod.remaining(scn.sheet, res.events, 1)
+    assert remaining_after == 1_000_000 - 90_000  # the real accounting agrees with the oracle
     check_all(res)
 
 

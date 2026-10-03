@@ -27,6 +27,7 @@ uv run pytest tests/test_rule.py   # one file
 uv run pytest --cov --cov-report=term-missing   # with line and branch coverage of src/boss
 uv run ruff check .
 uv run ruff format --check .
+uv run mypy
 ```
 
 - Tests use recorded CLI output in `tests/fixtures/` and fake `claude` executables, so `boss fund`
@@ -34,9 +35,11 @@ uv run ruff format --check .
 - One test makes a real model call and costs a few cents. It is skipped unless you set
   `BOSS_LIVE=1`: `BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py`.
 - CI runs, on Linux and macOS: `uv sync --locked`, `uv run ruff check .`,
-  `uv run ruff format --check .` and
+  `uv run ruff format --check .`, `uv run mypy` (strict, over `src/boss`) and
   `uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30`. The coverage floor is 96;
-  it only ever goes up.
+  it only ever goes up. On Linux it first installs `bubblewrap` and runs the tests with
+  `BOSS_GATE_SANDBOX=require`, so the sandbox tests fail instead of skipping when `bwrap` cannot
+  start (docs/SANDBOX.md).
 
 ## Rules
 

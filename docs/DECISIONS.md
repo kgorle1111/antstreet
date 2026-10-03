@@ -262,8 +262,9 @@ with a JSON schema.
 
 - Status: `in force`
 - Decision: A slice's cap is the smaller of the slice size and what is left in the round minus a
-  reserve (default $0.10, `--reserve`). A round that cannot fund a cap of $0.005 is not started, and a
-  budget that cannot fund one slice per round is refused before the boss is called.
+  reserve (default $0.10, `--reserve`, larger for Sonnet and Opus). A round that cannot fund a cap
+  of $0.005 is not started. A budget that cannot fund one slice at all is refused before the boss is
+  called; the round plan is checked again after the draft, when the number of rounds is known.
 - Why: The CLI checks a cap only between responses, so a slice overshoots by one whole response.
   Probe P4: cap $0.006 spent $0.0079. Real runs: cap $0.030 spent $0.099 and $0.075. The overshoot is
   an absolute amount, so a percentage cannot cover it.
@@ -272,7 +273,9 @@ with a JSON schema.
 - Evidence: `tests/test_budget.py::test_a_round_never_exceeds_its_budget_when_each_overshoot_fits_the_reserve`,
   `tests/test_firm.py::test_a_slice_cap_holds_back_the_reserve_so_an_overshoot_stays_inside_the_round`;
   `tests/fixtures/stream_budget_capped_2.1.285.jsonl`. Rerun: no round went over budget; the largest
-  cell cost $0.365 of $0.40. One figure serves all models.
+  cell cost $0.365 of $0.40. The reserve is still one absolute figure per model, never a share of the
+  cap: Haiku, the only model measured, keeps $0.10, and Sonnet and Opus scale it by output price
+  (3x, 5x) until they are measured (`budget.reserve_for`).
 
 ### D19: A disputed check goes to the investor instead of getting the worker fired
 
@@ -487,7 +490,11 @@ with a JSON schema.
   `tests/test_firm.py::test_a_resumed_slice_that_was_interrupted_resumes_the_same_session_and_recovers_its_cost`,
   `tests/test_state.py::test_a_session_is_resumable_only_after_a_slice_in_it_got_past_infrastructure`,
   `tests/test_state.py::test_ledgers_from_before_per_slice_sessions_fall_back_to_the_hired_session`.
-  Open: a session that was resumable and is gone (B11).
+  A session that was resumable and is gone ends the slice `session_lost`, an infrastructure outcome:
+  never counted toward firing, retried at once under a new session id and the first brief, and a
+  second loss in a row stops the run with a fix (B11; `tests/test_session_lost.py`,
+  `tests/test_firm.py::test_a_session_the_cli_lost_is_replaced_by_a_new_one_and_never_counts_against_the_worker`).
+  Which stream carries the CLI's "No conversation found" was not recorded, so both are read.
 
 ### D33: A slice that reported no cost, or never ended, is charged at its cap
 
@@ -514,7 +521,8 @@ with a JSON schema.
 - Decision: `rule.decide` sets a task aside for the investor (instead of firing the worker) only
   when every failing check is disputed and the disputed checks are at most half of the task's
   checks. Otherwise the worker is judged as if it had disputed nothing. The disputes stay on the
-  ledger.
+  ledger. A replacement inherits the disputes of workers hired before it on its task that the
+  investor has not ruled on (B08): same test, and its brief quotes them as unverified claims.
 - Why: Disputing costs a worker nothing (D19). An independent review reproduced a stalled worker
   that dodged its firing by disputing every failing check. The boss's drafts had at most 3 wrong
   checks in 8, so a claim that most of a task is wrong is not believed.
@@ -573,3 +581,29 @@ with a JSON schema.
   Draft baseline; [../bench/METHOD.md](../bench/METHOD.md). Limits: 65 mutants, 23 taken from Haiku
   runs; the baseline recall is biased down because 16 of those 23 were built against the drafts
   being scored. Whether a better prompt raises these figures is not yet measured.
+
+### D37: No stream-side cost watch: the stream carries no per-message cost or output count
+
+- Status: `in force`
+- Decision: A slice is capped only by the CLI's `--max-budget-usd` plus the reserve (D18). The runner
+  does not estimate spend from the stream to stop a slice early (B13, closed as `wont`).
+- Why: In the recorded streams (CLI 2.1.285) the only cost anywhere is the
+  `result` event's `total_cost_usd`; no assistant event, and no other event, carries one. Input
+  tokens are exact per message (they sum to the final totals), but output is not: each assistant
+  event's `output_tokens` is its count when the response began, 4 summed over the capped stream
+  against 775 billed, and 9 against 2,957 on the resumed one. Output was about half of the capped
+  slice's cost at Haiku list prices, so a running total built from the stream would miss the larger part. The only
+  other signal, `system/thinking_tokens`, is the CLI's own estimate of thinking alone (172 against
+  149 reported at the end). The rest would be invented: a price table per model, which neither the
+  stream nor this repository holds, and output counted from text length. An estimate that is wrong
+  by half cannot be set against a cap without either stopping slices that were fine or missing
+  the one that overshoots, and each assistant event arrives after its block is complete, so the
+  response that crosses the cap is mostly spent before it is seen.
+- Rejected: A price table with output estimated from content length: made-up figures deciding when
+  a worker is cut off. Stopping on the input-side cost alone: it undercounts by the output share and
+  would stop on a bound that is not the cap.
+- Evidence: `tests/fixtures/stream_budget_capped_2.1.285.jsonl`,
+  `tests/test_stream_messages.py::test_per_message_output_tokens_are_a_small_fraction_of_the_billed_output`,
+  `tests/test_stream_messages.py::test_summed_messages_equal_the_recorded_final_totals`. Reopen when
+  the CLI streams a per-message cost or the final output count of each response (check
+  `--include-partial-messages` first: it was not probed).

@@ -32,6 +32,36 @@ jobs:
         with:
           enable-cache: true
 
+      # The gate sandboxes every check with bwrap on Linux (docs/SANDBOX.md); the runner image
+      # does not ship it.
+      #
+      # Ubuntu 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1: an unprivileged process
+      # may create a user namespace but gets no capabilities in it unless an AppArmor profile
+      # allows `userns` for that program, and bwrap then dies with "setting up uid map:
+      # Permission denied". The least-privilege fix is a profile for /usr/bin/bwrap alone, the
+      # one Ubuntu documents for such tools. It leaves the restriction on for everything else on
+      # the runner. The alternative, `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`,
+      # lifts it for every process on the machine. Only applied when the restriction is on, so an
+      # image without it (Ubuntu 22.04) is left alone. The last line prints bwrap's own error: the
+      # tests only see "sandbox unavailable".
+      - name: Install bubblewrap and allow it to create user namespaces
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile bwrap /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+            sudo apparmor_parser -r /etc/apparmor.d/bwrap
+          fi
+          bwrap --version
+          bwrap --unshare-net --unshare-pid --ro-bind / / --dev /dev --proc /proc true
+
       # --locked fails if uv.lock is out of date, so CI installs exactly what was tested locally.
       - name: Install from a clean clone
         run: uv sync --locked
@@ -42,10 +72,19 @@ jobs:
       - name: Format check
         run: uv run ruff format --check .
 
+      - name: Type check
+        run: uv run mypy
+
       # No model calls and no secrets: the live test is skipped unless BOSS_LIVE=1.
       # The coverage floor (line + branch over src/boss) is 2 points below the 98.58% measured
       # when the gate was added, rounded down: 96. That leaves room for normal work and still
       # catches a real drop. Only ever raise it: when total coverage settles 2+ points above it,
       # move it up to (total - 2).
+      #
+      # On Linux the sandbox must run, not be skipped: `require` makes the gate and the sandbox
+      # tests fail loudly (SandboxUnavailable, with the fix) when bwrap cannot start. macOS keeps
+      # `auto`, which is the default and sandboxes there with sandbox-exec.
       - name: Test
+        env:
+          BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
         run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30

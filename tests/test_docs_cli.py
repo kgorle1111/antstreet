@@ -182,11 +182,41 @@ def test_a_run_folder_holds_what_the_document_lists(text, happy):
     assert re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{6}", run_dir.name)
     rows = table(section(text, "Run folder"))
     listed = {r[0].strip("`").replace("<worker>", "w1").strip("/") for r in rows}
+    # a run without roles writes the rest; the paths below appear only when a role ran
+    listed -= set(ROLE_PATHS)
     for path in listed:
         assert (run_dir / path).exists(), f"documented but not written: {path}"
     assert {p.name for p in run_dir.iterdir()} == {p.split("/")[0] for p in listed}
     assert (run_dir / "checks" / "test_c01.py").is_file()
     assert (run_dir / "product" / "rev.py").is_file()
+
+
+# Path in the document's table -> the path in a run folder, for what only a run with roles writes.
+ROLE_PATHS = {
+    "stories.json": "stories.json",
+    "critic-N": "critic-1",
+    "demo": "demo",
+    "demo_scratch": "demo_scratch",
+}
+
+
+def test_a_run_with_roles_holds_the_extra_paths_the_document_lists(text, tmp_path):
+    import test_pipeline as staged
+
+    tmp_path.mkdir(exist_ok=True)
+    fx = staged.Fx(tmp_path)
+    staged.every_role(fx)
+    assert fx.fund("--roles", "all", answers={"Task": "d"}).code == cli.EXIT_OK
+    rows = table(section(text, "Run folder"))
+    listed = {r[0].strip("`").replace("<worker>", "w1").strip("/") for r in rows}
+    assert set(ROLE_PATHS) <= listed, "a path only roles write is not in the document"
+    for documented, real in ROLE_PATHS.items():
+        assert (fx.run_dir / real).exists(), f"documented but not written: {documented}"
+    for name in ("USAGE.md", "demo.py"):
+        assert (fx.run_dir / "demo" / name).is_file()
+    assert (fx.run_dir / "critic-1" / "critic_checks").is_dir()
+    known = {p.split("/")[0] for p in listed} - set(ROLE_PATHS) | set(ROLE_PATHS.values())
+    assert {p.name for p in fx.run_dir.iterdir()} <= known, "a run writes a path nobody documents"
 
 
 def test_status_and_report_and_exit_codes_match_the_document(tmp_path, happy):

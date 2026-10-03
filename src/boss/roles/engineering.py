@@ -410,7 +410,7 @@ def draft_staged(
         raise ValueError("budget_micros must be a positive int")
     if max_tasks < 1 or n_rounds < 1:
         raise ValueError("max_tasks and n_rounds must be at least 1")
-    call = {
+    call: dict[str, Any] = {
         "env": env,
         "model": model,
         "executable": executable,
@@ -595,10 +595,6 @@ def _parse_tests(data: Mapping[str, Any]) -> tuple[list[_RawCheck], list[Untesta
     for n, item in enumerate(raw_checks, start=1):
         where = f"check {n}"
         code = _text_in(item, "code", where, problems)
-        try:
-            code.encode("utf-8")
-        except UnicodeEncodeError:
-            problems.append(f"{where}: code is not valid text")
         checks.append(
             _RawCheck(
                 _texts_in(item, "criteria", where, problems),

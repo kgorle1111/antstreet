@@ -10,8 +10,8 @@ Every command also accepts `-h` and `--help`.
 
 ## `boss`
 
-`boss [--version] <command> ...` where the command is `fund`, `resume`, `report`, `status`,
-`roles` or `doctor`.
+`boss [--version] <command> ...` where the command is `fund`, `resume`, `topup`, `report`,
+`status`, `roles` or `doctor`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -33,8 +33,13 @@ Argument: `idea`, what to build, in plain words.
   more. `--max-minutes` must be a positive number. `--boss-thinking` must be a whole number. Any
   other value is a usage error (exit 2) before anything is spent.
 - Ctrl-C after approval, while workers are running, stops the run, prints `boss resume <id>` and
-  exits 130. Nothing already recorded is lost. Ctrl-C earlier (during the boss's call or the
-  review) is not handled: Python's own interrupt applies.
+  exits 130. Nothing already recorded is lost. Ctrl-C earlier, while the boss or a role is being
+  called, ends the run with a message and exit 130: nothing was funded, what the calls so far cost
+  is on the ledger, and there is nothing to resume. Ctrl-C at the approval question counts as
+  reject.
+- `--roles` is checked before anything is spent. An unknown name, or a role without the roles it
+  needs, is a usage error (exit 2) that says what to change. `--fix-budget` below one reserve plus
+  $0.005 is refused the same way.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -43,16 +48,21 @@ Argument: `idea`, what to build, in plain words.
 | `--model` | `haiku` | Worker model. |
 | `--rounds` | `1` | Funding rounds to split the budget into. With more than one, the budget splits equally (the earliest rounds take any remainder), the count is capped at the number of checks, and each round after the first needs your yes. |
 | `--slice` | `$0.10` | Dollars a worker may spend in one slice, before the gate looks again. At least $0.005; a smaller slice is never funded (exit 2). |
-| `--reserve` | `$0.10` | Dollars held back from every slice cap: what one response can cost past the cap. |
+| `--reserve` | by `--model` | Dollars held back from every slice cap: what one response can cost past the cap. `$0.10` for `haiku` and any model not recognised, `$0.30` for `sonnet`, `$0.50` for `opus` (a name that contains the family). An explicit value wins and is recorded on `started`. |
 | `--max-tasks` | `1` | Most tasks the boss may split the work into. Above 1 the multi-task prompt is used. |
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
+| `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |
+| `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
 | `--max-minutes` | none | Stop the run after this many minutes of wall clock, counted from the start of this `fund` or `resume`. Checked before each slice, so a slice in progress can run past it. |
 | `--no-firing` | off | Keep funding stalled workers. A worker is still fired at the slice limit. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
-| `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. |
+| `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. Roles use it too. |
+| `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `boss roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
+| `--review-cycles` | `1` | Times the critic may review the finished product and offer a fix round. With 0 the critic still runs and its findings are shown, but you are asked nothing. |
+| `--fix-budget` | two slices plus one reserve | Dollars for a fix round after the critic's findings: `$0.30` with the default slice and reserve. At least one reserve plus $0.005. |
 
 What it asks you:
 
@@ -61,12 +71,21 @@ What it asks you:
   reject.
 - `Round N: X/Y checks pass. Fund $Z more? [y]es / [n]o` before each round after the first. End
   of input counts as no.
+- With the critic on, after the build: `Add these N checks and fund a fix round of $X? [y]es / [n]o`,
+  once per review cycle and only when the critic has verified findings and the run did not end
+  early. It shows each proposed check and its code first. `y`, `yes`, `a` and `approve` are yes;
+  anything else, and end of input, is no. Ctrl-C ends the command with exit 130 and is not an answer:
+  `boss resume` asks the critic again and puts the question again. When a round of the sheet never
+  opened, the fix round takes its place and that round follows it.
 
 Limits that are not options: a run stops at 60 slices or 16 workers, when spend passes the sum of
 its round budgets plus one reserve per round, or when a worker's folder passes 200 MiB (the gate
 copies it for every check). See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
 
-A budget per round below one reserve plus $0.005 is refused before anything is spent.
+A `--budget` below one reserve plus $0.005 is refused before anything is spent. With `--rounds`
+above 1 the number of rounds depends on how many checks the boss drafts, so the round plan is
+checked again after the draft, before approval: if its smallest round is below one reserve plus
+$0.005, the run stops (exit 1) with the draft paid for and nobody hired.
 
 When a disputed check or a blocked worker needs you, the run asks (`boss resume` asks the same):
 
@@ -88,6 +107,8 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
+| `--review-cycles` | `1` | As for `boss fund`. |
+| `--fix-budget` | two slices plus one reserve | As for `boss fund`; the slice and reserve are the run's own. |
 
 - It reads `term_sheet.json` and the configuration recorded when the run started, so a resumed
   run keeps its own slice, reserve, firing and limit settings. There are no options to change them.
@@ -95,10 +116,14 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   The approval, the budget and every hard limit are checked again as the loop goes, so a lifted
   stop can stop again at once. The wall-clock limit (`--max-minutes`) counts from the start of
   each `resume`, so a resumed run gets the whole time again.
-- An interrupted round continues. A round that closed below its unlock threshold stays locked. A
-  task that was set aside stays set aside.
+- An interrupted round continues. A round that closed below its unlock threshold stays locked
+  until you reopen it with `boss topup`. A task that was set aside stays set aside.
 - A slice that started and never ended is charged to its round at its cap. If the last slice was
   never gated, or a firing or a question to you was owed, it is done first.
+- The roles are the ones recorded when the run started. Their first stage (stories, staged draft,
+  audit) is not run again; the consultant answers disputes; the critic, the demo and the judge of
+  the usage note run after the build unless the ledger shows they already did, so a second
+  `resume` of a finished run adds nothing.
 - On a run that already finished it changes nothing and prints the report.
 - Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; a damaged
   ledger; the run never got as far as hiring (start again with `boss fund`); the term sheet or a
@@ -109,9 +134,43 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   Nothing is changed, not even a cut-off last line.
 - Exit codes are those of `boss fund`.
 
+## `boss topup`
+
+`boss topup [--dir DIR] [RUN] --round N --amount D`. Adds money to one round of an existing run:
+you pay more for the same term sheet. It records one `topped_up` event (actor `investor`, the round,
+`micros`) and spends nothing itself; `boss resume` continues the run.
+
+Argument: `run`, a run id. Default: the latest run in the folder.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder. |
+| `--round` | required | The round to add money to, a whole number of 1 or more. |
+| `--amount` | required | Dollars to add, more than 0 and at most 6 decimal places, e.g. `0.20`. |
+
+- The round's budget becomes its term-sheet amount plus every top-up, and the run's spend ceiling
+  grows with it. The command prints the new budget and what is left, and says so when that is
+  still less than a slice needs (the reserve plus the smallest slice).
+- A round that closed below its unlock threshold (its budget ran out, or too few checks passed)
+  stays locked on `boss resume` until you top it up. A top-up recorded after the lock reopens that
+  round: the loop funds it again, with no new approval, and closes it again when it ends. A round
+  whose lock was already lifted by an earlier top-up needs another one to be reopened a second
+  time. A top-up of a round that is open, or not yet opened, only adds to its budget.
+- Only an event whose actor is `investor` counts: a `topped_up` event written by a worker, a role
+  or the loop adds nothing and reopens nothing.
+- Refused with exit 2, writing nothing: a bad `--round` or `--amount`; a round the term sheet does
+  not have; a round that closed with its checks unlocked (the run has moved on, so the money would
+  never be spent).
+- Refused with exit 1, writing nothing: no run found; no usable `term_sheet.json`; a damaged
+  ledger. A ledger whose last line was cut by a hard kill is repaired first, as `resume` does.
+- If another `boss` process is still writing the run's ledger, `topup` says so and exits 1.
+  Nothing is changed, not even a cut-off last line.
+- There is no upper limit on `--amount`: check the figure, `0.20` is twenty cents.
+- Exit 0 once the event is written.
+
 ## `boss report`
 
-`boss report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger.
+`boss report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39).
 
 Argument: `run`, a run id. Default: the latest run in the folder.
 
@@ -170,11 +229,11 @@ run `--live` again. The other checks make no paid call. The two costs are the CL
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `report`, `status`, `roles`, `doctor`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
-| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, or a budget too small to fund one slice. |
+| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
-| `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume`. |
+| `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 
 A ledger with a damaged line makes `report` and `status` fail with an error that names the file
 and line.
@@ -200,6 +259,7 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 | `--boss-model` | `haiku` | Boss model, firm arm. |
 | `--only` | all tasks | Task ids to run. |
 | `--firm-args` | none | Extra `boss fund` options for the firm arm, in one quoted string. Recorded in every result. |
+| `--held-out` | `0` | Held-out checks for the firm arm to ask the examiner for, 0 to 8; 0 is off. It adds `--held-out N` to the firm arm's `boss fund` and records `held_out_passed`, `held_out_total` and `held_out_wrong` (held-out checks the task's reference solution fails, as `wrong_checks` does for the visible ones; the table shows it only when measured) in each firm result. The single arm ignores it. |
 | `--jobs` | `2` | Cells to run at once. |
 | `--dry-run` | off | Print the cells and the task set hash, then exit. |
 
@@ -365,8 +425,15 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `logs/<worker>.jsonl` | The worker's raw stream, with secrets masked. |
 | `product/` | The built files, assembled from each task's best worker at the end of a run. |
 | `report.md` | The board report, saved when `boss fund` or `boss resume` finishes. |
+| `stories.json` | The product manager's stories, when that role ran. |
+| `critic-N/` | Scratch for the critic's Nth review: `critic_checks/` holds the tests it wrote, including the ones that were not verified. |
+| `demo/` | `demo.py` and `USAGE.md` as installed in `product/`. Kept because `product/` is rebuilt on every run, and a `resume` copies them back. |
+| `demo_scratch/` | Where the demo writer ran its script against a copy of the product. |
 
-`workspaces/`, `logs/` and `product/` exist only once a worker has been hired. `report.md` is
+A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
+never inside a workspace or `product/`) and, if the examiner's output was refused,
+`examiner_refused.json`; `boss fund --held-out N` creates them. `workspaces/`, `logs/` and `product/`
+exist only once a worker has been hired. `report.md` is
 written by `fund` and `resume`; `boss report` prints it again from the ledger without writing.
 
 ## Benchmark cell folder

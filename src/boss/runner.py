@@ -24,6 +24,7 @@ from boss.worker import (
     build_command,
     require_isolation,
     uses_api_key,
+    with_thinking,
 )
 
 DEFAULT_TIMEOUT_S = 15 * 60.0
@@ -76,6 +77,7 @@ def run_slice(
     check_workspace(workspace)
     argv = build_command(spec, api_key=uses_api_key(env))
     argv[0] = executable
+    env = with_thinking(env, spec.thinking_tokens)
     secrets = [*known_secrets, *(v for k, v in env.items() if k == "ANTHROPIC_API_KEY")]
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -95,7 +97,8 @@ def run_slice(
         start_new_session=True,
     )
     threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
-    threading.Thread(target=_drain, args=(proc.stderr, stderr_tail), daemon=True).start()
+    drain = threading.Thread(target=_drain, args=(proc.stderr, stderr_tail), daemon=True)
+    drain.start()
 
     timed_out = False
     try:
@@ -111,8 +114,10 @@ def run_slice(
             _stop(proc, grace_s)
         _kill_group(proc.pid)  # reap anything the worker left behind in its process group
 
+    drain.join(timeout=grace_s)  # the outcome may rest on the last stderr line
+    stderr_text = redact("".join(stderr_tail), secrets)
     return SliceRun(
-        outcome=classify(reader.signals(timed_out=timed_out)),
+        outcome=classify(reader.signals(timed_out=timed_out, stderr_tail=stderr_text)),
         usage=reader.usage(),
         status=reader.status,
         session_id=reader.session_id,
@@ -121,7 +126,7 @@ def run_slice(
         log_path=log_path,
         denials=reader.denials,
         rate_limit=reader.rate_limit,
-        stderr_tail=redact("".join(stderr_tail), secrets),
+        stderr_tail=stderr_text,
     )
 
 

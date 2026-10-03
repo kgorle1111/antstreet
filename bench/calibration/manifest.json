@@ -1,0 +1,246 @@
+{
+  "stories": {
+    "c01": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "bad-invented",
+      "weak": "faithful"
+    },
+    "c02": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "bad-missing",
+      "weak": "complete"
+    },
+    "c03": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "bad-vague",
+      "weak": "clarity,checkable,complete"
+    },
+    "c04": {
+      "origin": "hand-written",
+      "based_on": "lrucache",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c05": {
+      "origin": "hand-written",
+      "based_on": "roman",
+      "kind": "bad-vague",
+      "weak": "checkable"
+    },
+    "c06": {
+      "origin": "hand-written",
+      "based_on": "justify",
+      "kind": "adversarial-wrong",
+      "weak": "faithful"
+    },
+    "c07": {
+      "origin": "hand-written",
+      "based_on": "intervals",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c08": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "adversarial-padded",
+      "weak": "clarity,complete"
+    },
+    "c09": {
+      "origin": "hand-written",
+      "based_on": "roman",
+      "kind": "adversarial-wrong",
+      "weak": "faithful"
+    },
+    "c10": {
+      "origin": "hand-written",
+      "based_on": "justify",
+      "kind": "borderline",
+      "weak": "checkable,complete"
+    },
+    "c11": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c12": {
+      "origin": "hand-written",
+      "based_on": "justify",
+      "kind": "bad-missing",
+      "weak": "complete"
+    },
+    "c13": {
+      "origin": "hand-written",
+      "based_on": "intervals",
+      "kind": "borderline",
+      "weak": "checkable,faithful,complete"
+    },
+    "c14": {
+      "origin": "hand-written",
+      "based_on": "justify",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c15": {
+      "origin": "hand-written",
+      "based_on": "intervals",
+      "kind": "bad-missing",
+      "weak": "complete"
+    },
+    "c16": {
+      "origin": "hand-written",
+      "based_on": "tokenbucket",
+      "kind": "adversarial-subtle",
+      "weak": "faithful"
+    },
+    "c17": {
+      "origin": "hand-written",
+      "based_on": "lrucache",
+      "kind": "borderline",
+      "weak": "faithful,complete"
+    },
+    "c18": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "borderline",
+      "weak": "faithful,complete"
+    },
+    "c19": {
+      "origin": "hand-written",
+      "based_on": "roman",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c20": {
+      "origin": "hand-written",
+      "based_on": "lrucache",
+      "kind": "bad-vague",
+      "weak": "clarity,checkable,complete"
+    }
+  },
+  "usage": {
+    "c01": {
+      "origin": "hand-written",
+      "based_on": "justify",
+      "kind": "bad-wrong-api",
+      "weak": "accurate,honest"
+    },
+    "c02": {
+      "origin": "hand-written",
+      "based_on": "csvline",
+      "kind": "bad-invented",
+      "weak": "accurate,honest"
+    },
+    "c03": {
+      "origin": "hand-written",
+      "based_on": "intervals",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c04": {
+      "origin": "hand-written",
+      "based_on": "lrucache",
+      "kind": "adversarial-overclaim",
+      "weak": "honest,accurate"
+    },
+    "c05": {
+      "origin": "hand-written",
+      "based_on": "lrucache",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c06": {
+      "origin": "hand-written",
+      "based_on": "justify",
+      "kind": "adversarial-padded",
+      "weak": "readable"
+    },
+    "c07": {
+      "origin": "hand-written",
+      "based_on": "tokenbucket",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c08": {
+      "origin": "hand-written",
+      "based_on": "roman",
+      "kind": "borderline",
+      "weak": "accurate,honest"
+    },
+    "c09": {
+      "origin": "hand-written",
+      "based_on": "roman",
+      "kind": "bad-insufficient",
+      "weak": "sufficient,honest"
+    },
+    "c10": {
+      "origin": "hand-written",
+      "based_on": "roman",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c11": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "adversarial-padded",
+      "weak": "readable,honest"
+    },
+    "c12": {
+      "origin": "hand-written",
+      "based_on": "lrucache",
+      "kind": "borderline",
+      "weak": "accurate,sufficient"
+    },
+    "c13": {
+      "origin": "hand-written",
+      "based_on": "duration",
+      "kind": "borderline",
+      "weak": "honest,sufficient"
+    },
+    "c14": {
+      "origin": "hand-written",
+      "based_on": "intervals",
+      "kind": "adversarial-wrong",
+      "weak": "accurate,honest"
+    },
+    "c15": {
+      "origin": "hand-written",
+      "based_on": "tokenbucket",
+      "kind": "bad-wrong-api",
+      "weak": "accurate,honest"
+    },
+    "c16": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "bad-overclaim",
+      "weak": "accurate,honest"
+    },
+    "c17": {
+      "origin": "hand-written",
+      "based_on": "intervals",
+      "kind": "borderline",
+      "weak": "honest,sufficient"
+    },
+    "c18": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "good",
+      "weak": "none"
+    },
+    "c19": {
+      "origin": "hand-written",
+      "based_on": "slugify",
+      "kind": "bad-invented",
+      "weak": "accurate,honest"
+    },
+    "c20": {
+      "origin": "hand-written",
+      "based_on": "justify",
+      "kind": "good",
+      "weak": "none"
+    }
+  }
+}

@@ -7,6 +7,7 @@ CLI adds event types between versions. Money and outcome come only from the fina
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,9 @@ from typing import Any
 from boss.errors import RunSignals
 
 MICROS_PER_USD = 1_000_000
+# json.loads joins an escaped surrogate pair into one character, so any surrogate left is a lone
+# one: valid JSON, but text that no UTF-8 file, report or check can hold.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,12 +42,15 @@ class StreamReader:
         self.hook_events = 0
         self.malformed_lines = 0
         self.event_counts: Counter[str] = Counter()
+        # Per message id: the CLI emits one `assistant` event per content block, each repeating
+        # the message's usage, so counting events would count a message once per block.
+        self._messages: dict[str, tuple[int, int, int]] = {}  # id -> in, cache write, cache read
 
     def feed(self, line: str) -> None:
         if not line.strip():
             return
         try:
-            event = json.loads(line)
+            event = _valid_text(json.loads(line))
         except (ValueError, RecursionError):  # not only JSONDecodeError: int digit limit, nesting
             self.malformed_lines += 1
             return
@@ -56,6 +63,8 @@ class StreamReader:
             self._system(subtype, event)
         elif kind == "rate_limit_event" and isinstance(event.get("rate_limit_info"), dict):
             self.rate_limit = event["rate_limit_info"]
+        elif kind == "assistant":
+            self._message(event.get("message"))
         elif kind == "result":
             self.result = event
 
@@ -66,10 +75,25 @@ class StreamReader:
             self.retry_errors.append(str(event.get("error", "unknown")))
         elif subtype == "permission_denied":
             self.denials.append(
-                {"tool": event.get("tool_name"), "reason": event.get("decision_reason_type")}
+                {
+                    "tool": event.get("tool_name"),
+                    "reason": event.get("decision_reason_type"),
+                    "message": event.get("message"),
+                }
             )
         elif subtype.startswith("hook_"):
             self.hook_events += 1
+
+    def _message(self, message: Any) -> None:
+        usage = message.get("usage") if isinstance(message, dict) else None
+        mid = message.get("id") if isinstance(message, dict) else None
+        if not isinstance(usage, dict) or not isinstance(mid, str):
+            return
+        self._messages[mid] = (
+            _count(usage, "input_tokens"),
+            _count(usage, "cache_creation_input_tokens"),
+            _count(usage, "cache_read_input_tokens"),
+        )
 
     @property
     def session_id(self) -> str | None:
@@ -84,27 +108,35 @@ class StreamReader:
         output = (self.result or {}).get("structured_output")
         return output if isinstance(output, dict) else None
 
-    def signals(self, *, timed_out: bool = False) -> RunSignals:
+    def signals(self, *, timed_out: bool = False, stderr_tail: str = "") -> RunSignals:
         return RunSignals(
             result=self.result,
             retry_errors=tuple(self.retry_errors),
             rate_limit_status=(self.rate_limit or {}).get("status"),
             timed_out=timed_out,
+            stderr_tail=stderr_tail,
         )
 
     def usage(self) -> Usage:
         result = self.result
-        if result is None:
-            # kn: input tokens could be recovered from per-message usage; not needed yet.
-            return Usage(None, 0, 0, 0)
-        raw = result.get("modelUsage")
+        raw = (result or {}).get("modelUsage")
         models = [m for m in raw.values() if isinstance(m, dict)] if isinstance(raw, dict) else []
+        if result is None or not models:
+            return self._message_usage(None if result is None else _cost_micros(result, False))
         tokens_in = sum(
             _count(m, "inputTokens") + _count(m, "cacheCreationInputTokens") for m in models
         )
         tokens_out = sum(_count(m, "outputTokens") for m in models)
         tokens_cached = sum(_count(m, "cacheReadInputTokens") for m in models)
         return Usage(_cost_micros(result, bool(models)), tokens_in, tokens_out, tokens_cached)
+
+    def _message_usage(self, cost_micros: int | None) -> Usage:
+        """Input-side tokens summed from the messages seen, for a slice with no totals: it was
+        killed, or the CLI zeroed them. Output stays 0: each message's `output_tokens` is its
+        count at the start of the response (4 against 775 billed in the capped fixture), so a sum
+        of them would look measured and be wrong. The cost stays unknown for the same reason."""
+        sums = [sum(m[i] for m in self._messages.values()) for i in range(3)]
+        return Usage(cost_micros, sums[0] + sums[1], 0, sums[2])
 
 
 def _count(model: dict[str, Any], key: str) -> int:
@@ -124,3 +156,15 @@ def _cost_micros(result: dict[str, Any], has_model_usage: bool) -> int | None:
         return round(cost * MICROS_PER_USD)
     except (ValueError, OverflowError):  # NaN, or a figure too large to scale (1e308)
         return None
+
+
+def _valid_text(value: Any) -> Any:
+    """Every string in a parsed event, with each lone surrogate replaced by U+FFFD: the same
+    replacement the runner applies to undecodable output, applied once here for every reader."""
+    if isinstance(value, str):
+        return _LONE_SURROGATE.sub("\ufffd", value)
+    if isinstance(value, list):
+        return [_valid_text(v) for v in value]
+    if isinstance(value, dict):
+        return {_valid_text(k): _valid_text(v) for k, v in value.items()}
+    return value

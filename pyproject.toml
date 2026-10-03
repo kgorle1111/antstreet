@@ -13,6 +13,7 @@ boss = "boss.cli:main"
 
 [dependency-groups]
 dev = [
+    "mypy>=1.11",
     "pytest-cov>=7.1.0",
     "ruff>=0.6",
 ]
@@ -28,6 +29,12 @@ extend-exclude = [".claude", ".boss", "bench/tasks/*/mutants"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+# Tests are not checked yet; widen `files` when they are.
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/boss"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

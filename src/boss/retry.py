@@ -89,6 +89,15 @@ def infra_action(
         return GiveUp("the CLI is not logged in", "run `claude auth login`, then resume")
     if outcome is Outcome.USAGE_LIMIT:
         return Pause(_usage_limit_reset(rate_limit), "plan usage limit reached")
+    if outcome is Outcome.SESSION_LOST:
+        # The next attempt starts a new session, so waiting changes nothing. A new session that is
+        # lost as well means the CLI's session store is broken, which no retry will mend.
+        if attempt > 1:
+            return GiveUp(
+                "a new session was lost as well",
+                "check that the CLI's session store is writable, then resume",
+            )
+        return Wait(0.0, "the session to resume no longer exists; starting a new one")
     if attempt > max_attempts:
         fix = (
             "try again later"

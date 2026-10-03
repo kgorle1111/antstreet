@@ -4,7 +4,7 @@ import dataclasses
 import re
 
 import pytest
-from docs_support import ROOT, captured_parser, read
+from docs_support import ROOT, captured_parser, original_tasks, read
 
 from boss.bench import drafts as bench_drafts
 from boss.bench import results, score
@@ -28,9 +28,11 @@ def text() -> str:
 
 
 def test_the_task_set_and_its_hash_are_the_ones_on_disk(text):
-    tasks = load_tasks(ROOT / "bench" / "tasks")
-    assert f"the same {len(tasks)} task files" in text
-    assert "`c130282a6eec5fe8` after" in text and task_set_hash(tasks) == "c130282a6eec5fe8"
+    original = original_tasks()  # the history: the first 17 and the hash re-encoding
+    assert f"the same {len(original)} task files" in text
+    assert "`c130282a6eec5fe8` after" in text and task_set_hash(original) == "c130282a6eec5fe8"
+    tasks = load_tasks(ROOT / "bench" / "tasks")  # and the set as it is now
+    assert f"the set has {len(tasks)} tasks, hash `{task_set_hash(tasks)}`" in text
 
 
 def test_the_single_arms_slice_cap_is_the_share_it_states(text):

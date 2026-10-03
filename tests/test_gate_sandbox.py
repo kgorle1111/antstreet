@@ -22,16 +22,22 @@ import uuid
 from pathlib import Path
 
 import pytest
+from gate_forgers import NONCE_READER
+from sandbox_support import working_sandbox
 
 from boss.gate import Check, CheckStatus, run_gate
-from boss.sandbox import SandboxMode, detect, python_readable
+from boss.sandbox import SandboxMode, python_readable
 from boss.termsheet import CheckSpec, Round, Task, TermSheet, validate
 
-TOOL = detect()
+TOOL = working_sandbox()
 requires_sandbox = pytest.mark.skipif(TOOL is None, reason="no working OS sandbox on this machine")
 mac_only = pytest.mark.skipif(
     TOOL is None or TOOL.name != "sandbox-exec", reason="pins the macOS seatbelt profile"
 )
+BWRAP = TOOL is not None and TOOL.name == "bwrap"
+# Outside the gate's folder a check never gets "Operation not permitted" on Linux: bwrap hides the
+# whole directory (`--tmpfs /tmp`, `/home`), so the path is simply not there.
+NOT_ALLOWED = r"PermissionError|FileNotFoundError"
 ON, OFF = SandboxMode.REQUIRE, SandboxMode.OFF
 
 RIGHT = "def reverse(s):\n    return s[::-1]\n"
@@ -208,7 +214,8 @@ def test_a_udp_datagram_to_a_local_receiver_is_denied_and_never_arrives(tmp_path
         assert attempt(tmp_path, body, OFF) == "allowed"
         assert select.select([receiver], [], [], 1)[0]
         receiver.recv(10)
-        assert denied(attempt(tmp_path, body, ON))
+        # bwrap gives the check a private loopback of its own: the send succeeds into nothing.
+        assert denied(attempt(tmp_path, body, ON)) or BWRAP
         assert not select.select([receiver], [], [], 0.5)[0], "a sandboxed datagram got through"
 
 
@@ -228,6 +235,10 @@ def test_a_unix_socket_the_user_could_reach_is_denied(tmp_path):
 
 @requires_sandbox
 def test_opening_a_listening_socket_is_denied(tmp_path):
+    if BWRAP:
+        pytest.skip(
+            "--unshare-net gives the check a loopback of its own; nothing outside reaches it"
+        )
     body = "s = socket.socket()\ns.bind(('127.0.0.1', 0))\ns.listen()"
     assert attempt(tmp_path, body, OFF) == "allowed"
     assert denied(attempt(tmp_path, body, ON))
@@ -254,7 +265,7 @@ def test_worker_code_imported_by_the_check_cannot_write_outside_the_gates_folder
     code = f"open({str(outside)!r}, 'w').write('x')\n" + WRONG
     result = gate(tmp_path, HONEST, code, ON)
     assert result.status is CheckStatus.FAILED and result.sandboxed is True
-    assert "PermissionError" in result.output_tail
+    assert re.search(NOT_ALLOWED, result.output_tail), result.output_tail
     assert not outside.exists()
 
 
@@ -358,6 +369,8 @@ def test_a_folder_of_secrets_cannot_be_listed(tmp_path, fake_home):
 def test_the_interpreter_and_its_libraries_are_readable_but_not_their_neighbours(tmp_path):
     readable = python_readable()[0]
     assert attempt(tmp_path, f"os.listdir({str(readable)!r})", ON) == "allowed"
+    if BWRAP:  # `--ro-bind / /` leaves every neighbour outside /home, /root, /tmp, /run readable
+        return
     beside = readable.parent
     assert attempt(tmp_path, f"os.listdir({str(beside)!r})", OFF) == "allowed"
     assert denied(attempt(tmp_path, f"os.listdir({str(beside)!r})", ON))
@@ -469,10 +482,19 @@ def test_a_hostile_directory_name_grants_that_directory_and_nothing_else(tmp_pat
 
 
 @requires_sandbox
-def test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox(tmp_path):
+def test_a_report_rewritten_from_inside_the_sandbox_is_not_a_pass(tmp_path):
     result = gate(tmp_path, HONEST, FORGER + WRONG, ON)
     assert result.sandboxed is True
-    assert result.status is CheckStatus.PASSED  # the report lives in the one folder it may write
+    assert result.status is CheckStatus.FAILED
+    assert "no valid proof" in result.detail
+
+
+@requires_sandbox
+def test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox(tmp_path):
+    # The plugin's nonce is in the one process the sandbox confines the check to (T12).
+    result = gate(tmp_path, HONEST, NONCE_READER + WRONG, ON)
+    assert result.sandboxed is True
+    assert result.status is CheckStatus.PASSED
     assert result.detail == "1 passed"
 
 
@@ -516,6 +538,11 @@ def test_accepted_risk_a_detached_child_outlives_the_timeout_inside_the_sandbox_
     try:
         result = gate(tmp_path, HONEST, spawn_sleeper(marker, detached=True), ON, timeout_s=3.0)
         assert result.status is CheckStatus.TIMEOUT
+        if BWRAP:
+            # The group kill reaches bwrap's init, pid 1 of the check's pid namespace, and the
+            # kernel then kills every process in that namespace, detached or not.
+            assert wait_gone(marker) == [], "a detached child outlived the pid namespace"
+            return
         survivors = children_with(marker)
         assert survivors, "the sandbox is now killing detached children: update THREAT_MODEL T05"
     finally:

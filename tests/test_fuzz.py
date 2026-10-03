@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from boss import held_out
+from boss.approval import NotApprovedError, content_hashes, require_approval
 from boss.bench.table import wilson_interval
 from boss.cli import usd_arg
 from boss.errors import INFRASTRUCTURE, Outcome, classify
@@ -309,6 +311,23 @@ SECRET_MAKERS = {
 PRINTABLE = string.printable
 
 
+def mixed_body(rng: random.Random, k: int) -> str:
+    # A random key body almost always has a digit, an upper and a lower case letter; force it.
+    body = rng.choices(ALNUM, k=k - 3) + [
+        rng.choice(string.digits),
+        rng.choice(string.ascii_uppercase),
+        rng.choice(string.ascii_lowercase),
+    ]
+    rng.shuffle(body)
+    return "".join(body)
+
+
+SECRET_MAKERS["sk-bare"] = lambda rng: "sk-" + mixed_body(rng, rng.randint(20, 60))
+SECRET_MAKERS["sk-bare-hyphen"] = lambda rng: (
+    "sk-" + mixed_body(rng, 20) + "-" + mixed_body(rng, 20)
+)
+
+
 def embed(rng: random.Random, text: str, secret: str) -> str:
     i = rng.randint(0, len(text))
     return text[:i] + secret + text[i:]
@@ -371,6 +390,63 @@ def test_redact_leaves_plain_words_unchanged():
         ]
         text = " ".join(words)
         assert redact(text) == text
+
+
+def test_redact_masks_a_hex_sk_key_unless_a_vowel_is_glued_to_it():
+    # Known residual (THREAT_MODEL T17): "<vowel>sk-<hex>" reads as a word such as "disk-<hash>".
+    rng = random.Random(3008)
+    for _ in range(REDACT_RUNS):
+        secret = "sk-" + "".join(rng.choices("0123456789abcdef", k=32))
+        glue = rng.choice([" ", "\n", "=", ":", '"', "x", "k", "Z", "7", "-", "_", "(", ""])
+        assert secret not in redact(rand_text(rng, 30, "bcdfg h") + glue + secret + " tail")
+
+
+ORDINARY_MAKERS = {
+    # a word ending in "sk" (vowel before it) followed by a long single-class run
+    "sk-word": lambda rng: (
+        rng.choice(["ta", "di", "de", "ri", "ma", "a", "bri", "whi", "hu"])
+        + "sk-"
+        + "".join(rng.choices(string.ascii_lowercase, k=rng.randint(20, 40)))
+    ),
+    "sk-word-hex": lambda rng: (
+        rng.choice(["task", "disk", "desk"]) + "-" + "".join(rng.choices("0123456789abcdef", k=32))
+    ),
+    "sk-hyphenated": lambda rng: (
+        "sk-"
+        + "-".join(
+            "".join(rng.choices(string.ascii_lowercase, k=rng.randint(3, 9))) for _ in range(5)
+        )
+    ),
+    "token-count": lambda rng: (
+        rng.choice(["max_tokens", "input_tokens", "tokens_used", "token_count", "maxTokens"])
+        + rng.choice([": ", "=", " = "])
+        + str(rng.randint(10**5, 10**9))
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", ORDINARY_MAKERS)
+def test_redact_leaves_ordinary_text_that_looks_like_a_secret_alone(shape):
+    rng = random.Random(3006)
+    for _ in range(REDACT_RUNS):
+        words = [
+            "".join(rng.choices(string.ascii_lowercase, k=rng.randint(1, 8))) for _ in range(4)
+        ]
+        ordinary = ORDINARY_MAKERS[shape](rng)
+        text = f"{words[0]} {words[1]} {ordinary} {words[2]}\n{words[3]}"
+        assert redact(text) == text
+
+
+def test_redact_masks_a_secret_next_to_ordinary_lookalikes():
+    rng = random.Random(3007)
+    makers = list(SECRET_MAKERS.values())
+    for _ in range(REDACT_RUNS):
+        secret = rng.choice(makers)(rng)
+        ordinary = rng.choice(list(ORDINARY_MAKERS.values()))(rng)
+        parts = [ordinary, f"key={secret}", ordinary]
+        out = redact(" ".join(parts))
+        assert secret.removeprefix("Bearer ") not in out
+        assert out.startswith(ordinary) and out.endswith(ordinary)
 
 
 # 4. term sheet ---------------------------------------------------------------------------------
@@ -514,3 +590,54 @@ def test_wilson_interval_brackets_the_proportion():
             assert low == 0
         if k == n:
             assert high == 1
+
+
+# 8. held-out folder and its approval -----------------------------------------------------------
+
+HELD_OUT_RUNS = 300
+H_CODE = "from rev import reverse\n\ndef test_a():\n    assert reverse('ab') == 'ba'\n"
+
+
+def test_held_out_manifests_load_or_raise_held_out_error(tmp_path):
+    rng = random.Random(8001)
+    for _ in range(HELD_OUT_RUNS):
+        doc = rng.choice([rand_json(rng), {"checks": rand_json(rng)}, {"checks": [rand_json(rng)]}])
+        (tmp_path / held_out.MANIFEST).write_text(json.dumps(doc), encoding="utf-8")
+        try:
+            loaded = held_out.load(tmp_path)
+        except held_out.HeldOutError:
+            assert held_out.problems(tmp_path)
+            continue
+        assert all(isinstance(c, held_out.HeldOutCheck) for c in loaded)
+
+
+def test_changing_any_byte_of_any_held_out_file_voids_an_approval(tmp_path):
+    rng = random.Random(8002)
+    sheet = TermSheet(
+        "Reverse.",
+        500_000,
+        (Round(1, 500_000, 1),),
+        (CheckSpec("c01", "d", "test_c01.py", "t1"),),
+        (Task("t1", "Create rev.py.", ("rev.py",)),),
+    )
+    checks = tmp_path / "checks"
+    checks.mkdir()
+    (checks / "test_c01.py").write_text(H_CODE)
+    folder = tmp_path / "held_out"
+    ids = [f"h{n:02d}" for n in range(1, 4)]
+    entries = [(held_out.HeldOutCheck(i, held_out.file_name(i), "Reverse."), H_CODE) for i in ids]
+    held_out.write(folder, entries)
+    event = Event(
+        run="r", round=0, actor="investor", event=EventType.APPROVED,
+        data={"hashes": content_hashes(sheet, checks), "held_out_hashes": held_out.hashes(folder)},
+    )  # fmt: skip
+    require_approval([event], sheet, checks, folder)
+    for _ in range(HELD_OUT_RUNS):
+        target = folder / rng.choice([held_out.MANIFEST, *(held_out.file_name(i) for i in ids)])
+        original = target.read_bytes()
+        at, bit = rng.randrange(len(original)), 1 << rng.randrange(8)
+        target.write_bytes(original[:at] + bytes([original[at] ^ bit]) + original[at + 1 :])
+        with pytest.raises(NotApprovedError):
+            require_approval([event], sheet, checks, folder)
+        target.write_bytes(original)
+        require_approval([event], sheet, checks, folder)

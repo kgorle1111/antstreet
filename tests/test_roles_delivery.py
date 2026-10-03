@@ -7,6 +7,7 @@ import json
 import sys
 
 import pytest
+from sandbox_support import working_sandbox
 
 from boss.errors import Outcome
 from boss.gate import OUTPUT_TAIL_CHARS, Check, CheckResult, CheckStatus, GateError, run_gate
@@ -24,7 +25,7 @@ from boss.roles.delivery import (
     render_usage,
     write_demo,
 )
-from boss.sandbox import SandboxMode, detect
+from boss.sandbox import SandboxMode
 from boss.skills import MAX_SKILL_CHARS, load_skill
 from boss.stream import Usage
 
@@ -64,7 +65,7 @@ STEPS = [
     {"says": "Shortens without a trailing hyphen", "quote": "A max_length shortens the slug"},
 ]
 USAGE = "Import slug from slugger.py. Pass the title as text; max_length is optional."
-SANDBOX = detect()
+SANDBOX = working_sandbox()
 needs_sandbox = pytest.mark.skipif(SANDBOX is None, reason="no OS sandbox on this machine")
 
 
@@ -252,7 +253,6 @@ def test_a_usage_note_that_claims_output_is_rejected_before_anything_runs(make, 
         ("", "empty"),
         ("   \n", "empty"),
         ("print('a\x00b')", "null bytes"),
-        ("x = '\ud800'", "cannot be parsed"),
         pytest.param("x = " + "(1," * 1300 + ")" * 1300, "cannot be parsed", id="parser-overflow"),
         ("print(", "line 1"),
         ("import requests\nprint(requests)", "'requests'"),
@@ -393,7 +393,7 @@ def test_a_demo_that_writes_outside_its_folder_is_stopped_by_the_sandbox(make, t
     target = tmp_path / "escaped.txt"
     code = f"open({str(target)!r}, 'w').write('out')\nprint('wrote outside')\n"
     (problem,) = rejected(make, data(code), sandbox=SandboxMode.REQUIRE).problems
-    assert "PermissionError" in problem
+    assert "PermissionError" in problem or "FileNotFoundError" in problem  # bwrap hides the folder
     assert not target.exists()
 
 

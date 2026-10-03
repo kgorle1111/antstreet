@@ -21,8 +21,39 @@ than a single agent given the idea directly?
   The hash encoding was made unambiguous on 2026-09-30: the same 17 task files were
   `7a212cdcc5f4f466` before and are `c130282a6eec5fe8` after. Results recorded under the old
   value ran against identical files.
+- On 2026-10-02, 18 tasks were added: the set has 35 tasks, hash `767892a59e311ab5`. Every result
+  recorded before then ran on the original 17, whose files and hash are unchanged.
 - `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
   make old and new results look like they ran against different tasks. A test pins the hash.
+
+## Imported tasks
+
+A task from an external benchmark can be run through both arms, graded by that benchmark's own
+tests instead of hidden checks written here.
+
+- Layout: `idea.md` (the external spec, both arms see it word for word; it may embed code),
+  `hidden/` (the benchmark's whole pytest tree, subfolders and data files included), `meta.json`
+  with an `imported` block (`source`, `test_path` inside the product, `test_count`), and an optional
+  `support/` (harness-owned files laid over the product root while grading, e.g. a shim that
+  stands in for the PyPI backport `mock`, which the gate's interpreter lacks).
+- Convert a download with `python -m boss.bench.imported nl2repo <task-dir> <dest-root>`, then run
+  with `--tasks <dest-root>`. External task data is never committed here (the source may carry no
+  licence); `<dest-root>` is outside the repository.
+- `validate_task` skips the reference, mutant and `def test_` rules (there is no reference solution;
+  both arms see the spec equally). It still requires the tree to parse and its static test count to
+  equal `test_count`, and runs the tree on an empty product: every test file must be collected,
+  nothing may pass, and no import the gate lacks may be left unshimmed.
+- Grading: after an arm finishes, the hidden tree replaces `test_path` in a copy of its product and
+  one sandboxed pytest runs over it (`--continue-on-collection-errors`). Each test's node id and
+  status go in the cell's `hidden` map. A test that did not run (collection error, timeout, no
+  product) counts as failed, the map is padded to `test_count`, and a cell **passes** only when all
+  of them pass. The "hidden checks" column is then the mean per-test pass fraction.
+- Not comparable with the external leaderboard: the product is not `pip install`ed, the workers
+  cannot run code, the model is Haiku, and the budget is the cell budget. The boss's checks cannot
+  be scored against a reference, so `wrong_checks` is not measured, and the draft evaluation does
+  not apply to these tasks.
+- Limit: the tree runs in one pytest process under a single timeout. A hang loses every test,
+  including the ones that would have passed.
 
 ## Arms
 

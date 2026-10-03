@@ -15,18 +15,21 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from boss import budget, handoff, limits, retry, rulings
+from boss import held_out as held_out_store
 from boss.approval import NotApprovedError, require_approval
 from boss.boss import load_prompt
 from boss.briefs import (
     added_checks_note,
     continuation_prompt,
+    predecessor_disputes_note,
     reassignment_brief,
     task_prompt,
 )
-from boss.errors import INFRASTRUCTURE
+from boss.errors import INFRASTRUCTURE, Outcome
 from boss.gate import Check, CheckResult, run_gate
 from boss.ledger import Event, EventType, LedgerWriter, read_events
 from boss.redact import safe_text
@@ -47,6 +50,7 @@ from boss.worker import (
     IsolationError,
     SliceSpec,
     billing_mode,
+    check_thinking,
     disputed_checks,
     usd,
 )
@@ -70,7 +74,8 @@ Say = Callable[[str], None]
 class FirmConfig:
     model: str = DEFAULT_WORKER_MODEL
     slice_micros: int = DEFAULT_SLICE_MICROS
-    reserve_micros: int = budget.RESERVE_MICROS  # held back from every cap: one model response
+    # Held back from every cap: one response of `model`. MODEL_RESERVE resolves to its figure.
+    reserve_micros: int = budget.MODEL_RESERVE
     policy: FiringPolicy = field(default_factory=FiringPolicy)
     firing: bool = True  # False: a stalled worker keeps being funded (the benchmark's control arm)
     limits: limits.RunLimits = field(default_factory=limits.RunLimits)
@@ -81,6 +86,25 @@ class FirmConfig:
     # Pause the run once a slice reports a plan window this full (a fraction), instead of running
     # into the limit mid-slice and losing that slice. None turns the pause off.
     plan_pause_at: float | None = 0.95
+    # How many held-out checks the examiner was asked for (0 turns the feature off). The checks
+    # themselves are in the run folder and in the investor's approval; this records the request,
+    # so the report can say when it was not met.
+    # The examiner runs before the approval (`boss fund --held-out N`), so the loop only grades
+    # what was approved.
+    held_out: int = 0
+    # The CLI's thinking budget for every worker slice (MAX_THINKING_TOKENS); 0 turns thinking
+    # off. None leaves the CLI's own default.
+    thinking_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        check_thinking(self.thinking_tokens)
+        if self.reserve_micros == budget.MODEL_RESERVE:
+            object.__setattr__(self, "reserve_micros", budget.reserve_for(self.model))
+        if type(self.held_out) is not int or not 0 <= self.held_out <= held_out_store.MAX_HELD_OUT:
+            raise ValueError(
+                f"held_out must be a whole number from 0 to {held_out_store.MAX_HELD_OUT}, "
+                f"got {self.held_out!r}"
+            )
 
 
 def config_data(config: FirmConfig) -> dict[str, Any]:
@@ -112,10 +136,14 @@ class FirmReport:
     passed: int
     total: int
     stopped: str | None  # why the run ended early, if it did
+    held_out_passed: int = 0  # held-out checks passing on the product; total 0 when there are none
+    held_out_total: int = 0
 
     @property
     def all_passed(self) -> bool:
-        return self.total > 0 and self.passed == self.total
+        """Every visible check and, when the run has held-out checks, every one of them too."""
+        visible = self.total > 0 and self.passed == self.total
+        return visible and self.held_out_passed == self.held_out_total
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +179,12 @@ class _Firm:
     def events(self) -> list[Event]:
         return read_events(self.paths.ledger)
 
+    def require_approval(self, events: Sequence[Event]) -> None:
+        """The investor's approval must match the checks and the held-out folder on disk now."""
+        require_approval(
+            events, self.sheet, self.paths.checks, self.paths.held_out, self.paths.investor_key
+        )
+
     def state(self) -> RunState:
         return run_state(self.events(), [t.id for t in self.sheet.tasks])
 
@@ -169,7 +203,7 @@ class _Firm:
     def run_gate(self, task: Task, worker: str) -> list[CheckResult]:
         # Check files are read from disk on every gate run, so the approval is verified on
         # every gate run: a check edited mid-run never produces a recorded result.
-        require_approval(self.events(), self.sheet, self.paths.checks)
+        self.require_approval(self.events())
         limit = self.config.limits.max_workspace_bytes
         size = workspace_bytes(self.paths.workspace(worker), limit)
         if size > limit:
@@ -210,7 +244,8 @@ class _Firm:
         for path in assemble_product(self.paths, self.sheet, self.state()):
             self.say(f"Not in the product: {path} (its name collides with another task's file).")
         passed = self._gate_product()
-        return FirmReport(passed, self.required(), stopped)
+        held_passed, held_total = self._gate_held_out()
+        return FirmReport(passed, self.required(), stopped, held_passed, held_total)
 
     def _gate_product(self) -> int:
         """Run every required check on the assembled product and return how many pass.
@@ -221,41 +256,18 @@ class _Firm:
         """
         events = self.events()
         workspace_passes = self.state().passing_total()
-        last_slice = max(
-            (i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1
-        )
+        last_slice = _last_slice(events)
         if last_slice < 0:
             return workspace_passes  # nothing was built
-        verdicts = {
-            e.data["check"]: e.data.get("status") == "passed"
-            for e in events[last_slice:]
-            if e.event is EventType.CHECK_RESULT and e.data.get("scope") == "product"
-        }
         dropped = self.state().dropped
         required = [Check(c.id, c.file) for c in self.sheet.checks if c.id not in dropped]
-        # A run killed between two product results leaves the verdict on some checks only:
-        # the ones still missing are gated now.
-        missing = [c for c in required if c.id not in verdicts]
-        limit = self.config.limits.max_workspace_bytes
-        if missing and workspace_bytes(self.paths.product, limit) > limit:
-            self.say("The product is over the folder size limit, so it was not gated.")
-            return workspace_passes
-        if missing:
-            tasks = {c.id: c.task for c in self.sheet.checks}
-            try:
-                require_approval(events, self.sheet, self.paths.checks)
-                results = self.gate(self.paths.product, self.paths.checks, missing)
-            except NotApprovedError:
-                return workspace_passes  # the checks changed: only earlier results can be trusted
-            record = Recorder(self.ledger, self.run_id, events[last_slice].round)
-            for r in results:
-                data = {"check": r.check_id, "task": tasks[r.check_id], "status": str(r.status)}
-                record(
-                    "gate",
-                    EventType.CHECK_RESULT,
-                    data=data | {"detail": r.detail, "scope": "product"},
-                )
-                verdicts[r.check_id] = r.passed
+        tasks = {c.id: c.task for c in self.sheet.checks}
+        over = "The product is over the folder size limit, so it was not gated."
+        verdicts = self._grade_product(
+            events, last_slice, "product", required, self.paths.checks, tasks, over
+        )
+        if verdicts is None:
+            return workspace_passes  # the checks changed: only earlier results can be trusted
         passed = sum(verdicts.get(c.id, False) for c in required)
         if passed != workspace_passes:
             self.say(
@@ -263,6 +275,78 @@ class _Firm:
                 f"passed {workspace_passes}. The product's figure is the one reported."
             )
         return passed
+
+    def _gate_held_out(self) -> tuple[int, int]:
+        """Grade the held-out checks on the assembled product: (passed, total), (0, 0) when the
+        run has none. Completed like the product verdict: a resume grades only the checks with no
+        result yet. A check that could not be graded counts as not passed."""
+        checks = held_out_store.load(self.paths.held_out)
+        if not checks:
+            return 0, 0
+        events, total = self.events(), len(checks)
+        last_slice = _last_slice(events)
+        if last_slice < 0:
+            return 0, total  # nothing was built
+        over = "The product is over the folder size limit, so the held-out checks were not run."
+        verdicts = self._grade_product(
+            events,
+            last_slice,
+            held_out_store.SCOPE,
+            [c.to_check() for c in checks],
+            self.paths.held_out,
+            None,
+            over,
+        )
+        passed = 0 if verdicts is None else sum(verdicts.get(c.id, False) for c in checks)
+        self.say(
+            f"Held-out checks: {passed} of {total} passed on the product; "
+            "the workers never saw them."
+        )
+        return passed, total
+
+    def _grade_product(
+        self,
+        events: Sequence[Event],
+        last_slice: int,
+        scope: str,
+        required: Sequence[Check],
+        checks_dir: Path,
+        tasks: Mapping[str, str] | None,
+        over: str,
+    ) -> dict[str, bool] | None:
+        """Each required check's verdict on product/ for results of this `scope` recorded since
+        the last slice, running (and recording) the checks that have none. None when the product
+        cannot be gated: it is over the size limit, or the approval no longer matches the files."""
+        verdicts = {
+            e.data["check"]: e.data.get("status") == "passed"
+            for e in events[last_slice:]
+            if e.event is EventType.CHECK_RESULT and e.data.get("scope") == scope
+        }
+        # A run killed between two results leaves the verdict on some checks only: the ones
+        # still missing are gated now.
+        missing = [c for c in required if c.id not in verdicts]
+        limit = self.config.limits.max_workspace_bytes
+        if missing and workspace_bytes(self.paths.product, limit) > limit:
+            self.say(over)
+            return None
+        if missing:
+            try:
+                self.require_approval(events)
+                results = self.gate(self.paths.product, checks_dir, missing)
+            except NotApprovedError:
+                return None
+            record = Recorder(self.ledger, self.run_id, events[last_slice].round)
+            for r in results:
+                data: dict[str, Any] = {"check": r.check_id, "status": str(r.status)}
+                if tasks is not None:
+                    data["task"] = tasks[r.check_id]
+                record(
+                    "gate",
+                    EventType.CHECK_RESULT,
+                    data=data | {"detail": r.detail, "scope": scope, "sandboxed": r.sandboxed},
+                )
+                verdicts[r.check_id] = r.passed
+        return verdicts
 
     def _approve(self, round_: Round, record: Recorder) -> bool:
         passed = self.state().passing_total()
@@ -485,7 +569,7 @@ class _Firm:
             handoff.prepare_workspace(self.paths.workspace(current), self.paths.workspace(name))
             data = {"task": task.id, "from": current, "to": name}
             record("boss", EventType.REASSIGNED, data=data)
-        hired = {"worker": name, "task": task.id, "model": self.config.model}
+        hired: dict[str, Any] = {"worker": name, "task": task.id, "model": self.config.model}
         hired |= {"prompt": BUILDER_PROMPT, "profile": self.config.profile}
         record("boss", EventType.HIRED, data=hired)
         return name
@@ -514,7 +598,7 @@ class _Firm:
         state = self.state()
         ws = state.workers[worker]
         history = slice_history(self.events()).get(worker, [])
-        require_approval(self.events(), self.sheet, self.paths.checks)  # before any spend
+        self.require_approval(self.events())  # before any spend
         disputed = frozenset().union(*(r.disputed for r in history))
         # A session is resumed only once the ledger proves it exists (state._live_session). Any
         # other attempt gets a new id: the CLI refuses one that is already in use (probe, CLI
@@ -523,8 +607,18 @@ class _Firm:
         session = ws.session or str(uuid.uuid4())
         events = self.events()
         since = _after_last_slice(events, worker)
-        notes = rulings.notes_since(events, task.id, since)
+        notes = rulings.notes_since(events, task.id, since, worker)
         mine = {c.id for c in self.checks_of(task)}
+        # What an earlier worker of this task disputed and nobody has ruled on still stands
+        # against this one's checks: it is told, and the rule sees it (state.slice_history).
+        settled = rulings.ruled(events, rulings.KEPT)
+        theirs = {
+            check: reason
+            for check, (by, reason) in _disputes(events, task.id).items()
+            if by != worker and check in mine - settled - state.tasks[task.id].passing
+        }
+        if theirs:
+            notes.append(predecessor_disputes_note(theirs))
         added = mine & {
             str(check)
             for e in events[since:]
@@ -536,10 +630,11 @@ class _Firm:
         if resume:
             prompt = continuation_prompt(
                 self.run_gate(task, worker),
-                disputed,
+                disputed - theirs.keys(),
                 history[-1].denied_tools,
                 task.paths[0],
                 notes,
+                _last_denial_reasons(events, worker),
             )
         else:
             # A new session starts from the first brief; what the investor ruled still applies.
@@ -551,6 +646,7 @@ class _Firm:
             model=self.config.model,
             cap_micros=cap,
             append_system_prompt=self._builder_prompt(),
+            thinking_tokens=self.config.thinking_tokens,
         )
         number = ws.slices + 1
         start = {"slice": number, "task": task.id, "cap_micros": cap, "session": session}
@@ -581,8 +677,13 @@ class _Firm:
         # A run killed between two results leaves the slice half graded: grade the rest.
         results = [r for r in self.run_gate(task, worker) if r.check_id not in graded]
         for r in results:
-            data = {"check": r.check_id, "task": task.id, "status": str(r.status)}
-            data |= {"detail": r.detail, "worker": worker, "slice": number}
+            data: dict[str, Any] = {"check": r.check_id, "task": task.id, "status": str(r.status)}
+            data |= {
+                "detail": r.detail,
+                "worker": worker,
+                "slice": number,
+                "sandboxed": r.sandboxed,
+            }
             record("gate", EventType.CHECK_RESULT, data=data)
         # Only a check of this task that fails right now can be disputed, once, and never one
         # the investor has ruled on.
@@ -606,7 +707,8 @@ class _Firm:
         if not history or not needed:
             return None
         since = _after_last_slice(events, worker)
-        open_disputes = sorted(needed & frozenset().union(*(r.disputed for r in history)))
+        raised = frozenset().union(*(r.disputed for r in history))
+        open_disputes = sorted((needed & raised) - history[-1].passing)  # a passing one is moot
         if open_disputes and any(_rules_on_a_check(e, task.id) for e in events[since:]):
             # The investor was part way through this worker's disputes when the run stopped.
             # The rest are asked before anything else is decided: a kept check no longer makes
@@ -627,7 +729,7 @@ class _Firm:
         elif verdict.decision is Decision.FIRE and (
             self.config.firing or verdict.reason == "slice limit"
         ):
-            data = {"worker": worker, "task": task.id, "reason": verdict.reason}
+            data: dict[str, Any] = {"worker": worker, "task": task.id, "reason": verdict.reason}
             data |= {"evidence": verdict.evidence, "last_reason": _last_reason(events, worker)}
             record("rule", EventType.FIRED, data=data)
         return None
@@ -668,34 +770,33 @@ class _Firm:
         """Ask the investor to rule on each disputed check. The first one left unruled sets the
         task aside."""
         described = {c.id: c.description for c in self.sheet.checks}
-        reasons = {
-            e.data.get("check"): str(e.data.get("reason", ""))
-            for e in events
-            if e.event is EventType.DISPUTED and e.data.get("worker") == worker
-        }
+        raised = _disputes(events, task.id)
         for check in checks:
-            advice = self.advise(check, reasons.get(check, "")) if self.advise else None
+            by, reason = raised.get(check, (worker, ""))  # a fired worker's dispute is put too
+            advice = self.advise(check, reason) if self.advise else None
             if advice:
                 self.say(advice)
             ruling = rulings.ask_dispute(
                 self.ask,
                 task=task.id,
-                worker=worker,
+                worker=by,
                 check=check,
                 description=safe_text(" ".join(described.get(check, "").split()), limit=200),
-                reason=reasons.get(check, ""),
+                reason=reason,
             )
             if ruling is None:
-                self.say(f"Task {task.id} is set aside: {worker} disputes {check}.")
+                self.say(f"Task {task.id} is set aside: {by} disputes {check}.")
                 record("boss", EventType.ABANDONED, data={"task": task.id, "reason": "disputed"})
                 return
-            ruled = {"task": task.id, "worker": worker, "check": check, "ruling": ruling}
+            ruled = {"task": task.id, "worker": by, "check": check, "ruling": ruling}
             record("investor", EventType.RULED, data=ruled)
 
     def _infrastructure(self, run: SliceRun, history: list[Any], record: Recorder) -> str | None:
         attempt = 0
         for r in reversed(history):
-            if r.outcome not in INFRASTRUCTURE:
+            # A lost session is retried on its own count: it says nothing of a provider's health.
+            lost = Outcome.SESSION_LOST
+            if r.outcome not in INFRASTRUCTURE or (r.outcome is lost) != (run.outcome is lost):
                 break
             attempt += 1
         action = retry.infra_action(run.outcome, attempt, run.rate_limit)
@@ -711,6 +812,11 @@ class _Firm:
         return f"stopped: {action.reason}"
 
 
+def _last_slice(events: Sequence[Event]) -> int:
+    """Index of the last `slice_end`, or -1 when no slice has ended."""
+    return max((i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1)
+
+
 def _after_last_slice(events: Sequence[Event], worker: str) -> int:
     """Index just past the worker's last finished slice (0 if it has none)."""
     actor = f"worker:{worker}"
@@ -723,6 +829,26 @@ def _last_reason(events: Sequence[Event], worker: str) -> str | None:
     since = _after_last_slice(events, worker)
     status = events[since - 1].data.get("status") if since else None
     return (status or {}).get("reason") or None
+
+
+def _last_denial_reasons(events: Sequence[Event], worker: str) -> list[dict[str, str]]:
+    """The reasons the CLI gave for the refused calls of the worker's last slice, as recorded."""
+    since = _after_last_slice(events, worker)
+    raw = events[since - 1].data.get("denial_reasons") if since else None
+    return [
+        {"tool": str(r["tool"]), "reason": str(r["reason"])}
+        for r in raw or ()
+        if isinstance(r, dict) and "tool" in r and "reason" in r
+    ]
+
+
+def _disputes(events: Sequence[Event], task: str) -> dict[str, tuple[str, str]]:
+    """Each check of the task a worker disputed, with who disputed it and why (the latest wins)."""
+    return {
+        str(e.data["check"]): (str(e.data.get("worker", "")), str(e.data.get("reason", "")))
+        for e in events
+        if e.event is EventType.DISPUTED and e.data.get("task") == task and "check" in e.data
+    }
 
 
 def _gated(event: Event, worker: str, number: int) -> bool:
@@ -769,7 +895,11 @@ def run_firm(
     advise: Advise | None = None,
 ) -> FirmReport:
     events = read_events(paths.ledger)
-    require_approval(events, sheet, paths.checks)
+    require_approval(events, sheet, paths.checks, paths.held_out, paths.investor_key)
+    try:
+        held_out_store.load(paths.held_out)  # approved files are hashed; an unreadable list is not
+    except held_out_store.HeldOutError as exc:
+        raise NotApprovedError(f"the held-out checks cannot be read: {exc}") from exc
     cfg = config or started_config(events) or FirmConfig()
     if started_config(events) is None:
         start = Event(run=run_id, round=0, actor="boss", event=EventType.STARTED)

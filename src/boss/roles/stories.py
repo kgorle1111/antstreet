@@ -210,6 +210,9 @@ def is_fragment(quote: str, idea: str, *, min_chars: int = 1) -> bool:
     `min_chars=MIN_SOURCE_CHARS` where a quote must be long enough to mean something (a
     two-letter quote is a fragment of almost anything). A quote may elide text with `...`: every
     piece must then be in the idea word for word, in order."""
+    whole = normalise(quote)
+    if len(whole) >= max(1, min_chars) and whole in normalise(idea):
+        return True  # word for word, even when the idea itself holds a literal "..."
     pieces = quote_pieces(quote)
     if sum(map(len, pieces)) < max(1, min_chars):
         return False

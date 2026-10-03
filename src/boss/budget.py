@@ -11,10 +11,24 @@ from boss.termsheet import Round, TermSheet
 # The CLI checks a slice's cap only between model responses, so a slice can overshoot by one whole
 # response whatever the cap is: measured on Haiku, a $0.030 cap spent $0.099. The reserve is that
 # one response, held back from every cap. A percentage of the cap cannot cover it.
-# kn: one figure for every model; make it per-model when workers run on larger ones.
-RESERVE_MICROS = 100_000
+# A larger model's response costs more, so the figure is per model family. Only Haiku was measured;
+# the others scale it by the ratio of output-token list prices (3x for Sonnet, 5x for Opus), so
+# re-measure them as D18 did before relying on the tighter side of them.
+RESERVE_MICROS = 100_000  # Haiku, and the figure for a model whose family is not recognised
+_FAMILY_RESERVES = (
+    ("haiku", RESERVE_MICROS),
+    ("sonnet", 3 * RESERVE_MICROS),
+    ("opus", 5 * RESERVE_MICROS),
+)
+MODEL_RESERVE = -1  # in a FirmConfig: "the reserve for this config's model"
 MIN_SLICE_MICROS = 5_000
 _INFRASTRUCTURE = frozenset(str(outcome) for outcome in INFRASTRUCTURE)
+
+
+def reserve_for(model: str) -> int:
+    """The reserve for a worker model, from an alias (`sonnet`) or a full id."""
+    name = model.lower()
+    return next((micros for family, micros in _FAMILY_RESERVES if family in name), RESERVE_MICROS)
 
 
 def _round(sheet: TermSheet, round_n: int) -> Round:
@@ -24,11 +38,16 @@ def _round(sheet: TermSheet, round_n: int) -> Round:
     raise ValueError(f"round {round_n} is not in the term sheet")
 
 
+def is_top_up(event: Event) -> bool:
+    """Only the investor adds money: a worker's or a role's `topped_up` event counts for nothing."""
+    return event.event is EventType.TOPPED_UP and event.actor == "investor"
+
+
 def round_budget(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
-    """Term-sheet budget plus every top-up recorded in this round."""
+    """Term-sheet budget plus every investor top-up recorded in this round."""
     budget = _round(sheet, round_n).budget_micros
     for e in events:
-        if e.round == round_n and e.event is EventType.TOPPED_UP:
+        if e.round == round_n and is_top_up(e):
             micros = e.data.get("micros")
             if type(micros) is not int or micros <= 0:
                 raise ValueError(f"topped_up micros must be a positive int, got {micros!r}")
@@ -48,6 +67,8 @@ def remaining(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
     cap, and so is a slice that started and never reported an end (the run was interrupted):
     treating either as free would let a round fund such slices without end. An infrastructure
     failure (login, rate limit) reported no cost because it did no work, so it is not charged.
+    The charge is dropped once a later slice resumes the same session and reports its total: that
+    total covers the lost slice's real spend, which the later slice's cost then books.
 
     Call this between slices only: a slice still running looks like one that never ended.
     """
@@ -56,24 +77,28 @@ def remaining(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
 
 
 def _unknown_slice_charges(events: Sequence[Event], round_n: int) -> int:
-    unfinished: dict[tuple[str, object], int] = {}  # slices started and not yet ended, by cap
-    charged = 0
+    # Slices started and not yet ended, and slices lost, each as cap and session, by round.
+    unfinished: dict[tuple[int, str, object], tuple[int, object]] = {}
+    lost: list[tuple[int, int, object]] = []  # (round, cap, session)
     for e in events:
-        if e.round != round_n:
-            continue
-        key = (e.actor, e.data.get("slice"))
+        key = (e.round, e.actor, e.data.get("slice"))
         if e.event is EventType.SLICE_START:
-            charged += unfinished.pop(key, 0)  # the same slice started again: the first was lost
+            if key in unfinished:  # the same slice started again: the first was lost
+                lost.append((e.round, *unfinished[key]))
             cap = e.data.get("cap_micros")
-            unfinished[key] = cap if type(cap) is int and cap > 0 else 0
+            unfinished[key] = (cap if type(cap) is int and cap > 0 else 0, e.data.get("session"))
         elif e.event is EventType.SLICE_END:
-            cap = unfinished.pop(key, 0)
+            cap, session = unfinished.pop(key, (0, None))
+            if session is not None and type(e.data.get("session_total_micros")) is int:
+                # A resumed session reports its cumulative cost: this slice's cost already holds
+                # what every earlier slice of the session spent, whichever round booked it.
+                lost = [x for x in lost if x[2] != session]
+                unfinished = {k: v for k, v in unfinished.items() if v[1] != session}
             if e.cost_micros is None and e.data.get("outcome") not in _INFRASTRUCTURE:
-                charged += cap
-    # kn: if the lost slice's session is later resumed, the CLI's cumulative total recovers its
-    # real cost and the cap is counted as well. Over-counting after an interruption is the safe
-    # side.
-    return charged + sum(unfinished.values())
+                lost.append((e.round, cap, session))
+    return sum(cap for r, cap, _ in lost if r == round_n) + sum(
+        cap for k, (cap, _) in unfinished.items() if k[0] == round_n
+    )
 
 
 def next_slice_cap(

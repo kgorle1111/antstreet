@@ -12,7 +12,7 @@ from collections.abc import Callable, Sequence
 from boss.ledger import Event, EventType
 from boss.redact import safe_text
 
-DROPPED, KEPT, UNBLOCKED = "dropped", "kept", "unblocked"
+DROPPED, KEPT, UNBLOCKED, DECLINED = "dropped", "kept", "unblocked", "declined"
 MAX_NOTE_CHARS = 1_000
 
 Ask = Callable[[str], str]
@@ -63,20 +63,36 @@ def ruled(events: Sequence[Event], ruling: str) -> frozenset[str]:
     )
 
 
-def notes_since(events: Sequence[Event], task: str, since: int) -> list[str]:
-    """What the investor ruled on this task after event index `since`, as lines for the worker's
-    next brief."""
+def notes_since(
+    events: Sequence[Event], task: str, since: int, worker: str | None = None
+) -> list[str]:
+    """What the investor ruled on this task after event index `since`, as lines for the next
+    brief of `worker`. A ruling on a dispute or block that another worker raised is worded as
+    the predecessor's, with its reason for a dispute: the reader never made that claim."""
+    reasons = {
+        str(e.data["check"]): str(e.data.get("reason", ""))
+        for e in events
+        if e.event is EventType.DISPUTED and e.data.get("task") == task and "check" in e.data
+    }
     notes = []
     for e in events[since:]:
         if not _is_ruling(e) or e.data.get("task") != task:
             continue
         ruling, check = e.data.get("ruling"), e.data.get("check")
-        if ruling == KEPT:
+        theirs = worker is not None and e.data.get("worker") not in (None, worker)
+        if ruling == KEPT and theirs:
+            reason = safe_text(reasons.get(str(check), ""), limit=300)
+            notes.append(
+                "The investor ruled on the dispute your predecessor raised "
+                f'(its reason: "{reason}"): check {check} stands. Make it pass.'
+            )
+        elif ruling == KEPT:
             notes.append(f"The investor ruled on your dispute: check {check} stands. Make it pass.")
         elif ruling == DROPPED:
             notes.append(f"The investor dropped check {check}. It is no longer required.")
         elif ruling == UNBLOCKED:
-            notes.append(f"The investor answered your block: {e.data.get('note', '')}")
+            who = "your predecessor's block" if theirs else "your block"
+            notes.append(f"The investor answered {who}: {e.data.get('note', '')}")
     return notes
 
 

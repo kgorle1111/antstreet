@@ -2,7 +2,7 @@
 
 The gate (`src/boss/gate.py`) runs worker- and boss-written code with pytest. `src/boss/sandbox.py`
 wraps that one process in an OS sandbox where the platform has one. It narrows what the code can
-do to the machine. It does not make the verdict unforgeable (T12) and it is not a container.
+do to the machine. It does not make the verdict unforgeable (T12, only partly closed by the gate's plugin) and it is not a container.
 Threat rows: T05, T12, T13, T14, T39 in `THREAT_MODEL.md`.
 
 ## Turning it on, off, or making it mandatory
@@ -49,7 +49,7 @@ check passed, then removing each rule to see whether anything noticed (mutation 
 | read `/usr/share/zoneinfo.default` | The built-in time zone copy. `/usr/share/zoneinfo` resolves here on a Mac that has not downloaded a time zone update (a fresh CI runner), and `zoneinfo.ZoneInfo(...)` fails without it. |
 | read `/usr/share/locale` | Without it `locale.getpreferredencoding()` returns `utf-8` instead of `UTF-8`. |
 | read and write `/dev/null` | pytest opens `os.devnull`. |
-| write the run folder | Workspace copy, check, report, `HOME`, `TMPDIR`. The report is here, hence T12. |
+| write the run folder | Workspace copy, check, report, proof file, `HOME`, `TMPDIR`. The report is here, hence T12. |
 
 Not needed, so not allowed: `/usr`, `/bin`, `/System`, `/Library`, `/private/etc`,
 `/dev/urandom` (Python uses `getentropy`). System binaries still run without a read grant
@@ -63,14 +63,16 @@ a profile that interpolated the path fails it on quote, backslash and injection 
 
 ## What it does not protect against
 
-- **A forged verdict (T12).** The report is in the writable folder; a check can rewrite it.
-  Test: `test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox`.
+- **A forged verdict aimed at the gate's plugin (T12).** Rewriting the report, exiting 0 or patching
+  pytest no longer passes (`test_a_report_rewritten_from_inside_the_sandbox_is_not_a_pass`). Code that
+  reads the per-run nonce from the plugin's module in its own process still can
+  (`test_accepted_risk_code_aimed_at_the_gate_still_forges_a_pass_inside_the_sandbox`).
 - **The run folder itself.** The check file, `pytest.ini`, the workspace copy and `HOME` are
   writable by the code under test.
 - **Existence probing.** `stat` works everywhere (pinned by `test_the_names_of_files_are_still_visible_to_stat`).
 - **Resource use.** No CPU, memory, disk or process-count limit (T37).
 - **A detached child (T05).** `start_new_session=True` escapes the timeout's process-group kill,
-  sandboxed or not. It stays confined.
+  sandboxed or not. It stays confined. On Linux the pid namespace should end with it (below).
 - **The worker CLI.** Only the gate's pytest process is sandboxed (T18, T19).
 - **Any machine without a working tool** under `auto`: unsandboxed, and only `CheckResult.sandboxed`
   and `boss doctor` say so (T39).
@@ -124,12 +126,13 @@ Same one-test check through `run_gate`, 10 runs each, alternating, two rounds:
 
 About +9 ms (4%) per check. `detect()` adds one probe (about 0.2 s) per process, cached.
 
-## Linux (`bwrap`): built, not run
+## Linux (`bwrap`): built, first run is CI
 
-No `bwrap` here, so none of this has been executed. The argv `sandbox.bwrap_argv` builds, in order:
+Written without a Linux host: none of this had been executed when it was written. The argv
+`sandbox.bwrap_argv` builds, in order:
 
 ```
-bwrap --die-with-parent --unshare-net --unshare-pid
+bwrap --die-with-parent --unshare-net --unshare-pid --unshare-ipc
   --ro-bind / /  --dev /dev  --proc /proc
   --tmpfs /home  --tmpfs /root  --tmpfs /tmp  --tmpfs /run
   --ro-bind <each readable path> <same>      # interpreter and virtualenv, re-exposed under the tmpfs
@@ -137,18 +140,64 @@ bwrap --die-with-parent --unshare-net --unshare-pid
   -- <command>
 ```
 
-- Root is read-only; `/home`, `/root`, `/tmp` and `/run` (Docker and agent sockets live there) are
-  emptied. Everything else on the root stays readable: weaker than the macOS profile.
+### How CI runs it
+
+`.github/workflows/ci.yml`, ubuntu job only:
+
+1. `sudo apt-get install -y bubblewrap`.
+2. Ubuntu 24.04 sets `kernel.apparmor_restrict_unprivileged_userns=1`, under which bwrap fails with
+   `setting up uid map: Permission denied`. If the restriction is on, the step loads an AppArmor
+   profile that grants `userns` to `/usr/bin/bwrap` and nothing else (the restriction stays on for
+   every other program). The step ends with a bwrap run of its own so the log shows bwrap's error;
+   the gate only reports "unavailable". If that profile ever fails to load, the one-line fallback is
+   `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, which lifts the restriction for
+   the whole machine: acceptable on a throwaway hosted runner, not on a persistent one.
+3. The test step runs with `BOSS_GATE_SANDBOX=require`. A bwrap that cannot start now makes the
+   test modules fail at collection with `SandboxUnavailable` and its fix (`tests/sandbox_support.py`),
+   where before the sandbox tests skipped and the gate ran unsandboxed under `auto`. macOS keeps
+   `auto`.
+
+### The four guarantees, side by side
+
+| Guarantee | macOS profile | bwrap argv |
+|---|---|---|
+| No network | `(deny default)`, no `network*` | `--unshare-net`: a new network namespace with only a loopback. A check can open a listener or send a datagram on that private loopback; nothing outside can reach it and it reaches nothing outside. Not identical to macOS, where both are denied |
+| Writes only in the run folder | no `file-write*` except the folder and `/dev/null` | `--ro-bind / /` (recursive: submounts are remounted read-only too) and one `--bind` of the run folder. `/tmp`, `/home`, `/root`, `/run` and `/dev` are fresh tmpfs mounts a check can write to, but they exist only inside the sandbox and vanish with it |
+| Reads only the allowlist | the run folder, the interpreter and virtualenv, time zone and locale data | weaker: the whole root is readable except `/home`, `/root`, `/tmp`, `/run`. `/etc`, `/usr`, `/var`, `/opt`, `/mnt` and `/srv` can be read. Parents of the re-exposed paths exist as empty directories holding only the allowed path. Tightening this is B50 |
+| Signals only inside | `signal (target same-sandbox)` | `--unshare-pid` with a fresh `--proc`: processes outside have no pid in the sandbox. A kill of the sandbox's init (the group kill at a timeout) ends the whole namespace, so a detached child should die with it (T05, if the first Linux run confirms it) |
+
+Also: `--unshare-ipc` gives the check its own SysV IPC namespace (the seatbelt profile denies SysV
+shared memory by default); `--die-with-parent` ends the sandbox if the gate dies.
+
+Differences a test can see (`tests/test_gate_sandbox.py`, branches on `bwrap`): a write outside the
+run folder fails with `FileNotFoundError` instead of `PermissionError`, because the directory is
+hidden, not denied; a UDP send does not raise; opening a listener is not refused; the neighbours of
+the interpreter can be listed; a detached child does not survive the timeout.
+
+### Choices
+
+- `/home`, `/root`, `/tmp` and `/run` (Docker and agent sockets live there) are emptied.
 - `--unshare-pid` with a fresh `--proc`: without it `/proc/<pid>/environ` of the caller would leak.
 - No `--new-session`: the gate already starts the check with `start_new_session=True`, and
   `bwrap`'s `setsid()` fails for a process that already leads a session (from its source, not run).
   Add it if `bwrap` is ever used without `start_new_session`.
-- Unverified: whether it starts on Ubuntu 24.04+ (unprivileged user namespaces restricted by
-  AppArmor), whether a hung check and its children die with the group kill, whether `HOME` and
-  `TMPDIR` under `/tmp` survive the `--tmpfs /tmp` order. `detect()` probes the real command, so a
-  wrong flag reads as unavailable and `auto` falls back to unsandboxed.
-- To verify on Linux: `BOSS_GATE_SANDBOX=require uv run pytest tests/test_gate_sandbox.py`. Tests
-  marked `mac_only` skip; the rest must pass or the argv gets fixed.
+- Not added, for want of a Linux host to try them on: `--unshare-user` with `--disable-userns` (the
+  Linux counterpart of "cannot re-sandbox from inside"; it needs the nested namespace to work under
+  the AppArmor profile), `--unshare-cgroup` (the host's cgroup path is visible, nothing more) and
+  an allowlist root (B50).
+
+### Not verified until the first Linux CI run
+
+- That the AppArmor profile loads and lets bwrap start on the current `ubuntu-latest`.
+- That the probe command (`python -I -B -c "import pytest"`) starts under the full argv: the order
+  of `--tmpfs /home` and the `--ro-bind` of a virtualenv or interpreter under `/home`, and
+  `--tmpfs /root` (it needs `/root` to exist, because the root is read-only).
+- That `HOME` and `TMPDIR` under `/tmp` survive the `--tmpfs /tmp` then `--bind` order.
+- That `multiprocessing` (POSIX semaphores on `--dev`'s `/dev/shm`) and `getpass.getuser()` work.
+- That the loopback is up inside `--unshare-net` (the UDP and listener branches assume it is).
+- That a hung check and its children, detached ones included, die with the group kill.
+- To check by hand on Linux: `BOSS_GATE_SANDBOX=require uv run pytest tests/test_gate_sandbox.py`.
+  Tests marked `mac_only` skip; the rest must pass or the argv gets fixed.
 
 ## Do the tests fail without each rule?
 

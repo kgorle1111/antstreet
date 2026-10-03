@@ -5,10 +5,12 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
 
     hired        boss        {worker, task, model, prompt}
     slice_start  worker:<w>  {slice, task, cap_micros, session}
-    slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, denied_tools, ...}
+    slice_end    worker:<w>  {slice, task, outcome, status, session_total_micros, denied_tools,
+                              denial_reasons, ...}
                              with the event's cost_micros = this slice's own spend
     check_result gate        {check, task, status, detail, worker, slice}   after a slice
                  gate        {check, task, status, detail, scope: "product"}  the final product
+                 gate        {check, status, detail, scope: "held_out"}  held-out, on the product
     fired        rule        {worker, task, reason, evidence}
     reassigned   boss        {task, from, to}
     blocked      worker:<w>  {task, reason}
@@ -18,6 +20,7 @@ Ledger data contract for stage 2 (keys inside each event's `data`):
     started      boss        {config}
     resumed      investor    {}
     ruled        investor    {task, worker, ruling, check?, note?}   ruling: dropped|kept|unblocked
+    topped_up    investor    {micros}   adds to the budget of the event's round
 """
 
 from __future__ import annotations
@@ -25,7 +28,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from boss.budget import is_top_up
 from boss.errors import INFRASTRUCTURE, Outcome
+from boss.held_out import SCOPE as HELD_OUT_SCOPE
 from boss.ledger import Event, EventType
 from boss.rule import SliceRecord
 from boss.rulings import DROPPED, KEPT, ruled
@@ -39,6 +44,8 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
     """Per worker, its finished slices in order, each with the checks passing after it."""
     passing: dict[tuple[str, int], set[str]] = {}
     for e in events:
+        if e.data.get("scope") == HELD_OUT_SCOPE:
+            continue  # the workers never saw these: no per-worker decision may rest on them
         if e.event is EventType.CHECK_RESULT and "worker" in e.data and "slice" in e.data:
             key = (str(e.data["worker"]), int(e.data["slice"]))
             passing.setdefault(key, set())
@@ -55,6 +62,7 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
             if str(e.data["check"]) not in settled:
                 disputed[key].add(str(e.data["check"]))
 
+    inherited = _inherited_disputes(events, settled)
     dropped = ruled(events, DROPPED)  # a dropped check counts for nothing, passing or not
     history: dict[str, list[SliceRecord]] = {}
     for e in events:
@@ -70,11 +78,37 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
                 outcome=_outcome(e),
                 status=str(status),
                 passing=frozenset(passing.get((worker, number), set())) - dropped,
-                disputed=frozenset(disputed.get((worker, number), set())),
+                disputed=frozenset(disputed.get((worker, number), set()))
+                | inherited.get(worker, set()),
                 denied_tools=tuple(str(t) for t in e.data.get("denied_tools") or ()),
             )
         )
     return history
+
+
+def _inherited_disputes(events: Sequence[Event], settled: frozenset[str]) -> dict[str, set[str]]:
+    """Per worker, the checks that workers hired earlier for the same task disputed and the
+    investor has not ruled on. A dispute is about a check, not about the worker who raised it: the
+    rule must go on seeing it after that worker is fired, or a replacement whose only failing
+    checks are those would be judged as if nobody had doubted them."""
+    hired: list[tuple[str, str]] = []  # (worker, task) in hiring order
+    for e in events:
+        if e.event is EventType.HIRED and "worker" in e.data:
+            hired.append((str(e.data["worker"]), str(e.data.get("task", ""))))
+    order = {worker: i for i, (worker, _) in enumerate(hired)}
+    raised = [
+        (str(e.data["worker"]), str(e.data.get("task", "")), str(e.data["check"]))
+        for e in events
+        if e.event is EventType.DISPUTED and "worker" in e.data and "check" in e.data
+    ]
+    return {
+        worker: {
+            check
+            for by, on, check in raised
+            if on == task and check not in settled and order.get(by, len(order)) < order[worker]
+        }
+        for worker, task in hired
+    }
 
 
 def _outcome(event: Event) -> Outcome:
@@ -134,7 +168,9 @@ class RunState:
     closed_rounds: frozenset[int]
     approved_rounds: frozenset[int]
     stopped: bool  # a stop that no later `resumed` event lifted
-    locked_rounds: frozenset[int] = frozenset()  # closed below their unlock threshold
+    locked_rounds: frozenset[int] = (
+        frozenset()
+    )  # closed below their unlock threshold, not topped up since
     dropped: frozenset[str] = frozenset()  # checks the investor dropped after a dispute
 
     def passing_total(self) -> int:
@@ -176,10 +212,11 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
             passing=passing,
             abandoned=task in abandoned,
         )
+    closed, locked = _closed_rounds(events)
     return RunState(
         workers=workers,
         tasks=tasks,
-        closed_rounds=frozenset(e.round for e in events if e.event is EventType.ROUND_CLOSED),
+        closed_rounds=closed,
         approved_rounds=frozenset(
             int(e.data.get("round", 1))
             for e in events
@@ -187,12 +224,24 @@ def run_state(events: Sequence[Event], task_ids: Sequence[str]) -> RunState:
         ),
         stopped=_stopped(events),
         dropped=ruled(events, DROPPED),
-        locked_rounds=frozenset(
-            e.round
-            for e in events
-            if e.event is EventType.ROUND_CLOSED and not e.data.get("unlocked", False)
-        ),
+        locked_rounds=locked,
     )
+
+
+def _closed_rounds(events: Sequence[Event]) -> tuple[frozenset[int], frozenset[int]]:
+    """(closed, locked) rounds. An investor top-up recorded after a round closed below its unlock
+    threshold reopens it: the one way past a lock. A top-up of any other round reopens nothing."""
+    closed: set[int] = set()
+    locked: set[int] = set()
+    for e in events:
+        if e.event is EventType.ROUND_CLOSED:
+            closed.add(e.round)
+            if not e.data.get("unlocked", False):
+                locked.add(e.round)
+        elif is_top_up(e) and e.round in locked:
+            locked.discard(e.round)
+            closed.discard(e.round)
+    return frozenset(closed), frozenset(locked)
 
 
 def _stopped(events: Sequence[Event]) -> bool:
@@ -213,8 +262,9 @@ def _live_session(
     Every attempt that is not a resume starts a new session id, recorded on its slice_start: the
     CLI refuses an id that is already in use, and an interrupted or failed attempt may or may not
     have created one. A session is resumed only once a slice in it got past infrastructure and
-    reported the session's total, which proves it exists. Ledgers written before slice_start
-    carried a session fall back to the one recorded at hiring.
+    reported the session's total, which proves it exists. A slice that ends `session_lost` on the
+    live session shows the CLI no longer has it: the next attempt starts a new one. Ledgers
+    written before slice_start carried a session fall back to the one recorded at hiring.
     """
     fallback = str(hired_session) if hired_session else None
     live: str | None = None
@@ -228,6 +278,8 @@ def _live_session(
             # The CLI's own result for the slice is the proof: it carries the session's total.
             # A slice that crashed or was killed before reporting proves nothing.
             known = e.data.get("session_total_micros")
+            if _outcome(e) is Outcome.SESSION_LOST and attempt == live:
+                live, total = None, 0  # the CLI no longer has it: the next attempt starts anew
             worked = _outcome(e) not in INFRASTRUCTURE
             if worked and isinstance(known, int) and attempt != live:
                 live, total = attempt, 0

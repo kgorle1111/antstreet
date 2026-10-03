@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from gate_forgers import NONCE_READER
 
 from boss import termsheet
 from boss.approval import NotApprovedError, content_hashes, require_approval
@@ -94,9 +95,18 @@ def test_exit_zero_after_a_failing_report_is_not_a_pass(tmp_path):
     assert result.detail == "report shows 1 failed, 0 errors, 0 skipped"
 
 
-def test_accepted_risk_code_aimed_at_the_gate_can_forge_a_pass(tmp_path):
+def test_code_that_rewrites_the_report_and_exits_zero_is_not_a_pass(tmp_path):
     aimed = "import atexit\n" + FORGER + "atexit.register(forge)\n" + WRONG
     result = gate_one(tmp_path, {"rev.py": aimed})
+    assert result.status is CheckStatus.FAILED
+    assert "no valid proof" in result.detail
+
+
+def test_accepted_risk_code_aimed_at_the_gate_can_forge_a_pass(tmp_path):
+    # Code that reads the per-run nonce out of the gate's plugin in its own process signs the
+    # proof itself (T12). If this fails the attack is closed: update THREAT_MODEL T12 and the kn:
+    # comment in gate.py.
+    result = gate_one(tmp_path, {"rev.py": NONCE_READER + WRONG})
     assert result.status is CheckStatus.PASSED
     assert result.detail == "1 passed"
 

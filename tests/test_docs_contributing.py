@@ -37,12 +37,27 @@ def test_the_commands_ci_runs_are_the_ones_stated(text):
         "uv sync --locked",
         "uv run ruff check .",
         "uv run ruff format --check .",
+        "uv run mypy",
         "uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30",
     ]
     for command in stated:
         assert command in text, f"CONTRIBUTING.md does not state: {command}"
         assert re.search(rf"^\s*run: {re.escape(command)}$", workflow, re.M), f"CI lacks: {command}"
     assert "The coverage floor is 96" in text
+
+
+def test_ci_installs_bubblewrap_and_requires_the_sandbox_on_linux_only(text):
+    workflow = read(ROOT / ".github" / "workflows" / "ci.yml")
+    install = "sudo apt-get install -y bubblewrap"
+    assert re.search(rf"^\s*{re.escape(install)}$", workflow, re.M), "CI does not install bwrap"
+    install_step = workflow.split(install)[0].rsplit("- name:", 1)[1]
+    assert "if: runner.os == 'Linux'" in install_step, "bubblewrap must be installed on Linux only"
+    # `require` on Linux and the default (`auto`) elsewhere, on the test step and nowhere else.
+    env = "BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}"
+    before_tests, test_step = workflow.split("- name: Test")
+    assert env in test_step and "uv run pytest" in test_step
+    assert "BOSS_GATE_SANDBOX:" not in before_tests
+    assert "BOSS_GATE_SANDBOX=require" in text and "`bubblewrap`" in text
 
 
 def test_the_only_runtime_dependency_is_the_one_stated(text):
@@ -149,5 +164,5 @@ def test_the_dry_run_named_in_the_document_lists_cells_and_writes_nothing(tmp_pa
         str(ROOT / "bench/tasks"),
     ]
     assert bench_run.main(args) == 0
-    assert "34 cells" in capsys.readouterr().out and not out.exists()
+    assert "70 cells" in capsys.readouterr().out and not out.exists()
     assert "uv run python -m boss.bench.run --dry-run --out /tmp/bench --budget 0.40" in text

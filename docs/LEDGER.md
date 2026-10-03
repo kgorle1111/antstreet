@@ -7,8 +7,8 @@ read state from it and from nothing else.
 `tests/test_docs_ledger.py` runs the code (a scripted firm with the real gate, and the real CLI
 against a fake `claude`) and fails if it writes an event type, an actor, a `data` key or a value
 type that this file does not document. The example line under each event was produced by that
-run, except for the three types that no code writes (`role_call`, `topped_up`, `denied`): those
-are built with the code that reads or would write them.
+run, except for the one type that no code writes (`denied`): its example is built with the code
+that would write it.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 
@@ -20,7 +20,27 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   A torn last line counts. `boss resume` calls `ledger.repair_torn_tail` before it reads the file:
   it cuts an incomplete last line (only when every earlier line is valid) and says what it removed.
   No other command repairs: `boss report` and `boss status` report a torn ledger as damaged.
-- The version `v` must be the integer 1: `true` and `1.0` make the line corrupt.
+- The version `v` must be the integer 1: `true` and `1.0` make the line corrupt. Adding `prev`
+  (below) did not change the version: it is an optional key, a reader older than the chain refuses
+  a line that has it (its fields differ from the schema), and a reader that knows the chain reads
+  every older line unchanged.
+- Hash chain. Each line written by `LedgerWriter` carries `prev`, the SHA-256 (lower-case hex) of
+  the previous line's exact bytes, without its newline. The first line of a file carries the
+  genesis value, 64 zeros. The writer takes the link from the file's real last line when it opens
+  the file, under the exclusive lock, so a ledger resumed later (including one written before the
+  chain existed) continues from what is on disk.
+- `read_events` checks the chain. A line whose `prev` is not the hash of the line before it, or
+  a line without `prev` after a line that has one, raises `LedgerCorruptError` naming the first
+  such line. A ledger in which no line has `prev` was written before the chain and loads as it
+  always did; a ledger that begins that way and goes on with chained lines is checked from its
+  first chained line, which must hash the last older line. After `repair_torn_tail` cuts a torn
+  last line the next line chains from the new last line.
+- What the chain proves. It is unkeyed, so it catches any edit that does not also recompute every
+  later line: a changed byte, a deleted, inserted or reordered line, a line from another ledger.
+  It does not stop a forger who recomputes it; that is what the signature on an approval is for
+  (below). It also cannot see the end of the file: dropping the last lines leaves a valid chain,
+  and the last line is not covered until another line follows it. A ledger with every `prev`
+  removed reads as an older one. `docs/THREAT_MODEL.md` T46 states the limits.
 - Keys are sorted. Timestamps are UTC ISO 8601.
 - `state.py`'s docstring lists the `data` contract for thirteen event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
@@ -41,6 +61,7 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 | `billing` | str | `api`, `subscription` or `unknown`. `unknown` unless the event is a spend. |
 | `data` | object | The keys below, by event type. |
 | `ts` | str | When the event was written. |
+| `prev` | str | The chain link: SHA-256 hex of the previous line's bytes, or 64 zeros on a file's first line. Set by `LedgerWriter` (it overwrites any value on the event), so it is on every line the code writes now. Absent from lines written before the chain; once one line has it, every later line must. |
 
 - Counts and costs are non-negative integers. A bool is refused.
 - Costs are the CLI's client-side estimates, not a bill.
@@ -77,15 +98,22 @@ Example:
 
 ### `role_call`
 
-- Actor: `role:<name>`, for example `role:critic`
-- Round: whatever the caller's recorder holds; 0 before the first round.
-- No code writes this event today. `roles/base.py` has the writer's helper, `ledger_fields`, which
-  returns the cost, tokens, billing and `data` for a recorder call
-  (`record(spec.actor, EventType.ROLE_CALL, **ledger_fields(...))`). Only tests call it: no
-  command, `boss fund` included, calls a role yet. The helper books the spend whether the call
-  worked or not.
-- Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one.
-  Billing is `api` or `subscription`. Like every event, it counts in its round's spend.
+- Actor: `role:<name>`; one of `role:product_manager`, `role:user_agent`, `role:system_designer`, `role:tester`, `role:check_auditor`, `role:consultant`, `role:critic`, `role:demo_writer`, `role:judge`, `role:examiner`
+- Two writers, both building the cost, tokens, billing and first keys with `ledger_fields` from
+  `roles/base.py`, which books the spend whether the call worked or not:
+  - `Pipeline._book` in `pipeline.py`, for every call a role chosen with `--roles` makes, whether
+    it worked, failed or was refused before it was made. Round 0, so the call is outside every
+    round's budget and outside the run's spend ceiling, like `boss_call`. It adds `result` and
+    `detail`.
+  - `run_examiner` in `roles/examiner.py`, for the examiner. Round 1, before the investor
+    approves, so the call counts in that round's spend and against its budget; it is skipped
+    (cost 0, outcome `skipped`) when round 1 could not then fund a worker slice. It adds
+    `requested`, `kept` and `problems`. `boss fund --held-out N` calls it through
+    `Pipeline.examine`.
+- `boss report` reads these events for its Roles section.
+- Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
+  for a call that was not made (`outcome` `not_called` or `skipped`). Billing is `api` or
+  `subscription`. The report's spend line for the actor comes from these events.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -93,28 +121,47 @@ Example:
 | `model` | str | The model the call used. |
 | `prompt` | str | The prompt file the role runs under. |
 | `skills` | list | The skill ids appended to that prompt, in order. Empty if none. |
-| `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose output failed the role's gate. |
+| `outcome` | str | How the call ended: an outcome name such as `completed`, `api_error`, `timeout` or `crashed`; `not_called` when the pipeline refused it before any call (an unusable request, for example a file that already exists); `skipped` when the examiner was not called because round 1 could not then fund a worker slice. `completed` is also used for a paid call whose output failed the role's gate. `completed` is also used for a paid call whose output failed the role's gate. |
+| `result` | str | What became of the output: `ok` (used), `failed` (the call failed or its output failed the gate; nothing was used) or `unused` (a good output thrown away because a later stage of the staged draft failed). |
+| `detail` | str | One line, made safe to show. The reason for a failure or an `unused` result; for `ok`, a short count such as `1 verified, 0 rejected`. |
+| `check` | str | The disputed check's id. Only on a consultant's call. |
+| `verified` | int | Findings the gate confirmed. Only on a critic's call that worked. |
+| `rejected` | int | Findings that were malformed, not reproduced or not grounded. Only on a critic's call that worked. |
+| `cycle` | int | Which review this was, from 1. Only on a critic's call that worked. |
+| `rubric` | str | The rubric id, `stories` or `usage`. Only on a judge's call. |
+| `calibrated` | bool | Whether a calibration covered the judge. Only on a judge call that worked. |
+| `requested` | int | The examiner's events only: how many held-out checks were asked for (`FirmConfig.held_out`). |
+| `kept` | int | The examiner's events only: how many passed its gate and were stored in `held_out/`. 0 means the run goes on without held-out checks, and the report says so. |
+| `problems` | list | The examiner's events only: why nothing was kept, one line each, at most 10 lines of 300 characters. Empty when checks were kept. A refused output is saved whole in the run folder as `examiner_refused.json`. |
 
-`ledger_fields` takes more keyword arguments and stores them in `data` beside these; none is
-defined yet.
+`requested`, `kept` and `problems` are on the examiner's events only; `result` and `detail` on
+the pipeline's only.
 
-Example, built with `ledger_fields` to show the shape the helper returns:
+`pipeline.py` counts these events to decide what a resumed run still owes: one critic call per
+review cycle (a cycle with verified findings counts once the investor's answer follows it: an
+amendment's `approved` event, or a `ruled` event with ruling `declined`), one demo call per build of the product (after the last `slice_end`), and one judge
+call per rubric and build.
+
+Example, a critic's call written by a run with every role:
 
 ```json
-{"actor": "role:critic", "billing": "subscription", "cost_micros": 12000, "data": {"model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"]}, "event": "role_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 900, "tokens_out": 400, "ts": "2026-09-30T17:18:40.925838+00:00", "v": 1}
+{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
 ```
 
 ### `started`
 
 - Actor: `boss` (the loop)
 - Round: 0
-- Written once by `run_firm`, before the first round, holding the configuration the run was started
-  with. `boss resume` reads it back, so a run continues with its own settings, not the defaults.
-  A run without this event never hired anyone and cannot be resumed.
+- Written once, before the first round, holding the configuration the run was started with.
+  `run_firm` writes it. When roles were chosen `pipeline.py` writes it first (`record_start`) with
+  the same `config` and adds `roles`, and `run_firm` then writes none. `boss resume` reads it back,
+  so a run continues with its own settings and roles, not the defaults. A run without this event
+  never hired anyone and cannot be resumed.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
+| `roles` | object | The roles the investor chose; only when `--roles` named some. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
 
 Config keys:
 
@@ -132,12 +179,20 @@ Config keys:
 | `limits.max_workspace_bytes` | int | Most bytes a worker's folder or the assembled product may hold. The gate copies the folder for every check, so a larger one is not gated. |
 | `parallel` | int | Tasks worked on at once (`--parallel`). Each task still has one worker at a time. |
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
+| `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. Set by `boss fund --held-out N`. A run started before the key existed loads with 0. |
+| `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. Set by `boss fund --worker-thinking N`. A run started before the key existed loads with `null`. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
-Example:
+Example, a run without roles:
 
 ```json
-{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "held_out": 0, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000, "thinking_tokens": null}}, "event": "started", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680074+00:00", "v": 1}
+```
+
+The same, in a run that named roles:
+
+```json
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"config": {"firing": true, "limits": {"max_seconds": null, "max_slices": 60, "max_workers": 16, "max_workspace_bytes": 209715200}, "model": "haiku", "parallel": 1, "plan_pause_at": 0.95, "policy": {"max_slices": 6, "stall_slices": 2}, "profile": null, "reserve_micros": 100000, "slice_micros": 100000, "thinking_tokens": null}, "roles": {"model": "haiku", "names": ["check_auditor", "consultant", "critic", "demo_writer", "judge", "product_manager", "system_designer", "tester", "user_agent"], "thinking_tokens": null}}, "event": "started", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:39.880351+00:00", "v": 1}
 ```
 
 ### `resumed`
@@ -219,18 +274,19 @@ Example:
 |---|---|---|
 | `slice` | int | The slice number. |
 | `task` | str | The task id. |
-| `outcome` | str | How the run ended: `completed`, `capped`, `max_turns`, `refusal`, `timeout`, `crashed`, `login`, `rate_limited`, `usage_limit` or `api_error`. |
+| `outcome` | str | How the run ended: `completed`, `capped`, `max_turns`, `refusal`, `timeout`, `crashed`, `login`, `rate_limited`, `usage_limit`, `api_error` or `session_lost` (the CLI no longer had the session to resume; the next attempt starts a new one). |
 | `status` | object or null | The worker's own report, cleaned: `status` (`done`, `continuing`, `blocked` or `none`) and `reason` (secrets masked, control characters shown as escapes, at most 500 characters). `null` if it gave none. A note, never a pass. |
 | `session_total_micros` | int or null | The CLI's cumulative cost for the session after this slice; `null` if unknown. |
 | `exit_code` | int or null | The CLI process's exit code. |
 | `denials` | int | How many tool calls the CLI refused. |
 | `denied_tools` | list | The distinct names of the refused tools, sorted. |
+| `denial_reasons` | list | One `{tool, reason}` object per distinct refused call the CLI gave a message for, at most 5: `reason` is the first sentence of that message, secrets masked and at most 160 characters. The next brief quotes them. Empty when the CLI gave no message. |
 | `log` | str | Path of the worker's raw stream log. |
 
 Example:
 
 ```json
-{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
+{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
 ```
 
 ### `check_result`
@@ -243,7 +299,7 @@ Example:
 - If the run was killed after a slice ended and before its results were written, the loop gates
   that slice on resume and writes them then.
 - The gate also runs to build the next brief; those runs are not recorded.
-- Two scopes. A result of a worker's slice carries `worker` and `slice`. A result with
+- Three scopes. A result of a worker's slice carries `worker` and `slice`. A result with
   `scope` `product` is the verdict on the assembled `product/` folder, where the tasks' files
   meet. `firm.py` writes it whenever `run_firm` ends after at least one slice (a finished run, a
   stop or a pause), for each required check that has no product verdict after the last
@@ -252,25 +308,37 @@ Example:
   `slice`, and its round is that of the last `slice_end`. The state rebuild ignores it (it reads
   only results with a `worker` and a `slice`); the report lets it supersede the earlier result of
   the same check, so the report shows the product's figure.
+- A result with `scope` `held_out` is a held-out check (ids `h01`..) graded on the assembled
+  product, which no worker ever saw. It is written in the same place and on the same terms as the
+  product verdict, for each held-out check with no held-out result after the last `slice_end`, so a
+  run cut short between two of them finishes the grading on resume. It carries no `task`, no
+  `worker` and no `slice`. The state rebuild skips every result with this scope, so no firing,
+  dispute or unlock decision rests on it. The report shows these results apart from the visible
+  checks, and a run counts as passed only when they pass too.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `check` | str | The check id, such as `c01`. |
-| `task` | str | The task id. |
+| `task` | str | The task id. Absent when `scope` is `held_out`. |
 | `status` | str | `passed`, `failed` or `timeout`. The only source of "passed". |
 | `detail` | str | Why: the pytest exit code, or the count of passed tests. |
 | `worker` | str | The worker whose files were checked. Absent when `scope` is `product`. |
 | `slice` | int | The slice after which the gate ran. Absent when `scope` is `product`. |
-| `scope` | str | Always `product`. Present only on a verdict on the assembled product; absent on a worker's result. |
+| `scope` | str | `product` for a visible check's verdict on the assembled product, `held_out` for a held-out check's. Absent on a worker's result. |
+| `sandboxed` | bool | The gate ran this check inside an OS sandbox. `false` also means the sandbox was off or none worked (T39). Absent in ledgers written before it was recorded; the report says "not recorded" for those. |
 
 Examples:
 
 ```json
-{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "pytest exited 1", "slice": 1, "status": "failed", "task": "t1", "worker": "w1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:26.170363+00:00", "v": 1}
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "pytest exited 1", "sandboxed": true, "slice": 1, "status": "failed", "task": "t1", "worker": "w1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:26.170363+00:00", "v": 1}
 ```
 
 ```json
-{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "1 passed", "scope": "product", "status": "passed", "task": "t1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:50.832951+00:00", "v": 1}
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "c01", "detail": "1 passed", "sandboxed": true, "scope": "product", "status": "passed", "task": "t1"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:50.832951+00:00", "v": 1}
+```
+
+```json
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"check": "h01", "detail": "1 passed", "sandboxed": true, "scope": "held_out", "status": "passed"}, "event": "check_result", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:17:34.333908+00:00", "v": 1}
 ```
 
 ### `blocked`
@@ -295,22 +363,26 @@ Example:
 ### `ruled`
 
 - Actor: `investor`
-- Round: the current round
-- Written by `firm.py` after the investor answers a question the worker could not settle. Only an
-  `investor` event counts as a ruling. The term sheet and its approval are not touched: a dropped
-  check is skipped because the ledger says so.
-- Three rulings:
+- Round: the current round; 0 for `declined`
+- Written by `firm.py` after the investor answers a question the worker could not settle, and by
+  `pipeline.py` for `declined`. Only an `investor` event counts as a ruling. The term sheet and its
+  approval are not touched: a dropped check is skipped because the ledger says so.
+- Four rulings:
   - `dropped`: the check is no longer run, counted or required. Unlock thresholds are capped at
     what is left.
   - `kept`: the dispute is settled and the worker is told to satisfy the check.
   - `unblocked`: a blocked worker is funded again; the note is in its next brief.
+  - `declined`: round 0, written by `pipeline.py` when the critic's findings end with no fix round:
+    the investor said no (or input ended), or none was offered (`--review-cycles 0`, the run ended
+    early, no finding could be proposed). It is how a resume tells that from a Ctrl-C at the
+    question, which writes nothing and so leaves the findings to be offered again.
 - Anything but a clear answer (or the end of input) writes `abandoned` instead.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `task` | str | The task id. |
-| `worker` | str | The worker that raised the dispute or the block. |
-| `ruling` | str | `dropped`, `kept` or `unblocked`. |
+| `task` | str | The task id. Absent for `declined`. |
+| `worker` | str | The worker that raised the dispute or the block. Absent for `declined`. |
+| `ruling` | str | `dropped`, `kept`, `unblocked` or `declined`. |
 | `check` | str | The check ruled on. Present for `dropped` and `kept` only. |
 | `note` | str | The investor's note, on one line, secrets masked, at most 1000 characters. Present for `unblocked` only. |
 
@@ -324,6 +396,10 @@ Examples:
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"note": "use the standard library", "ruling": "unblocked", "task": "t1", "worker": "w1"}, "event": "ruled", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:36.246239+00:00", "v": 1}
 ```
 
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"ruling": "declined"}, "event": "ruled", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T11:53:36.246239+00:00", "v": 1}
+```
+
 ### `disputed`
 
 - Actor: `worker:<name>`
@@ -332,7 +408,9 @@ Examples:
   has not disputed before and that the investor has not ruled `kept`. A dispute never counts as
   passing. It changes the rule's decision only when it is credible: every other check passes and
   at most half of the task's checks are disputed. Otherwise the worker is judged as if it had
-  disputed nothing; the event stays on record.
+  disputed nothing; the event stays on record. A dispute is about the check, not the worker: a
+  worker hired later for the same task inherits the disputes the investor has not ruled on, in the
+  rule's view and in its brief, and a question about one names the worker who raised it.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -372,7 +450,7 @@ Evidence keys:
 | `passing` | list | Checks passing after the latest slice. |
 | `best` | list | Every check that passed at some slice. |
 | `missing` | list | Checks not passing after the latest slice. |
-| `disputed` | list | Checks the worker disputes that still fail. |
+| `disputed` | list | Checks the worker disputes, or an earlier worker of its task disputed and nobody has ruled on, that still fail. |
 | `spent_micros` | int | Known spend of the worker's slices. |
 | `unknown_cost_slices` | int | Slices whose cost is unknown. |
 
@@ -424,7 +502,8 @@ Example:
 - Round: the round that ended
 - Written by `firm.py` when a round runs to its end: every task done or set aside, or the round
   cannot fund another slice. A pause or a stop leaves the round open, so a resume continues it.
-- A round closed with `unlocked` false stays locked: a resume does not fund the next round.
+- A round closed with `unlocked` false stays locked: a resume does not fund the next round. Only
+  an investor `topped_up` event for that round, recorded after this one, reopens it.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -442,27 +521,43 @@ Example:
 
 - Actor: `investor`
 - Three forms, all by the investor:
-  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`.
+  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`, and
+    `held_out_hashes` when the run has held-out checks.
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
   - An amendment: the investor approves more checks and a round added to an approved term sheet.
     It carries `hashes` of the amended term sheet and its check files, `round` (the round the
-    amendment added) and `added_checks`. `firm.py` reads it: a worker is told about an added check
-    of its own task, and only an `investor` event counts. No code in `src/` writes this form yet
-    (`critic.findings_as_checks` only proposes checks and writes nothing), so this file has no
-    example of it; `tests/test_firm.py` builds it by hand.
+    amendment added) and `added_checks`. `pipeline.py` writes it, only after the investor says yes
+    to the critic's fix round, and before it rewrites `term_sheet.json`. `firm.py` reads it: a
+    worker is told about an added check of its own task, and only an `investor` event counts.
 - A missing `round` counts as round 1 when the state is rebuilt, so the first approval opens
   round 1.
 - `require_approval` accepts only an `approved` event by `investor` whose `hashes` equal the hashes
-  of the term sheet and check files now on disk. After an amendment, the amendment's `hashes` are
-  the ones that match.
+  of the term sheet and check files now on disk, and whose `held_out_hashes` (absent means none)
+  equal the hashes of every file now in the run's `held_out/` folder. A held-out file edited, added
+  or removed after approval, or a `held_out/` folder that appears after an approval that recorded
+  none, voids the approval exactly as an edited check does. An amendment must carry the current
+  `held_out_hashes` as well as its `hashes`, or it does not match. After an amendment, the
+  amendment's hashes are the ones that match.
+- Signature. The investor's key is 32 random bytes in `<project>/.boss/investor.key` (hex, mode
+  0600, created by the first approval in the project, inside the project's ignored `.boss/`).
+  `approval.review_term_sheet` and `pipeline.py` sign with it; `require_approval` verifies with
+  it and never prints it. When the key file exists, a signed approval counts only if its `sig`
+  verifies (an edited approval, one moved to another run, or one signed with another key does
+  not), and an unsigned approval counts only if its line has no `prev`, that is, it was written
+  before the chain: every line the code writes now is chained and signed. When the key file is
+  missing, a signed approval cannot be verified and is refused, and an unsigned one is accepted
+  (as it always was). A key file that is unreadable, readable by others, a symlink or not 32
+  bytes of hex stops the check with an error that does not quote it. Losing the key voids the
+  signed approvals of the project's runs.
+- The round form (`{"round": N}`) is not signed; only the chain covers it.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file. Present in the first form, and in an amendment. |
+| `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
-
-`added_checks`, the third form's list of the check ids it added, is not in the table: no run of
-the code writes it, and the tests fail on a table key that no run writes.
+| `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
+| `sig` | str | HMAC-SHA-256 (hex) with the project's investor key over the event's run id, its round and every other key of `data`. On the first form and on an amendment when the run is in a project (`<project>/.boss/runs/<id>`). Absent from approvals written before signing. |
 
 Examples:
 
@@ -474,20 +569,39 @@ Examples:
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"round": 2}, "event": "approved", "round": 2, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:28.108273+00:00", "v": 1}
 ```
 
+A signed approval on a chained line, as `boss fund` writes it (the key that signed this one was
+thrown away):
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"hashes": {"term_sheet": "aa0ce180f53592efa47a651dc9e0b62d750b5817cec5f2dce48f585f158c7f5b", "test_c01.py": "46dcc9df463d18fec190640e9731fb76fd54990602d51e6f562260ee40137215", "test_c02.py": "ef8fdb7658a4589dad9a7e41b8b287e591fb402c96b8b5b3bc1438cbe7fe1173"}, "sig": "61434adc9e66de41b498b390a0e654e87b71c026f05b2a1d446a371d99d61757"}, "event": "approved", "prev": "7211d3a5bb23508fb9e64a0dc9863c1f0475689c6c0c16e91731ce7d99839f50", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:52:27.361484+00:00", "v": 1}
+```
+
+An amendment (signed like the first form, in round 2):
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added_checks": ["c03"], "hashes": {"term_sheet": "3358c4b8c732606c083e7f794881519b229ba89c5d388c2be6f7e79448cae768", "test_c01.py": "1d8375400c8f62ba12608933211da7dade2459fb89df181c1f23150d29b89b56", "test_c02.py": "8be209cefbc72a3ceb2b34f55206827c0a0efd55aa9e6d45b66b1fe3fba83f63", "test_c03.py": "65ba46c76ea3d12622b3ae82f9715b4baf58c84be286d8cb03645894e00ca6a1"}, "round": 2, "sig": "b19804ca0c46db6f21d950a8fa527f9970f5c7ede78c19cc111df7251c0a7562"}, "event": "approved", "prev": "fc9ef3312be6ddc0b9ac051bec79f7636249921f56c2fe09d2393d43901739e1", "round": 2, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:41.920211+00:00", "v": 1}
+```
+
 ### `topped_up`
 
-- Actor: `investor` (intended)
-- No code writes this event. `budget.round_budget` reads it and adds `micros` to a round's budget,
-  for events whose `round` is that round.
+- Actor: `investor`
+- Round: the round that gets the money
+- Written by `cli.py` when `boss topup` adds money to a round. Only an `investor` event counts:
+  `budget.round_budget` adds `micros` to the budget of the round of each such event, and
+  `state.run_state` takes the round out of `locked_rounds` and `closed_rounds` when the event comes
+  after the `round_closed` that locked it, so the loop funds that round again and writes another
+  `round_closed` when it ends. The same event raises the run's spend ceiling. The same event from
+  any other actor adds nothing and reopens nothing.
+- `boss topup` writes it only for a round of the term sheet, and not for one that closed unlocked.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `micros` | int | Extra budget for the round, a positive integer. Anything else makes the budget code raise. |
 
-Example, built with the `Event` class to show the shape the budget code accepts:
+Example, `boss topup --round 1 --amount 0.25` on a round that had run out of money:
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"micros": 250000}, "event": "topped_up", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:37.222182+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"micros": 250000}, "event": "topped_up", "round": 1, "run": "20261002T204817Z-75dfce", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:48:19.193786+00:00", "v": 1}
 ```
 
 ### `paused`

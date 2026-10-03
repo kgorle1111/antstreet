@@ -5,6 +5,7 @@ and every event it writes is checked against the document: type, actor, key, val
 example line under each heading.
 """
 
+import dataclasses
 import inspect
 import json
 import re
@@ -14,14 +15,16 @@ from dataclasses import fields
 import pytest
 from docs_support import DOCS, ROOT, code_spans, read, run_cli, section, table
 
-from boss import budget, state
+from boss import budget, held_out, pipeline, state
 from boss.approval import content_hashes
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
 from boss.ledger import LEDGER_VERSION, Billing, Event, EventType, LedgerWriter, read_events
 from boss.limits import RunLimits
+from boss.roles import examiner, registry
 from boss.roles.base import RoleSpec, ledger_fields
+from boss.roles.examiner import run_examiner
 from boss.rundir import RunPaths
 from boss.runner import SliceRun
 from boss.stream import Usage
@@ -93,8 +96,12 @@ def step(
     return (code, status, outcome, cost, disputes, denials)
 
 
-def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=None):
-    """Run the loop on a fresh run folder and return every event it wrote."""
+H01 = "from rev import reverse\n\ndef test_held():\n    assert reverse('xy') == 'yx'\n"
+
+
+def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=None, held=False):
+    """Run the loop on a fresh run folder and return every event it wrote. `held` gives the run one
+    approved held-out check."""
     paths = RunPaths(tmp_path)
     paths.checks.mkdir(parents=True)
     (paths.checks / "test_c01.py").write_text(C01)
@@ -103,6 +110,10 @@ def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=Non
     replies = iter(answers)
     with LedgerWriter(paths.ledger) as ledger:
         data = {"hashes": content_hashes(s, paths.checks)}
+        if held:
+            entry = held_out.HeldOutCheck("h01", held_out.file_name("h01"), "Reverse a string.")
+            held_out.write(paths.held_out, [(entry, H01)])
+            data["held_out_hashes"] = held_out.hashes(paths.held_out)
         ledger.append(
             Event(run="r1", round=0, actor="investor", event=EventType.APPROVED, data=data)
         )
@@ -138,6 +149,46 @@ def cli_resumed_events(tmp_path):
     return read_events(run_dir / "ledger.jsonl")
 
 
+def cli_topped_up_events(tmp_path):
+    """A round that closed below its unlock threshold because its budget ran out ($0.108 funds one
+    slice and leaves less than the $0.105 another needs), then `boss topup` on it."""
+    run_cli(tmp_path, ["fund", "Reverse a string.", "--budget", "0.108"], broken=True)
+    _, run_dir, _ = run_cli(tmp_path, ["topup", "--round", "1", "--amount", "0.25"])
+    return read_events(run_dir / "ledger.jsonl")
+
+
+def roles_events(folder, fix="y"):
+    """A run with every role: the real CLI against the fake `claude` of tests/test_pipeline.py,
+    which also plays each role. It reaches a disputed check, an approved amendment and both
+    judgements."""
+    import test_pipeline as staged
+
+    folder.mkdir(parents=True)
+    fx = staged.Fx(folder)
+    staged.every_role(fx)
+    assert fx.fund("--roles", "all", answers={"Task": "d", "Add these": fix}).code == 0
+    return fx.events()
+
+
+def examiner_events(tmp_path):
+    """The examiner's call booked by `run_examiner`, with the model call itself stubbed."""
+    paths = RunPaths(tmp_path)
+    paths.checks.mkdir(parents=True)
+    (paths.checks / "test_c01.py").write_text(C01)
+    (paths.checks / "test_c02.py").write_text(C02)
+    entry = held_out.HeldOutCheck("h01", held_out.file_name("h01"), "Reverse a string.")
+
+    def stub(idea, names, n, visible_ids, **_):
+        return [(entry, H01)], Usage(12_000, 900, 400, 0)
+
+    with pytest.MonkeyPatch.context() as patch, LedgerWriter(paths.ledger) as ledger:
+        patch.setattr(examiner, "examine", stub)
+        run_examiner(
+            sheet(), paths, ledger, "r1", n=1, env={"HOME": "/h"}, model="haiku", say=lambda _: None
+        )
+    return read_events(paths.ledger)
+
+
 @pytest.fixture(scope="module")
 def produced(tmp_path_factory) -> dict[str, list[Event]]:
     """Every event the code writes across a set of runs that reaches every writer, by type."""
@@ -148,11 +199,12 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
         return root / name
 
     two_rounds = sheet((Round(1, 204_000, 1), Round(2, 300_000, 2)))
-    # w1 is refused a tool, disputes c01 and stalls; w2 passes one check, round 2 is funded.
+    # w1 is refused a tool, disputes c01 and stalls; w2 inherits the unruled dispute and passes
+    # the other check, so the investor is asked about c01 (kept); round 2 is funded.
     runs.append(firm_events(where("full"), Script(
         step(BAD, disputes=("c01",), denials=("Write",)), step(BAD),
         step(HALF, cost=100_000), step(GOOD, "done"),
-    ), two_rounds, answers=["y"]))  # fmt: skip
+    ), two_rounds, answers=["k", "y"]))  # fmt: skip
     # The investor answers each escalation: set aside (`s`), drop or keep a disputed check,
     # unblock with a note. Each answer writes its own `ruled` or `abandoned` event.
     runs.append(firm_events(where("blocked"), Script(step(None, "blocked")), answers=["s"]))
@@ -175,11 +227,16 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
                             expect=IsolationError))  # fmt: skip
     runs.append(firm_events(where("declined"), Script(step(HALF, cost=100_000)), two_rounds,
                             answers=["n"]))  # fmt: skip
+    runs.append(firm_events(where("held-out"), Script(step(GOOD, "done")), held=True))
+    runs.append(examiner_events(where("examiner")))
     runs.append(cli_events(where("cli-approved")))
     runs.append(cli_events(where("cli-rejected"), answers=("r",)))
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
     runs.append(cli_resumed_events(where("cli-resumed")))
+    runs.append(cli_topped_up_events(where("cli-topped-up")))
+    runs.append(roles_events(where("cli-roles")))
+    runs.append(roles_events(where("cli-declined"), fix="n"))
     found: dict[str, list[Event]] = defaultdict(list)
     for events in runs:
         for e in events:
@@ -228,7 +285,7 @@ def examples_of(body: str) -> list[Event]:
     return [Event.from_json(block) for block in blocks]
 
 
-NO_WRITER = {"topped_up", "denied", "role_call"}
+NO_WRITER = {"denied"}
 
 
 def test_every_event_type_has_a_section_and_no_section_names_another_type(text):
@@ -245,8 +302,13 @@ def test_top_level_fields_are_the_event_fields_plus_the_version(text):
     assert LEDGER_VERSION == 1 and "`v` | int | Always 1" in text
     for billing in Billing:
         assert f"`{billing.value}`" in rows["billing"][2]
-    line = json.loads(Event(run="r", round=0, actor="boss", event=EventType.STOPPED).to_json())
-    assert set(line) == set(rows)
+    plain = json.loads(Event(run="r", round=0, actor="boss", event=EventType.STOPPED).to_json())
+    assert set(plain) | {"prev"} == set(rows)  # `prev` is written by the writer, not by the event
+    chained = json.loads(
+        dataclasses.replace(Event(run="r", round=0, actor="boss", event=EventType.STOPPED),
+                            prev="0" * 64).to_json()
+    )  # fmt: skip
+    assert set(chained) == set(rows)
 
 
 def test_actor_forms_and_the_writer_rules_are_documented(text):
@@ -255,8 +317,8 @@ def test_actor_forms_and_the_writer_rules_are_documented(text):
         assert f"`{actor}`" in body
 
 
-def test_only_three_types_have_no_writer_and_the_document_says_so(produced, text):
-    # role_call: the helper exists (`roles/base.py`), but no command calls it yet.
+def test_only_denied_has_no_writer_and_the_document_says_so(produced, text):
+    # role_call has two: `pipeline.py` (`boss fund --roles`) and `roles/examiner.py`.
     unwritten = {e.value for e in EventType} - set(produced)
     assert unwritten == NO_WRITER, f"types with no writer changed: {sorted(unwritten)}"
     for name in NO_WRITER:
@@ -325,13 +387,14 @@ def test_the_started_config_keys_are_documented_with_their_types(produced, text)
 def test_every_ruling_and_when_its_optional_keys_appear_is_documented(produced, text):
     body = sections(text)["ruled"]
     rulings = {e.data["ruling"] for e in produced["ruled"]}
-    assert rulings == {"dropped", "kept", "unblocked"}, "a run no longer reaches every ruling"
+    assert rulings == {"dropped", "kept", "unblocked", "declined"}, "a run no longer reaches all"
     for ruling in rulings:
         assert f"`{ruling}`" in body
     for e in produced["ruled"]:
         assert e.actor == "investor"
-        assert ("check" in e.data) == (e.data["ruling"] != "unblocked")
+        assert ("check" in e.data) == (e.data["ruling"] in ("dropped", "kept"))
         assert ("note" in e.data) == (e.data["ruling"] == "unblocked")
+        assert ("task" in e.data) == (e.data["ruling"] != "declined")
 
 
 def test_each_example_is_a_valid_line_of_the_right_type_with_the_shape_the_code_writes(
@@ -353,26 +416,69 @@ def test_the_topped_up_example_is_what_the_budget_reads(text):
     base = sheet().rounds[0].budget_micros
     grown = budget.round_budget(sheet(), [example], example.round)
     assert example.round == 1 and grown == base + example.data["micros"]
+    assert example.actor == "investor"
 
 
-def test_the_role_call_section_matches_the_helper_and_no_command_calls_it_yet(text):
+def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(produced, text):
     [example] = examples_of(sections(text)["role_call"])
     spec = RoleSpec("critic", "quality", "boss", "review", "a gate", "critic_v1.md", ("s/one",))
     fields = ledger_fields(spec, Usage(7, 3, 2, 1), "completed", model="haiku", env={"HOME": "/h"})
     built = Event(run="r", round=0, actor=spec.actor, event=EventType.ROLE_CALL, **fields)
     documented = keys_table(sections(text)["role_call"])
-    assert set(built.data) == set(documented) == set(example.data)
+    # the helper's own keys are documented, and the pipeline adds the rest on top of them
+    assert set(built.data) <= set(documented) and {"result", "detail"} <= set(documented)
+    assert {"requested", "kept", "problems"} <= set(documented)  # the examiner's own keys
     for key, value in built.data.items():
         assert json_type(value) in declared(documented[key]), key
     assert example.actor == "role:critic" and example.cost_micros is not None
-    # When a command starts calling roles, this fails: then document its writer and its keys.
-    own = {SRC / "ledger.py", SRC / "roles" / "base.py"}
-    callers = [
-        str(p.relative_to(SRC))
+    # Who writes it: `Pipeline._book`, through `ledger_fields`, always in round 0, and the
+    # examiner's `run_examiner`. `report.py` reads the events; nothing else names the type or the
+    # helper.
+    book = inspect.getsource(pipeline.Pipeline._book)
+    assert "ledger_fields(" in book and "EventType.ROLE_CALL" in book
+    assert "Recorder(self.ledger, self.run_id, 0)(spec.actor," in book
+    own = {SRC / "ledger.py", SRC / "roles" / "base.py", SRC / "roles" / "examiner.py"}
+    callers = sorted(
+        p.relative_to(SRC).as_posix()
         for p in SRC.rglob("*.py")
         if p not in own and ("ledger_fields" in read(p) or "ROLE_CALL" in read(p))
-    ]
-    assert callers == [], f"a command now books role calls ({callers}): update LEDGER.md"
+    )
+    assert callers == ["pipeline.py", "report.py"], f"a new module touches role_call: {callers}"
+    assert "ledger_fields" not in read(SRC / "report.py")
+    # Every event the pipeline wrote is under a role actor, in round 0, with the two keys it adds.
+    written = [e for e in produced["role_call"] if e.actor != "role:examiner"]
+    chosen = set(registry()) - set(pipeline.BY_OPTION)  # what `--roles all` names
+    assert {e.actor for e in written} == {f"role:{name}" for name in chosen}
+    for e in written:
+        assert e.round == 0 and e.data["result"] in {"ok", "failed", "unused"}
+        assert isinstance(e.data["detail"], str) and e.data["role"] == e.actor.removeprefix("role:")
+
+
+def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(produced, text):
+    with_roles = [e for e in produced["started"] if "roles" in e.data]
+    assert with_roles  # every run with roles is a run with every role --roles all names
+    chosen = sorted(set(registry()) - set(pipeline.BY_OPTION))
+    for event in with_roles:
+        assert sorted(event.data["roles"]) == ["model", "names", "thinking_tokens"]
+        assert event.data["roles"]["names"] == chosen
+        assert pipeline.recorded_setup([event]) == pipeline.Setup(
+            tuple(chosen), event.data["roles"]["model"], None
+        )
+    # run_firm found this event and wrote none, so there is one per run, and the same config
+    assert [e for e in produced["started"] if "roles" not in e.data]  # runs without roles exist
+    assert "record_start" in read(SRC / "cli.py") and "Nothing is written without roles" in (
+        inspect.getdoc(pipeline.Pipeline.record_start) or ""
+    )
+    assert "`roles`" in sections(text)["started"] and "`record_start`" in sections(text)["started"]
+
+
+def test_the_examiners_role_call_is_in_round_1_with_its_own_keys(produced, text):
+    documented = keys_table(sections(text)["role_call"])
+    [written] = [e for e in produced["role_call"] if e.actor == "role:examiner"]
+    assert written.round == 1  # counts against round 1's budget, unlike the pipeline's round 0
+    assert {"requested", "kept", "problems"} <= set(written.data) <= set(documented)
+    assert "result" not in written.data and "detail" not in written.data
+    assert "EventType.ROLE_CALL" in read(SRC / "roles" / "examiner.py")
 
 
 def test_the_state_contract_is_a_subset_of_this_document(text):

@@ -78,9 +78,12 @@ Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
 | `--max-tasks N` | Let the boss split the work into up to N tasks | 1 |
 | `--parallel N` | Work on up to N tasks at once; one worker per task | 1 |
 | `--profile NAME` | Add a worker profile's skills to the builder prompt; `boss roles` lists them | none |
+| `--roles A,B` | Run specialist roles around the build (stories, staged draft, audit, consultant, critic, demo, judge); `all` turns on every role | none |
+| `--review-cycles N`, `--fix-budget D` | Critic reviews of the product that may lead to a fix round you approve; dollars for that round | 1, two slices and a reserve |
 
 ```bash
 uv run boss resume    # continue the latest run: interrupted, paused or stopped
+uv run boss topup --round 1 --amount 0.20   # add money to a round; reopens a locked one
 uv run boss report    # the latest run's board report
 uv run boss status    # one line: last event, checks passing, spend
 uv run boss roles     # the organisation: roles, worker profiles and their skills
@@ -88,7 +91,8 @@ uv run boss doctor    # check this machine; --live adds the two paid calls above
 ```
 
 `boss resume` reads the run's ledger and the settings it started with. Running it is your decision
-to lift a stop, and the approval, the budget and every limit are checked again.
+to lift a stop, and the approval, the budget and every limit are checked again. A round that closed
+below its unlock threshold stays locked until you `boss topup` it.
 
 Exit codes: `0` every check passed; `1` the boss produced no usable term sheet, you rejected it, or
 a worker did not start isolated; `2` usage error (including a blank idea and a budget too small to fund one slice);

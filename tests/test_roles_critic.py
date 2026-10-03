@@ -270,7 +270,6 @@ def test_verified_findings_are_listed_most_severe_first_then_in_the_models_order
         ({"quote": "short"}, "not a fragment"),
         ({"test_code": 5}, "must all be text"),
         ({"test_code": "x" * (critic.MAX_TEST_CHARS + 1)}, "over"),
-        ({"test_code": "\ud800"}, "UTF-8"),
         ({"test_code": "\x00"}, "syntax error"),
         ({"test_code": HEAD + "def helper():\n    assert False\n"}, "defines no test_ function"),
     ],

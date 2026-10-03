@@ -1,0 +1,44 @@
+# parse_iso_week never checks the week against weeks_in_year, so week 53 of a short year rolls into the next year.
+import re
+from datetime import date, datetime
+
+_FORMAT = re.compile(r"([0-9]{4})-W([0-9]{2})-([0-9])")
+
+
+def _require_date(d: object) -> date:
+    if not isinstance(d, date) or isinstance(d, datetime):
+        raise TypeError(f"expected a date, got {type(d).__name__}")
+    return d
+
+
+def iso_week(d: date) -> tuple[int, int]:
+    year, week, _ = _require_date(d).isocalendar()
+    return year, week
+
+
+def weeks_in_year(year: int) -> int:
+    if isinstance(year, bool) or not isinstance(year, int):
+        raise TypeError(f"year must be an int, got {type(year).__name__}")
+    if not 1 <= year <= 9999:
+        raise ValueError(f"year {year} is outside 1..9999")
+    # Dec 28 is always in the last week of its ISO year.
+    return date(year, 12, 28).isocalendar().week
+
+
+def format_iso_week(d: date) -> str:
+    year, week, weekday = _require_date(d).isocalendar()
+    return f"{year:04d}-W{week:02d}-{weekday}"
+
+
+def parse_iso_week(text: str) -> date:
+    if not isinstance(text, str):
+        raise TypeError(f"expected str, got {type(text).__name__}")
+    match = _FORMAT.fullmatch(text)
+    if match is None:
+        raise ValueError(f"not an ISO week date: {text!r}")
+    year, week, weekday = (int(part) for part in match.groups())
+    if not 1 <= week <= 53 or not 1 <= weekday <= 7:
+        raise ValueError(f"not an ISO week date: {text!r}")
+    jan4 = date(year, 1, 4)
+    monday = jan4.toordinal() - jan4.weekday()
+    return date.fromordinal(monday + (week - 1) * 7 + weekday - 1)

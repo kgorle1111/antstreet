@@ -5,10 +5,12 @@ import pytest
 from boss.budget import (
     MIN_SLICE_MICROS,
     RESERVE_MICROS,
+    is_top_up,
     min_round_budget,
     next_slice_cap,
     plan_rounds,
     remaining,
+    reserve_for,
     round_budget,
     round_spend,
     unlocked,
@@ -39,8 +41,10 @@ def ev(
     )
 
 
-def top_up(micros: object, round_n: int = 1) -> Event:
-    return ev(round_n, EventType.TOPPED_UP, micros=micros)
+def top_up(micros: object, round_n: int = 1, actor: str = "investor") -> Event:
+    return Event(
+        run="r", round=round_n, actor=actor, event=EventType.TOPPED_UP, data={"micros": micros}
+    )
 
 
 def test_round_budget_is_sheet_amount_without_events() -> None:
@@ -52,6 +56,21 @@ def test_round_budget_adds_top_ups_of_that_round_only() -> None:
     events = [top_up(50_000), top_up(25_000), top_up(999_000, round_n=2), ev(1, cost=7)]
     assert round_budget(sheet(), events, 1) == 675_000
     assert round_budget(sheet(), events, 2) == 1_399_000
+
+
+@pytest.mark.parametrize("actor", ["worker:a", "boss", "gate", "rule", "role:critic"])
+def test_only_the_investors_top_up_counts(actor: str) -> None:
+    events = [top_up(50_000, actor=actor)]
+    assert round_budget(sheet(), events, 1) == 600_000
+    assert remaining(sheet(), events, 1) == 600_000
+    assert not is_top_up(events[0])
+    assert is_top_up(top_up(1))
+
+
+def test_remaining_counts_an_investor_top_up() -> None:
+    spent = ev(1, cost=590_000)
+    assert remaining(sheet(), [spent], 1) == 10_000
+    assert remaining(sheet(), [spent, top_up(200_000)], 1) == 210_000
 
 
 @pytest.mark.parametrize("bad", [0, -5, 1.5, "10", True, None])
@@ -163,6 +182,121 @@ def test_a_lost_slice_is_still_charged_after_the_same_slice_number_runs_again() 
 def test_a_failed_infrastructure_attempt_is_not_charged_when_the_slice_runs_again() -> None:
     events = [start(1, 40_000), end(1, None, "rate_limited"), start(1, 40_000), end(1, 9_000)]
     assert remaining(sheet(), events, 1) == 600_000 - 9_000
+
+
+def s_start(n: int, cap: int, session: str, round_n: int = 1) -> Event:
+    return ev(round_n, EventType.SLICE_START, slice=n, cap_micros=cap, session=session)
+
+
+def s_end(
+    n: int, cost: int | None, total: int | None, outcome: str = "completed", round_n: int = 1
+) -> Event:
+    return ev(round_n, cost=cost, slice=n, outcome=outcome, session_total_micros=total)
+
+
+def test_a_lost_slice_is_counted_once_when_its_session_is_resumed() -> None:
+    # Slice 2 spent 30,000 before the run was interrupted; nothing was booked for it. Slice 3
+    # resumes the session and the CLI reports the cumulative 70,000: slice 3 books 70,000 - 30,000.
+    events = [
+        s_start(1, 40_000, "S"),
+        s_end(1, 30_000, 30_000),
+        s_start(2, 40_000, "S"),  # lost
+        s_start(3, 40_000, "S"),
+        s_end(3, 40_000, 70_000),
+    ]
+    assert round_spend(events, 1).cost_micros == 70_000  # the session's real total
+    assert remaining(sheet(), events, 1) == 600_000 - 70_000  # not another 40,000 for slice 2
+
+
+def test_a_lost_slice_stays_charged_until_a_later_slice_of_its_session_reports() -> None:
+    lost = [s_start(1, 40_000, "S"), s_end(1, 30_000, 30_000), s_start(2, 40_000, "S")]
+    assert remaining(sheet(), lost, 1) == 600_000 - 30_000 - 40_000
+    # Slice 3 of the same session is lost too (cost unknown): nothing has covered slice 2 yet.
+    both = [*lost, s_start(3, 25_000, "S"), s_end(3, None, None, "timeout")]
+    assert remaining(sheet(), both, 1) == 600_000 - 30_000 - 40_000 - 25_000
+    # Slice 4 reports the session's total, which holds the spend of slices 2 and 3.
+    covered = [*both, s_start(4, 40_000, "S"), s_end(4, 55_000, 85_000)]
+    assert remaining(sheet(), covered, 1) == 600_000 - 85_000
+
+
+def test_the_same_slice_started_again_in_its_session_is_counted_once() -> None:
+    events = [
+        s_start(1, 40_000, "S"),
+        s_end(1, 30_000, 30_000),
+        s_start(2, 40_000, "S"),  # interrupted
+        s_start(2, 40_000, "S"),  # run again after a resume of the run
+        s_end(2, 35_000, 65_000),
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 65_000
+
+
+def test_a_report_from_another_session_does_not_cover_a_lost_slice() -> None:
+    events = [
+        s_start(1, 40_000, "S"),  # lost before the CLI reported anything: S is never resumed
+        s_start(1, 40_000, "S2"),  # a new session, so no cumulative total includes slice 1
+        s_end(1, 30_000, 30_000),
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000 - 40_000
+
+
+def test_a_report_without_a_total_does_not_cover_a_lost_slice() -> None:
+    events = [
+        s_start(1, 40_000, "S"),
+        s_end(1, 30_000, 30_000),
+        s_start(2, 40_000, "S"),  # lost
+        s_start(3, 40_000, "S"),
+        s_end(3, 10_000, None),  # no session total: it cannot be known to include slice 2
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000 - 40_000 - 10_000
+
+
+def test_a_lost_slice_covered_in_a_later_round_is_not_charged_in_its_own() -> None:
+    events = [
+        s_start(1, 40_000, "S", round_n=1),
+        s_end(1, 30_000, 30_000, round_n=1),
+        s_start(2, 40_000, "S", round_n=1),  # lost when round 1 ended
+        s_start(3, 40_000, "S", round_n=2),
+        s_end(3, 40_000, 70_000, round_n=2),  # books slice 2's spend as well, in round 2
+    ]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000
+    assert remaining(sheet(), events, 2) == 400_000 - 40_000
+    assert round_spend(events, 1).cost_micros + round_spend(events, 2).cost_micros == 70_000
+
+
+def test_a_lost_slice_of_another_worker_is_not_covered_by_this_workers_session() -> None:
+    other = Event(
+        run="r",
+        round=1,
+        actor="worker:b",
+        event=EventType.SLICE_START,
+        data={"slice": 1, "cap_micros": 90_000, "session": "T"},
+    )
+    events = [other, s_start(1, 40_000, "S"), s_end(1, 30_000, 30_000)]
+    assert remaining(sheet(), events, 1) == 600_000 - 30_000 - 90_000
+
+
+@pytest.mark.parametrize(
+    ("model", "micros"),
+    [
+        ("haiku", RESERVE_MICROS),
+        ("sonnet", 3 * RESERVE_MICROS),
+        ("opus", 5 * RESERVE_MICROS),
+        ("claude-haiku-4-5", RESERVE_MICROS),
+        ("claude-sonnet-4-5-20250929", 3 * RESERVE_MICROS),
+        ("Opus[1m]", 5 * RESERVE_MICROS),
+        ("", RESERVE_MICROS),
+        ("gpt-x", RESERVE_MICROS),  # an unknown model keeps the one figure there has always been
+    ],
+)
+def test_the_reserve_is_per_model_family_and_unknown_models_keep_the_default(
+    model: str, micros: int
+) -> None:
+    assert reserve_for(model) == micros
+
+
+def test_a_larger_model_needs_a_larger_round_to_fund_one_slice() -> None:
+    assert min_round_budget(reserve_for("haiku")) < min_round_budget(reserve_for("sonnet"))
+    assert min_round_budget(reserve_for("sonnet")) < min_round_budget(reserve_for("opus"))
 
 
 def test_remaining_negative_after_overshoot() -> None:

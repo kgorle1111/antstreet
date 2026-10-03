@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from boss.held_out import EXAMINER_ACTOR, MANIFEST
+from boss.held_out import SCOPE as HELD_OUT_SCOPE
 from boss.ledger import Event, EventType, Totals, total, totals_by
 from boss.redact import safe_text
 
@@ -31,6 +33,7 @@ _REQUIRED = {
     EventType.ROUND_CLOSED: ("passed", "total", "unlocked"),
     EventType.HIRED: ("worker",),
     EventType.DISPUTED: ("check",),
+    EventType.ROLE_CALL: ("role", "outcome"),
 }
 
 
@@ -60,6 +63,15 @@ class DisputeLine:
 
 
 @dataclass(frozen=True, slots=True)
+class RoleLine:
+    role: str
+    outcome: str  # how the call ended; "not_called" when it was refused before any call
+    result: str  # ok, failed, or unused (its output was good but a later stage failed)
+    cost_micros: int | None
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class RoundLine:
     n: int
     passed: int
@@ -77,7 +89,14 @@ class Report:
     checks: list[CheckLine] = field(default_factory=list)
     workers: list[WorkerLine] = field(default_factory=list)
     disputes: list[DisputeLine] = field(default_factory=list)
+    roles: list[RoleLine] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    held_out: list[CheckLine] = field(
+        default_factory=list
+    )  # graded on the product, apart from checks
+    held_out_written: int = 0  # held-out checks the investor approved
+    held_out_summary: str | None = None  # the one line about them; None for a run that never asked
+    sandbox_summary: str | None = None  # whether the checks ran confined (T39); None: none ran
 
 
 def build_report(events: Sequence[Event]) -> Report:
@@ -88,16 +107,27 @@ def build_report(events: Sequence[Event]) -> Report:
         raise ValueError(f"ledger mixes runs: {sorted(runs)}")
 
     latest_check: dict[str, CheckLine] = {}
+    latest_held_out: dict[str, CheckLine] = {}
     rounds: list[RoundLine] = []
     for e in events:
         if _missing(e):
             continue
         if e.event is EventType.CHECK_RESULT:
             line = CheckLine(e.data["check"], e.data["status"], e.data.get("detail", ""))
-            latest_check[line.check] = line  # a later gate run supersedes an earlier one
+            # A later gate run supersedes an earlier one; a held-out result is never a visible
+            # check's, whatever id it carries.
+            held = e.data.get("scope") == HELD_OUT_SCOPE
+            (latest_held_out if held else latest_check)[line.check] = line
         elif e.event is EventType.ROUND_CLOSED:
             rounds.append(RoundLine(e.round, e.data["passed"], e.data["total"], e.data["unlocked"]))
 
+    held_out = [latest_held_out[k] for k in sorted(latest_held_out)]
+    ran = [
+        e.data.get("sandboxed")
+        for e in events
+        if e.event is EventType.CHECK_RESULT and not _missing(e)
+    ]
+    written, summary = _held_out_summary(events, held_out)
     return Report(
         run=events[0].run,
         approved=any(e.event is EventType.APPROVED and e.actor == "investor" for e in events),
@@ -111,9 +141,103 @@ def build_report(events: Sequence[Event]) -> Report:
             for e in events
             if e.event is EventType.DISPUTED and not _missing(e)
         ],
+        roles=[
+            RoleLine(
+                str(e.data["role"]),
+                str(e.data["outcome"]),
+                str(e.data.get("result", "")),
+                e.cost_micros,
+                str(e.data.get("detail", "")),
+            )
+            for e in events
+            if e.event is EventType.ROLE_CALL and not _missing(e)
+        ],
         notes=[_note(e) for e in events if e.event in _NOTABLE]
         + [_incomplete_note(e) for e in events if _missing(e)],
+        held_out=held_out,
+        held_out_written=written,
+        held_out_summary=summary,
+        sandbox_summary=_sandbox_summary(ran),
     )
+
+
+def _sandbox_summary(flags: Sequence[object]) -> str | None:
+    """One line on whether the gate ran the checks confined. It counts every recorded run, not
+    only the latest per check, so an unconfined run a later one superseded still shows. A ledger
+    from before the flag, or a flag that is not a bool, counts as not recorded."""
+    if not flags:
+        return None
+    confined = sum(f is True for f in flags)
+    loose = sum(f is False for f in flags)
+    unknown = len(flags) - confined - loose
+    if not confined and not loose:
+        return "Checks ran sandboxed: not recorded (a ledger from before the flag existed)."
+    notes = [f"{loose} UNCONFINED"] * bool(loose) + [f"{unknown} not recorded"] * bool(unknown)
+    line = f"Checks ran sandboxed: {confined} of {len(flags)}" + (
+        f" ({', '.join(notes)})" if notes else ""
+    )
+    return f"WARNING: {line}; see T39 in the threat model." if loose else line + "."
+
+
+def _held_out_summary(
+    events: Sequence[Event], graded: Sequence[CheckLine]
+) -> tuple[int, str | None]:
+    """How many held-out checks the investor approved, and the one line the report says about
+    them: their result, or why a run that asked for them has none. None when it never asked."""
+    hashes = [
+        e.data["held_out_hashes"]
+        for e in events
+        if e.event is EventType.APPROVED
+        and e.actor == "investor"
+        and isinstance(e.data.get("held_out_hashes"), dict)
+    ]
+    written = len([k for k in hashes[-1] if k != MANIFEST]) if hashes else 0
+    calls = [e for e in events if e.event is EventType.ROLE_CALL and e.actor == EXAMINER_ACTOR]
+    started = next((e for e in events if e.event is EventType.STARTED), None)
+    config = started.data.get("config") if started else None
+    requested = config.get("held_out") if isinstance(config, dict) else 0
+    count = max(written, len(graded))
+    if count:
+        passed = sum(c.status == "passed" for c in graded)
+        unseen = "the workers never saw them"
+        if not graded:
+            done = (
+                f"{count} approved, none graded on the product (the run ended before its verdict)"
+            )
+        elif len(graded) < count:
+            done = f"{passed} of {count} passed on the product ({count - len(graded)} not graded)"
+        else:
+            done = f"{passed} of {count} passed on the product"
+        return written, f"Held-out checks: {done}; {unseen}."
+    if calls:
+        return 0, _examiner_summary(calls[-1])
+    if isinstance(requested, int) and not isinstance(requested, bool) and requested > 0:
+        return 0, (
+            f"Held-out checks: {requested} were requested, but no examiner call is recorded; "
+            "the run had none."
+        )
+    return 0, None
+
+
+def _examiner_summary(call: Event) -> str:
+    """Why an examiner call left the run with no held-out checks. Its reasons are model text and
+    exception text, so they pass `safe_text` on one line."""
+    problems = call.data.get("problems")
+    first = problems[0] if isinstance(problems, list) and problems else ""
+    why = _detail(str(first)) or "no reason recorded"
+    outcome = str(call.data.get("outcome", "unknown"))
+    if call.data.get("kept"):
+        return (
+            f"Held-out checks: the examiner wrote {_detail(str(call.data['kept']))}, but the "
+            "investor's approval does not cover them; none ran."
+        )
+    if outcome == "skipped":
+        what = f"The examiner was not called ({why})"
+    elif outcome == "completed":
+        what = f"The examiner's output was not kept: {why}"
+    else:
+        what = f"The examiner's call ended {_detail(outcome)}: {why}"
+    return f"Held-out checks: none. {what}; the run went on without them."
 
 
 def _missing(event: Event) -> list[str]:
@@ -179,6 +303,13 @@ def render_report(report: Report) -> str:
         "  none run"
     ]
 
+    if report.sandbox_summary:
+        out += ["", report.sandbox_summary]
+
+    if report.held_out_summary:
+        out += ["", report.held_out_summary]
+        out += [f"  {c.check}  {c.status:<8} {_detail(c.detail)}" for c in report.held_out]
+
     out += ["", "Spend (estimated by the CLI, not a bill)"]
     for actor in sorted(report.by_actor):
         t = report.by_actor[actor]
@@ -195,6 +326,13 @@ def render_report(report: Report) -> str:
         )
     if not report.workers:
         out.append("  none hired")
+    if report.roles:
+        out += ["", "Roles (each call, in order; their spend is in the lines above)"]
+        for role in report.roles:
+            cost = "unknown cost" if role.cost_micros is None else dollars(role.cost_micros)
+            detail = f": {_detail(role.detail)}" if role.detail else ""
+            how = f"{_detail(role.result) or '?'} ({_detail(role.outcome)})"
+            out.append(f"  {_detail(role.role)}  {how}, {cost}{detail}")
     if report.disputes:
         out += ["", "Disputed checks (yours to rule on; a disputed check never counts as passing)"]
         out += [f'  {d.check} by {d.worker}: "{d.reason}"' for d in report.disputes]

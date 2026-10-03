@@ -26,12 +26,13 @@ def problems(task_dir) -> list[str]:
 
 # What the benchmark arms are scored against: the idea, hidden checks and reference of all 17
 # tasks. It must not move when mutants are added: results recorded under it stay comparable.
-SHIPPED_SET_HASH = "c130282a6eec5fe8"
+SHIPPED_SET_HASH = "767892a59e311ab5"  # 35 tasks since 2026-10-02
+ORIGINAL_SET_HASH = "c130282a6eec5fe8"  # the first 17, which every earlier result ran on
 
 
 def test_every_shipped_task_is_valid():
     tasks = load_tasks(TASKS)
-    assert len(tasks) == 17, "benchmark tasks are missing"
+    assert len(tasks) == 35, "benchmark tasks are missing"
     # Each validation is many short pytest processes; running four tasks at once keeps it quick.
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(validate_task, tasks))
@@ -39,6 +40,29 @@ def test_every_shipped_task_is_valid():
 
 def test_the_shipped_task_set_hash_is_pinned():
     assert task_set_hash(load_tasks(TASKS)) == SHIPPED_SET_HASH
+
+
+def test_adding_tasks_left_the_original_17_and_their_hash_untouched():
+    import json
+
+    results = TASKS.parent / "results" / "2026-09-30-final3" / "results.jsonl"
+    ran = {json.loads(line)["task"] for line in results.read_text().splitlines()}
+    original = [t for t in load_tasks(TASKS) if t.id in ran]
+    assert len(original) == 17 and task_set_hash(original) == ORIGINAL_SET_HASH
+
+
+MULTI = TASKS.parent / "tasks-multi"  # tasks of 2-3 modules, for measuring a split across workers
+MULTI_SET_HASH = "ed1824911b464045"
+
+
+def test_every_multi_file_task_is_valid_and_needs_more_than_one_module():
+    tasks = load_tasks(MULTI)
+    assert len(tasks) == 8 and task_set_hash(tasks) == MULTI_SET_HASH
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(validate_task, tasks))
+    for task in tasks:
+        modules = sorted(p.name for p in task.reference_dir.glob("*.py"))
+        assert len(modules) >= 2, f"{task.id} is meant to need several modules: {modules}"
 
 
 def test_mutants_are_left_out_of_the_set_hash(task_dir):

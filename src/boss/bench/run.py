@@ -21,12 +21,14 @@ from pathlib import Path
 from boss import cli
 from boss.bench.results import ARMS, CellResult, cell_dir
 from boss.bench.score import count_wrong_checks
-from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
+from boss.bench.tasks import BenchTask, grade_imported, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
 from boss.errors import INFRASTRUCTURE, Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
+from boss.held_out import MAX_HELD_OUT
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
+from boss.report import build_report
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
 from boss.worker import (
@@ -55,21 +57,36 @@ def run_cell(
     boss_model: str = DEFAULT_MODEL,
     budget_micros: int,
     firm_args: Sequence[str] = (),
+    held_out: int = 0,
 ) -> CellResult:
-    """Run one cell, or return its saved result if it already ran."""
+    """Run one cell, or return its saved result if it already ran.
+
+    `held_out` asks the firm arm for that many held-out checks (`boss fund --held-out N`, added to
+    `firm_args`, so the result records it); the single arm ignores it.
+    """
+    if type(held_out) is not int or not 0 <= held_out <= MAX_HELD_OUT:
+        raise ValueError(
+            f"held_out must be a whole number from 0 to {MAX_HELD_OUT}, got {held_out!r}"
+        )
+    if arm == "firm" and held_out:
+        firm_args = [*firm_args, "--held-out", str(held_out)]
     out = cell_dir(results_dir, task.id, arm, rep)
     if (out / "result.json").is_file():
         return CellResult.load(out / "result.json")
     out.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     wrong_checks = None
+    held_out_passed = held_out_total = held_out_wrong = None
     if arm == "single":
         workspace, events = _run_single(task, out, environ, model, budget_micros)
     else:
         workspace, events = _run_firm(
             task, out, environ, model, boss_model, budget_micros, firm_args
         )
-        wrong_checks = count_wrong_checks(task, workspace.parent / "checks")
+        if not task.imported:  # no reference solution to judge the boss's checks against
+            wrong_checks = count_wrong_checks(task, workspace.parent / "checks")
+        held_out_passed, held_out_total = _held_out_counts(events)
+        held_out_wrong = count_wrong_checks(task, workspace.parent / "held_out")
 
     hidden = _score(task, workspace)
     passed = all(status == "passed" for status in hidden.values())
@@ -98,6 +115,9 @@ def run_cell(
         duration_s=round(time.monotonic() - start, 1),
         firm_args=" ".join(firm_args) if arm == "firm" else "",
         wrong_checks=wrong_checks,
+        held_out_passed=held_out_passed,
+        held_out_total=held_out_total,
+        held_out_wrong=held_out_wrong,
     )
     result.save(out)
     return result
@@ -165,7 +185,21 @@ def _run_firm(
     return RunPaths(run_dir).product, read_events(run_dir / "ledger.jsonl")
 
 
+def _held_out_counts(events: Sequence[Event]) -> tuple[int | None, int | None]:
+    """Held-out checks the product passed, out of those the investor approved; (None, None) for a
+    run that had none. One the run did not get to grade counts as not passed."""
+    if not events:
+        return None, None
+    report = build_report(list(events))
+    total_checks = max(report.held_out_written, len(report.held_out))
+    if not total_checks:
+        return None, None
+    return sum(c.status == "passed" for c in report.held_out), total_checks
+
+
 def _score(task: BenchTask, workspace: Path) -> dict[str, str]:
+    if task.imported:
+        return grade_imported(task, workspace)
     checks = task.hidden_checks()
     if not workspace.is_dir():
         return {c.id: "failed" for c in checks}
@@ -201,6 +235,13 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     parser.add_argument(
         "--firm-args", default="", help="extra `boss fund` options for the firm arm, quoted"
     )
+    parser.add_argument(
+        "--held-out",
+        type=int,
+        choices=range(MAX_HELD_OUT + 1),
+        default=0,
+        help="held-out checks for the firm arm to ask the examiner for (0 is off)",
+    )
     parser.add_argument("--jobs", type=int, default=2, help="cells to run at once")
     parser.add_argument("--dry-run", action="store_true", help="list the cells and exit")
     args = parser.parse_args(argv)
@@ -235,9 +276,12 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
             boss_model=args.boss_model,
             budget_micros=args.budget,
             firm_args=shlex.split(args.firm_args),
+            held_out=args.held_out,
         )
         verdict = "PASS" if result.passed else f"fail ({result.failure_class})"
         score = f"{result.hidden_passed}/{result.hidden_total} hidden"
+        if result.held_out_total is not None:
+            score += f", {result.held_out_passed}/{result.held_out_total} held-out"
         cost = f"${usd(result.cost_micros)}"
         print(f"  {task.id:<14} {arm:<6} rep{rep}  {score}  {cost}  {result.outcome}  {verdict}")
         return result
