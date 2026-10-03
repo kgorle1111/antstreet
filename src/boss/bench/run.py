@@ -27,6 +27,7 @@ from boss.errors import INFRASTRUCTURE, Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
 from boss.held_out import MAX_HELD_OUT
+from boss.kpi import single_final_status
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
 from boss.report import build_report
 from boss.rundir import Recorder, RunPaths
@@ -129,6 +130,7 @@ def run_cell(
         held_out_passed=held_out_passed,
         held_out_total=held_out_total,
         held_out_wrong=held_out_wrong,
+        final_status=None if arm == "firm" else single_final_status(events),
     )
     result.save(out)
     return result

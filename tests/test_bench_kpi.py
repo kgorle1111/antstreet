@@ -2,6 +2,7 @@
 renders them, the command, and old results."""
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,43 @@ def test_2_the_single_arm_claim_is_its_last_status_word_when_a_ledger_holds_it()
     }
     card = kpi_card(cells, ledgers)
     assert (card.said_done, card.false_passes) == (2, 1)  # the cell with no ledger is unknown
+
+
+def test_2_the_single_arm_claim_is_read_from_the_result_before_the_ledger():
+    single = {"arm": "single", "visible_passed": None, "visible_total": None}
+    cells = [
+        cell(task="t1", final_status="done", **single),  # no ledger needed
+        cell(task="t2", final_status="blocked", hidden=FAIL, **single),
+        cell(task="t3", final_status="blocked", **single),  # the ledger says done: the result wins
+    ]
+    card = kpi_card(cells, {("t3", "single", 1): single_end("done")})
+    assert (card.said_done, card.false_passes) == (1, 0)
+
+
+def test_2_a_single_result_without_the_field_falls_back_to_its_ledger_or_is_not_recorded(
+    tmp_path: Path,
+):
+    old = cell(task="old", arm="single", visible_passed=None, visible_total=None)
+    raw = asdict(old)
+    del raw["final_status"]  # a result written before the field existed
+    out = cell_dir(tmp_path, "old", "single", 1)
+    out.mkdir(parents=True)
+    (out / "result.json").write_text(json.dumps(raw))
+    assert load_results(tmp_path)[0].final_status is None
+    [(_, card)] = build_columns([tmp_path])
+    assert card.said_done is None  # neither the field nor a ledger
+    assert "n/a (the arm's claim is not recorded)" in render_cards([("c", card)])
+    write(tmp_path, old, single_end("done"))  # same cell, now with a ledger
+    [(_, card)] = build_columns([tmp_path])
+    assert card.said_done == 1
+
+
+def test_2_final_status_is_type_checked_on_load(tmp_path: Path):
+    raw = asdict(cell(arm="single", visible_passed=None, visible_total=None))
+    for bad in (1, True, ["done"]):
+        (tmp_path / "result.json").write_text(json.dumps(raw | {"final_status": bad}))
+        with pytest.raises(ValueError, match="final_status"):
+            CellResult.load(tmp_path / "result.json")
 
 
 def test_2_the_single_arm_without_ledgers_is_n_a():

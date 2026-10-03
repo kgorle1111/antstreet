@@ -140,8 +140,9 @@ counted beside it. A figure the data cannot give is shown as "n/a" or "not recor
 2. **False-pass rate**: cells where the system said done and a hidden check failed, over cells where
    the system said done, with a Wilson interval. The firm said done when every visible check passed
    and, if the cell had held-out checks, every held-out check passed too. The single arm said done
-   when its last status word was `done`, which only its ledger holds; a cell without one is left
-   out, and with none the figure is "n/a". It says how far to trust "done".
+   when its last status word was `done`, read from the cell's `final_status` and, in results written
+   before that field, from its ledger; a cell with neither is left out, and with none the figure is
+   "n/a". It says how far to trust "done".
 3. **Cost per delivered task**: the known cost of all counted cells, boss calls included, over the
    delivered cells; "n/a" when none was delivered. The spend on cells that did not deliver is in it,
    as it is what the user paid. Events of unknown cost are a separate row, never added as 0.

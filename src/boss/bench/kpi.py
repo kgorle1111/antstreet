@@ -54,11 +54,13 @@ class KpiCard:
 
 def _said_done(r: CellResult, ledger: Sequence[Event] | None) -> bool | None:
     """Whether the system claimed to be finished: the firm's visible checks all passed and, when
-    it had held-out checks, those too; the single arm's final status word was `done`, which only
-    its ledger holds (None without one)."""
+    it had held-out checks, those too; the single arm's final status word was `done`, which its
+    result file records, else (older results) its ledger. None with neither."""
     if r.arm == "firm":
         held = r.held_out_total or 0
         return _visible_pass(r) and (not held or r.held_out_passed == held)
+    if r.final_status is not None:
+        return r.final_status == "done"
     return None if ledger is None else single_said_done(ledger)
 
 

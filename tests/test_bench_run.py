@@ -95,6 +95,14 @@ def test_single_arm_with_a_correct_product(bench):
     )
 
 
+def test_the_single_arm_records_its_final_status_word_and_the_firm_none(bench):
+    single = bench("single")
+    assert single.final_status == "done"
+    saved = CellResult.load(cell_dir(bench.results, "slugify", "single", 1) / "result.json")
+    assert saved.final_status == "done"
+    assert bench("firm").final_status is None  # its claim is its checks, not a word
+
+
 def test_firm_arm_with_a_correct_product(bench):
     result = bench("firm")
     assert result.passed

@@ -33,6 +33,7 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "held_out_passed": (int, _NONE),
     "held_out_total": (int, _NONE),
     "held_out_wrong": (int, _NONE),
+    "final_status": (str, _NONE),
 }
 
 
@@ -67,6 +68,10 @@ class CellResult:
     # something the idea does not, so a product failing it says nothing about the product; None when
     # not measured (older results, the single arm, no held-out checks on disk).
     held_out_wrong: int | None = None
+    # Single arms only: the status word of the agent's last slice (`done`, `blocked`, ...), the
+    # claim the KPI scorecard's false-pass rate tests. None when no slice ended with a report, and
+    # in older results and firm cells; the firm's claim is its checks, not a word, so it has none.
+    final_status: str | None = None
 
     def __post_init__(self) -> None:
         if self.arm not in ARMS:

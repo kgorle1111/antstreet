@@ -93,11 +93,18 @@ def held_out_graded(events: Sequence[Event]) -> dict[str, bool]:
     return graded
 
 
-def single_said_done(events: Sequence[Event]) -> bool:
-    """The single arm's own claim: its last slice ended with the status word `done`."""
+def single_final_status(events: Sequence[Event]) -> str | None:
+    """The status word the single arm's last slice ended with; None when no slice ended or it
+    reported none."""
     ends = [e for e in events if e.event is EventType.SLICE_END]
     status = ends[-1].data.get("status") if ends else None
-    return isinstance(status, dict) and status.get("status") == "done"
+    word = status.get("status") if isinstance(status, dict) else None
+    return word if isinstance(word, str) else None
+
+
+def single_said_done(events: Sequence[Event]) -> bool:
+    """The single arm's own claim: its last slice ended with the status word `done`."""
+    return single_final_status(events) == "done"
 
 
 def span_seconds(events: Sequence[Event]) -> float | None:

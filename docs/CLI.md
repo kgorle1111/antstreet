@@ -488,7 +488,7 @@ written by `fund` and `resume`; `boss report` prints it again from the ledger wi
 
 | Path | Arm | What it holds |
 |---|---|---|
-| `result.json` | both | The scored result. Its presence marks the cell done. |
+| `result.json` | both | The scored result. Its presence marks the cell done. The single arm's records `final_status`, the status word of its last slice; the firm's leaves it null, as its claim is its checks. |
 | `ledger.jsonl` | single | The single agent's events. |
 | `workspace/` | single | The single agent's files, scored by the hidden checks. |
 | `logs/solo.jsonl` | single | The single agent's raw stream. |
