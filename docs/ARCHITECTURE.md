@@ -83,6 +83,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `bench/audit.py` | Auditing saved drafts with the check auditor and scoring its flags against the reference solution (`python -m boss.bench.audit`). | Show the auditor the reference or a mutant; spend money under `--dry-run`. |
 | `bench/drafts.py` | Drafting checks per task, with the boss's one call or the three-role staged draft, and scoring each draft (`python -m boss.bench.drafts`). | Start a worker; show the boss a hidden check, the reference or a mutant. |
 | `bench/imported.py` | Converting a downloaded external task into an imported bench task folder (`python -m boss.bench.imported`). | Write task data into the repository; overwrite an existing task. |
+| `bench/paired.py` | A paired comparison of two arms by task: the mean per-task difference of one KPI with a task-level bootstrap interval (`python -m boss.bench.paired`). | Compare results of different task sets; count an infrastructure failure; call one task enough to show a difference. |
 | `bench/replay.py` | Replaying a firing policy over recorded ledgers, offline. | Call a model; use a different rule from the live one; walk past DONE or ESCALATE. |
 | `bench/results.py` | One benchmark cell's result record and its load checks. | Accept a wrongly typed field. |
 | `bench/run.py` | Running benchmark cells through the single and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
