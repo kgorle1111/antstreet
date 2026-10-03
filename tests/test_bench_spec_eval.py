@@ -269,9 +269,15 @@ def test_o3_counts_a_cell_as_found_when_a_flagged_rule_is_one_of_its_failing_che
     assert by_rep[2].hit == ("R04", "R05")
     assert by_rep[2].types == ("non_ascii",)
     assert o3.recall == 0.5 and not o3.recall_passed
+    first, second = o3.cells
+    assert (second.scorable, second.failing) == (len(slugify_labels().split.scorable), 2)
+    assert 0 < second.chance < 1 and first.chance < second.chance, "more flags, more chance"
     assert sorted(o3.flags_per_draft) == [1, 3] and o3.median_burden == 2
     assert o3.burden_passed
     assert set(o3.by_group) == {"final3", "pilot"}
+    # d1 flags R13 (not a rule of `accents`); d2 flags R04, R05 (non_ascii, both right) and R13.
+    assert o3.by_type == {"exception": (0, 2), "non_ascii": (2, 2)}
+    assert o3.base == (4, 2 * len(slugify_labels().split.scorable))
 
 
 def test_a_flag_on_a_rule_the_failing_checks_do_not_test_is_not_a_hit(tmp_path):
@@ -401,3 +407,11 @@ def test_a_check_that_still_hangs_under_the_longer_limit_stays_a_timeout(monkeyp
     monkeypatch.setattr(ev, "run_gate", hang)
     results = ev.gate(Path("w"), Path("c"), [ev.Check("c01", "test_c01.py")], 10.0)
     assert [r.status for r in results] == [ev.CheckStatus.TIMEOUT]
+
+
+def test_the_chance_baseline_is_a_hypergeometric_tail():
+    cell = ev.Cell("t", 1, ("a",), Path("c"))
+    assert ev.O3Cell(cell, (), (), (), 10, 2).chance == 0
+    assert ev.O3Cell(cell, ("R01",), (), (), 10, 2).chance == pytest.approx(0.2)
+    assert ev.O3Cell(cell, tuple(f"R{n:02d}" for n in range(9)), (), (), 10, 2).chance == 1
+    assert ev.O3Cell(cell, ("R01",), (), ()).chance == 1.0, "no counts, no claim of rarity"

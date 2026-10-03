@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import statistics
 import sys
@@ -308,6 +309,16 @@ class O3Cell:
     flagged: tuple[str, ...]
     hit: tuple[str, ...]  # flagged rules that are rules of a failing hidden check
     types: tuple[str, ...]  # anchor types that were missing on the hits
+    scorable: int = 0  # scored rules of the idea
+    failing: int = 0  # scored rules of the cell's failing hidden checks
+
+    @property
+    def chance(self) -> float:
+        """The probability that as many flags, drawn at random from the scored rules, would hit."""
+        k = len(self.flagged)
+        if not self.scorable or k > self.scorable:
+            return 1.0
+        return 1 - math.comb(self.scorable - self.failing, k) / math.comb(self.scorable, k)
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +327,8 @@ class O3:
     flags_per_draft: tuple[int, ...]
     by_group: dict[str, tuple[int, ...]]
     flagged: dict[str, dict[str, tuple[str, ...]]]  # draft key -> flagged rule -> missing types
+    by_type: dict[str, tuple[int, int]]  # missing anchor type -> (flags that are hits, flags)
+    base: tuple[int, int]  # scored rules of the failing checks, scored rules, over the cells
 
     @property
     def recall(self) -> float:
@@ -343,18 +356,37 @@ def run_o3(drafts: Sequence[DraftRef], labels: Mapping[str, Labels], cells: Sequ
     for group, found in flags.values():
         by_group[group].append(len(found))
     rows = []
+    typed: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    base = [0, 0]
     for cell in cells:
         gaps = spec.draft_gaps(labels[cell.task].split, read_sources(cell.checks_dir))
         truth = labels[cell.task].rules_of(cell.failed)
         hit = tuple(r for r in gaps if r in truth)
+        for rule, lost in gaps.items():
+            for kind in {a.type for a in lost}:
+                typed[kind][0] += rule in truth
+                typed[kind][1] += 1
+        scored_ids = {r.id for r in labels[cell.task].split.scorable}
+        base[0] += len(truth & scored_ids)
+        base[1] += len(scored_ids)
+        scorable = {r.id for r in labels[cell.task].split.scorable}
         rows.append(
-            O3Cell(cell, tuple(gaps), hit, tuple(sorted({a.type for r in hit for a in gaps[r]})))
+            O3Cell(
+                cell,
+                tuple(gaps),
+                hit,
+                tuple(sorted({a.type for r in hit for a in gaps[r]})),
+                len(scorable),
+                len(truth & scorable),
+            )
         )
     return O3(
         tuple(rows),
         tuple(len(found) for _, found in flags.values()),
         {g: tuple(v) for g, v in sorted(by_group.items())},
         {key: found for key, (_, found) in flags.items()},
+        {k: (v[0], v[1]) for k, v in sorted(typed.items())},
+        (base[0], base[1]),
     )
 
 
@@ -585,6 +617,10 @@ def render_o3(o3: O3) -> str:
         f"- burden: median {o3.median_burden:g} flagged rules per draft over "
         f"{len(o3.flags_per_draft)} drafts (criterion <= {BURDEN_MEDIAN}): "
         f"**{_verdict(o3.burden_passed)}**",
+        "- chance baseline (added after the first run, not a criterion): flagging the same number "
+        f"of rules at random would hit {sum(c.chance for c in o3.cells):.1f} of {n} cells; the "
+        f"cells' own flag counts have median "
+        f"{statistics.median(len(c.flagged) for c in o3.cells):g}",
         "",
         "| cell | failing hidden checks | flagged | hit | missing anchor types |",
         "|---|---|---|---|---|",
@@ -594,6 +630,17 @@ def render_o3(o3: O3) -> str:
             f"| {c.cell.task} rep{c.cell.rep} | {', '.join(c.cell.failed)} | "
             f"{', '.join(c.flagged)} | {', '.join(c.hit) or '-'} | {', '.join(c.types) or '-'} |"
         )
+    lines += [
+        "",
+        "Precision of a flag by the type of the missing anchor, in these cells (added after the "
+        "first run; a flag is right when its rule is a rule of a failing hidden check). "
+        f"Base rate: {o3.base[0]}/{o3.base[1]} = {_pct(o3.base[0] / o3.base[1])} of scored rules "
+        "are such rules.",
+        "",
+        "| missing anchor | right / flags |",
+        "|---|---|",
+    ]
+    lines += [f"| {k} | {h}/{n} = {_pct(h / n)} |" for k, (h, n) in o3.by_type.items()]
     lines += ["", "Flags per draft by group (median, drafts):"]
     lines += [f"- {g}: {statistics.median(v):g}, {len(v)}" for g, v in o3.by_group.items()]
     return "\n".join(lines)
