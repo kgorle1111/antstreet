@@ -32,7 +32,7 @@ from boss import spec
 from boss.bench.score import draft_checks
 from boss.bench.table import wilson_interval
 from boss.bench.tasks import MUTANT_TIMEOUT_S, BenchTask, load_tasks
-from boss.gate import run_gate
+from boss.gate import Check, CheckResult, CheckStatus, run_gate
 
 # Fixed before the first run; `tests/test_bench_spec_eval.py` pins them to CRITERIA.md.
 MAX_SENTENCES = 40
@@ -43,6 +43,7 @@ GAP_POINTS = 25  # kill rate (all anchors present) minus kill rate (an anchor mi
 MIN_TRIPLES = 40  # per side
 AGREEMENT = 0.70  # proposer top-1 against the hand labels
 KNOWN_OMISSIONS = 15
+RETRY_TIMEOUT_S = 120.0
 EXCLUDED_CELLS = frozenset({("wildcard", 1)})  # class (b): a wrong boss check, not an omission
 DRAFT_GROUPS = ("final3", "heldout3", "pilot", "rerun1", "drafts-single", "drafts-single-think0")
 PRODUCT_GROUPS = ("final3", "heldout3", "pilot", "rerun1")
@@ -364,13 +365,30 @@ def hand_mutants(task: BenchTask) -> list[Path]:
     return [m for m in task.mutants() if not HARVESTED.match(m.name)]
 
 
+def gate(
+    workspace: Path, checks_dir: Path, checks: Sequence[Check], timeout_s: float
+) -> list[CheckResult]:
+    """`run_gate`, with each check that timed out run once more under a longer limit: on a busy
+    machine a slow check is not a hang, and one that still hangs under the longer limit is."""
+    results = run_gate(workspace, checks_dir, checks, timeout_s=timeout_s)
+    slow = [
+        c
+        for c in checks
+        if any(r.check_id == c.id and r.status is CheckStatus.TIMEOUT for r in results)
+    ]
+    if not slow:
+        return results
+    again = {
+        r.check_id: r for r in run_gate(workspace, checks_dir, slow, timeout_s=RETRY_TIMEOUT_S)
+    }
+    return [again.get(r.check_id, r) for r in results]
+
+
 def mutant_violations(task: BenchTask, labels: Labels) -> dict[str, set[str]]:
     """For each hand mutant, the rules of the hidden checks it fails."""
     out = {}
     for mutant in hand_mutants(task):
-        results = run_gate(
-            mutant, task.hidden_dir, task.hidden_checks(), timeout_s=MUTANT_TIMEOUT_S
-        )
+        results = gate(mutant, task.hidden_dir, task.hidden_checks(), MUTANT_TIMEOUT_S)
         out[mutant.name] = labels.rules_of([r.check_id for r in results if not r.passed])
     return out
 
@@ -378,13 +396,11 @@ def mutant_violations(task: BenchTask, labels: Labels) -> dict[str, set[str]]:
 def kills(task: BenchTask, checks_dir: Path) -> dict[str, bool]:
     """Whether the draft kills each hand mutant: a sound check (one the reference passes) fails."""
     checks = draft_checks(checks_dir)
-    wrong = {r.check_id for r in run_gate(task.reference_dir, checks_dir, checks) if not r.passed}
+    wrong = {r.check_id for r in gate(task.reference_dir, checks_dir, checks, 60.0) if not r.passed}
     out = {}
     for mutant in hand_mutants(task):
         failed = {
-            r.check_id
-            for r in run_gate(mutant, checks_dir, checks, timeout_s=MUTANT_TIMEOUT_S)
-            if not r.passed
+            r.check_id for r in gate(mutant, checks_dir, checks, MUTANT_TIMEOUT_S) if not r.passed
         }
         out[mutant.name] = bool(failed - wrong)
     return out

@@ -367,3 +367,37 @@ def test_a_run_of_o1_and_o2_needs_no_saved_cells_and_o3_to_o5_refuse_without_the
     assert "## O1" in text and "## O2" in text and "## O3" not in text
     assert ev.main(["o3", "--tasks", str(TASKS), "--truth", str(TRUTH)]) == 1
     assert "need --raw" in capsys.readouterr().err
+
+
+def test_a_check_that_times_out_is_run_once_more_under_a_longer_limit(monkeypatch):
+    calls = []
+
+    def fake(workspace, checks_dir, checks, timeout_s=0.0, sandbox=None):
+        calls.append(([c.id for c in checks], timeout_s))
+        slow = len(calls) == 1
+        return [
+            ev.CheckResult(
+                c.id,
+                ev.CheckStatus.TIMEOUT if slow and c.id == "c02" else ev.CheckStatus.PASSED,
+                None,
+                "",
+                "",
+                0.0,
+            )
+            for c in checks
+        ]
+
+    monkeypatch.setattr(ev, "run_gate", fake)
+    checks = [ev.Check("c01", "test_c01.py"), ev.Check("c02", "test_c02.py")]
+    results = ev.gate(Path("w"), Path("c"), checks, 10.0)
+    assert [r.status.value for r in results] == ["passed", "passed"]
+    assert calls == [(["c01", "c02"], 10.0), (["c02"], ev.RETRY_TIMEOUT_S)]
+
+
+def test_a_check_that_still_hangs_under_the_longer_limit_stays_a_timeout(monkeypatch):
+    def hang(workspace, checks_dir, checks, timeout_s=0.0, sandbox=None):
+        return [ev.CheckResult(c.id, ev.CheckStatus.TIMEOUT, None, "", "", 0.0) for c in checks]
+
+    monkeypatch.setattr(ev, "run_gate", hang)
+    results = ev.gate(Path("w"), Path("c"), [ev.Check("c01", "test_c01.py")], 10.0)
+    assert [r.status for r in results] == [ev.CheckStatus.TIMEOUT]
