@@ -47,6 +47,16 @@ class EventType(StrEnum):
     STOPPED = "stopped"
     DENIED = "denied"
     ERROR = "error"
+    AUDITED = "audited"  # `boss audit check`: the gate's verdict on someone else's change
+
+
+AUDIT_ACTOR = "gate"  # the only actor whose `audited` event counts
+
+
+def audited(events: Iterable[Event]) -> list[Event]:
+    """The `audited` events written by the gate. One from any other actor is not a verdict: the
+    ledger accepts it as a line, readers of verdicts must not count it."""
+    return [e for e in events if e.event is EventType.AUDITED and e.actor == AUDIT_ACTOR]
 
 
 class Billing(StrEnum):

@@ -7,8 +7,8 @@ read state from it and from nothing else.
 `tests/test_docs_ledger.py` runs the code (a scripted firm with the real gate, and the real CLI
 against a fake `claude`) and fails if it writes an event type, an actor, a `data` key or a value
 type that this file does not document. The example line under each event was produced by that
-run, except for the one type that no code writes (`denied`): its example is built with the code
-that would write it.
+run, except for the types that no code writes (`denied`, `audited`): their examples are built with the
+code that would write them.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 
@@ -733,4 +733,29 @@ Example:
 
 ```json
 {"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"isolation": "tools differ"}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:34.025877+00:00", "v": 1}
+```
+
+### `audited`
+
+- Actor: `gate`
+- No code writes this event yet: `boss audit check` will. The type and the rule that only the
+  gate's `audited` events count (`ledger.audited`) exist so the writer cannot be added without
+  them. The keys below are the intended shape and are fixed when the writer lands.
+- Round: 0. Cost: 0. It records a verdict on a change made outside this run; it is not a spend.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `base` | str | The commit the sealed checks were written against, as a full hash. |
+| `head` | str | The commit that was audited, as a full hash. |
+| `verdict` | str | `refuted`, `unrefuted`, `inconclusive` or `no_claim`. |
+| `claim` | str | `done` or `none`: what the audited agent said about its own work. |
+| `claim_mode` | str | `pre_registered` (every commit is after the seal) or `post_hoc` (computed from commit dates, which the committer chose). |
+| `counted` | int | How many sealed checks failed at `base`, so they discriminate and are counted. |
+| `failed` | list | The ids of the counted checks that failed on `head`. |
+| `agent` | str or null | A label the investor gave the audited agent, if any. |
+
+Example, built with the `Event` class:
+
+```json
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"agent": null, "base": "0000000000000000000000000000000000000001", "claim": "done", "claim_mode": "post_hoc", "counted": 3, "failed": ["c02"], "head": "0000000000000000000000000000000000000002", "verdict": "refuted"}, "event": "audited", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-03T09:00:00+00:00", "v": 1}
 ```

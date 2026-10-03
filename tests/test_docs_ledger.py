@@ -285,7 +285,7 @@ def examples_of(body: str) -> list[Event]:
     return [Event.from_json(block) for block in blocks]
 
 
-NO_WRITER = {"denied"}
+NO_WRITER = {"denied", "audited"}
 
 
 def test_every_event_type_has_a_section_and_no_section_names_another_type(text):
@@ -317,7 +317,7 @@ def test_actor_forms_and_the_writer_rules_are_documented(text):
         assert f"`{actor}`" in body
 
 
-def test_only_denied_has_no_writer_and_the_document_says_so(produced, text):
+def test_only_the_reserved_types_have_no_writer_and_the_document_says_so(produced, text):
     # role_call has two: `pipeline.py` (`boss fund --roles`) and `roles/examiner.py`.
     unwritten = {e.value for e in EventType} - set(produced)
     assert unwritten == NO_WRITER, f"types with no writer changed: {sorted(unwritten)}"
