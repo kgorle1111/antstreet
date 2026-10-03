@@ -5,13 +5,15 @@ builds against them. Nothing counts as done until an independent gate says the c
 every cent is written to a ledger.
 
 **Status: working, and not yet better than one agent.** Funding rounds, capped slices, firing,
-one reassignment, disputed checks, your rulings on them, `boss resume` and hard run limits are
-built. Checks run in an OS sandbox on macOS (tested there only). On the 17-task benchmark (Haiku,
-$0.40 a task) the firm passed 9 of 17 (53%) against 10 of 17 (59%) for a single agent given the
-same idea, at about 2.3 times the mean cost per task ($0.206 against $0.091). One run per task, so
-the difference is descriptive only; see [bench/METHOD.md](bench/METHOD.md). The two arms ran on
-different commits, and code changed after the firm's run is not measured. Raw results are not
-committed.
+one reassignment, disputed checks and your rulings on them, held-out checks no worker sees,
+`boss resume`, `boss topup`, hard run limits and a hash-chained ledger with signed approvals are
+built. Checks run in an OS sandbox on macOS. On the 17-task benchmark (Haiku, $0.40 a task, three
+runs per task) the firm passed 35 of 51 (69%) against 32 of 51 (63%) for a single agent given the
+same idea; the intervals overlap. It cost about 2.4 times as much ($0.2197 against $0.0925 a task)
+and took longer (median 4m04s against 1m28s). See
+[bench/results/2026-09-30-final3/table.md](bench/results/2026-09-30-final3/table.md) and
+[bench/METHOD.md](bench/METHOD.md). The two arms ran on different commits, and code changed after
+those runs is not measured. Raw results are not committed.
 
 ## How it works
 
@@ -53,7 +55,9 @@ uv run boss fund "A function is_palindrome(text) that ignores case, spaces and p
 ```
 
 1. The boss drafts a term sheet. You see the task brief and every check's code.
-2. You approve, reject, or edit the files and have them re-validated.
+2. You approve, reject, or edit the files and have them re-validated. With `--held-out N`, an
+   examiner first writes up to N more checks from your idea alone; you approve them too, no worker
+   ever sees them, and the finished product must pass them as well.
 3. A worker builds the task in `.boss/runs/<run>/workspaces/w1/`, one capped slice at a time. It
    is given your idea word for word, then the boss's brief and checks.
 4. The gate runs the checks after every slice. The worker's next brief shows what failed.
@@ -71,10 +75,12 @@ Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
 |---|---|---|
 | `--rounds N` | Split the budget into rounds; each later round needs your yes | 1 |
 | `--slice D` | Dollars a worker may spend before the gate looks again | 0.10 |
-| `--reserve D` | Held back from every slice cap: what one model response can cost | 0.10 |
+| `--reserve D` | Held back from every slice cap: what one model response can cost | 0.10 for Haiku (set by model) |
 | `--stall-slices N`, `--max-slices N` | When the rule fires a worker | 2, 6 |
 | `--max-minutes M` | Stop the run after this much wall-clock time | none |
 | `--boss-thinking N` | Thinking tokens for the boss's draft; 0 turns thinking off | the CLI's |
+| `--worker-thinking N` | Thinking tokens for every worker slice; 0 turns thinking off | the CLI's |
+| `--held-out N` | Checks an examiner writes that no worker sees, run on the finished product (0 to 8) | 0 |
 | `--max-tasks N` | Let the boss split the work into up to N tasks | 1 |
 | `--parallel N` | Work on up to N tasks at once; one worker per task | 1 |
 | `--profile NAME` | Add a worker profile's skills to the builder prompt; `boss roles` lists them | none |
@@ -105,10 +111,13 @@ round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss re
   cannot edit a check to make it pass.
 - Approval is recorded with hashes of the term sheet and each check, and verified again before
   every slice and every gate run. Any later edit stops the run.
+- Every ledger line carries the hash of the line before it, and your approvals are signed with a
+  key in `.boss/investor.key` that no worker can read, so a forged approval is refused.
 - Workers start in an isolated configuration (no hooks, MCP servers or shell) and are refused if
   the CLI reports anything else.
-- A pass needs pytest to exit 0 and a test report showing at least one test and no failures,
-  errors or skips.
+- A pass needs pytest to exit 0, a test report showing at least one test and no failures, errors
+  or skips, and a signed proof from a plugin inside the run that every collected test really ran
+  and returned.
 - Costs are the CLI's client-side estimates, not a bill. Unknown costs are shown as unknown, and
   counted against the budget at the slice's cap.
 - A run also stops at hard limits on total spend, slices, workers and (optionally) wall clock.
@@ -122,10 +131,10 @@ Limits you should know:
 
 - **The tool whitelist is not a sandbox, and the gate's sandbox is partial.** The gate executes the
   code a worker wrote, on your machine, with a filtered environment and a timeout. On macOS that
-  runs under a deny-by-default profile; on Linux the `bwrap` version has never been run; with no
+  runs under a deny-by-default profile; on Linux the `bwrap` version is set up to run in CI but not yet confirmed by a passing run; with no
   working tool, checks run with your full access (`boss doctor` warns; `BOSS_GATE_SANDBOX=require`
   refuses). Do not run ideas from sources you do not trust. Container isolation is not built.
-- Code written specifically to defeat the gate can still fake a pass.
+- Code written to target the gate's own process can still fake a pass (T12 in the threat model).
 - Built products are meant to use only the Python standard library: the builder prompt says so,
   and nothing installs dependencies for a product.
 - `--budget` covers the funding rounds. The boss's own drafting call is charged on top of it (about

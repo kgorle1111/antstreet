@@ -126,14 +126,16 @@ def test_every_command_is_shown_in_the_readme(text):
         assert f"boss {name}" in text, f"the README never shows `boss {name}`"
 
 
-def test_the_benchmark_figures_agree_with_the_decision_log_and_the_task_count(text):
-    status = text.split("## How it works")[0]
-    decisions = " ".join(read(DOCS / "DECISIONS.md").split())
+def test_the_benchmark_figures_agree_with_the_final_runs_table_and_the_task_count(text):
+    status = " ".join(text.split("## How it works")[0].split())
+    table = read(ROOT / "bench" / "results" / "2026-09-30-final3" / "table.md")
     tasks = len(original_tasks())  # the figures below are from runs on the original task set
     assert f"{tasks}-task benchmark" in status
-    for figure in ("9 of 17 (53%)", "10 of 17 (59%)", "$0.206", "$0.091"):
+    assert "| single | 51 | 17 | 32 |" in table and "| firm | 51 | 17 | 35 |" in table
+    for figure in ("35 of 51 (69%)", "32 of 51 (63%)"):
         assert figure in status, f"README lost {figure}"
-        assert figure.split(" (")[0] in decisions, f"{figure} is not in docs/DECISIONS.md"
+    for figure in ("$0.2197", "$0.0925", "4m04s", "1m28s", "69%", "63%"):
+        assert figure in status and figure in table, f"{figure} is not the final run's figure"
 
 
 def test_the_roles_table_names_the_roles_the_architecture_defines(text):
