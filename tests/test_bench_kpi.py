@@ -227,7 +227,7 @@ def test_7_wrong_boss_checks_over_boss_checks_where_measured():
 
 
 def test_7_not_measured_and_single_arm_say_so():
-    assert "| 7 Wrong boss checks | not measured |" in render_cards([("c", kpi_card([cell()]))])
+    assert "| 7 Check quality | not measured |" in render_cards([("c", kpi_card([cell()]))])
     single = kpi_card([cell(arm="single", visible_passed=None, visible_total=None)])
     assert "n/a (no boss checks)" in render_cards([("c", single)])
 
@@ -268,7 +268,7 @@ def test_the_table_has_a_row_per_kpi_a_column_per_card_and_the_overlap_line():
         "| 4 Time to delivery (median)",
         "| 5 Reliability (pass^k)",
         "| 6 Investor questions",
-        "| 7 Wrong boss checks",
+        "| 7 Check quality",
     ]
     assert "  one: 8 cells over 4 tasks (1 excluded)" in shown
     assert "  two: 1 cells over 1 tasks (0 excluded)" in shown
@@ -412,7 +412,7 @@ def test_results_from_before_wrong_checks_and_held_out_still_load_and_score(tmp_
     assert old.wrong_checks is None and old.held_out_total is None
     card = kpi_card([old])
     assert (card.delivered, card.said_done, card.wrong_checks) == (1, 0, None)
-    assert "| 7 Wrong boss checks | not measured |" in render_cards([("old", card)])
+    assert "| 7 Check quality | not measured |" in render_cards([("old", card)])
 
 
 def test_a_ledger_from_before_the_chain_is_counted(tmp_path: Path):
@@ -427,3 +427,10 @@ def test_a_ledger_from_before_the_chain_is_counted(tmp_path: Path):
 
 def test_the_module_has_a_command_entry_point():
     assert callable(kpi.main)
+
+
+def test_columns_that_ran_different_task_sets_are_flagged_not_compared():
+    one = kpi_card([cell(set_hash="s1")])
+    other = kpi_card([cell(set_hash="s2")])
+    assert kpi.SETS_WARNING in render_cards([("a", one), ("b", other)])
+    assert kpi.SETS_WARNING not in render_cards([("a", one), ("b", one)])

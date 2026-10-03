@@ -344,7 +344,8 @@ Argument: `results_dir`, one or more folders written by `run`. A column is one f
 budget and set of firm options, labelled by all of them, so arms from different folders and
 settings sit side by side. The command reads each cell's ledger where the runner left one
 (`ledger.jsonl` for the single arm, `.boss/runs/<id>/ledger.jsonl` for the firm arm); a cell
-without a readable ledger shows "not recorded" for the figures that need it. It has no options.
+without a readable ledger shows "not recorded" for the figures that need it. Columns that ran
+different task sets get a WARNING line above the table. It has no options.
 
 Exit codes: `0`; `1` when no results are found, a result file is invalid, or two columns would carry
 the same label (the same folder name twice, or one folder and arm holding two task sets); `2` for a

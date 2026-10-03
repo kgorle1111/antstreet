@@ -35,6 +35,7 @@ class KpiCard:
     arm: str
     counted: int  # cells counted: infrastructure failures excluded
     infrastructure: int
+    task_sets: tuple[str, ...]  # hashes of the task sets the cells ran against
     tasks: int  # tasks with at least one counted cell
     delivered: int  # counted cells whose every hidden check passed
     said_done: int | None  # counted cells where the system said done; None: not recorded
@@ -91,6 +92,7 @@ def kpi_card(
         arm=arm,
         counted=len(cells),
         infrastructure=len(results) - len(cells),
+        task_sets=tuple(sorted({r.set_hash for r in results})),
         tasks=len(tasks),
         delivered=len(delivered),
         said_done=len(said) if known else None,
@@ -180,9 +182,11 @@ def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
         ("4 Time to delivery (median)", [_times(c) for _, c in columns]),
         ("5 Reliability (pass^k)", [_reliability(c) for _, c in columns]),
         ("6 Investor questions", [_questions(c) for _, c in columns]),
-        ("7 Wrong boss checks", [_check_quality(c) for _, c in columns]),
+        ("7 Check quality", [_check_quality(c) for _, c in columns]),
     ]
-    out = _md(["KPI", *labels], [[name, *cells] for name, cells in rows])
+    mixed = len({c.task_sets for _, c in columns}) > 1
+    out = [SETS_WARNING, ""] if mixed else []
+    out += _md(["KPI", *labels], [[name, *cells] for name, cells in rows])
     out += ["", "Sample sizes (counted cells over tasks; infrastructure failures excluded):"]
     out += [
         f"  {label}: {c.counted} cells over {c.tasks} tasks ({c.infrastructure} excluded)"
