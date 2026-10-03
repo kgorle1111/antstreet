@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tomllib
 
+import changed_tasks
 import pytest
 from docs_support import ROOT, code_spans, read, section
 
@@ -38,12 +39,25 @@ def test_the_commands_ci_runs_are_the_ones_stated(text):
         "uv run ruff check .",
         "uv run ruff format --check .",
         "uv run mypy",
-        "uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30",
+        "uv run pytest -n auto --dist loadgroup --cov --cov-report=term-missing"
+        " --cov-fail-under=96 --durations=30",
     ]
     for command in stated:
         assert command in text, f"CONTRIBUTING.md does not state: {command}"
         assert re.search(rf"^\s*run: {re.escape(command)}$", workflow, re.M), f"CI lacks: {command}"
     assert "The coverage floor is 96" in text
+
+
+def test_pull_request_ci_validates_only_changed_tasks_and_the_document_says_so(text):
+    workflow = read(ROOT / ".github" / "workflows" / "ci.yml")
+    assert "fetch-depth: 0" in workflow, "the diff against the base branch needs its history"
+    env = (
+        "BOSS_VALIDATE_TASKS_SINCE: ${{ github.event_name == 'pull_request'"
+        " && format('origin/{0}', github.base_ref) || '' }}"
+    )
+    assert env in workflow.split("- name: Test")[1]
+    assert f"`{changed_tasks.ENV_VAR}=<git ref>`" in text
+    assert "-n auto --dist loadgroup" in text
 
 
 def test_ci_installs_bubblewrap_and_requires_the_sandbox_on_linux_only(text):

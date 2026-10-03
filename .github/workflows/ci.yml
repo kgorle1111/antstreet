@@ -26,6 +26,10 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A pull request run diffs against origin/<base> (BOSS_VALIDATE_TASKS_SINCE below), which
+          # needs the history back to the merge base.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -84,7 +88,16 @@ jobs:
       # On Linux the sandbox must run, not be skipped: `require` makes the gate and the sandbox
       # tests fail loudly (SandboxUnavailable, with the fix) when bwrap cannot start. macOS keeps
       # `auto`, which is the default and sandboxes there with sandbox-exec.
+      #
+      # -n auto runs the tests on one worker per core (pytest-xdist); pytest-cov merges the
+      # workers' coverage, so the floor is still measured over the whole suite. --dist loadgroup
+      # keeps tests marked xdist_group (the ledger document's expensive shared fixture) on one
+      # worker.
+      #
+      # A pull request fully validates only the benchmark tasks it changes (the task set hash and
+      # count are still checked for all of them); a push to main validates every task.
       - name: Test
         env:
           BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
-        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30
+          BOSS_VALIDATE_TASKS_SINCE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: uv run pytest -n auto --dist loadgroup --cov --cov-report=term-missing --cov-fail-under=96 --durations=30
