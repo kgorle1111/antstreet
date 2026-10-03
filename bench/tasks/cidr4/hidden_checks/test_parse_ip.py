@@ -91,7 +91,14 @@ def test_spaces_are_not_ignored(text):
 
 @pytest.mark.parametrize(
     "text",
-    ["1.2.3.٤", "١.2.3.4", "1.2.3.４", "１.2.3.4", "1.2.3.²", "1.2.३.4"],
+    [
+        "1.2.3.\u0664",
+        "\u0661.2.3.4",
+        "1.2.3.\uff14",
+        "\uff11.2.3.4",
+        "1.2.3.\u00b2",
+        "1.2.\u0969.4",
+    ],
 )
 def test_digits_of_other_scripts_are_an_error(text):
     with pytest.raises(ValueError):

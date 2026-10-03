@@ -4,7 +4,7 @@ from qpdecode import decode
 
 @pytest.mark.parametrize(
     "text",
-    ["café", "é", "a•b", "中", "=41é", "abc\x80", "\U0001f600", "\xff"],
+    ["caf\u00e9", "\u00e9", "a\u2022b", "\u4e2d", "=41\u00e9", "abc\x80", "\U0001f600", "\xff"],
 )
 def test_a_character_beyond_ascii_raises_value_error(text):
     with pytest.raises(ValueError):
@@ -25,6 +25,6 @@ def test_the_last_ascii_character_and_control_characters_pass_through():
 
 def test_non_ascii_text_is_refused_even_when_it_would_otherwise_be_a_soft_break_or_whitespace():
     with pytest.raises(ValueError):
-        decode("abc=\r\ndefé")
+        decode("abc=\r\ndef\u00e9")
     with pytest.raises(ValueError):
-        decode("abc   ")
+        decode("abc  \u00a0")

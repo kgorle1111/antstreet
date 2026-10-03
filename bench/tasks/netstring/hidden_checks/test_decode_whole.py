@@ -30,7 +30,7 @@ def test_the_payload_is_bytes_even_when_a_bytearray_was_fed():
 
 
 def test_the_length_counts_bytes_not_characters():
-    assert Decoder().feed(b"2:\xc3\xa9,") == ["é".encode()]
+    assert Decoder().feed(b"2:\xc3\xa9,") == ["\u00e9".encode()]
 
 
 def test_multi_digit_lengths():

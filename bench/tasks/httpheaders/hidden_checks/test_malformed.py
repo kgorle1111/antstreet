@@ -44,8 +44,8 @@ def test_an_empty_name_is_an_error(text):
         "Na=me: x",
         "Na<me: x",
         "Na?me: x",
-        "Né: x",
-        "中: x",
+        "N\u00e9: x",
+        "\u4e2d: x",
         "A\r: x",
     ],
 )

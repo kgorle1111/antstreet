@@ -16,9 +16,9 @@ from base32 import decode
         "MZXW-6YTB",
         "MZXW6YT!",
         "MZXW6YT_",
-        "MZXW6YTÉ",
-        "MZXW6YT١",  # an Arabic-Indic digit
-        "MZXW6YTＢ",  # a full-width letter
+        "MZXW6YT\u00c9",
+        "MZXW6YT\u0661",  # an Arabic-Indic digit
+        "MZXW6YT\uff22",  # a full-width letter
         "M\x00XW6YTB",
     ],
 )

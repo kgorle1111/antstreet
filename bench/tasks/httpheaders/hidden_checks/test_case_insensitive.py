@@ -28,13 +28,13 @@ def test_the_stored_spelling_does_not_decide_the_lookup():
 
 def test_only_ascii_letters_are_folded():
     h = parse_headers("key: v")
-    assert h.get("Key") is None  # KELVIN SIGN, whose lower() is "k"
-    assert h.get_all("Key") == []
-    assert "Key" not in h
+    assert h.get("\u212aey") is None  # KELVIN SIGN, whose lower() is "k"
+    assert h.get_all("\u212aey") == []
+    assert "\u212aey" not in h
     assert "KEY" in h
     h2 = parse_headers("A: 1")
-    assert "Ａ" not in h2  # FULLWIDTH A
-    assert h2.get("ａ") is None
+    assert "\uff21" not in h2  # FULLWIDTH A
+    assert h2.get("\uff41") is None
 
 
 def test_different_names_are_different_headers():

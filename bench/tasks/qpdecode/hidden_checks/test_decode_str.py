@@ -3,17 +3,17 @@ from qpdecode import decode_str
 
 
 def test_the_bytes_are_read_as_utf_8_by_default():
-    assert decode_str("caf=C3=A9") == "café"
-    assert decode_str("=E2=82=AC 5") == "€ 5"
+    assert decode_str("caf=C3=A9") == "caf\u00e9"
+    assert decode_str("=E2=82=AC 5") == "\u20ac 5"
     assert decode_str("plain") == "plain"
     assert decode_str("") == ""
     assert type(decode_str("a")) is str
 
 
 def test_another_charset_can_be_given_by_position_or_name():
-    assert decode_str("caf=E9", "latin-1") == "café"
-    assert decode_str("caf=E9", charset="iso-8859-1") == "café"
-    assert decode_str("=A4", charset="iso-8859-15") == "€"
+    assert decode_str("caf=E9", "latin-1") == "caf\u00e9"
+    assert decode_str("caf=E9", charset="iso-8859-1") == "caf\u00e9"
+    assert decode_str("=A4", charset="iso-8859-15") == "\u20ac"
     assert decode_str("a", "ascii") == "a"
 
 
@@ -38,7 +38,7 @@ def test_an_unknown_charset_raises_lookup_error():
         decode_str("abc", charset="utf-99")
 
 
-@pytest.mark.parametrize("text", ["=G1", "=1", "café"])
+@pytest.mark.parametrize("text", ["=G1", "=1", "caf\u00e9"])
 def test_bad_text_raises_value_error_as_in_decode(text):
     with pytest.raises(ValueError):
         decode_str(text)
