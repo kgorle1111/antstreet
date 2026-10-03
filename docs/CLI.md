@@ -174,6 +174,13 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 
 `boss report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39).
 
+A **KPIs** section follows the spend. All of it comes from the ledger: `Delivered` (every check
+passes on the assembled product, or NO, or "not recorded" for a ledger with no product verdict),
+`Held-out checks` and `False pass` (every visible check passed but a held-out one failed; "not
+measured" when the run had no held-out checks), `Cost` (an unknown cost is listed beside it, never
+as 0), `Time` (first to last ledger event, so it includes any wait for you) and `Investor
+questions` (the count rule is in `bench/METHOD.md`).
+
 Argument: `run`, a run id. Default: the latest run in the folder.
 
 | Option | Default | Meaning |
