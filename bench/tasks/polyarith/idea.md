@@ -44,5 +44,6 @@ exact rational coefficients, with seven functions:
    `[-5]` is `"-5"`.
 9. A polynomial argument that is not a list or tuple raises `TypeError`, and so does a coefficient
    that is not an `int` or a `Fraction` (a `float`, a `str` and a `bool` are rejected), and an `x`
-   for `poly_eval` that is not an `int` or a `Fraction`. All arithmetic is exact: nothing goes
+   for `poly_eval` that is not an `int` or a `Fraction` (a `bool` is rejected there too). Every
+   coefficient of every argument is checked, even where it would not change the result. All arithmetic is exact: nothing goes
    through floating point, however large the numbers.
