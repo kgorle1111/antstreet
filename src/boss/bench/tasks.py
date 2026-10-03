@@ -339,8 +339,8 @@ def _static_test_count(tree: Path) -> int | None:
     total = 0
     for name in _test_files(tree):
         for node in ast.parse((tree / name).read_text(encoding="utf-8")).body:
-            is_class = isinstance(node, ast.ClassDef) and node.name.startswith("Test")
-            for fn in node.body if is_class else [node]:
+            in_class = isinstance(node, ast.ClassDef) and node.name.startswith("Test")
+            for fn in node.body if isinstance(node, ast.ClassDef) and in_class else [node]:
                 if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and fn.name.startswith(
                     "test"
                 ):

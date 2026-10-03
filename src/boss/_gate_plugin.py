@@ -20,6 +20,7 @@ import hmac
 import os
 import sys
 from collections import defaultdict
+from collections.abc import Callable, Generator
 
 import pytest
 
@@ -38,8 +39,8 @@ with contextlib.suppress(OSError):
     os.unlink(__file__)
 
 
-def _on(event):
-    def record(*_):
+def _on(event: str) -> Callable[..., None]:
+    def record(*_: object) -> None:
         if _current:
             _body[_current[0]].append(event)
 
@@ -52,24 +53,24 @@ sys.monitoring.register_callback(_TOOL, _EVENTS.PY_START, _on("start"))
 sys.monitoring.register_callback(_TOOL, _EVENTS.PY_RETURN, _on("return"))
 
 
-def pytest_itemcollected(item):
+def pytest_itemcollected(item: pytest.Function) -> None:
     _collected.append(item.nodeid)
     code = getattr(item.obj, "__func__", item.obj).__code__
     sys.monitoring.set_local_events(_TOOL, code, _LOCAL)
 
 
-def _phase(item, name, result):
+def _phase(item: pytest.Item, name: str, result: object) -> object:
     _ok[item.nodeid].add(name)
     return result
 
 
 @pytest.hookimpl(wrapper=True, trylast=True)
-def pytest_runtest_setup(item):
+def pytest_runtest_setup(item: pytest.Item) -> Generator[None, object, object]:
     return _phase(item, "setup", (yield))
 
 
 @pytest.hookimpl(wrapper=True, trylast=True)
-def pytest_runtest_call(item):
+def pytest_runtest_call(item: pytest.Item) -> Generator[None, object, object]:
     _current[:] = [item.nodeid]
     try:
         result = yield
@@ -79,12 +80,14 @@ def pytest_runtest_call(item):
 
 
 @pytest.hookimpl(wrapper=True, trylast=True)
-def pytest_runtest_teardown(item, nextitem):
+def pytest_runtest_teardown(
+    item: pytest.Item, nextitem: pytest.Item | None
+) -> Generator[None, object, object]:
     return _phase(item, "teardown", (yield))
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish():
+def pytest_sessionfinish() -> None:
     total = len(_collected)
     passed = {
         node for node in _collected if _ok[node] == _PHASES and _body[node] == ["start", "return"]
