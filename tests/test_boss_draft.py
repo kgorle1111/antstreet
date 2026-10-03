@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.boss import (
     DRAFT_SCHEMA,
@@ -51,6 +52,7 @@ thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
 open(os.environ["FAKE_ARGV"] + ".thinking", "w").write(thinking)
 if os.environ.get("FAKE_SLEEP"):
     time.sleep(60)
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 
@@ -191,8 +193,9 @@ def test_command_is_pinned():
         api_key=True,
     )
     assert argv == [
-        "claude", "--print", "--output-format", "json", "--bare", "--model", "haiku",
-        "--tools", "", "--system-prompt", "S", "--json-schema", '{"type":"object"}',
+        "claude", "--print", "--output-format", "stream-json", "--verbose", "--bare",
+        "--model", "haiku", "--tools", "", "--permission-mode", "dontAsk",
+        "--system-prompt", "S", "--json-schema", '{"type":"object"}',
         "--max-budget-usd", "0.1", "Idea:\nx",
     ]  # fmt: skip
 

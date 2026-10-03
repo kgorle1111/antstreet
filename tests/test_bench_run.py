@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT
 
 from boss.bench.results import CellResult, cell_dir, load_results
 from boss.bench.run import main, run_cell
@@ -44,7 +45,8 @@ result = {{"type": "result", "subtype": "success", "is_error": False,
 if os.path.exists(os.path.join(home, "login_broken")):
     say(result | {{"is_error": True, "api_error_status": 401, "terminal_reason": "api_error",
                   "total_cost_usd": 0, "modelUsage": {{}}}})
-elif argv[argv.index("--output-format") + 1] == "json":
+elif argv[argv.index("--tools") + 1] == "":
+    say({BOSS_INIT!r})
     draft = {DRAFT!r}
     if os.path.exists(os.path.join(home, "draft.json")):
         draft = json.load(open(os.path.join(home, "draft.json")))

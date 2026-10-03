@@ -4,6 +4,8 @@ import re
 import sys
 from pathlib import Path
 
+from boss_init import BOSS_INIT
+
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 
@@ -110,7 +112,8 @@ if argv[:1] == ["--version"]:
     print("2.1.285")
 elif argv[:2] == ["auth", "status"]:
     print(json.dumps({{"loggedIn": True}}))
-elif argv[argv.index("--output-format") + 1] == "json":
+elif argv[argv.index("--tools") + 1] == "":
+    say({BOSS_INIT!r})
     say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
 else:
     say({INIT!r})

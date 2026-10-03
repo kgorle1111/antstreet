@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT
 
 from boss.boss import load_prompt
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
@@ -106,7 +107,8 @@ def fill(value, fragment):
     return value
 
 
-if argv[argv.index("--output-format") + 1] == "json":   # the boss or a role
+if argv[argv.index("--tools") + 1] == "":   # the boss or a role
+    say({BOSS_INIT!r})
     system = argv[argv.index("--system-prompt") + 1]
     table = json.load(open(os.path.join(folder, "prompts.json")))
     who = table.get(hashlib.sha256(system.encode()).hexdigest(), "unknown")

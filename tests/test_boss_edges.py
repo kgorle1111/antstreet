@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.boss import (
     DRAFT_SCHEMA,
@@ -30,6 +31,7 @@ FAKE_CLI = f"""#!{sys.executable}
 import json, os, sys
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
 open(os.environ["FAKE_ARGV"] + ".cwd", "w").write(os.getcwd())
+print({BOSS_INIT_LINE!r})
 sys.stdout.write(os.environ["FAKE_OUTPUT"])
 sys.exit(int(os.environ.get("FAKE_EXIT", "0")))
 """
@@ -168,9 +170,11 @@ def test_a_draft_with_task_paths_leaving_the_workspace_is_invalid(draft):
     assert any("must stay inside the workspace" in p for p in info.value.problems)
 
 
-def test_multiline_pretty_printed_json_output_is_accepted(draft):
-    result = draft(json.dumps(result_with(), indent=2) + "\n")
-    assert [c.id for c in result.sheet.checks] == ["c01"]
+def test_a_pretty_printed_result_is_not_one_event_per_line_and_is_refused(draft):
+    # The old `json` format could be pretty-printed; `stream-json` is one event per line.
+    with pytest.raises(BossError) as caught:
+        draft(json.dumps(result_with(), indent=2) + "\n")
+    assert caught.value.outcome is Outcome.CRASHED
 
 
 def test_the_idea_is_stripped_and_kept_on_the_sheet(draft):

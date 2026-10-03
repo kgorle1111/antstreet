@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.boss import MULTI_TASK_PROMPT, TERM_SHEET_PROMPT, draft_term_sheet, load_prompt
 
@@ -19,6 +20,7 @@ DRAFT = {
 FAKE_CLI = f"""#!{sys.executable}
 import json, os, sys
 open(os.environ["HOME"] + "/argv.json", "w").write(json.dumps(sys.argv))
+print({BOSS_INIT_LINE!r})
 print({json.dumps(RECORDED | {"structured_output": DRAFT})!r})
 """
 

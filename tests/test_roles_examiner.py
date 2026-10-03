@@ -7,6 +7,7 @@ import json
 import sys
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss import budget, held_out
 from boss.approval import review_term_sheet
@@ -77,6 +78,7 @@ open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
 open(os.environ["FAKE_ARGV"] + ".calls", "a").write("x")
 if os.environ.get("FAKE_FAIL"):
     sys.exit(1)
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 

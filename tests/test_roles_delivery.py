@@ -7,6 +7,7 @@ import json
 import sys
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 from sandbox_support import working_sandbox
 
 from boss.errors import Outcome
@@ -32,6 +33,7 @@ from boss.stream import Usage
 FAKE = f"""#!{sys.executable}
 import json, os, sys
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 RESULT = {

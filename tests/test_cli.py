@@ -4,6 +4,7 @@ import json
 import sys
 
 import pytest
+from boss_init import BOSS_INIT
 
 import boss.cli as cli_module
 from boss.cli import (
@@ -48,7 +49,8 @@ argv = sys.argv[1:]
 say = lambda e: print(json.dumps(e), flush=True)
 result = {{"type": "result", "subtype": "success", "is_error": False,
           "terminal_reason": "completed", "modelUsage": {USAGE!r}, "session_id": "s-1"}}
-if argv[argv.index("--output-format") + 1] == "json":   # the boss drafting a term sheet
+if argv[argv.index("--tools") + 1] == "":   # the boss drafting a term sheet
+    say({BOSS_INIT!r})
     thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
     open(os.path.join(os.environ["HOME"], "boss_thinking.txt"), "w").write(thinking)
     draft = {DRAFT!r}

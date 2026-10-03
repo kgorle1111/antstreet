@@ -5,6 +5,7 @@ import json
 import sys
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.errors import Outcome
 from boss.ledger import Billing, Event, EventType
@@ -26,6 +27,7 @@ FAKE = f"""#!{sys.executable}
 import json, os, sys
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
 open(os.environ["FAKE_ARGV"] + ".thinking", "w").write(os.environ.get("MAX_THINKING_TOKENS", "-"))
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 RESULT = {

@@ -11,6 +11,7 @@ import sys
 from dataclasses import replace
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.bench.table import wilson_interval
 from boss.errors import Outcome
@@ -64,6 +65,7 @@ CONTEXT = "Idea: a shopping cart that shows the total price."
 FAKE = f"""#!{sys.executable}
 import json, os, sys
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 RESULT = {
@@ -1123,7 +1125,9 @@ def test_the_template_refuses_an_empty_folder_an_empty_file_and_a_binary_file(tm
 
 CLI_FAKE = """#!PYTHON
 import json, sys
+INIT_LINE = 'INITLINE'
 spec = json.load(open("SPEC"))
+print(INIT_LINE)
 prompt = sys.argv[-1]
 artifact = prompt.split("<artifact>\\n", 1)[1].rsplit("\\n</artifact>", 1)[0]
 with open(spec["log"], "a") as log:
@@ -1158,7 +1162,11 @@ def reply_for(i, scores=None):
 def cli_run(tmp_path, capsys):
     spec_path, log = tmp_path / "spec.json", tmp_path / "calls.jsonl"
     fake = tmp_path / "fake-claude"
-    fake.write_text(CLI_FAKE.replace("PYTHON", sys.executable).replace("SPEC", str(spec_path)))
+    fake.write_text(
+        CLI_FAKE.replace("PYTHON", sys.executable)
+        .replace("SPEC", str(spec_path))
+        .replace("INITLINE", BOSS_INIT_LINE)
+    )
     fake.chmod(0o755)
     cases = tmp_path / "cases.jsonl"
     cases.write_text(

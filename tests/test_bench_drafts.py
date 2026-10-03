@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.bench import drafts
 from boss.bench.drafts import (
@@ -61,6 +62,7 @@ with open(os.path.join(home, "calls.log"), "a") as log:
     log.write(json.dumps({{"thinking": os.environ.get("MAX_THINKING_TOKENS")}}) + "\\n")
 mode = open(os.path.join(home, "mode")).read().strip() if os.path.exists(home + "/mode") else "ok"
 base = {RESULT!r}
+print({BOSS_INIT_LINE!r})
 if mode == "login":
     print(json.dumps(base | {{"is_error": True, "api_error_status": 401,
                              "terminal_reason": "api_error", "total_cost_usd": 0,

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.bench.drafts import (
     FAILED,
@@ -91,6 +92,7 @@ with open(os.path.join(home, "calls.log"), "a") as log:
     log.write(role + "\\n")
 answer = answers[role]
 base = {RESULT!r}
+print({BOSS_INIT_LINE!r})
 if answer == "login":
     print(json.dumps(base | {{"is_error": True, "api_error_status": 401,
                              "terminal_reason": "api_error", "total_cost_usd": 0}}))

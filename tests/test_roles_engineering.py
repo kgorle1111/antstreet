@@ -8,6 +8,7 @@ import sys
 from dataclasses import replace
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.errors import Outcome
 from boss.roles import engineering, registry
@@ -127,6 +128,7 @@ system = argv[argv.index("--system-prompt") + 1]
 role = "designer" if system.startswith("You are the system designer") else "tester"
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({{"role": role, "argv": argv}}) + "\\n")
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_" + role.upper()])
 """
 
