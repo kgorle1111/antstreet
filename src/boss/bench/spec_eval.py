@@ -50,6 +50,7 @@ DRAFT_GROUPS = ("final3", "heldout3", "pilot", "rerun1", "drafts-single", "draft
 PRODUCT_GROUPS = ("final3", "heldout3", "pilot", "rerun1")
 HARVESTED = re.compile(r"(?:pilot|rerun|final|heldout)")
 STEPS = ("o1", "o2", "o3", "o4", "o5")
+EXTRA_STEPS = ("o4b",)  # added after the first run; not part of "all" and has no criterion
 CRITERIA_FILE = "CRITERIA.md"
 
 
@@ -511,6 +512,110 @@ def run_o4(
     )
 
 
+# --- O4b: failing products as the mutants (added after the first run) --------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Product:
+    group: str
+    task: str
+    arm: str
+    rep: int
+    path: Path
+    failed: str  # the one hidden check it failed
+
+    @property
+    def key(self) -> str:
+        return f"{self.group}/{self.task}/{self.arm}/rep{self.rep}"
+
+    def built_from(self, draft: DraftRef) -> bool:
+        """The firm product that was built against this very draft."""
+        return self.arm == "firm" and (draft.group, draft.task, draft.rep) == (
+            self.group,
+            self.task,
+            self.rep,
+        )
+
+
+def failing_products(raw: Path, tasks: set[str]) -> list[Product]:
+    """Saved products that failed exactly one hidden check: real wrong implementations, each with
+    one behaviour to blame, from the four groups that ran products."""
+    found = []
+    for group in PRODUCT_GROUPS:
+        for result in sorted((raw / group).glob("*/*/rep*/result.json")):
+            task, arm, rep = result.parts[-4], result.parts[-3], int(result.parts[-2][3:])
+            hidden = json.loads(result.read_text(encoding="utf-8")).get("hidden")
+            if task not in tasks or not isinstance(hidden, dict):
+                continue
+            failed = [k for k, v in hidden.items() if v != "passed"]
+            if len(failed) != 1:
+                continue
+            runs = sorted((result.parent / ".boss" / "runs").glob("*/product"))
+            path = result.parent / "workspace" if arm == "single" else (runs[0] if runs else None)
+            if path is not None and path.is_dir() and any(path.iterdir()):
+                found.append(Product(group, task, arm, rep, path, failed[0]))
+    return found
+
+
+def kills_products(
+    task: BenchTask, checks_dir: Path, products: Sequence[Product]
+) -> dict[str, bool]:
+    """Whether the draft kills each product: a sound check (one the reference passes) fails."""
+    checks = draft_checks(checks_dir)
+    wrong = {r.check_id for r in gate(task.reference_dir, checks_dir, checks, 60.0) if not r.passed}
+    out = {}
+    for product in products:
+        failed = {
+            r.check_id
+            for r in gate(product.path, checks_dir, checks, MUTANT_TIMEOUT_S)
+            if not r.passed
+        }
+        out[product.key] = bool(failed - wrong)
+    return out
+
+
+def run_o4b(
+    drafts: Sequence[DraftRef],
+    labels: Mapping[str, Labels],
+    products: Sequence[Product],
+    kill_map: Mapping[str, Mapping[str, bool]],
+) -> O4:
+    present = [0, 0]
+    missing = [0, 0]
+    typed: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    used = 0
+    for ref in drafts:
+        killed = kill_map.get(ref.key)
+        if killed is None:
+            continue
+        used += 1
+        split = labels[ref.task].split
+        gaps = spec.draft_gaps(split, read_sources(ref.checks_dir))
+        for product in products:
+            if product.task != ref.task or product.built_from(ref) or product.key not in killed:
+                continue
+            blamed = labels[ref.task].rules_of([product.failed])
+            for rule in split.scorable:
+                if not rule.anchors or rule.id not in blamed:
+                    continue
+                if rule.id in gaps:
+                    side = missing
+                    for kind in {a.type for a in gaps[rule.id]}:
+                        typed[kind][0] += killed[product.key]
+                        typed[kind][1] += 1
+                else:
+                    side = present
+                side[0] += killed[product.key]
+                side[1] += 1
+    return O4(
+        Side(*present),
+        Side(*missing),
+        {k: Side(*v) for k, v in sorted(typed.items())},
+        used,
+        len(products),
+    )
+
+
 # --- O5: noise --------------------------------------------------------------------------------
 
 
@@ -702,7 +807,7 @@ def run(
                 ]
             )
         )
-    needs_raw = [s for s in steps if s in ("o3", "o4", "o5")]
+    needs_raw = [s for s in steps if s in ("o3", "o4", "o4b", "o5")]
     if needs_raw and raw is None:
         raise EvalError("O3-O5 need --raw, the folder of saved cells")
     if raw is not None and needs_raw:
@@ -712,6 +817,8 @@ def run(
             parts.append(render_o3(o3))
         if "o4" in steps:
             parts.append(render_o4(_o4(drafts, by_id, labels, workers, cache_path)))
+        if "o4b" in steps:
+            parts.append(_o4b(drafts, raw, by_id, labels, workers, cache_path))
         if "o5" in steps:
             failures = {t: product_failures(raw, t) for t in labels}
             parts.append(render_o5(run_o5(o3, labels, failures)))
@@ -740,9 +847,52 @@ def _o4(
     return run_o4(drafts, tasks, labels, cache, violations)
 
 
+def _o4b(
+    drafts: Sequence[DraftRef],
+    raw: Path,
+    tasks: Mapping[str, BenchTask],
+    labels: Mapping[str, Labels],
+    workers: int,
+    cache_path: Path | None,
+) -> str:
+    products = failing_products(raw, set(labels))
+    path = cache_path.with_name(cache_path.stem + "-o4b.json") if cache_path else None
+    cache: dict[str, dict[str, bool]] = {}
+    if path is not None and path.is_file():
+        cache = json.loads(path.read_text(encoding="utf-8"))
+
+    def work(ref: DraftRef) -> dict[str, bool]:
+        mine = [p for p in products if p.task == ref.task and not p.built_from(ref)]
+        return kills_products(tasks[ref.task], ref.checks_dir, mine)
+
+    todo = [d for d in drafts if d.key not in cache]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for ref, result in zip(todo, pool.map(work, todo), strict=True):
+            cache[ref.key] = result
+    if path is not None:
+        path.write_text(json.dumps(cache, indent=1, sort_keys=True), encoding="utf-8")
+    return render_o4b(run_o4b(drafts, labels, products, cache), len(products))
+
+
+def render_o4b(o4: O4, products: int) -> str:
+    lines = [
+        "## O4b failing products as the mutants (added after the first run; no criterion)",
+        "",
+        f"- {products} saved products that failed exactly one hidden check; each is run against "
+        "the drafts of its task except the draft it was built against",
+        f"- all anchors present: {_interval(o4.present)}",
+        f"- an anchor missing: {_interval(o4.missing)}",
+        f"- gap {o4.gap:.1f} points",
+    ]
+    if o4.by_missing_type:
+        lines += ["", "Kill rate when a rule has a missing anchor of this type:"]
+        lines += [f"- {k}: {_interval(v)}" for k, v in o4.by_missing_type.items()]
+    return "\n".join(lines)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m boss.bench.spec_eval", description=__doc__)
-    parser.add_argument("steps", nargs="+", choices=(*STEPS, "all"))
+    parser.add_argument("steps", nargs="+", choices=(*STEPS, *EXTRA_STEPS, "all"))
     parser.add_argument("--tasks", type=Path, default=Path("bench/tasks"))
     parser.add_argument("--truth", type=Path, default=Path("bench/spec_truth"))
     parser.add_argument("--raw", type=Path, help="folder of saved cells (bench/results/raw)")

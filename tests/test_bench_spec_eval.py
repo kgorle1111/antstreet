@@ -415,3 +415,65 @@ def test_the_chance_baseline_is_a_hypergeometric_tail():
     assert ev.O3Cell(cell, ("R01",), (), (), 10, 2).chance == pytest.approx(0.2)
     assert ev.O3Cell(cell, tuple(f"R{n:02d}" for n in range(9)), (), (), 10, 2).chance == 1
     assert ev.O3Cell(cell, ("R01",), (), ()).chance == 1.0, "no counts, no claim of rarity"
+
+
+# --- O4b --------------------------------------------------------------------------------------
+
+
+def saved_product(raw: Path, group: str, arm: str, rep: int, hidden: dict[str, str]) -> None:
+    cell = raw / group / "slugify" / arm / f"rep{rep}"
+    write(cell / "result.json", json.dumps({"hidden": hidden}))
+    where = cell / "workspace" if arm == "single" else cell / ".boss/runs/r1/product"
+    write(where / "slugify.py", "def slugify(t, max_length=None):\n    return t\n")
+
+
+def test_failing_products_are_those_that_failed_exactly_one_hidden_check(tmp_path):
+    saved_product(tmp_path, "final3", "single", 1, {"accents": "failed", "basic": "passed"})
+    saved_product(tmp_path, "final3", "firm", 2, {"accents": "failed", "basic": "failed"})  # two
+    saved_product(tmp_path, "heldout3", "firm", 1, {"accents": "passed", "basic": "failed"})
+    saved_product(tmp_path, "final3", "single", 3, {"accents": "passed"})  # passes everything
+    (tmp_path / "pilot/slugify/single/rep1").mkdir(parents=True)  # no result at all
+    found = ev.failing_products(tmp_path, {"slugify"})
+    assert sorted((p.key, p.failed) for p in found) == [
+        ("final3/slugify/single/rep1", "accents"),
+        ("heldout3/slugify/firm/rep1", "basic"),
+    ]
+    assert ev.failing_products(tmp_path, {"calc"}) == []
+
+
+def test_a_firm_product_is_not_run_against_the_draft_it_was_built_against(tmp_path):
+    saved_product(tmp_path, "final3", "firm", 1, {"accents": "failed"})
+    saved_product(tmp_path, "final3", "single", 1, {"accents": "failed"})
+    firm, single = sorted(ev.failing_products(tmp_path, {"slugify"}), key=lambda p: p.arm)
+    own = ev.DraftRef("final3", "slugify", 1, tmp_path)
+    other = ev.DraftRef("final3", "slugify", 2, tmp_path)
+    assert firm.built_from(own) and not firm.built_from(other)
+    assert not single.built_from(own), "a single agent never saw a draft"
+
+
+def test_a_draft_kills_a_product_when_a_sound_check_fails_on_it(tmp_path):
+    task = load_task(TASKS / "slugify")
+    saved_product(tmp_path, "final3", "single", 1, {"accents": "failed"})
+    product = ev.failing_products(tmp_path, {"slugify"})[0]  # returns its input unchanged
+    sound = write(tmp_path / "d1/checks/test_c01.py", PLAIN_CHECK).parent
+    wrong = write(
+        tmp_path / "d2/checks/test_c01.py", PLAIN_CHECK.replace("hello-world", "nope")
+    ).parent
+    assert ev.kills_products(task, sound, [product]) == {product.key: True}
+    assert ev.kills_products(task, wrong, [product]) == {product.key: False}, (
+        "a wrong check kills all"
+    )
+
+
+def test_o4b_counts_triples_by_anchor_presence_and_skips_the_draft_a_product_came_from(tmp_path):
+    saved_product(tmp_path, "final3", "single", 1, {"accents": "failed"})
+    product = ev.failing_products(tmp_path, {"slugify"})[0]
+    refs, _, _ = two_drafts(tmp_path)  # d1 has non-ASCII; d2 has none
+    labels = {"slugify": slugify_labels()}
+    kill_map = {refs[0].key: {product.key: True}, refs[1].key: {product.key: False}}
+    o4 = ev.run_o4b(refs, labels, [product], kill_map)
+    # `accents` tests R04 and R05, both with a non_ascii anchor: present in d1, missing in d2.
+    assert (o4.present.killed, o4.present.total) == (2, 2)
+    assert (o4.missing.killed, o4.missing.total) == (0, 2)
+    assert o4.gap == 100 and o4.by_missing_type["non_ascii"].total == 2
+    assert "no criterion" in ev.render_o4b(o4, 1)
