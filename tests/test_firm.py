@@ -306,6 +306,18 @@ def test_next_round_needs_the_investor_and_then_continues(paths):
     assert events_of(paths, EventType.SLICE_END)[1].round == 2
 
 
+def test_the_round_question_shows_the_term_sheet_plus_top_ups_for_a_round_not_yet_open(paths):
+    s = sheet(rounds=(Round(1, 204_000, 1), Round(2, 300_000, 2)))
+    _, said = run(paths, Script(step(HALF, cost=100_000)), s)  # declined by silence at round 2
+    assert said[-1].startswith("Round 2: 1/2 checks pass. Fund $0.3 more?")
+    top_up(paths, 2, 100_000)
+    top_up(paths, 2, 50_000)
+    top_up(paths, 1, 70_000, actor="worker:w1")  # not the investor's, and another round
+    add_event(paths, "investor", EventType.RESUMED, 2)
+    _, said = run(paths, Script(step(GOOD, "done")), s, answers=["n"])
+    assert said[-1].startswith("Round 2: 1/2 checks pass. Fund $0.45 more?")
+
+
 def test_investor_can_decline_a_round(paths):
     s = sheet(rounds=(Round(1, 204_000, 1), Round(2, 300_000, 2)))
     worker = Script(step(HALF, cost=100_000), step(GOOD, "done"))

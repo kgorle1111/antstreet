@@ -350,9 +350,10 @@ class _Firm:
 
     def _approve(self, round_: Round, record: Recorder) -> bool:
         passed = self.state().passing_total()
+        funding = budget.round_budget(self.sheet, self.events(), round_.n)  # with any top-ups
         question = (
             f"Round {round_.n}: {passed}/{self.required()} checks pass. "
-            f"Fund ${usd(round_.budget_micros)} more? [y]es / [n]o "
+            f"Fund ${usd(funding)} more? [y]es / [n]o "
         )
         try:
             answer = self.ask(question).strip().lower()
