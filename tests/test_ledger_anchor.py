@@ -29,6 +29,8 @@ from boss.ledger import (
 from boss.rundir import RunPaths
 from boss.signing import anchor_path, load_key, load_or_create_key, read_anchor, write_anchor
 
+TS = "2026-10-02T11:00:00+00:00"  # fixed: an edit must not hide behind a clock tick
+
 
 @pytest.fixture
 def run(tmp_path):
@@ -36,11 +38,13 @@ def run(tmp_path):
 
 
 def boss_call(n: int = 1) -> Event:
-    return Event(run="r1", round=0, actor="boss", event=EventType.BOSS_CALL, cost_micros=n * 1_000)
+    return Event(
+        run="r1", round=0, actor="boss", event=EventType.BOSS_CALL, cost_micros=n * 1_000, ts=TS
+    )
 
 
 def resumed() -> Event:
-    return Event(run="r1", round=1, actor="investor", event=EventType.RESUMED)
+    return Event(run="r1", round=1, actor="investor", event=EventType.RESUMED, ts=TS)
 
 
 def honest(run: RunPaths, *events: Event) -> list[Event]:

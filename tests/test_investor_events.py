@@ -45,6 +45,9 @@ INVESTOR = {
 }
 
 
+TS = "2026-10-02T11:00:00+00:00"  # fixed: an edit must not hide behind a clock tick
+
+
 @pytest.fixture
 def run(tmp_path):
     return RunPaths(tmp_path / "project" / ".boss" / "runs" / "r1")
@@ -52,11 +55,13 @@ def run(tmp_path):
 
 def investor(name: str) -> Event:
     kind, round_, data = INVESTOR[name]
-    return Event(run="r1", round=round_, actor="investor", event=kind, data=data)
+    return Event(run="r1", round=round_, actor="investor", event=kind, data=data, ts=TS)
 
 
 def boss_call(cost: int = 4_000) -> Event:
-    return Event(run="r1", round=0, actor="boss", event=EventType.BOSS_CALL, cost_micros=cost)
+    return Event(
+        run="r1", round=0, actor="boss", event=EventType.BOSS_CALL, cost_micros=cost, ts=TS
+    )
 
 
 def honest(run: RunPaths, *events: Event) -> list[Event]:
@@ -141,7 +146,8 @@ def test_a_key_that_breaks_mid_run_signs_nothing_false_and_loses_no_other_record
 @pytest.mark.parametrize("how", ["none", "made-up", "first-form", "copied"])
 @pytest.mark.parametrize("name", INVESTOR)
 def test_an_investor_event_forged_with_the_chain_recomputed_is_refused(run, name, how):
-    genuine = honest(run, boss_call(), investor("topped_up"))[-1]
+    other = dataclasses.replace(investor("resumed"), round=3)  # a genuine event no forgery equals
+    genuine = honest(run, boss_call(), other)[-1]
     forged = forgery_of(name, how, genuine)
     attacker(run, boss_call(), forged)
     with pytest.raises(
@@ -189,6 +195,26 @@ def test_a_signed_event_authenticates_every_line_before_it(run):
     events = honest(run, boss_call(), boss_call(5_000), investor("topped_up"))
     attacker(run, dataclasses.replace(events[0], cost_micros=0), *events[1:])
     with pytest.raises(LedgerUnverifiedError, match=r"ledger\.jsonl:3:"):
+        run.events()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"cost_micros": 5_000},
+        {"cost_micros": None},
+        {"tokens_in": 1},
+        {"tokens_out": 1},
+        {"tokens_cached": 1},
+        {"billing": "api"},
+        {"ts": "2030-01-01T00:00:00+00:00"},
+    ],
+)
+def test_the_signature_covers_the_cost_the_tokens_the_billing_and_the_time_too(run, change):
+    """An investor line booked as spend, or moved in time, is not the line that was signed."""
+    genuine = honest(run, boss_call(), investor("topped_up"))[1]
+    attacker(run, boss_call(), dataclasses.replace(genuine, **change))
+    with pytest.raises(LedgerUnverifiedError, match=r"ledger\.jsonl:2:"):
         run.events()
 
 
