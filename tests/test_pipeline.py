@@ -662,6 +662,30 @@ def test_more_rounds_are_planned_by_story_priority_when_the_sheet_is_staged(fx):
     assert fx.events(EventType.BOSS_CALL) == []
 
 
+@pytest.mark.parametrize(
+    ("extra", "budget", "n_rounds", "floor"),
+    [
+        (("--model", "sonnet"), "0.60", 1, 305_000),  # two rounds would each be under 305,000
+        (("--model", "sonnet"), "0.62", 2, 305_000),
+        (("--reserve", "0.30"), "0.60", 1, 305_000),  # an explicit reserve beats the model's
+        ((), "0.60", 2, 105_000),  # the default (haiku) is unchanged: 300,000 each
+    ],
+    ids=["sonnet-one-round", "sonnet-two-rounds", "explicit-reserve", "default"],
+)
+def test_the_staged_plan_is_valid_for_the_runs_own_reserve_from_the_start(
+    fx, extra, budget, n_rounds, floor
+):
+    script_stage_1(fx, stories=TWO_STORIES, design_out=design(("S1", "S2")))
+    fx.set("tester", ok(checks_out("S1.1", "S2.1")))
+    fx.fund(
+        "--roles", "product_manager,system_designer,tester", "--rounds", "2", *extra, budget=budget
+    )
+    rounds = json.loads((fx.run_dir / "term_sheet.json").read_text())["rounds"]
+    assert len(rounds) == n_rounds
+    assert all(r["budget_micros"] >= floor for r in rounds)
+    assert sum(r["budget_micros"] for r in rounds) == int(float(budget) * 1_000_000)
+
+
 def test_the_boss_still_splits_a_rounds_budget_when_it_drafts_alone(fx):
     two = {"description": "empty gives empty", "task": "t1", "code": CHECK2}
     fx.set("boss", ok(BOSS_DRAFT | {"checks": [*BOSS_DRAFT["checks"], two]}))

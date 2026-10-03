@@ -992,6 +992,15 @@ def test_more_rounds_are_planned_by_story_priority_and_the_sheet_still_validates
     validate(draft.sheet, cli.checks_dir)
 
 
+def test_the_runs_reserve_reaches_the_round_plan(cli):
+    cli.designer(DESIGN)
+    cli.tester(TESTS)
+    # 500,000 funds two default rounds, but a Sonnet run's two rounds would each be under 305,000.
+    draft = staged(cli, n_rounds=2, reserve_micros=300_000)
+    assert draft.sheet.rounds == (Round(1, 500_000, 3),)
+    validate(draft.sheet, cli.checks_dir)
+
+
 def test_a_round_count_below_one_is_refused_before_any_call(cli):
     with pytest.raises(ValueError, match="n_rounds"):
         staged(cli, n_rounds=0)

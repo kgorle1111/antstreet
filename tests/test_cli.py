@@ -5,6 +5,7 @@ import sys
 
 import pytest
 
+import boss.cli as cli_module
 from boss.cli import (
     EXIT_FAILED,
     EXIT_INCOMPLETE,
@@ -215,23 +216,42 @@ def test_the_early_budget_check_refuses_only_what_no_round_plan_could_fund(boss)
     assert len(boss.runs()) == 1  # the refusal made no run folder
 
 
-def test_the_real_round_plan_is_checked_after_the_draft_and_before_approval(boss):
+@pytest.mark.parametrize(
+    ("budget", "extra", "rounds"),
+    [
+        # Two checks over $0.20 would be two rounds of $0.10, each under the $0.105 one slice
+        # needs: the plan keeps one round instead of paying for a draft that is then refused.
+        ("0.20", (), [200_000]),
+        ("0.21", (), [105_000, 105_000]),
+        # A Sonnet worker's $0.30 reserve raises the floor to $0.305: $0.60 is one round.
+        ("0.60", ("--model", "sonnet"), [600_000]),
+        ("0.62", ("--model", "sonnet"), [310_000, 310_000]),
+        ("0.60", ("--reserve", "0.30"), [600_000]),
+    ],
+)
+def test_the_boss_drafts_only_rounds_the_runs_reserve_can_fund(boss, budget, extra, rounds):
     (boss.project.parent / "fake_two_checks").write_text("")
+    argv = ("fund", "Reverse a string.", "--budget", budget, "--rounds", "3", *extra)
+    code, output = boss(*argv, answers=("r",))
+    assert code == EXIT_FAILED and "Rejected. Nothing was funded." in output  # got to approval
+    [run_dir] = boss.runs()
+    sheet = json.loads((run_dir / "term_sheet.json").read_text())
+    assert [r["budget_micros"] for r in sheet["rounds"]] == rounds
+
+
+def test_a_plan_with_a_round_below_the_minimum_is_still_refused_after_the_draft(boss, monkeypatch):
+    (boss.project.parent / "fake_two_checks").write_text("")
+    real = cli_module.plan_rounds
+    monkeypatch.setattr(
+        cli_module, "plan_rounds", lambda b, n, r, *, min_round_micros: real(b, n, r)
+    )  # a planner that ignores the floor
     # No answers are given: asking the investor to approve would raise.
     argv = ("fund", "Reverse a string.", "--budget", "0.20", "--rounds", "3")
     code, output = boss(*argv, answers=())
-    # Two checks make two rounds of $0.10: each is below the $0.105 one slice needs.
     assert code == EXIT_FAILED and "smallest has $0.1" in output and "at least $0.105" in output
     events = read_events(boss.runs()[0] / "ledger.jsonl")
     assert [e.event for e in events] == [EventType.BOSS_CALL, EventType.STOPPED]  # paid, no hire
     assert "smallest has $0.1" in events[-1].data["reason"]
-    # The earliest round takes the remainder, so it is the last round that is a micro-dollar short.
-    argv = ("fund", "Reverse a string.", "--budget", "0.209999", "--rounds", "3")
-    code, output = boss(*argv, answers=())
-    assert code == EXIT_FAILED and "smallest has $0.104999" in output
-    argv = ("fund", "Reverse a string.", "--budget", "0.21", "--rounds", "3")
-    code, output = boss(*argv, answers=("r",))  # two rounds of $0.105 each can fund a slice
-    assert code == EXIT_FAILED and "Rejected. Nothing was funded." in output  # it got to approval
 
 
 def test_reserve_option_reaches_the_slice_cap(boss):

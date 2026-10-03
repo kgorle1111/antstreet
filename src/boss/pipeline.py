@@ -26,6 +26,7 @@ from typing import Any
 
 from boss import signing
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
+from boss.budget import RESERVE_MICROS
 from boss.errors import Outcome
 from boss.firm import Advise, FirmConfig, FirmReport, config_data
 from boss.gate import Check, CheckStatus, GateError, run_gate
@@ -251,6 +252,7 @@ class Pipeline:
         *,
         max_tasks: int,
         n_rounds: int,
+        reserve_micros: int = RESERVE_MICROS,
         draft_boss: Callable[[], TermSheet | None],
     ) -> Plan | None:
         """The sheet to show the investor, with the roles' notes. `draft_boss` is the boss's single
@@ -263,7 +265,9 @@ class Pipeline:
         staged = self._on("system_designer") and self._on("tester")
         sheet = None
         if stories is not None and staged:
-            sheet = self._staged(idea, budget_micros, stories, max_tasks, n_rounds, notes)
+            sheet = self._staged(
+                idea, budget_micros, stories, max_tasks, n_rounds, reserve_micros, notes
+            )
         elif staged:
             self.say("There are no stories, so the staged draft cannot run: the boss drafts alone.")
         if sheet is None:
@@ -317,6 +321,7 @@ class Pipeline:
         stories: Stories,
         max_tasks: int,
         n_rounds: int,
+        reserve_micros: int,
         notes: list[str],
     ) -> TermSheet | None:
         self.say("Asking the system_designer and the tester...")
@@ -328,6 +333,7 @@ class Pipeline:
                 stories=stories,
                 max_tasks=max_tasks,
                 n_rounds=n_rounds,
+                reserve_micros=reserve_micros,
                 **self._call_args(),
             )
         except StagedDraftError as exc:

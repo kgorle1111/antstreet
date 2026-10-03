@@ -342,7 +342,9 @@ def _fund(
                 return None
             boss_spend(draft.usage, "completed")
             if args.rounds > 1:
-                rounds = plan_rounds(args.budget, len(draft.sheet.checks), args.rounds)
+                rounds = plan_rounds(
+                    args.budget, len(draft.sheet.checks), args.rounds, min_round_micros=needed
+                )
                 return dataclasses.replace(draft.sheet, rounds=rounds)
             return draft.sheet
 
@@ -356,6 +358,7 @@ def _fund(
                 args.budget,
                 max_tasks=args.max_tasks,
                 n_rounds=args.rounds,
+                reserve_micros=reserve,
                 draft_boss=draft_boss,
             )
         except KeyboardInterrupt:  # no term sheet is approved yet, so there is nothing to resume

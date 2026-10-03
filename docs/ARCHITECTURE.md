@@ -110,7 +110,8 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
    invalid.
 4. The draft is validated: structure, then every check run on an empty workspace. Any problem
    ends the run (`stopped`, exit 1).
-5. With `--rounds N` above 1, the round plan is replaced by an equal split.
+5. With `--rounds N` above 1, the round plan is replaced by an equal split (or by story priority when roles draft), with
+   fewer rounds if the run's reserve plus $0.005 would not fit in each.
 6. The investor reads the term sheet and every check, and approves, rejects or edits. Approval is
    an `approved` event holding hashes of the term sheet and each check file, and of the held-out
    files when the run has them. With `--held-out N`, `boss fund` first has the examiner write

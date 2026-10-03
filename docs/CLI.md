@@ -83,9 +83,11 @@ its round budgets plus one reserve per round, or when a worker's folder passes 2
 copies it for every check). See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
 
 A `--budget` below one reserve plus $0.005 is refused before anything is spent. With `--rounds`
-above 1 the number of rounds depends on how many checks the boss drafts, so the round plan is
-checked again after the draft, before approval: if its smallest round is below one reserve plus
-$0.005, the run stops (exit 1) with the draft paid for and nobody hired.
+above 1 the number of rounds depends on how many checks the boss drafts, so rounds are planned
+with this run's reserve (`--reserve`, or the model's) as a floor: a plan has fewer rounds, down to
+one, rather than a round below one reserve plus $0.005. The plan is checked again after the draft,
+before approval; if a round is still below that, the run stops (exit 1) with the draft paid for
+and nobody hired.
 
 When a disputed check or a blocked worker needs you, the run asks (`boss resume` asks the same):
 

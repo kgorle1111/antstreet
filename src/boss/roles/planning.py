@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from boss.budget import min_round_budget, plan_rounds
+from boss.budget import RESERVE_MICROS, min_round_budget, plan_rounds
 from boss.roles.stories import PRIORITIES, Stories
 from boss.termsheet import CheckSpec, Round
 
 
 def plan_rounds_by_priority(
-    stories: Stories, checks: Sequence[CheckSpec], budget_micros: int, n_rounds: int
+    stories: Stories,
+    checks: Sequence[CheckSpec],
+    budget_micros: int,
+    n_rounds: int,
+    *,
+    reserve_micros: int = RESERVE_MICROS,
 ) -> tuple[Round, ...]:
     """Split a budget into rounds that unlock in priority order: `must`, then `should`, `could`.
 
@@ -19,7 +24,8 @@ def plan_rounds_by_priority(
     `must` checks (M), round 2 when M plus the `should` checks pass, and the last round when all
     checks pass. A priority with no checks adds no round. With fewer priorities than `n_rounds`
     there are fewer rounds; with more, the last rounds merge (round 1 is always `must`). A round's
-    budget is the smallest budget that can fund a slice (`budget.min_round_budget`) plus a share
+    budget is the smallest budget that can fund a slice (`budget.min_round_budget` for the run's
+    `reserve_micros`, which depends on the worker model) plus a share
     of the rest proportional to the checks it unlocks; rounds are merged from the end until every
     round has that minimum. When all checks share one priority there is nothing to split on and
     this is `budget.plan_rounds`.
@@ -37,8 +43,10 @@ def plan_rounds_by_priority(
     n_rounds = min(n_rounds, budget_micros)  # a round needs at least one micro-dollar
     tiers = _cumulative_tiers(stories, checks)
     if len(tiers) < 2:
-        return plan_rounds(budget_micros, len(checks), n_rounds)
-    floor = min_round_budget()
+        return plan_rounds(
+            budget_micros, len(checks), n_rounds, min_round_micros=min_round_budget(reserve_micros)
+        )
+    floor = min_round_budget(reserve_micros)
     n = min(n_rounds, len(tiers))
     while n > 1 and budget_micros < n * floor:
         n -= 1

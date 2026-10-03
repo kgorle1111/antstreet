@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from boss.budget import RESERVE_MICROS
 from boss.errors import Outcome
 from boss.redact import safe_text
 from boss.roles.base import RoleError, RoleOutputError, RoleSpec, call_role
@@ -397,6 +398,7 @@ def draft_staged(
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
     n_rounds: int = 1,
+    reserve_micros: int = RESERVE_MICROS,
 ) -> StagedDraft:
     """The designer, then the tester, then a term sheet that passes `termsheet.validate` (so every
     check fails on an empty workspace). `stories` must already have passed their gate.
@@ -433,7 +435,14 @@ def draft_staged(
         raise StagedDraftError(exc.role, problems, exc.outcome, paid) from exc
     try:
         sheet = assemble_term_sheet(
-            idea, budget_micros, stories, design, plan, checks_dir, n_rounds=n_rounds
+            idea,
+            budget_micros,
+            stories,
+            design,
+            plan,
+            checks_dir,
+            n_rounds=n_rounds,
+            reserve_micros=reserve_micros,
         )
         validate(sheet, checks_dir)
     except TermSheetError as exc:
@@ -452,6 +461,7 @@ def assemble_term_sheet(
     checks_dir: Path,
     *,
     n_rounds: int = 1,
+    reserve_micros: int = RESERVE_MICROS,
 ) -> TermSheet:
     """A term sheet from a design and a test plan. One round (the default) holds the whole budget
     and closes only when every check passes, exactly what `boss.draft_term_sheet` builds; more
@@ -468,7 +478,9 @@ def assemble_term_sheet(
         raise ValueError(
             "the plan does not fit the stories, design and checks: " + "; ".join(problems)
         )
-    rounds = plan_rounds_by_priority(stories, plan.checks, budget_micros, n_rounds)
+    rounds = plan_rounds_by_priority(
+        stories, plan.checks, budget_micros, n_rounds, reserve_micros=reserve_micros
+    )
     tasks = tuple(task.as_task() for task in design.tasks)
     return TermSheet(idea.strip(), budget_micros, rounds, plan.checks, tasks)
 

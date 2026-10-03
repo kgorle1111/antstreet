@@ -6,7 +6,7 @@ from itertools import combinations
 
 import pytest
 
-from boss.budget import min_round_budget, plan_rounds, unlocked
+from boss.budget import RESERVE_MICROS, min_round_budget, plan_rounds, reserve_for, unlocked
 from boss.roles.planning import plan_rounds_by_priority
 from boss.roles.stories import Stories, parse_stories
 from boss.termsheet import CheckSpec, Round, TermSheet, _money_problems, _round_problems
@@ -144,6 +144,48 @@ def test_a_budget_of_exactly_n_floors_funds_n_rounds_of_the_floor():
     assert plan_rounds_by_priority(STORIES, CHECKS, 2 * FLOOR - 1, 2) == (
         Round(1, 2 * FLOOR - 1, 6),
     )
+
+
+SONNET = min_round_budget(reserve_for("sonnet"))  # 305_000: a Sonnet worker's $0.30 reserve
+
+
+def test_the_floor_follows_the_runs_reserve_and_the_default_is_unchanged():
+    assert plan_rounds_by_priority(STORIES, CHECKS, 1_000_000, 3) == plan_rounds_by_priority(
+        STORIES, CHECKS, 1_000_000, 3, reserve_micros=RESERVE_MICROS
+    )
+    # 600,000 funds two default rounds (2 * 105,000) but not two Sonnet rounds (2 * 305,000).
+    default = plan_rounds_by_priority(STORIES, CHECKS, 600_000, 2)
+    assert len(default) == 2 and all(r.budget_micros >= FLOOR for r in default)
+    sonnet = plan_rounds_by_priority(STORIES, CHECKS, 600_000, 2, reserve_micros=300_000)
+    assert sonnet == (Round(1, 600_000, 6),)
+    assert plan_rounds_by_priority(STORIES, CHECKS, 2 * SONNET, 2, reserve_micros=300_000) == (
+        Round(1, SONNET, 3),
+        Round(2, SONNET, 6),
+    )
+
+
+def test_one_priority_is_split_equally_but_only_into_rounds_the_reserve_can_fund():
+    plain = checks_citing(*[()] * 4)  # no known criterion: one priority, `budget.plan_rounds`
+    assert plan_rounds_by_priority(STORIES, plain, 600_000, 3) == plan_rounds(600_000, 4, 3)
+    assert plan_rounds_by_priority(STORIES, plain, 600_000, 3, reserve_micros=300_000) == (
+        Round(1, 600_000, 4),
+    )
+
+
+@pytest.mark.parametrize("reserve", [0, 20_000, 100_000, 300_000, 500_000])
+def test_every_round_of_a_plan_funds_one_slice_for_any_reserve(reserve):
+    rng = random.Random(reserve + 7)
+    need = min_round_budget(reserve)
+    for _ in range(500):
+        stories = stories_of(*[(rng.choice(["must", "should", "could"]), 1) for _ in range(3)])
+        ids = [c.id for c in stories.criteria()]
+        checks = checks_citing(*[tuple(rng.sample(ids, 1)) for _ in range(rng.randint(1, 9))])
+        budget = rng.randint(need, 4_000_000)
+        rounds = plan_rounds_by_priority(
+            stories, checks, budget, rng.randint(1, 6), reserve_micros=reserve
+        )
+        assert sum(r.budget_micros for r in rounds) == budget
+        assert all(r.budget_micros >= need for r in rounds)
 
 
 @pytest.mark.parametrize(
