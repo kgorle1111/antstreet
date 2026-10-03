@@ -214,6 +214,7 @@ def _sentences(idea: str, start: int, end: int) -> list[tuple[int, int]]:
     """Sentence spans inside idea[start:end]. A boundary is `.`, `!` or `?` and white space
     followed by something that can start a sentence; never inside a backtick span, never after
     an abbreviation, never before a lower-case letter."""
+    # kn: English sentence punctuation only; add terminators for another script when one appears
     block = idea[start:end]
     ticks = [(m.start(), m.end()) for m in _TICKS.finditer(block)]
     cuts = [0]
@@ -469,6 +470,7 @@ def _fold(node: ast.AST, depth: int) -> int | float | None:
 
 def present(anchor: Anchor, found: Iterable[Facts]) -> bool:
     """Whether any of the checks' facts satisfies the anchor."""
+    # kn: presence in the syntax tree, not proof the check asserts it; a mutation pass is proof
     checks = list(found)
     if anchor.type == "non_ascii":
         return any(f.has_non_ascii for f in checks)

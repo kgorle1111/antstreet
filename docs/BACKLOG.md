@@ -136,3 +136,12 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B69 | A `single-review` arm: the single agent resumes its session once to review its own work (E4's baseline) | Asked for with E4 | done: `bench/run.py`, `prompts/self_review_v1.md`; 75% build, 25% review inside the single arm's cap. No paid run yet, so the split is untested |
 | B70 | KPI scorecard follow-ups: record the single arm's final status word in `result.json` (today read from its ledger); count term-sheet edit loops in the ledger so investor questions stop being a lower bound | Found while building `bench/kpi.py` | open |
 | B71 | A firm cell whose run hit the usage limit but whose product passed every hidden check is counted as delivered (`heldout3/linediff/firm/rep2`) | Found by the KPI scorecard; deciding whether "delivered" needs the run to finish is a definition change, so it waits for a decision | open |
+
+## Spec layer, added later
+
+| Id | Item | Why it was deferred | Status |
+|---|---|---|---|
+| B72 | Wire `boss.spec` into `boss fund --spec`: rule list in the boss prompt, `rules` per check, the coverage view in the approval, `rules.json` in the approval hash | Needs the paid draft eval (P1) to show the prompt helps; branch B of the spec plan | open |
+| B73 | Rules in languages other than English; `spec.py` kn: English sentence punctuation only; add terminators for another script when one appears | The benchmark ideas are English | open |
+| B74 | Anchors are presence in a check's syntax tree; `spec.py` kn: presence in the syntax tree, not proof the check asserts it; a mutation pass is proof | A mutation pass over the built product would be proof; needs a product to mutate | open |
+| B75 | The optional mapper role that reads the rules and the check code and says which rules each check asserts | Branch C of the spec plan; advisory until its precision is measured | open |
