@@ -249,8 +249,8 @@ and line.
 
 ## Benchmark commands
 
-`run` makes real model calls for every cell. `drafts` and `audit` make one call per draft. `table`
-and `replay` make none. See [../bench/METHOD.md](../bench/METHOD.md).
+`run` makes real model calls for every cell. `drafts` and `audit` make one call per draft. `table`,
+`kpi` and `replay` make none. See [../bench/METHOD.md](../bench/METHOD.md).
 
 ## `python -m boss.bench.run`
 
@@ -333,6 +333,22 @@ Arguments: `dir_a` and `dir_b`, results folders written by `run` (they may be th
 Exit codes: `0`; `1` when a folder holds no results for its arm, the two sides ran different task
 sets, no task is on both sides, or a result file is invalid; `2` for a usage error. A different
 model or budget between the sides prints a warning and still runs.
+
+## `python -m boss.bench.kpi`
+
+`python -m boss.bench.kpi RESULTS_DIR [RESULTS_DIR ...]`. Prints the fixed KPI scorecard as one
+markdown table: a row per KPI, a column per arm. The seven KPIs and their definitions are in
+[../bench/METHOD.md](../bench/METHOD.md).
+
+Argument: `results_dir`, one or more folders written by `run`. A column is one folder, arm, model,
+budget and set of firm options, labelled by all of them, so arms from different folders and
+settings sit side by side. The command reads each cell's ledger where the runner left one
+(`ledger.jsonl` for the single arm, `.boss/runs/<id>/ledger.jsonl` for the firm arm); a cell
+without a readable ledger shows "not recorded" for the figures that need it. It has no options.
+
+Exit codes: `0`; `1` when no results are found, a result file is invalid, or two columns would carry
+the same label (the same folder name twice, or one folder and arm holding two task sets); `2` for a
+usage error.
 
 ## `python -m boss.bench.replay`
 

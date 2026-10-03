@@ -90,6 +90,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `bench/run.py` | Running benchmark cells through the single, single-review and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
 | `bench/score.py` | Scoring a draft's checks (precision on the reference, recall on the mutants) and a critic's verified findings against the reference. | Spend money; count a mutant killed only by a wrong check as caught. |
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
+| `bench/kpi.py` | The fixed KPI scorecard of benchmark results: one column per folder, arm, model, budget and firm options. | Count an infrastructure failure in a figure; show an unknown cost or an unrecorded figure as 0; pool columns that share a label. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
 
 Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/term_sheet_v1.md`
