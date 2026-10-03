@@ -174,3 +174,15 @@ def test_the_command_asks_for_the_events_the_check_needs():
     assert "--verbose" in argv  # the worker command passes it with stream-json too
     assert argv[argv.index("--tools") + 1] == ""
     assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
+
+
+def test_the_recorded_no_tool_call_passes_the_check_it_is_held_to():
+    """The real init of a boss call, recorded with the exact argv, is what the check expects."""
+    from boss_init import BOSS_INIT
+
+    from boss.boss import BOSS_TOOLS
+    from boss.worker import isolation_violations
+
+    assert BOSS_INIT["tools"] == ["StructuredOutput"] and BOSS_INIT["mcp_servers"] == []
+    assert BOSS_INIT["permissionMode"] == "dontAsk"
+    assert isolation_violations(BOSS_INIT, hook_events=0, expected_tools=BOSS_TOOLS) == []
