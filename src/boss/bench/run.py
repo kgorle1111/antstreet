@@ -78,6 +78,10 @@ def run_cell(
     out = cell_dir(results_dir, task.id, arm, rep)
     if (out / "result.json").is_file():
         return CellResult.load(out / "result.json")
+    if out.is_dir() and any(out.iterdir()):  # a cut-off run's ledger would be read as this cell's
+        raise RuntimeError(
+            f"{out} holds a run cut off before its result; move the folder aside and run again"
+        )
     out.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     wrong_checks = None

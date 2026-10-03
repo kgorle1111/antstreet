@@ -1,6 +1,7 @@
 """Benchmark runner against a fake `claude` that plays boss and worker. No model calls."""
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -202,6 +203,17 @@ def test_a_finished_cell_is_not_run_again(bench):
     calls = len(bench.calls())
     assert bench("single", product=SHALLOW) == first
     assert len(bench.calls()) == calls
+
+
+@pytest.mark.parametrize("arm", ["single", "firm"])
+def test_a_cell_cut_off_before_its_result_is_refused_not_run_on_top_of(bench, arm):
+    out = cell_dir(bench.results, "slugify", arm, 1)
+    (out / ".boss" / "runs" / "20261003T113026Z-618816").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="cut off before its result; move the folder aside"):
+        bench(arm)
+    assert not (bench.home / "argv.log").exists()  # refused before any model call
+    shutil.rmtree(out)
+    assert bench(arm).passed
 
 
 def test_login_failure_is_an_infrastructure_failure_in_both_arms(bench):
