@@ -126,14 +126,25 @@ def test_every_command_is_shown_in_the_readme(text):
         assert f"boss {name}" in text, f"the README never shows `boss {name}`"
 
 
-def test_the_benchmark_figures_agree_with_the_decision_log_and_the_task_count(text):
-    status = text.split("## How it works")[0]
-    decisions = " ".join(read(DOCS / "DECISIONS.md").split())
+def test_the_benchmark_figures_agree_with_the_final_runs_table_and_the_task_count(text):
+    status = " ".join(text.split("## How it works")[0].split())
+    table = read(ROOT / "bench" / "results" / "2026-09-30-final3" / "table.md")
     tasks = len(original_tasks())  # the figures below are from runs on the original task set
     assert f"{tasks}-task benchmark" in status
-    for figure in ("9 of 17 (53%)", "10 of 17 (59%)", "$0.206", "$0.091"):
-        assert figure in status, f"README lost {figure}"
-        assert figure.split(" (")[0] in decisions, f"{figure} is not in docs/DECISIONS.md"
+    assert "| single | 51 | 17 | 32 |" in table and "| firm | 51 | 17 | 35 |" in table
+    # Each figure bound to its arm, firm first, so swapping the two arms fails.
+    for phrase in (
+        "firm passed 35 of 51 (69%) against 32 of 51 (63%) for a single agent",
+        "($0.2197 against $0.0925 a task)",
+        "(median 4m04s against 1m28s)",
+    ):
+        assert phrase in status, f"README lost: {phrase}"
+    rows = {
+        line.split("|")[1].strip(): line for line in table.splitlines() if line.startswith("| ")
+    }
+    assert rows["single"].startswith("| single | 51 | 17 | 32 | 63% [49-75%] | 92% | $0.0925 |")
+    assert rows["firm"].startswith("| firm | 51 | 17 | 35 | 69% [55-80%] | 94% | $0.2197 |")
+    assert "| 1m28s |" in rows["single"] and "| 4m04s |" in rows["firm"]
 
 
 def test_the_roles_table_names_the_roles_the_architecture_defines(text):
