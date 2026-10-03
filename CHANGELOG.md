@@ -10,6 +10,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- The single arm's `result.json` records `final_status`, the status word of its last slice, and the
+  KPI scorecard reads it before the ledger (B70).
 - `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
   pass, cost, time) with a task-level bootstrap interval and a verdict of `shown` or `not shown`;
   refuses results from different task sets.
@@ -152,6 +154,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- A benchmark cell whose run ended on an infrastructure stop (usage limit, login, isolation) is
+  excluded from every count even when its product passed; old results are read the same way (B71).
 - A benchmark cell cut off before its result is refused, naming the folder to move aside, instead
   of being run on top of the cut-off run.
 - A resumed worker slice books only its own tokens, not the session's running total (B63).
