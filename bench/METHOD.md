@@ -127,6 +127,59 @@ start as `unlabelled` and are classified by hand, with the evidence kept in the 
 - **infrastructure**: login, rate limit, plan limit, API error, or a worker that did not start
   isolated. Excluded from every rate and listed separately.
 
+## KPIs
+
+Seven figures, fixed before any new run is analysed: their definitions below are the code's, and a
+change to one is a new version of this note, not a re-read of old results. `python -m boss.bench.kpi`
+prints them, from result files and ledgers only, never from what a model wrote. A **counted** cell is
+one that is not an infrastructure failure; infrastructure failures are left out of every figure and
+counted beside it. A figure the data cannot give is shown as "n/a" or "not recorded", never as 0.
+
+1. **Delivery rate**: delivered cells over counted cells, with a Wilson 95% interval. A cell is
+   delivered when every hidden check passed. It is the one outcome a user pays for.
+2. **False-pass rate**: cells where the system said done and a hidden check failed, over cells where
+   the system said done, with a Wilson interval. The firm said done when every visible check passed
+   and, if the cell had held-out checks, every held-out check passed too. The single arm said done
+   when its last status word was `done`, which only its ledger holds; a cell without one is left
+   out, and with none the figure is "n/a". It says how far to trust "done".
+3. **Cost per delivered task**: the known cost of all counted cells, boss calls included, over the
+   delivered cells; "n/a" when none was delivered. The spend on cells that did not deliver is in it,
+   as it is what the user paid. Events of unknown cost are a separate row, never added as 0.
+4. **Time to delivery**: the median wall-clock seconds of delivered cells, beside the median of all
+   counted cells. A person waits this long.
+5. **Reliability (pass^k)**: tasks delivered on every one of their counted runs over tasks with at
+   least one counted run. k is a task's number of counted runs; the table states it, and when it
+   differs between tasks, lists each k with its task count. A user runs the product again and
+   again; one lucky run is not reliability.
+6. **Investor questions**: questions the investor had to answer, per run, from the run's ledger
+   (rule below), over the counted firm cells whose ledger was found, with the number of cells
+   without one. The single arm asks none: 0 by construction. It is the attention the firm asks for.
+7. **Check quality**: boss checks that the reference solution fails over boss checks, summed over
+   the counted cells where `wrong_checks` was measured, without an interval (the checks of one draft
+   are not independent). "n/a" for the single arm, "not measured" where it was not.
+
+**Counting rule for investor questions.** One question is one decision the run needed from the
+investor, and the count is the number of these ledger events:
+
+- `approved` by the investor: the term sheet, a round's funding, or the fix round;
+- `stopped` by the investor with the reason `term sheet rejected` or `round N not funded`;
+- `ruled` by the investor: a ruling on a disputed check, an unblock note, or a declined fix round;
+- `abandoned` by the boss for the reason `disputed`, `blocked` or `refusal`: the task was set aside
+  after the investor was asked. This is the benchmark's automatic `a`, which is no ruling, so these
+  count as what would have been asked;
+- `resumed` and `topped_up` by the investor: each is a step they had to take to go on.
+
+Not counted: the edit-and-re-check loop at the term sheet (the ledger records none of it, so the
+count is a lower bound), the second prompt of an unblock (the note, one decision), a stop for
+"interrupted before approval", and the boss's own `abandoned` for "already reassigned once". A
+declined fix round is recorded even when `--review-cycles 0` offered none, so it can over-count by
+one there. The same count is the `Investor questions` line of `boss report`.
+
+Columns are one folder, arm, model, budget and set of firm options. Two columns with the same
+label are refused rather than pooled. Where two columns' intervals overlap, no difference between
+them is demonstrated; columns that ran different task sets are not comparable at all. Cells of one
+task are not independent, so an interval over cells is narrower than the evidence supports.
+
 ## What the sample supports
 
 - A pass rate from `n` cells is reported with its Wilson 95% interval. At 70% and 45 cells that is

@@ -6,7 +6,9 @@ import re
 import pytest
 from docs_support import ROOT, captured_parser, original_tasks, read
 
+from boss import kpi as run_kpi
 from boss.bench import drafts as bench_drafts
+from boss.bench import kpi as bench_kpi
 from boss.bench import results, score
 from boss.bench import run as bench_run
 from boss.bench import table as bench_table
@@ -18,6 +20,7 @@ from boss.bench.tasks import (
     validate_task,
 )
 from boss.firm import SLICE_SHARE
+from boss.ledger import Event, EventType
 
 DOC = ROOT / "bench" / "METHOD.md"
 
@@ -101,3 +104,50 @@ def test_the_interval_quoted_for_45_cells_is_about_thirteen_points(text):
     low, high = bench_table.wilson_interval(32, 45)  # 71%
     assert 0.12 <= (high - low) / 2 <= 0.14
     assert "At 70% and 45 cells that is\n  roughly ±13 points" in text
+
+
+def _a_cell() -> results.CellResult:
+    return results.CellResult(
+        task="t",
+        arm="firm",
+        rep=1,
+        set_hash="s",
+        model="m",
+        budget_micros=1,
+        hidden={"a": "passed"},
+        visible_passed=1,
+        visible_total=1,
+        cost_micros=1,
+        boss_micros=0,
+        unknown_cost_events=0,
+        outcome="completed",
+        failure_class=None,
+        duration_s=1.0,
+    )
+
+
+def test_the_kpi_section_names_the_scorecards_seven_rows_in_order(text):
+    body = text.split("## KPIs")[1].split("\n## ")[0]
+    named = re.findall(r"^\d\. \*\*([^*]+)\*\*", body, re.M)
+    card = bench_kpi.render_cards([("c", bench_kpi.kpi_card([_a_cell()]))])
+    rows = re.findall(r"^\| (\d) ([^|]+?) +\|", card, re.M)
+    assert len(named) == len(rows) == 7
+    # the scorecard's row names are shorter than the note's: each row's first word opens the name
+    assert [n.split()[0].lower() for n in named] == [r[1].split()[0].lower() for r in rows]
+    assert "python -m boss.bench.kpi" in body and "fixed before any new run is analysed" in body
+
+
+def test_the_investor_question_rule_lists_the_events_the_code_counts(text):
+    rule = text.split("**Counting rule for investor questions.**")[1].split("\nNot counted")[0]
+    named = set(re.findall(r"`(approved|stopped|ruled|abandoned|resumed|topped_up)`", rule))
+    probes = ({"reason": "term sheet rejected"}, {"reason": "disputed"}, {})
+    counted = {
+        t.value
+        for t in EventType
+        for actor in ("investor", "boss")
+        for data in probes
+        if run_kpi._is_question(Event(run="r", round=0, actor=actor, event=t, data=data))
+    }
+    assert named == counted
+    for reason in ("term sheet rejected", *run_kpi._SET_ASIDE_AFTER_QUESTION):
+        assert f"`{reason}`" in rule
