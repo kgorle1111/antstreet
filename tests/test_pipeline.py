@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -402,6 +403,13 @@ Spend (estimated by the CLI, not a bill)
   worker:w1    $0.0060   tokens in 10 / out 5 / cached 0
   total        $0.0100   tokens in 20 / out 10 / cached 0
 
+KPIs
+  Delivered: yes (1 of 1 checks pass on the product)
+  False pass: not measured (the run had no checks its workers never saw)
+  Cost: $0.0100 (estimated)
+  Time: SPAN
+  Investor questions: 1
+
 Workers
   w1 on t1 (haiku): completed, status done: "wrote rev.py", 1 slice(s)
 
@@ -413,6 +421,7 @@ def test_with_no_roles_the_ledger_and_the_output_are_what_they_always_were(fx, m
     out = fx.fund()
     assert out.code == EXIT_OK
     shown = out.text.replace(fx.run_dir.name, "RUN").replace(str(fx.project.resolve()), "PROJECT")
+    shown = re.sub(r"Time: .*", "Time: SPAN", shown)  # the span is this run's wall clock
     assert shown == TODAYS_OUTPUT
     assert [(e.actor, str(e.event)) for e in fx.events()] == [
         ("boss", "boss_call"),
