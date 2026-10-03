@@ -206,12 +206,15 @@ def test_random_text_never_breaks_a_property(seed):
         check_properties(idea)
 
 
-@pytest.mark.parametrize("text", [".", "`", "1. ", "a. ", "\n", " ", "1.\n", "x.\n\n", "A. "])
-def test_pathological_input_is_linear_not_quadratic(text):
+@pytest.mark.parametrize(
+    "text",
+    [".", "`", "1. ", "a. ", "\n", " ", "1.\n", "x.\n\n", "A. ", "`a. ` ", "`a. B` ", "e.g. "],
+)
+def test_pathological_input_does_not_take_quadratic_time(text):
     started = time.perf_counter()
     with contextlib.suppress(SpecError):
         split(text * (200_000 // len(text)))
-    assert time.perf_counter() - started < 5.0
+    assert time.perf_counter() - started < 2.0
 
 
 def test_the_stored_rule_list_round_trips_and_is_checked_against_the_idea(tmp_path):
@@ -252,3 +255,11 @@ def test_the_digest_changes_when_any_rule_changes():
     a, b = split("1. It adds."), split("1. It adds!")
     assert spec.rules_digest(a) != spec.rules_digest(b)
     assert spec.rules_digest(a) == spec.rules_digest(split("1. It adds."))
+
+
+def test_an_idea_over_the_hard_cap_is_refused_before_any_work_is_done():
+    started = time.perf_counter()
+    with pytest.raises(SpecError, match="split it into runs"):
+        split("`a. ` " * (spec.REFUSED_IDEA_CHARS // 6 + 1))
+    assert time.perf_counter() - started < 0.5
+    assert split("x. " * (spec.REFUSED_IDEA_CHARS // 3)).coarse

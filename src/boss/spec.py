@@ -16,6 +16,7 @@ or calls a model.
 from __future__ import annotations
 
 import ast
+import bisect
 import contextlib
 import hashlib
 import json
@@ -29,7 +30,8 @@ from boss.redact import safe_text
 
 SPLITTER = "v1"
 RULES_FILE = "rules.json"
-MAX_IDEA_CHARS = 20_000
+MAX_IDEA_CHARS = 20_000  # longer ideas are covered per numbered item or paragraph
+REFUSED_IDEA_CHARS = 200_000  # longer ideas are refused: a hostile one must not cost minutes
 MAX_RULES = 40
 MAX_RULES_PER_CHECK = 5
 MAX_ANCHORS = 12  # per rule; a sentence naming more literals is not one rule
@@ -92,7 +94,8 @@ _BULLET = re.compile(r"[ \t]{0,6}(?:[-*+•]|[A-Za-z][.)])[ \t]+")
 _TICKS = re.compile(r"`[^`]{0,200}`")
 _BLANK_LINE = re.compile(r"\n[ \t\r]*\n")
 _BOUNDARY = re.compile(r"(?<=[.!?])\s+")
-_ABBREVIATIONS = frozenset({"e.g.", "i.e.", "vs.", "cf.", "approx.", "etc.", "no.", "fig."})
+_ABBREVIATION = re.compile(r"(?:^|\s)(?:e\.g|i\.e|vs|cf|approx|etc|no|fig)\.$", re.I)
+_ABBREVIATION_REACH = 9  # the longest abbreviation, "approx.", and the space before it
 _SIGNATURE = re.compile(r"[\w.]+\([^()]*\)(?:\s*->\s*.+)?")
 _WORD = re.compile(r"[A-Za-z]{2,}")
 
@@ -111,10 +114,13 @@ _EXAMPLE = re.compile(r"for example|\be\.g\.|such as|\bfor instance", re.I)
 def split(idea: str) -> Split:
     """Cut `idea` into rules. Pure and deterministic; never raises for text of any content.
 
-    Raises SpecError only when even one rule per numbered item or paragraph would be more than
-    MAX_RULES: a request that long is not covered rule by rule, and silently dropping part of it
-    would hide exactly what the layer exists to show.
+    Raises SpecError only when the idea is over REFUSED_IDEA_CHARS, or when even one rule per
+    numbered item or paragraph would be more than MAX_RULES: a request that long is not covered
+    rule by rule, and silently dropping part of it would hide exactly what the layer exists to
+    show.
     """
+    if len(idea) > REFUSED_IDEA_CHARS:
+        raise SpecError(f"the idea is over {REFUSED_IDEA_CHARS} characters; split it into runs")
     blocks, code_lines, numbered = _blocks(idea)
     sentences: list[tuple[int, int, int]] = []  # start, end, group number
     for bstart, bend, group in blocks:
@@ -217,15 +223,16 @@ def _sentences(idea: str, start: int, end: int) -> list[tuple[int, int]]:
     # kn: English sentence punctuation only; add terminators for another script when one appears
     block = idea[start:end]
     ticks = [(m.start(), m.end()) for m in _TICKS.finditer(block)]
+    starts = [a for a, _ in ticks]
     cuts = [0]
     for m in _BOUNDARY.finditer(block):
         nxt = block[m.end() : m.end() + 1]
         if not nxt or nxt.islower():
             continue
-        if any(a < m.start() < b for a, b in ticks):
+        i = bisect.bisect_left(starts, m.start()) - 1  # the last span that starts before the cut
+        if i >= 0 and m.start() < ticks[i][1]:
             continue
-        before = block[: m.start()].rsplit(None, 1)
-        if before and before[-1].lower() in _ABBREVIATIONS:
+        if _ABBREVIATION.search(block, max(0, m.start() - _ABBREVIATION_REACH), m.start()):
             continue
         cuts.append(m.end())
     spans = []
