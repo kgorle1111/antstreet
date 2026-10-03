@@ -114,17 +114,27 @@ with a JSON schema.
 - Decision: A worker runs with `--safe-mode` (`--bare` when an API key is set). On the CLI's
   `system/init` event the tool list must equal `Read`, `Write`, `Edit` plus the structured-output
   tool, there must be no MCP servers, the mode must be `dontAsk`, no hook may have run, and the CLI
-  must be 2.1.277 or newer. Otherwise the process is killed and the run refused.
+  must be 2.1.277 or newer. Otherwise the process is killed and the run refused. The boss's draft
+  call and every role call use the same check: they run with `--output-format stream-json
+  --verbose --permission-mode dontAsk` (the answer is still the final `result` event), and `init`
+  must list only the structured-output tool, with no MCP servers, mode `dontAsk` and no hook
+  event anywhere in the output. The check runs once the process has ended, so it cannot stop a
+  call, but a violation discards the output, books the spend and fails the call as `crashed`.
 - Why: A plain `-p` run inherits the user's setup. Probe P2 showed `--safe-mode` gives no MCP
   servers and no hooks, and still lists plugins (their hooks do not run), so the check counts hook
   events instead of reading the plugin list.
 - Rejected: A plain headless run: it exposed 86 tools, 3 connectors, 60 skills, 238 agents and a
   session-start hook, and cost $0.058 for one word against $0.010 with `--safe-mode`. Trusting the
-  flags without reading `init`.
-- Evidence: `tests/test_worker_isolation.py::test_recorded_unisolated_run_is_refused_for_every_reason`,
+  flags without reading `init`. Keeping `--output-format json` for the boss and roles: its single
+  result (`tests/fixtures/json_boss_schema_call_2.1.285.json`) has no tools, MCP or permission
+  field, so those calls could not be verified.
+- Evidence: `tests/test_boss_isolation.py`, `tests/test_worker_isolation.py::test_recorded_unisolated_run_is_refused_for_every_reason`,
   `tests/test_runner.py::test_unisolated_worker_is_stopped_and_refused`;
   `tests/fixtures/stream_safe_mode_ok_2.1.285.jsonl`. The `--bare` mode has not been run against the
-  real CLI.
+  real CLI. No `init` from a real no-tool call has been recorded: the tool list a boss call is
+  expected to show (only the structured-output tool) and `--permission-mode dontAsk` with
+  `--tools ""` are inferred from the worker recordings, and `tests/boss_init.py` builds the fake
+  `init` the same way.
 
 ### D08: Workers get no shell
 
