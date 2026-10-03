@@ -125,7 +125,9 @@ start as `unlabelled` and are classified by hand, with the evidence kept in the 
 - **model**: the run completed and the model's work failed the checks.
 - **grading**: a hidden check or the reference is wrong or ambiguous.
 - **infrastructure**: login, rate limit, plan limit, API error, or a worker that did not start
-  isolated. Excluded from every rate and listed separately.
+  isolated. Excluded from every rate and listed separately. The exclusion follows the run's
+  outcome, not the product's score: a cell cut off by one of these is excluded even when every
+  hidden check passed, and old results are read the same way.
 
 ## KPIs
 
