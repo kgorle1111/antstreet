@@ -306,7 +306,7 @@ def behaviour(scn: Scenario, key: Any) -> Behaviour:
     )
     outcome = rng.choices(
         list(Outcome),
-        weights=[62, 12, 4, 3, 4, 3, 1, 5, 1, 5],  # in enum order: completed ... api_error
+        weights=[62, 12, 4, 3, 4, 3, 1, 5, 1, 5, 2],  # in enum order: completed ... session_lost
     )[0]
     weights = [46, 12, 16, 8, 3, 8, 7, 10]
     if scn.mode == "cheap":  # nothing but the firing rule and the limits can stop a stalling worker
@@ -1311,8 +1311,14 @@ def check_termination(res: Result) -> None:
         )
     if w.violations:
         _fail(res, f"worker protocol violated: {w.violations}")
+    lost = sum(
+        e.event is EventType.SLICE_END and e.data["outcome"] == Outcome.SESSION_LOST.value
+        for e in res.events
+    )
+    if sum(seconds == 0.0 for seconds in w.sleeps) > lost:  # only a lost session retries at once
+        _fail(res, f"{w.sleeps.count(0.0)} immediate retries for {lost} lost sessions")
     for seconds in w.sleeps:
-        if not 2.5 <= seconds <= 120:
+        if seconds != 0.0 and not 2.5 <= seconds <= 120:
             _fail(res, f"backoff of {seconds}s outside the documented 2.5-120s")
 
 
@@ -1669,6 +1675,8 @@ def check_ledger(res: Result) -> None:
             outcome_of_slice[(worker, d["slice"])] = d["outcome"]
             last_end[worker] = e
             last_end_at[worker] = i
+            if d["outcome"] == Outcome.SESSION_LOST.value:
+                proven.pop(worker, None)  # the CLI no longer has it: the next slice starts anew
             if d["outcome"] not in INFRA:
                 counted[worker] += 1
                 if isinstance(d["session_total_micros"], int) and worker not in proven:
