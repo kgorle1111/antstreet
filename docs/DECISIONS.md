@@ -479,8 +479,9 @@ with a JSON schema.
   `tests/test_cli.py::test_resume_refuses_a_run_whose_checks_changed_and_spends_nothing`,
   `tests/test_firm.py::test_a_paused_round_stays_open_and_a_resume_finishes_it`,
   `tests/test_firm.py::test_a_round_that_closed_below_its_threshold_stays_locked_on_resume`.
-  A ledger whose last line was cut by a hard kill is repaired by `boss resume` and `boss topup`
-  (`ledger.repair_torn_tail`), which say what they removed; any other writer refuses such a file (B64).
+  A ledger whose last line was cut by a hard kill is repaired when `boss resume` and `boss topup`
+  call `ledger.repair_torn_tail` before writing, which tells the investor what was removed;
+  `LedgerWriter.__enter__` refuses such a file via `_end_last_line` (B64).
 
 ### D32: Every attempt that is not a proven resume starts a new session id
 
