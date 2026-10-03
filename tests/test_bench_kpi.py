@@ -143,7 +143,8 @@ def test_2_the_single_arm_claim_is_read_from_the_result_before_the_ledger():
     cells = [
         cell(task="t1", final_status="done", **single),  # no ledger needed
         cell(task="t2", final_status="blocked", hidden=FAIL, **single),
-        cell(task="t3", final_status="blocked", **single),  # the ledger says done: the result wins
+        # the ledger says done: the result wins
+        cell(task="t3", final_status="blocked", hidden=FAIL, **single),
     ]
     card = kpi_card(cells, {("t3", "single", 1): single_end("done")})
     assert (card.said_done, card.false_passes) == (1, 0)
