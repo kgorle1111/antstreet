@@ -276,3 +276,21 @@ def test_a_run_paused_for_the_plan_limit_is_an_infrastructure_outcome():
     assert _outcome(finished) == "completed"
     paused = [*finished, ev(EventType.PAUSED, actor="boss", reason="five_hour window at 96%")]
     assert _outcome(paused) == "usage_limit"
+
+
+# B71: a cell the environment cut off is excluded whatever its product scored.
+def test_runner_records_infrastructure_even_when_the_product_passed(bench, monkeypatch):
+    monkeypatch.setattr("boss.bench.run._outcome", lambda events: "usage_limit")
+    result = bench("single")
+    assert result.passed and result.failure_class == "infrastructure" and not result.counted
+
+
+def test_runner_records_infrastructure_for_a_prefixed_outcome_that_passed(bench, monkeypatch):
+    monkeypatch.setattr("boss.bench.run._outcome", lambda events: "boss:login")
+    result = bench("firm")
+    assert result.passed and result.failure_class == "infrastructure"
+
+
+def test_runner_leaves_a_passing_ordinary_cell_unclassified_and_counted(bench):
+    result = bench("single")
+    assert result.passed and result.failure_class is None and result.counted

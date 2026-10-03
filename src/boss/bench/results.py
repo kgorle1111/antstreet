@@ -6,10 +6,15 @@ import json
 from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
 
+from boss.errors import INFRASTRUCTURE
+
 ARMS = ("single", "firm", "single-review")
 RESULT_FILE = "result.json"
 # Set by the runner when it can tell; everything else is labelled by hand with evidence kept.
 FAILURE_CLASSES = ("product", "model", "grading", "infrastructure", "unlabelled")
+# Outcomes where the environment cut the run off (usage limit, login, isolation), not the product;
+# the runner prefixes them with `boss:` when the boss's own call hit them.
+INFRA_OUTCOMES = frozenset(str(o) for o in INFRASTRUCTURE) | {"isolation"}
 _NONE = type(None)
 # JSON types of a result file, checked on load; bool is refused everywhere (it is an int in Python).
 _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
@@ -78,7 +83,7 @@ class CellResult:
             raise ValueError(f"arm must be one of {ARMS}, got {self.arm!r}")
         if self.failure_class is not None and self.failure_class not in FAILURE_CLASSES:
             raise ValueError(f"unknown failure class {self.failure_class!r}")
-        if self.passed and self.failure_class is not None:
+        if self.passed and self.failure_class not in (None, "infrastructure"):
             raise ValueError("a passing cell cannot have a failure class")
         held = (self.held_out_passed, self.held_out_total)
         if (held[0] is None) != (held[1] is None):
@@ -102,6 +107,16 @@ class CellResult:
     def passed(self) -> bool:
         """A cell passes only when every hidden check passed."""
         return self.hidden_total > 0 and self.hidden_passed == self.hidden_total
+
+    @property
+    def counted(self) -> bool:
+        """False for a cell the environment cut off, whatever its product scored (B71). Derived
+        from `outcome`, not only the stored class: old results of a passing cut-off cell carry
+        `failure_class: null`."""
+        return (
+            self.failure_class != "infrastructure"
+            and self.outcome.removeprefix("boss:") not in INFRA_OUTCOMES
+        )
 
     def save(self, cell_dir: Path) -> None:
         cell_dir.mkdir(parents=True, exist_ok=True)

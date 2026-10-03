@@ -19,11 +19,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from boss import cli
-from boss.bench.results import ARMS, CellResult, cell_dir
+from boss.bench.results import ARMS, INFRA_OUTCOMES, CellResult, cell_dir
 from boss.bench.score import count_wrong_checks
 from boss.bench.tasks import BenchTask, grade_imported, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
-from boss.errors import INFRASTRUCTURE, Outcome
+from boss.errors import Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
 from boss.held_out import MAX_HELD_OUT
@@ -48,7 +48,6 @@ SELF_REVIEW_PROMPT = "self_review_v1.md"
 # is split, the build getting this share and the review the rest.
 BUILD_SHARE = 0.75
 DEFAULT_ARMS = ("single", "firm")  # `single-review` costs a second slice, so it is asked for
-_INFRA_OUTCOMES = {str(o) for o in INFRASTRUCTURE} | {"isolation"}
 
 
 def run_cell(
@@ -106,9 +105,10 @@ def run_cell(
     closed = next((e for e in reversed(events) if e.event is EventType.ROUND_CLOSED), None)
     spend = total(events)
     failure = None
-    if not passed:
-        infra = outcome.removeprefix("boss:") in _INFRA_OUTCOMES
-        failure = "infrastructure" if infra else "unlabelled"
+    if outcome.removeprefix("boss:") in INFRA_OUTCOMES:
+        failure = "infrastructure"  # recorded even when the product passed: the cell is excluded
+    elif not passed:
+        failure = "unlabelled"
     result = CellResult(
         task=task.id,
         arm=arm,
