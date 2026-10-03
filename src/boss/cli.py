@@ -51,8 +51,8 @@ from boss.ledger import (
     EventType,
     LedgerCorruptError,
     LedgerLockedError,
+    LedgerUnverifiedError,
     LedgerWriter,
-    read_events,
     repair_torn_tail,
 )
 from boss.limits import RunLimits
@@ -95,12 +95,16 @@ def main(
     args = _parser().parse_args(argv)
     environ = os.environ if environ is None else environ
     project = Path(args.dir).resolve()
-    if args.command == "fund":
-        return _fund(args, project, environ, ask, say)
-    if args.command == "resume":
-        return _resume(args, project, environ, ask, say)
-    if args.command == "topup":
-        return _topup(args, project, say)
+    try:
+        if args.command == "fund":
+            return _fund(args, project, environ, ask, say)
+        if args.command == "resume":
+            return _resume(args, project, environ, ask, say)
+        if args.command == "topup":
+            return _topup(args, project, say)
+    except (LedgerUnverifiedError, SigningError) as exc:  # a ledger the key does not vouch for
+        say(f"Stopped: {exc}")
+        return EXIT_FAILED
     if args.command == "roles":
         say(render_org(org_chart(registry(), PROFILES, FirmConfig().profile)).rstrip("\n"))
         return EXIT_OK
@@ -301,7 +305,7 @@ def _fund(
     paths = RunPaths(project / RUNS_DIR / run_id)
     paths.root.mkdir(parents=True)
     say(f"Run {run_id}: drafting the term sheet...")
-    with LedgerWriter(paths.ledger) as ledger:
+    with paths.writer() as ledger:
         record = Recorder(ledger, run_id, round=0)
 
         def boss_spend(usage: Usage, outcome: str) -> None:
@@ -392,7 +396,6 @@ def _fund(
                 say=say,
                 notes=plan.notes,
                 held_out_dir=paths.held_out if held else None,
-                key_path=paths.investor_key,
             )
         except SigningError as exc:
             say(f"The approval could not be signed, so nothing was funded: {exc}")
@@ -496,7 +499,7 @@ def _run(
 def _finish(paths: RunPaths, outcome: FirmReport | int, say: Say) -> int:
     if isinstance(outcome, int):
         return outcome
-    text = render_report(build_report(read_events(paths.ledger)))
+    text = render_report(build_report(paths.events()))
     (paths.root / "report.md").write_text(text, encoding="utf-8")
     say(text)
     if outcome.stopped:
@@ -549,7 +552,7 @@ def _resume_run(
         say(f"Run {run} has no usable term sheet ({exc}); it cannot be resumed.")
         return EXIT_FAILED
     try:
-        events = read_events(paths.ledger)
+        events = paths.events()
     except LedgerCorruptError as exc:
         say(f"Run {run} cannot be resumed: its ledger is damaged ({exc}).")
         return EXIT_FAILED
@@ -564,7 +567,7 @@ def _resume_run(
     env, executable = worker_env(environ), environ.get(EXECUTABLE_VAR, CLI)
     # The roles a run was started with are on its ledger; a run without any resumes without any.
     setup = recorded_setup(events) or Setup((), DEFAULT_MODEL, None)
-    with LedgerWriter(paths.ledger) as ledger:
+    with paths.writer() as ledger:
         pipe = Pipeline(setup, project, paths, ledger, run, env, executable, ask, say)
         stops = [e for e in events if e.event is EventType.STOPPED]
         if run_state(events, [t.id for t in sheet.tasks]).stopped:
@@ -588,8 +591,8 @@ def _topup(args: argparse.Namespace, project: Path, say: Say) -> int:
         if torn is not None:
             say(f"The ledger's last line was cut off and has been removed: {torn[:80]!r}")
         sheet = TermSheet.from_json((paths.root / "term_sheet.json").read_text(encoding="utf-8"))
-        with LedgerWriter(paths.ledger) as ledger:  # held from the checks to the write
-            events = read_events(paths.ledger)
+        with paths.writer() as ledger:  # held from the checks to the write
+            events = paths.events()
             refusal = _topup_refusal(sheet, events, args.round, run)
             if refusal is not None:
                 say(refusal)
@@ -597,7 +600,7 @@ def _topup(args: argparse.Namespace, project: Path, say: Say) -> int:
             Recorder(ledger, run, args.round)(
                 "investor", EventType.TOPPED_UP, data={"micros": args.amount}
             )
-            events = read_events(paths.ledger)
+            events = paths.events()
     except LedgerLockedError:
         say(_held_by_another(run, "top up"))
         return EXIT_FAILED
@@ -652,7 +655,7 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
     if run is None:
         return EXIT_FAILED
     try:
-        events = read_events(RunPaths(project / RUNS_DIR / run).ledger)
+        events = RunPaths(project / RUNS_DIR / run).events()
     except LedgerCorruptError as exc:
         say(f"Run {run} cannot be read: its ledger is damaged ({exc}).")
         return EXIT_FAILED

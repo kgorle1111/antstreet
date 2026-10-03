@@ -133,8 +133,9 @@ def test_the_ledger_row_says_resume_repairs_a_torn_tail_and_the_code_does(rows):
         name: min(
             c.lineno
             for c in ast.walk(resume)
-            if isinstance(c, ast.Call) and getattr(c.func, "id", None) == name
+            if isinstance(c, ast.Call)
+            and name in (getattr(c.func, "id", None), getattr(c.func, "attr", None))
         )
-        for name in ("repair_torn_tail", "read_events")
+        for name in ("repair_torn_tail", "events")  # `paths.events()` reads the ledger
     }
-    assert lines["repair_torn_tail"] < lines["read_events"]
+    assert lines["repair_torn_tail"] < lines["events"]

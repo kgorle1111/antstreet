@@ -1062,6 +1062,7 @@ def test_anything_but_a_yes_is_a_no_and_the_findings_stay_in_the_report(fx, answ
     assert sheet["budget_micros"] == 500_000
     assert fx.role_calls("critic")[0].data["verified"] == 1  # on the ledger, so in the report
     [ruling] = fx.events(EventType.RULED)  # the no, so that a resume can tell it from a Ctrl-C
+    assert ruling.data.pop("sig")  # signed, like every investor event (T46)
     assert (ruling.actor, ruling.data) == ("investor", {"ruling": "declined"})
 
 
@@ -1090,6 +1091,7 @@ def test_a_no_after_a_ctrl_c_is_recorded_and_ends_the_review(fx):
     out = fx.run("resume")
     assert out.code == EXIT_OK and asked(out, "Add these") == [] and fx.events() == before
     [ruling] = fx.events(EventType.RULED)
+    assert ruling.data.pop("sig")
     assert (ruling.actor, ruling.round, ruling.data) == ("investor", 0, {"ruling": "declined"})
     assert fx.calls().count("critic") == 2
 
@@ -1856,6 +1858,7 @@ def test_ctrl_c_while_a_call_runs_before_approval_ends_the_run_cleanly(fx, who):
     events = fx.events()
     assert [e.actor for e in events if e.event is EventType.ROLE_CALL] == ["role:product_manager"]
     assert (events[-1].actor, events[-1].event) == ("investor", EventType.STOPPED)
+    assert events[-1].data.pop("sig")
     assert events[-1].data == {"reason": "interrupted before approval"}
     assert fx.events(EventType.APPROVED) == [] and not (fx.run_dir / "workspaces").exists()
     again = fx.run("resume")

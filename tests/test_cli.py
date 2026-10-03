@@ -535,9 +535,11 @@ def test_topup_writes_one_investor_event_for_the_round_in_micros(boss):
     assert "Continue with `boss resume" in output
     events = events_of_run(boss)
     assert events[:-1] == before
-    assert [(e.actor, e.event, e.round, e.data) for e in events[-1:]] == [
-        ("investor", EventType.TOPPED_UP, 1, {"micros": 200_000})
-    ]
+    [last] = events[-1:]
+    assert last.data.pop("sig").startswith("v2:")  # the investor's events are signed (T46)
+    assert (last.actor, last.event, last.round, last.data) == (
+        "investor", EventType.TOPPED_UP, 1, {"micros": 200_000}
+    )  # fmt: skip
 
 
 def test_a_locked_round_stays_locked_on_resume_until_the_investor_tops_it_up(boss):
@@ -582,6 +584,7 @@ def test_topup_lands_on_the_round_it_names(boss):
     code, output = boss("topup", "--round", "2", "--amount", "0.20")
     assert code == EXIT_OK and "Topped up round 2" in output
     last = events_of_run(boss)[-1]
+    assert last.data.pop("sig")
     assert (last.event, last.round, last.data) == (EventType.TOPPED_UP, 2, {"micros": 200_000})
 
 

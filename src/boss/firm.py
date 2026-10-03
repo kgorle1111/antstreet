@@ -31,7 +31,7 @@ from boss.briefs import (
 )
 from boss.errors import INFRASTRUCTURE, Outcome
 from boss.gate import Check, CheckResult, run_gate
-from boss.ledger import Event, EventType, LedgerWriter, read_events
+from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import safe_text
 from boss.roles.builders import builder_system_prompt
 from boss.rule import Decision, FiringPolicy, Verdict, decide
@@ -178,7 +178,7 @@ class _Firm:
     advise: Advise | None  # an opinion to show the investor before a dispute is ruled on
 
     def events(self) -> list[Event]:
-        return read_events(self.paths.ledger)
+        return self.paths.events()
 
     def require_approval(self, events: Sequence[Event]) -> None:
         """The investor's approval must match the checks and the held-out folder on disk now."""
@@ -902,7 +902,7 @@ def run_firm(
     cancel: threading.Event | None = None,
     advise: Advise | None = None,
 ) -> FirmReport:
-    events = read_events(paths.ledger)
+    events = paths.events()
     require_approval(events, sheet, paths.checks, paths.held_out, paths.investor_key)
     try:
         held_out_store.load(paths.held_out)  # approved files are hashed; an unreadable list is not

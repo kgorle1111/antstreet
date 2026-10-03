@@ -16,6 +16,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import IO, Any
 
+from boss import signing
+
 LEDGER_VERSION = 1
 # `prev` of the first line of a chained ledger. Fixed, so a deleted first line is detected too.
 GENESIS = "0" * 64
@@ -59,6 +61,11 @@ class LedgerError(Exception):
 
 class LedgerCorruptError(LedgerError):
     """A line in the ledger file is not a valid event."""
+
+
+class LedgerUnverifiedError(LedgerCorruptError):
+    """The ledger parses and chains, but the investor key does not vouch for it: an investor event
+    that is not signed by this project's key, or an anchor its tail does not match."""
 
 
 class LedgerLockedError(LedgerError):
@@ -151,15 +158,17 @@ def _sha256(line: bytes) -> str:
     return hashlib.sha256(line).hexdigest()
 
 
-def _last_line_hash(path: Path) -> str:
-    """What the next line's `prev` must be: the hash of the file's last line, without its newline.
+def _last_line(path: Path) -> tuple[str, int]:
+    """What the next line's `prev` must be (the hash of the file's last line, without its newline)
+    and how many lines the file has.
 
     Reads the whole file once per open.
     """
     data = Path(path).read_bytes()
     if not data:
-        return GENESIS
-    return _sha256(data.removesuffix(b"\n").rsplit(b"\n", 1)[-1])
+        return GENESIS, 0
+    body = data.removesuffix(b"\n")
+    return _sha256(body.rsplit(b"\n", 1)[-1]), body.count(b"\n") + 1
 
 
 def _end_last_line(fh: IO[str], path: Path) -> None:
@@ -186,12 +195,19 @@ def _end_last_line(fh: IO[str], path: Path) -> None:
 
 
 class LedgerWriter:
-    """Exclusive appender. Use as a context manager; a second writer on the same file is refused."""
+    """Exclusive appender. Use as a context manager; a second writer on the same file is refused.
 
-    def __init__(self, path: Path) -> None:
+    With a `key_path` (`RunPaths.investor_key`) every investor event is signed with the project's
+    investor key as it is appended, and the ledger's tail is anchored after every append; see
+    `signing.py`. Both are done here so no writer can forget them.
+    """
+
+    def __init__(self, path: Path, key_path: Path | None = None) -> None:
         self.path = Path(path)
+        self._key_path = key_path
         self._fh: IO[str] | None = None
         self._prev = GENESIS
+        self._lines = 0
         self._append_lock = threading.Lock()  # parallel slices append from several threads
 
     def __enter__(self) -> LedgerWriter:
@@ -204,7 +220,9 @@ class LedgerWriter:
             raise LedgerLockedError(f"{self.path} is held by another writer") from None
         try:  # under the lock: nobody appends meanwhile
             _end_last_line(fh, self.path)
-            self._prev = _last_line_hash(self.path)
+            self._prev, self._lines = _last_line(self.path)
+            if self._key_path is not None:  # never append to a ledger the key does not vouch for
+                read_events(self.path, self._key_path)
         except BaseException:
             fcntl.flock(fh, fcntl.LOCK_UN)
             fh.close()
@@ -219,15 +237,24 @@ class LedgerWriter:
             self._fh = None
 
     def append(self, event: Event) -> None:
+        """Write one line. An investor event is signed first, so a key that cannot be used raises
+        SigningError before anything is written; for any other event the line is written and
+        durable before the anchor is attempted, so a failing anchor never loses a record."""
         if self._fh is None:
             raise LedgerError("writer is not open; use `with LedgerWriter(path) as w:`")
         with self._append_lock:  # the link, the write and the next link are one step
+            event = replace(event, prev=self._prev)
+            if self._key_path is not None and event.actor == "investor":
+                event = signing.sign(signing.load_or_create_key(self._key_path), event)
             # serialise first so a bad event never leaves a partial line
-            line = replace(event, prev=self._prev).to_json()
+            line = event.to_json()
             self._fh.write(line + "\n")
             self._fh.flush()
             os.fsync(self._fh.fileno())  # money records must survive a crash right after append
             self._prev = _sha256(line.encode("utf-8"))
+            self._lines += 1
+            if self._key_path is not None:
+                signing.write_anchor(self._key_path, self.path.parent.name, self._lines, self._prev)
 
 
 def repair_torn_tail(path: Path) -> str | None:
@@ -265,15 +292,10 @@ def repair_torn_tail(path: Path) -> str | None:
     return None
 
 
-def read_events(path: Path) -> list[Event]:
-    """Parse every line; any invalid line raises with its line number.
-
-    A torn final line raises too (fail closed); `repair_torn_tail` is the one way past it. Once a
-    line carries `prev`, every later line must, and each must be the hash of the line before it
-    (the first chained line follows the genesis value, or the last line written before the chain
-    existed). A ledger with no `prev` at all is an older one and loads as it always did.
-    """
+def _parse(path: Path) -> tuple[list[Event], list[str]]:
+    """Every event, and the hash of every line."""
     events: list[Event] = []
+    hashes: list[str] = []
     expected = GENESIS
     chained = False
     lines = Path(path).read_bytes().split(b"\n")
@@ -293,8 +315,86 @@ def read_events(path: Path) -> list[Event]:
         elif chained:
             raise LedgerCorruptError(f"{path}:{lineno}: no `prev`, after lines that have one")
         expected = _sha256(raw)
+        hashes.append(expected)
         events.append(event)
+    return events, hashes
+
+
+def read_events(path: Path, key_path: Path | None = None) -> list[Event]:
+    """Parse every line; any invalid line raises with its line number.
+
+    A torn final line raises too (fail closed); `repair_torn_tail` is the one way past it. Once a
+    line carries `prev`, every later line must, and each must be the hash of the line before it
+    (the first chained line follows the genesis value, or the last line written before the chain
+    existed). A ledger with no `prev` at all is an older one and loads as it always did.
+
+    With a `key_path` (`RunPaths.investor_key`) the project's investor key must also vouch for what
+    a reader trusts: see `_vouched`. Every reader that acts on an investor event passes it.
+    """
+    if key_path is None:
+        return _parse(path)[0]
+    try:
+        key = signing.load_key(key_path)
+        run = Path(path).parent.name
+        # Anchor first: a writer appends before it re-anchors, so a ledger read after the anchor is
+        # never shorter than it unless lines were dropped.
+        anchor = None if key is None else signing.read_anchor(key_path, key, run)
+        events, hashes = _parse(path)
+        _vouched(path, signing.anchor_path(key_path, run), key, events, hashes, anchor)
+    except signing.SigningError as exc:
+        raise LedgerUnverifiedError(f"{path}: {exc}") from None
     return events
+
+
+def _vouched(
+    path: Path,
+    anchor_file: Path,
+    key: bytes | None,
+    events: list[Event],
+    hashes: list[str],
+    anchor: signing.Anchor | None,
+) -> None:
+    """Raise LedgerUnverifiedError unless the key vouches for the ledger.
+
+    Every investor event must verify; when a key exists an unsigned one is accepted only where the
+    line has no `prev` (older than the chain), and a signed one is refused when the key is gone.
+    The first `anchor.lines` lines must be the ones the anchor recorded; lines past that are not
+    vouched for (a writer appends before it re-anchors, so a crash, or a reader racing it, sees
+    one or more).
+    A missing anchor is accepted only when the ledger holds no v2-signed event: a ledger that has
+    one was written by code that anchors, so its anchor was deleted (an old run, or one not yet
+    approved, never had one).
+    """
+    stamped = False
+    for lineno, e in enumerate(events, start=1):
+        if e.actor != "investor":
+            continue
+        signed = signing.SIG_KEY in e.data
+        stamped = stamped or str(e.data.get(signing.SIG_KEY, "")).startswith(signing.SIG_V2)
+        older = key is None or e.prev is None  # with no key nothing can be checked
+        ok = older if not signed else key is not None and signing.verify(key, e)
+        if not ok:
+            raise LedgerUnverifiedError(
+                f"{path}:{lineno}: investor `{e.event}` event whose signature does not verify "
+                "against .boss/investor.key (forged, edited, moved, or the key was replaced)"
+            )
+    if key is None:
+        if anchor_file.exists():
+            raise LedgerUnverifiedError(f"{path}: has an anchor but the investor key is missing")
+    elif anchor is None:
+        if stamped:
+            raise LedgerUnverifiedError(
+                f"{path}: its anchor {anchor_file} is missing, so dropped lines could not be seen"
+            )
+    elif len(events) < anchor.lines:
+        raise LedgerUnverifiedError(
+            f"{path}: has {len(events)} lines but its anchor records {anchor.lines}: "
+            f"{anchor.lines - len(events)} line(s) were dropped from the end"
+        )
+    elif (hashes[anchor.lines - 1] if anchor.lines else GENESIS) != anchor.last:
+        raise LedgerUnverifiedError(
+            f"{path}: line {anchor.lines} is not the line its anchor records (it was edited)"
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -24,13 +24,12 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from boss import signing
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
 from boss.budget import RESERVE_MICROS
 from boss.errors import Outcome
 from boss.firm import Advise, FirmConfig, FirmReport, config_data
 from boss.gate import Check, CheckStatus, GateError, run_gate
-from boss.ledger import Event, EventType, LedgerWriter, read_events
+from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import safe_text
 from boss.roles import registry
 from boss.roles.advisory import advise_on_dispute, audit_checks, render_advice, render_audit
@@ -602,8 +601,6 @@ class Pipeline:
             "round": n,
             "added_checks": [c.id for c in checks],
         }
-        if (key_path := self.paths.investor_key) is not None:
-            data = signing.signed(signing.load_or_create_key(key_path), self.run_id, n, data)
         Recorder(self.ledger, self.run_id, n)("investor", EventType.APPROVED, data=data)
         approved = dataclasses.replace(amended, approved_by_investor=True)
         (self.paths.root / TERM_SHEET_FILE).write_text(approved.to_json())
@@ -711,7 +708,7 @@ class Pipeline:
             self.say(f"The demo could not be put back in product/: {exc}")
 
     def _events(self) -> list[Event]:
-        return read_events(self.paths.ledger)
+        return self.paths.events()
 
 
 def _calls(events: Sequence[Event], role: str, **match: Any) -> list[Event]:

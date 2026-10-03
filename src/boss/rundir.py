@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from boss.handoff import SKIPPED_NAMES
-from boss.ledger import Event, EventType, LedgerWriter
+from boss.ledger import Event, EventType, LedgerWriter, read_events
 from boss.redact import safe_text
 from boss.runner import SliceRun
 from boss.signing import KEY_FILE
@@ -36,6 +36,14 @@ class RunPaths:
     @property
     def ledger(self) -> Path:
         return self.root / "ledger.jsonl"
+
+    def events(self) -> list[Event]:
+        """The ledger, vouched for by the project's investor key (`ledger.read_events`)."""
+        return read_events(self.ledger, self.investor_key)
+
+    def writer(self) -> LedgerWriter:
+        """The ledger's writer: it signs the investor's events with the project's key."""
+        return LedgerWriter(self.ledger, self.investor_key)
 
     @property
     def checks(self) -> Path:

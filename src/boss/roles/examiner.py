@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from boss import budget, held_out
-from boss.ledger import EventType, LedgerWriter, read_events
+from boss.ledger import EventType, LedgerWriter
 from boss.redact import safe_text
 from boss.roles.advisory import _block
 from boss.roles.base import RoleError, RoleOutputError, RoleSpec, call_role, ledger_fields
@@ -242,7 +242,7 @@ def run_examiner(
     in round 1, so it counts against that round's budget. A run whose examiner failed, was refused
     or was skipped for budget goes on without held-out checks.
     """
-    events = read_events(paths.ledger)
+    events = paths.events()
     if any(e.event is EventType.ROLE_CALL and e.actor == EXAMINER.actor for e in events):
         return bool(held_out.hashes(paths.held_out))  # asked once per run, never twice
     record = Recorder(ledger, run_id, round=1)
