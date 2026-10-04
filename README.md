@@ -106,6 +106,31 @@ a worker did not start isolated; `2` usage error (including a blank idea and a b
 `3` the run ended with checks not passing, including a run stopped early by a limit, a declined
 round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss resume`).
 
+## Limits
+
+What `boss` does not do, in plain words. Each links to its row in the [threat model](docs/THREAT_MODEL.md).
+
+- **A determined adversary can forge a pass.** The gate checks a worker's code by running it, and
+  code written specifically to attack this gate can fake the result from inside the same process
+  ([T12](docs/THREAT_MODEL.md#t12), accepted). Workers are not told to attack it, so ordinary
+  gaming (exit codes, edited reports, patched pytest) fails, but do not run ideas or code from
+  sources you do not trust.
+- **Checks catch only what they test.** A passing gate means the checks passed, not that the
+  product is right. The boss writes the checks and can write a weak or wrong one; you reading them
+  before you approve is the only control ([T14](docs/THREAT_MODEL.md#t14),
+  [T44](docs/THREAT_MODEL.md#t44)).
+- **The sandbox is stronger on macOS than on Linux.** macOS denies every read it was not told
+  to allow. Linux (`bwrap`) leaves most of the disk readable and hides only `/home`, `/root`,
+  `/tmp`, `/run`, the project's `.boss/` and `BOSS_AUDIT_HOME`, and its first real run is CI. With
+  no working tool a check has your full access ([T13](docs/THREAT_MODEL.md#t13),
+  [T39](docs/THREAT_MODEL.md#t39), [docs/SANDBOX.md](docs/SANDBOX.md)).
+- **It trusts one machine and one user.** Anyone who can read your project folder, including
+  `.boss/investor.key`, can forge your approvals; there is no multi-user, hosted or synced use
+  ([T29](docs/THREAT_MODEL.md#t29)).
+- **Python with pytest only.** Checks are pytest files and products are expected to use the
+  standard library. Other languages and test runners are out of scope (the scope
+  paragraph at the top of the [threat model](docs/THREAT_MODEL.md)).
+
 ## What the safeguards are, and are not
 
 - Checks are stored outside the worker's folder and copied fresh for every gate run, so a worker
