@@ -11,11 +11,12 @@ import re
 import subprocess
 import tempfile
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from boss import spec
 from boss.errors import Outcome, classify
 from boss.stream import StreamReader, Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, as_list, validate
@@ -36,11 +37,46 @@ DEFAULT_MODEL = "haiku"
 DEFAULT_CAP_MICROS = 250_000  # $0.25; live drafts cost $0.008-0.060, and a capped draft is wasted
 DEFAULT_TIMEOUT_S = 300.0
 MAX_CHECKS = 8
+MAX_CHECKS_WITH_RULES = 12  # a request has about 20 rules and a check may test several
+RULES_PROMPT = "term_sheet_v3.md"  # used when the checks must cite the idea's rules
 # What init must list for a boss or role call: no tools but the one the CLI adds for --json-schema.
 BOSS_TOOLS = (SCHEMA_TOOL,)
 
 
-def draft_schema(max_tasks: int) -> dict[str, Any]:
+def draft_schema(max_tasks: int, rules: bool = False) -> dict[str, Any]:
+    """The output the boss must give. With `rules` every check also lists the rule ids it tests
+    and the draft may list the rules it leaves untested."""
+    check: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "description": {"type": "string"},
+            "task": {"type": "string"},
+            "code": {"type": "string"},
+        },
+        "required": ["description", "task", "code"],
+    }
+    if rules:
+        check["properties"]["rules"] = {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "maxItems": spec.MAX_RULES_PER_CHECK,
+        }
+        check["required"].append("rules")
+    schema = _draft_schema(max_tasks, check, MAX_CHECKS_WITH_RULES if rules else MAX_CHECKS)
+    if rules:
+        schema["properties"]["untested"] = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"rule": {"type": "string"}, "reason": {"type": "string"}},
+                "required": ["rule", "reason"],
+            },
+        }
+    return schema
+
+
+def _draft_schema(max_tasks: int, check: dict[str, Any], max_checks: int) -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
@@ -58,20 +94,7 @@ def draft_schema(max_tasks: int) -> dict[str, Any]:
                     "required": ["id", "brief", "paths"],
                 },
             },
-            "checks": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": MAX_CHECKS,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "description": {"type": "string"},
-                        "task": {"type": "string"},
-                        "code": {"type": "string"},
-                    },
-                    "required": ["description", "task", "code"],
-                },
-            },
+            "checks": {"type": "array", "minItems": 1, "maxItems": max_checks, "items": check},
         },
         "required": ["tasks", "checks"],
     }
@@ -111,6 +134,7 @@ class InvalidDraftError(BossError):
 class Draft:
     sheet: TermSheet
     usage: Usage
+    untested: Mapping[str, str] = field(default_factory=dict)  # rule id -> the boss's reason
 
 
 def load_prompt(name: str) -> str:
@@ -160,6 +184,7 @@ def draft_term_sheet(
     max_tasks: int = 1,
     thinking_tokens: int | None = None,
     prompt_name: str | None = None,
+    rules: spec.Split | None = None,
 ) -> Draft:
     """Ask the boss for checks and up to max_tasks tasks; write the check files, return a sheet.
 
@@ -170,32 +195,82 @@ def draft_term_sheet(
     every problem) if the draft does not validate. Both carry the call's usage for the ledger.
 
     `prompt_name` picks another system prompt from the prompts folder, to compare prompts offline.
+
+    With `rules` (from `boss.spec.split`) the prompt lists the idea's rules, every check must cite
+    the ids of the rules it tests (they become the check's `criteria`), the boss may list rules it
+    leaves untested, and a draft that cites a rule that does not exist, cites none, or both cites
+    and waives one is invalid. One task only: the rules are covered by one builder's checks.
     """
     if not idea.strip() or idea.lstrip().startswith("-"):
         raise ValueError("idea must be non-empty text that does not start with '-'")
     if max_tasks < 1:
         raise ValueError("max_tasks must be at least 1")
+    if rules is not None and max_tasks != 1:
+        raise ValueError("rules need exactly one task: the checks cover the rules of one builder")
     if prompt_name is None:
-        prompt_name = MULTI_TASK_PROMPT if max_tasks > 1 else TERM_SHEET_PROMPT
+        prompt_name = (
+            RULES_PROMPT
+            if rules is not None
+            else (MULTI_TASK_PROMPT if max_tasks > 1 else TERM_SHEET_PROMPT)
+        )
     prompt = f"Idea:\n{idea.strip()}"
+    if rules is not None:
+        prompt += "\n\nRules of the idea, numbered by code:\n" + rules_text(rules)
     if max_tasks > 1:
         prompt += f"\n\nYou may use at most {max_tasks} tasks."
     argv = build_boss_command(
         prompt=prompt,
         system_prompt=load_prompt(prompt_name),
-        schema=draft_schema(max_tasks),
+        schema=draft_schema(max_tasks, rules=rules is not None),
         model=model,
         cap_micros=cap_micros,
         api_key=uses_api_key(env),
     )
     argv[0] = executable
     output = _call(argv, with_thinking(env, thinking_tokens), timeout_s)
-    sheet = _sheet_from_output(output, idea.strip(), budget_micros, checks_dir, max_tasks)
+    sheet = _sheet_from_output(
+        output, idea.strip(), budget_micros, checks_dir, max_tasks, rules is not None
+    )
+    untested = _untested_from_output(output) if rules is not None else {}
     try:
         validate(sheet, checks_dir)
+        if rules is not None:
+            _refuse_a_bad_claim_structure(rules, sheet, checks_dir, untested)
     except TermSheetError as exc:
         raise InvalidDraftError(exc.problems, output.usage()) from exc
-    return Draft(sheet, output.usage())
+    return Draft(sheet, output.usage(), untested)
+
+
+def rules_text(rules: spec.Split) -> str:
+    """The scored rules as the boss reads them, one line each: id and the idea's own words."""
+    return "\n".join(f"{r.id}: {' '.join(r.text.split())}" for r in rules.scorable)
+
+
+def claims_of(sheet: TermSheet) -> dict[str, tuple[str, ...]]:
+    return {c.id: c.criteria for c in sheet.checks}
+
+
+def _refuse_a_bad_claim_structure(
+    rules: spec.Split, sheet: TermSheet, checks_dir: Path, untested: Mapping[str, str]
+) -> None:
+    sources = {c.id: (checks_dir / c.file).read_text(encoding="utf-8") for c in sheet.checks}
+    report = spec.verify(rules, claims_of(sheet), sources, untested)
+    if report.problems:
+        raise TermSheetError(list(report.problems))
+
+
+def _untested_from_output(output: StreamReader) -> dict[str, str]:
+    raw = ((output.result or {}).get("structured_output") or {}).get("untested", [])
+    if not isinstance(raw, list):
+        raise _unusable("untested is not a list", output)
+    found: dict[str, str] = {}
+    for item in raw:
+        if not isinstance(item, dict) or not all(
+            isinstance(item.get(k), str) for k in ("rule", "reason")
+        ):
+            raise _unusable("an untested entry needs a text rule and reason", output)
+        found.setdefault(item["rule"], item["reason"])
+    return found
 
 
 def _call(argv: list[str], env: Mapping[str, str], timeout_s: float) -> StreamReader:
@@ -241,7 +316,12 @@ def _call(argv: list[str], env: Mapping[str, str], timeout_s: float) -> StreamRe
 
 
 def _sheet_from_output(
-    output: StreamReader, idea: str, budget_micros: int, checks_dir: Path, max_tasks: int
+    output: StreamReader,
+    idea: str,
+    budget_micros: int,
+    checks_dir: Path,
+    max_tasks: int,
+    with_rules: bool = False,
 ) -> TermSheet:
     draft = (output.result or {}).get("structured_output")
     if not isinstance(draft, dict):
@@ -256,24 +336,26 @@ def _sheet_from_output(
     if not 1 <= len(tasks) <= max_tasks:
         wanted = "exactly one task" if max_tasks == 1 else f"1 to {max_tasks} tasks"
         raise _unusable(f"expected {wanted}, got {len(tasks)}", output)
-    if not 1 <= len(raw_checks) <= MAX_CHECKS:
-        raise _unusable(f"expected 1 to {MAX_CHECKS} checks, got {len(raw_checks)}", output)
+    most = MAX_CHECKS_WITH_RULES if with_rules else MAX_CHECKS
+    if not 1 <= len(raw_checks) <= most:
+        raise _unusable(f"expected 1 to {most} checks, got {len(raw_checks)}", output)
 
     checks_dir.mkdir(parents=True, exist_ok=True)
     checks = []
     for n, raw in enumerate(raw_checks, start=1):
         check_id = f"c{n:02d}"  # ids and file names are ours, never the model's
         try:
-            code, spec = (
+            cited = tuple(as_list(raw["rules"])) if with_rules else ()
+            code, check = (
                 raw["code"],
-                CheckSpec(check_id, raw["description"], f"test_{check_id}.py", raw["task"]),
+                CheckSpec(check_id, raw["description"], f"test_{check_id}.py", raw["task"], cited),
             )
-        except (KeyError, TypeError) as exc:
+        except (KeyError, TypeError, ValueError) as exc:
             raise _unusable(f"check {n} is malformed: {exc}", output) from exc
         if not isinstance(code, str):
             raise _unusable(f"check {n} code is not text", output)
-        (checks_dir / spec.file).write_text(code, encoding="utf-8")
-        checks.append(spec)
+        (checks_dir / check.file).write_text(code, encoding="utf-8")
+        checks.append(check)
     # Stage 0: one round holding the whole budget, unlocked only when every check passes.
     rounds = (Round(1, budget_micros, len(checks)),)
     return TermSheet(idea, budget_micros, rounds, tuple(checks), tasks)
