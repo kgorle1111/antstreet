@@ -320,6 +320,9 @@ def _parse(path: Path) -> tuple[list[Event], list[str]]:
     return events, hashes
 
 
+# kn: every open re-reads and re-verifies the whole file, O(n) per CLI call: 79 ms to read and 99 ms
+# to open a writer at 10,000 lines (4 MB), so it only matters past about 25,000 lines per ledger.
+# Upgrade path: cache the parse by (size, mtime, hash of the last line) and still check the anchor.
 def read_events(path: Path, key_path: Path | None = None) -> list[Event]:
     """Parse every line; any invalid line raises with its line number.
 
