@@ -7,13 +7,16 @@ every cent is written to a ledger.
 **Status: working, and not yet better than one agent.** Funding rounds, capped slices, firing,
 one reassignment, disputed checks and your rulings on them, held-out checks no worker sees,
 `boss resume`, `boss topup`, hard run limits and a hash-chained ledger with signed approvals are
-built. Checks run in an OS sandbox on macOS. On the 17-task benchmark (Haiku, $0.40 a task, three
-runs per task) the firm passed 35 of 51 (69%) against 32 of 51 (63%) for a single agent given the
-same idea; the intervals overlap. It cost about 2.4 times as much ($0.2197 against $0.0925 a task)
-and took longer (median 4m04s against 1m28s). See
-[bench/results/2026-09-30-final3/table.md](bench/results/2026-09-30-final3/table.md) and
-[bench/METHOD.md](bench/METHOD.md). The two arms ran on different commits, and code changed after
-those runs is not measured. Raw results are not committed.
+built. Checks run in an OS sandbox on macOS. On the 35-task benchmark (Haiku, $0.40 a task, three
+runs per task, both arms given the same instruction and neither told about hidden checks) the firm
+passed 64 of 105 (61%) against 62 of 105 (59%) for a single agent given the same idea; paired by
+task the difference is not shown. It cost about 2.4 times as much ($0.2149 against $0.0883 a task)
+and took longer (median 3m34s against 1m25s). See
+[bench/results/2026-10-03-blind35/table.md](bench/results/2026-10-03-blind35/table.md) and
+[bench/METHOD.md](bench/METHOD.md). Both arms ran on one commit, and code changed after that run is
+not measured. An earlier run on 17 of these tasks (firm 35 of 51, 69%; single 32 of 51, 63%) is not
+comparable: the single arm was told its work would be judged by hidden checks and the firm's workers
+were not, and the two arms ran on different commits. Raw results are not committed.
 
 ## How it works
 

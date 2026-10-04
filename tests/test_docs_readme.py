@@ -7,7 +7,6 @@ from docs_support import (
     DOCS,
     ROOT,
     expected_default,
-    original_tasks,
     read,
     run_cli,
     section,
@@ -15,6 +14,7 @@ from docs_support import (
 )
 
 from boss import budget, cli, worker
+from boss.bench.tasks import load_tasks
 from boss.ledger import EventType, read_events, total
 
 README = ROOT / "README.md"
@@ -126,25 +126,35 @@ def test_every_command_is_shown_in_the_readme(text):
         assert f"boss {name}" in text, f"the README never shows `boss {name}`"
 
 
-def test_the_benchmark_figures_agree_with_the_final_runs_table_and_the_task_count(text):
+def test_the_benchmark_figures_agree_with_the_blinded_runs_table_and_the_task_count(text):
     status = " ".join(text.split("## How it works")[0].split())
-    table = read(ROOT / "bench" / "results" / "2026-09-30-final3" / "table.md")
-    tasks = len(original_tasks())  # the figures below are from runs on the original task set
-    assert f"{tasks}-task benchmark" in status
-    assert "| single | 51 | 17 | 32 |" in table and "| firm | 51 | 17 | 35 |" in table
-    # Each figure bound to its arm, firm first, so swapping the two arms fails.
-    for phrase in (
-        "firm passed 35 of 51 (69%) against 32 of 51 (63%) for a single agent",
-        "($0.2197 against $0.0925 a task)",
-        "(median 4m04s against 1m28s)",
-    ):
-        assert phrase in status, f"README lost: {phrase}"
+    table = read(ROOT / "bench" / "results" / "2026-10-03-blind35" / "table.md")
     rows = {
         line.split("|")[1].strip(): line for line in table.splitlines() if line.startswith("| ")
     }
-    assert rows["single"].startswith("| single | 51 | 17 | 32 | 63% [49-75%] | 92% | $0.0925 |")
-    assert rows["firm"].startswith("| firm | 51 | 17 | 35 | 69% [55-80%] | 94% | $0.2197 |")
-    assert "| 1m28s |" in rows["single"] and "| 4m04s |" in rows["firm"]
+    ran = [
+        r for r, line in rows.items() if re.fullmatch(r"\| \S+ \| \d/3 \| \d/3 \|", line.strip())
+    ]
+    known = {t.id for t in load_tasks(ROOT / "bench" / "tasks")}
+    assert set(ran) <= known, f"the results table names tasks that do not exist: {set(ran) - known}"
+    assert f"{len(ran)}-task benchmark" in status and len(ran) == 35
+    assert rows["single"].startswith("| single | 105 | 35 | 62 | 59% [49-68%] | 92% | $0.0883 |")
+    assert rows["firm"].startswith("| firm | 105 | 35 | 64 | 61% [51-70%] | 92% | $0.2149 |")
+    assert "| 1m25s |" in rows["single"] and "| 3m34s |" in rows["firm"]
+    # Each figure bound to its arm, firm first, so swapping the two arms fails.
+    for phrase in (
+        "firm passed 64 of 105 (61%) against 62 of 105 (59%) for a single agent",
+        "($0.2149 against $0.0883 a task)",
+        "(median 3m34s against 1m25s)",
+    ):
+        assert phrase in status, f"README lost: {phrase}"
+
+
+def test_the_unblinded_figures_are_only_stated_as_not_comparable(text):
+    # The 17-task run gave the single arm an instruction about hidden checks the firm did not get.
+    status = " ".join(text.split("## How it works")[0].split())
+    assert "(firm 35 of 51, 69%; single 32 of 51, 63%) is not comparable" in status
+    assert text.count("35 of 51") == 1 and text.count("69%") == 1
 
 
 def test_the_roles_table_names_the_roles_the_architecture_defines(text):
