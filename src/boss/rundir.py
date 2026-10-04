@@ -67,6 +67,10 @@ class RunPaths:
     def log(self, worker: str) -> Path:
         return self.root / "logs" / f"{worker}.jsonl"
 
+    def prompt(self, worker: str, number: int) -> Path:
+        """The exact text a worker's slice was given (`context.write_prompt`)."""
+        return self.root / "logs" / f"{worker}-s{number}.prompt.txt"
+
 
 @dataclass(frozen=True, slots=True)
 class Recorder:
