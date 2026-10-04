@@ -10,11 +10,12 @@ before the sheet can be approved and again before a worker is hired. A worker is
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from boss import budget
+from boss.ledger import Event, EventType
 from boss.redact import safe_text
 from boss.termsheet import Dispatch, TermSheet
 from boss.worker import usd
@@ -429,3 +430,40 @@ def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
         f" ({view.stall_slices} slices, then one at the new price){over}"
     )
     return lines
+
+
+# --- reading the ledger -----------------------------------------------------------------------
+
+
+def recorded_hire(events: Sequence[Event], worker: str) -> tuple[str, Hire | None]:
+    """The model a worker was hired on and its dispatch record, as the ledger holds them. A resume
+    runs the worker on this model, whatever the run's config says now."""
+    for e in events:
+        if e.event is EventType.HIRED and e.data.get("worker") == worker:
+            raw = e.data.get("dispatch")
+            hire = None
+            if isinstance(raw, dict) and raw.get("tier") in TIERS and raw.get("effort") in EFFORTS:
+                hire = Hire(
+                    raw["tier"],
+                    raw["effort"],
+                    str(raw.get("why", "")),
+                    raw.get("from_tier"),
+                    raw.get("refused"),
+                )
+            return str(e.data.get("model", "")), hire
+    raise KeyError(worker)
+
+
+def reachable_reserve(sheet: TermSheet, max_tier: str) -> int:
+    """The largest reserve among the tiers any task of the sheet can be run on, a step up
+    included: what the run's spend ceiling must allow one overshoot of."""
+    reserves = [budget.RESERVE_MICROS]
+    for task in sheet.tasks:
+        d = task.dispatch
+        if d is None or d.tier not in TIERS:
+            continue
+        top = rank(d.tier)
+        if d.escalate_to in TIERS:
+            top = max(top, min(rank(d.escalate_to), rank(max_tier)))
+        reserves += [budget.reserve_for(t) for t in TIERS[rank(d.tier) : top + 1]]
+    return max(reserves)

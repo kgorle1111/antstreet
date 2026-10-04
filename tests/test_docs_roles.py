@@ -293,8 +293,9 @@ def test_what_is_not_built_is_still_not_built(text):
     body = section(text, "Not built")
     live = read(ROOT / "src" / "boss" / "firm.py")
     # A profile is chosen once for the whole run, by the investor: the loop uses it when set.
-    assert "return builder_system_prompt(self.config.profile, BUILDER_PROMPT)" in live
-    assert "if self.config.profile is None:" in live and FirmConfig().profile is None
+    assert "return builder_system_prompt(profile, BUILDER_PROMPT)" in live
+    assert "if profile is None:" in live and FirmConfig().profile is None
+    assert "profile = d.profile if d is not None else self.config.profile" in live
     assert '"profile": self.config.profile' in live  # every `hired` event names it
     # Nothing assigns a profile to a task: a task has no such field, the boss's draft has none.
     assert "profile" not in {f.name for f in dataclasses.fields(Task)}
