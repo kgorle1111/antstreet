@@ -189,6 +189,18 @@ def examiner_events(tmp_path):
     return read_events(paths.ledger)
 
 
+def audit_events(tmp_path):
+    """`boss audit plan` and `boss audit check` against a fake boss and a small git repository:
+    the boss's audit draft, the investor's approval and the gate's signed verdict."""
+    from audit_support import RIGHT_SLUG, Audit, branch, later
+
+    audit = Audit(tmp_path)
+    assert audit.plan()[0] == 0
+    branch(audit.repo, "good", {"slug.py": RIGHT_SLUG}, later())
+    assert audit.check(audit.run_id(), "good", "--claim", "done")[0] == 0
+    return read_events(audit.store / ".boss" / "runs" / audit.run_id() / "ledger.jsonl")
+
+
 @pytest.fixture(scope="module")
 def produced(tmp_path_factory) -> dict[str, list[Event]]:
     """Every event the code writes across a set of runs that reaches every writer, by type."""
@@ -235,6 +247,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
     runs.append(cli_resumed_events(where("cli-resumed")))
     runs.append(cli_topped_up_events(where("cli-topped-up")))
+    runs.append(audit_events(where("audit")))
     runs.append(roles_events(where("cli-roles")))
     runs.append(roles_events(where("cli-declined"), fix="n"))
     found: dict[str, list[Event]] = defaultdict(list)
@@ -285,7 +298,7 @@ def examples_of(body: str) -> list[Event]:
     return [Event.from_json(block) for block in blocks]
 
 
-NO_WRITER = {"denied", "audited"}
+NO_WRITER = {"denied"}
 
 
 def test_every_event_type_has_a_section_and_no_section_names_another_type(text):

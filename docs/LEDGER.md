@@ -7,8 +7,8 @@ read state from it and from nothing else.
 `tests/test_docs_ledger.py` runs the code (a scripted firm with the real gate, and the real CLI
 against a fake `claude`) and fails if it writes an event type, an actor, a `data` key or a value
 type that this file does not document. The example line under each event was produced by that
-run, except for the types that no code writes (`denied`, `audited`): their examples are built with the
-code that would write them.
+run, except for the type that no code writes (`denied`): its example is built with the code that
+would write it.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 
@@ -53,12 +53,13 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   tokens, billing, time, `data` without `sig`, and `prev`). So an investor event cannot be edited,
   moved to another run or place, replayed, or kept when any line before it is edited, even by a
   forger who recomputes the chain. The events are `approved`, `ruled`, `resumed`, `topped_up` and
-  the investor's `stopped`; no other actor's event is signed. An approval written by the first
+  the investor's `stopped`, and the gate's `audited` verdict (`ledger.is_signed_kind`: the audit
+  verdict is a record other people are shown); no other event is signed. An approval written by the first
   version of signing has a bare hex `sig` over its run, round and data; it still verifies, on an
   `approved` event only.
 - `read_events(path, key_path)` with the project's key path (`RunPaths.events`, which every
   command, the loop and the pipeline use) refuses the ledger with `LedgerUnverifiedError` (a
-  `LedgerCorruptError`) naming the first line when an investor event does not verify. When the key
+  `LedgerCorruptError`) naming the first line when an investor or `audited` event does not verify. When the key
   exists, an unsigned investor event is accepted only on a line without `prev` (older than the
   chain); a signed one is refused when the key is missing. With no key file, nothing can be
   verified and an unsigned event is accepted as it always was. The readers that act on an investor
@@ -113,14 +114,14 @@ otherwise.
 
 - Actor: `boss`
 - Round: 0
-- Written by `cli.py` after the boss's drafting call, whether the call worked, failed, timed out or
-  returned a draft that does not validate. It is the only event that comes from a model call by
-  the boss.
+- Written by `cli.py` after the boss's drafting call, and by `audit.py` after the audit's, whether
+  the call worked, failed, timed out or returned a draft that does not validate. It is the only
+  event that comes from a model call by the boss.
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `purpose` | str | Always `term_sheet`. |
+| `purpose` | str | `term_sheet` for `boss fund`, `audit_checks` for `boss audit plan`. |
 | `model` | str | The boss model, from `--boss-model`. |
 | `thinking_tokens` | int or null | The thinking budget from `--boss-thinking`; `null` means the CLI's own default. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose draft was unusable or invalid. |
@@ -738,24 +739,36 @@ Example:
 ### `audited`
 
 - Actor: `gate`
-- No code writes this event yet: `boss audit check` will. The type and the rule that only the
-  gate's `audited` events count (`ledger.audited`) exist so the writer cannot be added without
-  them. The keys below are the intended shape and are fixed when the writer lands.
 - Round: 0. Cost: 0. It records a verdict on a change made outside this run; it is not a spend.
+- Written by `audit_check.check` (`boss audit check`), once everything it verifies has held: the
+  ledger, the signed approval, every check file, and that the head descends from the base. One run
+  has one per audited head; a later one for the same head and agent replaces an earlier one in
+  `boss audit report`.
+- Signed like an investor event: `sig` is `v2:` and the HMAC-SHA-256 of the line with the audit
+  store's key. A reader that passes the key path (`RunPaths.events`, which `check` and `report` use)
+  refuses a ledger holding an `audited` line that does not verify, whoever the actor says it is.
+  `ledger.audited` returns only the ones whose actor is `gate`.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `base` | str | The commit the sealed checks were written against, as a full hash. |
+| `base` | str | The commit the checks were sealed against, as a full hash. |
 | `head` | str | The commit that was audited, as a full hash. |
+| `seal` | str | SHA-256 over the approved term sheet, every check file and every held-out file, as `boss audit plan` printed it. |
 | `verdict` | str | `refuted`, `unrefuted`, `inconclusive` or `no_claim`. |
-| `claim` | str | `done` or `none`: what the audited agent said about its own work. |
-| `claim_mode` | str | `pre_registered` (every commit is after the seal) or `post_hoc` (computed from commit dates, which the committer chose). |
-| `counted` | int | How many sealed checks failed at `base`, so they discriminate and are counted. |
-| `failed` | list | The ids of the counted checks that failed on `head`. |
+| `claim` | str | `done` or `none`: what the audited agent said about its own work, as `--claim` gave it. |
+| `claim_mode` | str | `pre_registered` (at least one commit, every one dated after the seal) or `post_hoc`. The dates are the committer's own and can be forged. |
+| `counted` | int | How many sealed checks failed on `base`: the ones a verdict rests on. |
+| `failed` | list | The ids of the counted checks that failed on `head`. At most 50. |
+| `blocked` | list | The ids of counted checks that could not be run on `head` (timeout, or a module that is not installed). At most 50. |
+| `leaks` | list | Where the change quotes the sealed checks, as `<check id> test name` or `<check id> string literal`. At most 50. |
+| `tests_deleted` | list | Test files of the base's `tests/` folder that `head` does not have. Not part of the verdict. At most 50. |
+| `regressions` | list | Tests of the base that pass on the base and fail when run over `head`'s code. Not part of the verdict. At most 50. |
 | `agent` | str or null | A label the investor gave the audited agent, if any. |
+| `claim_text_sha256` | str or null | SHA-256 of the file given as `--claim-text`, if any. The text itself is not stored. |
+| `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the audit store's investor key (see Signatures above). |
 
-Example, built with the `Event` class:
+Example, as `boss audit check` wrote it:
 
 ```json
-{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"agent": null, "base": "0000000000000000000000000000000000000001", "claim": "done", "claim_mode": "post_hoc", "counted": 3, "failed": ["c02"], "head": "0000000000000000000000000000000000000002", "verdict": "refuted"}, "event": "audited", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-03T09:00:00+00:00", "v": 1}
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"agent": null, "base": "450109a66507cb2312db91fceb657edcd4d879cf", "blocked": [], "claim": "done", "claim_mode": "pre_registered", "claim_text_sha256": null, "counted": 2, "failed": [], "head": "ac5fface67ba4175f03134261b26d1e3c1b55c54", "leaks": [], "regressions": [], "seal": "ed5a83020bc8e7c814acc2b64bf69be69db78fdb731235283f725efb8c6e24e2", "sig": "v2:11f3f5c7765a68856569245a2258e4c9a63fecd56ad831dc35c813371b91a782", "tests_deleted": [], "verdict": "unrefuted"}, "event": "audited", "prev": "08f885e9ad713d74176d4dc5b9dffb45510c7b440dae6ec7c2ece46984f894f8", "round": 0, "run": "20261004T033508Z-051c5a", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-04T03:35:15.210999+00:00", "v": 1}
 ```
