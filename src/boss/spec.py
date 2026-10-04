@@ -21,7 +21,7 @@ import contextlib
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -41,6 +41,12 @@ _SHOWN_CHARS = 160
 KINDS = ("behaviour", "edge", "error", "format", "example", "context")
 STATES = ("uncovered", "waived", "anchor_missing", "unanchored", "anchored", "context")
 ANCHOR_TYPES = ("literal", "enum_item", "exception", "type", "magnitude", "non_ascii")
+# The types that decide a rule's state and the headline. In the offline evaluation of 17 tasks a
+# missing literal or list item was no better a sign of a real omission than chance (5% and 28% of
+# flags right against a 22% base rate); these four were (71%, 100%, 100%, 29% on few flags) and
+# one of them, a missing non-ASCII string, was the most common real omission. The others are still
+# computed and shown, apart (docs/DECISIONS.md D38).
+HEADLINE_TYPES = frozenset({"non_ascii", "exception", "magnitude", "type"})
 
 
 class SpecError(ValueError):
@@ -511,14 +517,18 @@ def missing(anchors: Iterable[Anchor], found: Sequence[Facts]) -> tuple[Anchor, 
     return tuple(a for a in anchors if not present(a, found))
 
 
-def draft_gaps(split_: Split, sources: Mapping[str, str]) -> dict[str, tuple[Anchor, ...]]:
+def draft_gaps(
+    split_: Split, sources: Mapping[str, str], types: Collection[str] | None = None
+) -> dict[str, tuple[Anchor, ...]]:
     """For each scored rule with anchors, those no check of the draft contains. This is the
     union form, for a draft written without claims: a rule is listed when nothing in the whole
-    draft could be testing it."""
+    draft could be testing it. All anchor types by default, which is what the offline evaluation
+    measured; pass `types` (e.g. HEADLINE_TYPES) to look at some."""
     parsed = [f for f in (facts(s) for s in sources.values()) if f is not None]
     gaps = {}
     for rule in split_.scorable:
-        if rule.anchors and (lost := missing(rule.anchors, parsed)):
+        wanted = [a for a in rule.anchors if types is None or a.type in types]
+        if wanted and (lost := missing(wanted, parsed)):
             gaps[rule.id] = lost
     return gaps
 
@@ -531,7 +541,8 @@ class RuleStatus:
     rule: str
     state: str  # one of STATES
     checks: tuple[str, ...]  # checks claiming the rule
-    missing: tuple[Anchor, ...]  # anchors no claiming check contains
+    missing: tuple[Anchor, ...]  # headline anchors no claiming check contains
+    unscored: tuple[Anchor, ...] = ()  # literal and list-item anchors no claiming check contains
 
 
 @dataclass(frozen=True, slots=True)
@@ -554,6 +565,10 @@ class SpecReport:
         return sum(self.count(s) for s in ("anchored", "unanchored", "anchor_missing"))
 
     @property
+    def with_unscored_missing(self) -> int:
+        return sum(1 for s in self.statuses if s.unscored)
+
+    @property
     def headline(self) -> float:
         """Anchored rules over scorable rules. Unanchored, waived and uncovered rules count
         against it: an unverifiable claim is not verified."""
@@ -566,6 +581,7 @@ class SpecReport:
             "anchored": self.count("anchored"),
             "unanchored": self.count("unanchored"),
             "anchor_missing": self.count("anchor_missing"),
+            "unscored_missing": self.with_unscored_missing,
             "uncovered": [s.rule for s in self.statuses if s.state == "uncovered"],
             "waived": [s.rule for s in self.statuses if s.state == "waived"],
         }
@@ -622,9 +638,11 @@ def verify(
                     if parsed[c] is None:
                         unreadable.append(c)
             found = [f for c in checks if (f := parsed[c]) is not None]
-            lost = missing(rule.anchors, found)
-            state = "anchor_missing" if lost else ("anchored" if rule.anchors else "unanchored")
-            statuses.append(RuleStatus(rule.id, state, checks, lost))
+            counted = [a for a in rule.anchors if a.type in HEADLINE_TYPES]
+            others = [a for a in rule.anchors if a.type not in HEADLINE_TYPES]
+            lost = missing(counted, found)
+            state = "anchor_missing" if lost else ("anchored" if counted else "unanchored")
+            statuses.append(RuleStatus(rule.id, state, checks, lost, missing(others, found)))
     warnings = []
     count_waived = sum(1 for s in statuses if s.state == "waived")
     scorable = len(split_.scorable)
@@ -679,6 +697,15 @@ def render_report(report: SpecReport, reasons: Mapping[str, str] | None = None) 
     section("WAIVED BY THE BOSS (model text, not verified):", "waived")
     section("COVERED, NOTHING TO VERIFY (no anchor in the rule):", "unanchored")
     section("COVERED, ANCHORS PRESENT (presence only, not proof):", "anchored")
+    shown = [s for s in report.statuses if s.unscored]
+    if shown:
+        lines.append(
+            "LITERALS THE CHECKS DO NOT CONTAIN (shown, not scored: in the offline evaluation a "
+            "missing literal was no better a sign of an omission than chance):"
+        )
+        for s in shown:
+            lost = ", ".join(_describe(a) for a in s.unscored)
+            lines.append(f"  {s.rule} -> {','.join(s.checks)}: {lost}")
     if report.unreadable:
         lines.append(f"UNREADABLE CHECKS (do not parse): {', '.join(report.unreadable)}")
     return "\n".join(lines)

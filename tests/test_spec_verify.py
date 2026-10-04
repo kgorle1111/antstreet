@@ -213,3 +213,54 @@ def test_the_view_of_an_empty_idea_does_not_divide_by_zero():
     report = verify(split(""), {}, {})
     assert report.headline == 0
     assert "rules 0" in render_report(report)
+
+
+LITERAL_IDEA = (
+    "1. `79927398713` is valid and `79927398710` is not.\n2. Bad text raises `ValueError`."
+)
+L = split(LITERAL_IDEA)
+RAISES = "import pytest\ndef test_a():\n    with pytest.raises(ValueError):\n        f('x')\n"
+TWO_CASES = "def test_b():\n    assert f('79927398713') and not f('79927398710')\n"
+ONE_ABSENT = "def test_b():\n    assert f('1234')\n"
+
+
+def test_a_missing_literal_does_not_decide_the_state_or_the_headline_but_is_still_reported():
+    assert [a.type for a in L.rules[0].anchors] == ["literal", "literal"]
+    report = verify(L, {"c01": ["R01"], "c02": ["R02"]}, {"c01": ONE_ABSENT, "c02": RAISES})
+    first = report.statuses[0]
+    assert first.state == "unanchored", "no headline anchor, so nothing to verify"
+    assert [a.value for a in first.unscored] == ["79927398713", "79927398710"]
+    assert report.statuses[1].state == "anchored"
+    assert report.headline == 1 / 2 and report.claimed == 2
+    assert report.to_summary()["unscored_missing"] == 1
+
+
+def test_present_literals_leave_nothing_to_report_and_a_literal_never_hides_a_real_gap():
+    ok = verify(L, {"c01": ["R01"], "c02": ["R02"]}, {"c01": TWO_CASES, "c02": RAISES})
+    assert ok.with_unscored_missing == 0
+    mixed = split("1. Digits such as `٣` raise `ValueError`, like `12x`.")
+    report = verify(mixed, {"c01": ["R01"]}, {"c01": "def test_a():\n    assert f('12x')\n"})
+    state = report.statuses[0]
+    assert state.state == "anchor_missing", "the headline anchors (ValueError) are absent"
+    assert [a.type for a in state.missing] == ["exception"]
+    assert [a.value for a in state.unscored] == ["٣"]
+
+
+def test_the_view_shows_unscored_literals_apart_and_says_why_they_are_not_scored():
+    report = verify(L, {"c01": ["R01"], "c02": ["R02"]}, {"c01": ONE_ABSENT, "c02": RAISES})
+    view = render_report(report)
+    assert "LITERALS THE CHECKS DO NOT CONTAIN (shown, not scored" in view
+    assert "R01 -> c01: no 79927398713, no 79927398710" in view
+    assert view.index("COVERED, ANCHORS PRESENT") < view.index("LITERALS THE CHECKS")
+    assert "LITERALS THE CHECKS" not in render_report(verify(L, {}, {}))
+
+
+def test_the_union_form_looks_at_every_type_unless_told_to_look_at_some():
+    sources = {"c01": ONE_ABSENT}
+    assert sorted(draft_gaps(L, sources)) == ["R01", "R02"]
+    assert sorted(draft_gaps(L, sources, spec.HEADLINE_TYPES)) == ["R02"]
+
+
+def test_only_the_four_types_with_evidence_are_in_the_headline():
+    assert set(spec.HEADLINE_TYPES) == {"non_ascii", "exception", "magnitude", "type"}
+    assert set(spec.ANCHOR_TYPES) > set(spec.HEADLINE_TYPES)

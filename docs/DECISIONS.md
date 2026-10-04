@@ -617,3 +617,27 @@ with a JSON schema.
   `tests/test_stream_messages.py::test_summed_messages_equal_the_recorded_final_totals`. Reopen when
   the CLI streams a per-message cost or the final output count of each response (check
   `--include-partial-messages` first: it was not probed).
+
+### D38: The rule layer's headline counts four anchor types; literals and list items are shown apart
+
+- Status: `under evaluation`
+- Decision: `boss.spec` extracts six kinds of anchor from a rule (a literal, a list item, an exception
+  name, a type, a size, "non-ASCII"). A rule's state and the headline score (anchored rules over
+  scored rules) use only the last four. A missing literal or list item is shown in its own section of
+  the approval view, labelled as not scored.
+- Why: The offline evaluation on 17 tasks and 169 saved drafts (15 known omissions, 61 of 273 scored
+  rules belonging to a failing hidden check, a 22% base rate) found a missing `non_ascii` anchor right
+  in 15 of 21 flags (71%), `exception` 5 of 5, `magnitude` 1 of 1, `type` 2 of 7 (29%), and a missing
+  list item in 11 of 39 (28%, the base rate) and a literal in 1 of 22 (5%). Flagging as many rules at
+  random would have hit 11.0 of the 15 cells, the verifier 12. Scoring the two noisy types would
+  count a rule as uncovered on evidence no better than chance. Pre-registered O1 and O4 failed (94.9%
+  against 95%; a 4.5-point kill-rate gap against 25 on hand mutants that are killed 88% of the time
+  whatever the draft holds), so this is a reduction, not a pass.
+- Rejected: Counting every anchor, as pre-registered: the evaluation's own numbers say two types are
+  noise. Dropping literals and list items altogether: they are cheap to show and a person can judge
+  them; only the score is withheld. Re-tuning the extraction on the same 17 tasks: the tasks are used
+  up, and a held-out set of 18 more is being labelled separately.
+- Evidence: `bench/results/2026-10-03-spec-offline/README.md`,
+  `tests/test_spec_verify.py::test_a_missing_literal_does_not_decide_the_state_or_the_headline_but_is_still_reported`,
+  `tests/test_spec_verify.py::test_only_the_four_types_with_evidence_are_in_the_headline`. Reopen
+  when the 18 held-out tasks are labelled and the same measurements are run on them.
