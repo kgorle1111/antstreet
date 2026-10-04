@@ -10,27 +10,12 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
-- `boss audit plan --repo R --request FILE --base REF [--held-out N]`: seals checks for a change
-  request before any change is looked at. The boss writes them from the request and the base
-  commit's names and signatures alone, each is run on the base and shown to you with what it did
-  there, and you approve them with a signature. They are kept in `~/.boss-audit` (or
-  `$BOSS_AUDIT_HOME`), never in the repository, and the command refuses a dirty tree. It prints the
-  run id and a seal hash.
-- `boss audit check RUN --head REF [--claim done|none] [--claim-text FILE] [--agent LABEL]`: runs
-  the sealed checks on a commit and records a signed verdict: `refuted` (claimed done, and a check
-  that fails on the base also fails on the head), `unrefuted` (not proof), `inconclusive` or
-  `no_claim`. It refuses a head that does not descend from the base, an edited check, a forged
-  approval and a ledger or key that does not verify. A claim is `pre_registered` only when every
-  commit is dated after the seal (dates can be forged), else `post_hoc`. A change that quotes the
-  sealed checks is flagged, and the base's own tests run over the head's code to show tests it
-  deleted or broke.
-- `boss audit report [RUN | --all] [--agent LABEL]`: verdicts per run, and the false-pass rate (refuted
-  of the claims judged) with a Wilson interval, per agent and claim mode. Pre-registered and post-hoc
-  results are never added together, and the rate is a floor.
-- Ledger: the new `audited` event, signed with the project's key like an investor's event;
-  `boss_call` has `purpose` `audit_checks`.
-- Security: threats T51 to T54 (the audit store, checks fitted to the change, a leak in the diff, a
-  forged seal) and the matching tests.
+- `boss audit plan --repo R --request FILE --base REF [--held-out N]`: seals checks for a change request from the base commit's names alone, kept in `~/.boss-audit` and never in the repo; you approve them, signed; it prints a run id and a seal.
+- `boss audit check RUN --head REF`: runs the sealed checks on a commit and signs a verdict: `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`. It refuses a head off the base, an edited check and a forged approval.
+- `boss audit check` calls a claim `pre_registered` only when every commit is dated after the seal (dates can be forged), flags a change that quotes the checks, and lists base tests the head deleted or broke.
+- `boss audit report [RUN | --all] [--agent L]`: verdicts, and the false-pass rate with a Wilson interval per agent and claim mode. Pre-registered and post-hoc results are never added together; the rate is a floor.
+- Ledger: the `audited` event, signed with the project's key like an investor's event, and `purpose` `audit_checks` on `boss_call`.
+- Security: threats T51 to T54 (the audit store read by the agent, checks fitted to the change, a leak in the diff, a forged seal).
 - `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
   pass, cost, time) with a task-level bootstrap interval and a verdict of `shown` or `not shown`;
   refuses results from different task sets.
