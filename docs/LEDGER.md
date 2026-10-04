@@ -135,7 +135,7 @@ Example:
 
 ### `role_call`
 
-- Actor: `role:<name>`; one of `role:product_manager`, `role:user_agent`, `role:system_designer`, `role:tester`, `role:check_auditor`, `role:consultant`, `role:critic`, `role:demo_writer`, `role:judge`, `role:examiner`
+- Actor: `role:<name>`; one of `role:product_manager`, `role:user_agent`, `role:system_designer`, `role:tester`, `role:check_auditor`, `role:spec_mapper`, `role:consultant`, `role:critic`, `role:demo_writer`, `role:judge`, `role:examiner`
 - Two writers, both building the cost, tokens, billing and first keys with `ledger_fields` from
   `roles/base.py`, which books the spend whether the call worked or not:
   - `Pipeline._book` in `pipeline.py`, for every call a role chosen with `--roles` makes, whether

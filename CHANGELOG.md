@@ -10,8 +10,12 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
-- `boss.spec` (not yet in `boss fund`): splits a request into rules in code and reports which rules a
-  draft's checks cover, and whether the covering checks contain what the rule names. No model call.
+- `boss fund --spec` (off by default): the boss's checks cite the rules of your idea, and you see
+  which rules no check covers before you approve. The rule list and a coverage summary are in your
+  signed approval. One task; not with the staged draft.
+- `boss fund --roles spec_mapper` (with `--spec`): a second reader, blind to the boss's claims, says
+  which rules each check asserts; the note lists citations it could not confirm.
+- `term_sheet_v3.md`, the prompt `--spec` uses; the check ceiling is 12 with rules, 8 without.
 - A check may cite a rule of the request (`R07`) in its `criteria`, beside a story criterion.
 - `python -m boss.bench.spec_eval`: the offline evaluation of that layer on saved drafts, with hand labels
   in `bench/spec_truth/` and the criteria it is judged by fixed in `bench/spec_truth/CRITERIA.md`.

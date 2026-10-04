@@ -64,6 +64,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `roles/delivery.py` | The demo writer: a demo script and a usage note for a finished product. | Show output the code did not capture from a gated run; accept a script that imports more than the standard library and the product. |
 | `roles/engineering.py` | The system designer and the tester, the staged draft (`draft_staged`) that chains them, and the term sheet assembled from their output. | Take ids or file names from the model; skip `termsheet.validate`. |
 | `roles/examiner.py` | The examiner: held-out checks written from the idea and the public names alone, its gate, and `run_examiner` (booking the call, storing the checks, telling the investor when none were kept). | Show it a visible check's body, description or file name; keep a check whose quote is not a fragment of the idea or that passes on an empty workspace. |
+| `roles/spec_mapper.py` | The spec mapper: one call that says which rules each check asserts, from the rules and the check code alone, and the comparison with what the boss cites. | Show it, or let it see, what the boss says a check covers; accept a line that is not an assertion or a rule id that is not the idea's; decide anything. |
 | `roles/judge.py` | The judge, which scores an artifact against a rubric, and the calibration that compares it with a person. | Hand out a score with no quote from the artifact; mark a judgement calibrated anywhere but `judge_artifact`. |
 | `roles/org.py` | The organisation chart, built from each role's department and parent (`python -m boss.roles.org`). | Draw roles that do not form a tree under the boss. |
 | `roles/planning.py` | Funding rounds that unlock in story-priority order. | Call a model. |
@@ -101,7 +102,7 @@ idea's rules, `boss fund --spec`), `builder_v4.md` (every worker) and `solo_v2.m
 benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
 has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
-`check_auditor_v1.md`, `consultant_v1.md` and `examiner_v1.md`. Skills are Markdown files under `src/boss/skills/`
+`check_auditor_v1.md`, `spec_mapper_v1.md`, `consultant_v1.md` and `examiner_v1.md`. Skills are Markdown files under `src/boss/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
 
 ## Life of a run

@@ -119,3 +119,92 @@ def test_the_flag_is_documented_in_the_help_and_off_by_default(capsys):
         main(["fund", "--help"])
     help_text = capsys.readouterr().out
     assert "--spec" in help_text and "default: off" in help_text
+
+
+# --- the spec mapper through the real CLI ------------------------------------------------------
+
+
+def with_mapper(maps):
+    """A fake boss that cites R02 from c01 (its assertion is on line 4); the mapper says `maps`."""
+    pick = (
+        f"({CITING!r} if '\"maps\"' not in argv[argv.index('--json-schema') + 1] "
+        f"else {{'maps': {maps!r}}})"
+    )
+    return FAKE_CLAUDE.replace(repr(DRAFT), pick)
+
+
+@pytest.fixture
+def mapper(tmp_path):
+    def make(maps):
+        fake = tmp_path / "fake-claude"
+        fake.write_text(with_mapper(maps))
+        fake.chmod(0o755)
+        project = tmp_path / "project"
+        project.mkdir(exist_ok=True)
+
+        def run(*argv):
+            said = []
+            environ = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "BOSS_CLAUDE_BIN": str(fake)}
+            code = main(
+                [*argv, "--dir", str(project)],
+                ask=lambda prompt: "a",
+                say=said.append,
+                environ=environ,
+            )
+            return code, "\n".join(said), sorted((project / ".boss" / "runs").iterdir())
+
+        return run
+
+    return make
+
+
+def test_the_mapper_confirming_a_citation_is_a_note_a_booked_call_and_changes_nothing(mapper):
+    run = mapper([{"check": "c01", "exercises": [{"rule": "R02", "line": 4}]}])
+    code, output, [run_dir] = run(
+        "fund", IDEA, "--budget", "0.50", "--spec", "--roles", "spec_mapper"
+    )
+    assert code == EXIT_OK
+    assert "Spec mapper's opinion" in output and "also found asserted in it" in output
+    calls = [
+        e
+        for e in read_events(run_dir / "ledger.jsonl")
+        if e.event is EventType.ROLE_CALL and e.actor == "role:spec_mapper"
+    ]
+    assert len(calls) == 1 and calls[0].data["result"] == "ok" and calls[0].round == 0
+    assert "0 citations unconfirmed" in calls[0].data["detail"]
+    approved = next(
+        e for e in read_events(run_dir / "ledger.jsonl") if e.event is EventType.APPROVED
+    )
+    assert "mapper" not in json.dumps(approved.data), "the approval is of the checks, not the note"
+
+
+def test_a_citation_the_mapper_cannot_confirm_is_shown_as_an_overclaim(mapper):
+    run = mapper([{"check": "c01", "exercises": []}])
+    code, output, [run_dir] = run(
+        "fund", IDEA, "--budget", "0.50", "--spec", "--roles", "spec_mapper"
+    )
+    assert code == EXIT_OK
+    assert "CITED, BUT NO ASSERTION FOUND" in output and "R02 -> c01" in output
+    [call] = [e for e in read_events(run_dir / "ledger.jsonl") if e.actor == "role:spec_mapper"]
+    assert "1 citations unconfirmed" in call.data["detail"]
+
+
+def test_a_map_that_fails_the_gate_is_booked_failed_and_the_run_goes_on(mapper):
+    run = mapper([{"check": "c01", "exercises": [{"rule": "R02", "line": 1}]}])
+    code, output, [run_dir] = run(
+        "fund", IDEA, "--budget", "0.50", "--spec", "--roles", "spec_mapper"
+    )
+    assert code == EXIT_OK
+    assert "spec_mapper: FAILED" in output and "line 1 is not an assertion" in output
+    [call] = [e for e in read_events(run_dir / "ledger.jsonl") if e.actor == "role:spec_mapper"]
+    assert call.data["result"] == "failed" and call.cost_micros == 4000, "the spend is booked"
+
+
+def test_without_spec_the_mapper_makes_no_call_and_says_why(mapper):
+    run = mapper([])
+    code, output, [run_dir] = run(
+        "fund", "Reverse a string.", "--budget", "0.50", "--roles", "spec_mapper"
+    )
+    assert code == EXIT_OK
+    assert "spec_mapper: not run. It reads the idea's rules, which only --spec makes." in output
+    assert not [e for e in read_events(run_dir / "ledger.jsonl") if e.actor == "role:spec_mapper"]

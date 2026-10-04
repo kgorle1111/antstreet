@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from boss import spec as rulespec
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
 from boss.budget import RESERVE_MICROS
 from boss.errors import Outcome
@@ -39,6 +40,7 @@ from boss.roles.delivery import USAGE_FILE, install_demo, write_demo
 from boss.roles.engineering import StagedDraftError, draft_staged, render_coverage, stories_text
 from boss.roles.examiner import EXAMINER, run_examiner
 from boss.roles.product import StoryReview, review_stories, uncovered_fragments, write_stories
+from boss.roles.spec_mapper import compare, map_rules, render_comparison
 from boss.roles.stories import Stories
 from boss.rulings import DECLINED
 from boss.rundir import Recorder, RunPaths
@@ -275,6 +277,8 @@ class Pipeline:
                 return None
         if self._on("check_auditor"):
             self._audit(sheet, notes)
+        if self._on("spec_mapper"):
+            self._spec_map(sheet, notes)
         if stories is not None and self._on("judge"):
             self._judge_stories(idea, stories, notes)
         return Plan(sheet, tuple(f"\n{note}" for note in notes))  # a blank line sets each apart
@@ -374,6 +378,38 @@ class Pipeline:
         )
         if audit is not None:
             notes.append("Check auditor's opinion of each check:\n" + render_audit(audit))
+
+    def _spec_map(self, sheet: TermSheet, notes: list[str]) -> None:
+        """The mapper's opinion of which rules each check asserts, against what the boss cites.
+        It needs the rule list that only `--spec` writes; without one it makes no call."""
+        if not self.paths.rules.is_file():
+            line = "spec_mapper: not run. It reads the idea's rules, which only --spec makes."
+            self.say(line)
+            notes.append(line)
+            return
+        try:
+            rules = rulespec.load(self.paths.rules, sheet.idea)
+        except rulespec.SpecError as exc:
+            line = f"spec_mapper: not run: {_one_line(str(exc), 200)}"
+            self.say(line)
+            notes.append(line)
+            return
+        claims = {c.id: c.criteria for c in sheet.checks}
+
+        def describe(mapped: Any) -> dict[str, Any]:
+            over = len(compare(claims, mapped).overclaims)
+            return {
+                "detail": f"{len(mapped.exercises)} checks mapped, {over} citations unconfirmed"
+            }
+
+        mapped = self._call(
+            _spec("spec_mapper"),
+            lambda: map_rules(rules, sheet.checks, self.paths.checks, **self._call_args()),
+            describe,
+            notes=notes,
+        )
+        if mapped is not None:
+            notes.append(render_comparison(compare(claims, mapped), rules))
 
     def _calibration(self, rubric_id: str) -> Any:
         from boss.roles.judge import Calibration, CalibrationError

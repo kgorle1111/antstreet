@@ -141,10 +141,10 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B72 | Wire `boss.spec` into `boss fund --spec`: rule list in the boss prompt, `rules` per check, the coverage view in the approval, `rules.json` in the approval hash | Needs the paid draft eval (P1) to show the prompt helps; branch B of the spec plan | open |
+| B72 | Wire `boss.spec` into `boss fund --spec`: rule list in the boss prompt, `rules` per check, the coverage view in the approval, `rules.json` in the approval hash | Needs the paid draft eval (P1) to show the prompt helps; branch B of the spec plan | done: `boss.py`, `approval.py`, `cli.py`, `prompts/term_sheet_v3.md`; off by default until P1 and a firm run say it earns its cost |
 | B73 | Rules in languages other than English; `spec.py` kn: English sentence punctuation only; add terminators for another script when one appears | The benchmark ideas are English | open |
 | B74 | Anchors are presence in a check's syntax tree; `spec.py` kn: presence in the syntax tree, not proof the check asserts it; a mutation pass is proof | A mutation pass over the built product would be proof; needs a product to mutate | open |
-| B75 | The optional mapper role that reads the rules and the check code and says which rules each check asserts | Branch C of the spec plan; advisory until its precision is measured | open |
+| B75 | The optional mapper role that reads the rules and the check code and says which rules each check asserts | Branch C of the spec plan; advisory until its precision is measured | done: `roles/spec_mapper.py`, `--roles spec_mapper`; its precision against the mutant ground truth is not measured yet |
 | B76 | Label the 18 later tasks (`bench/spec_truth/`) so a change to the anchors can be checked on tasks it was not tuned on | The offline eval of the 17 original tasks found `literal` anchors noisy; any fix needs data it has not seen | open |
 | B77 | `jsonpointer`, `semver` and `wildcard` split into one rule per numbered item (more than 40 sentences); decide whether the cap should be higher | Misses the O1 criterion by 0.1 point; a higher cap costs prompt length | open |
 | B78 | Splitter v2: v1 marks some real behaviour sentences as context (text before the first numbered item; heading-like lines), so they can never be flagged or labelled: `isoweek` "week 1 contains January 4", `wordwrap` R04, `exprtokens` R04 | v1's numbers are pre-registered, so it was left alone; found by the labeller of the 18 later tasks | open |

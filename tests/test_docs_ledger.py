@@ -158,6 +158,27 @@ def cli_spec_events(tmp_path):
     return read_events(run_dir / "ledger.jsonl")
 
 
+def cli_spec_mapper_events(tmp_path):
+    """`boss fund --spec --roles spec_mapper`: a fake boss that cites rules and a fake mapper that
+    agrees with it, so the mapper's `role_call` is booked."""
+    from test_cli import DRAFT as PLAIN
+    from test_cli import FAKE_CLAUDE
+    from test_cli_spec import CITING, IDEA
+
+    maps = {"maps": [{"check": "c01", "exercises": [{"rule": "R02", "line": 4}]}]}
+    pick = f"({CITING!r} if '\"maps\"' not in argv[argv.index('--json-schema') + 1] else {maps!r})"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake = tmp_path / "fake-claude-mapper"
+    fake.write_text(FAKE_CLAUDE.replace(repr(PLAIN), pick))
+    fake.chmod(0o755)
+    _, run_dir, _ = run_cli(
+        tmp_path,
+        ["fund", IDEA, "--budget", "0.50", "--spec", "--roles", "spec_mapper"],
+        binary=str(fake),
+    )
+    return read_events(run_dir / "ledger.jsonl")
+
+
 def cli_resumed_events(tmp_path):
     """A run stopped by a wall-clock limit that is already over, then `boss resume` on it."""
     fund = ["fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9"]
@@ -251,6 +272,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
     runs.append(cli_spec_events(where("cli-spec")))
+    runs.append(cli_spec_mapper_events(where("cli-spec-mapper")))
     runs.append(cli_resumed_events(where("cli-resumed")))
     runs.append(cli_topped_up_events(where("cli-topped-up")))
     runs.append(roles_events(where("cli-roles")))
@@ -473,8 +495,15 @@ def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(prod
 
 
 def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(produced, text):
-    with_roles = [e for e in produced["started"] if "roles" in e.data]
-    assert with_roles  # every run with roles is a run with every role --roles all names
+    with_roles = [
+        e
+        for e in produced["started"]
+        if "roles" in e.data and e.data["roles"]["names"] != ["spec_mapper"]
+    ]
+    # every other run with roles is a run with every role --roles all names; the `--spec` run
+    # names the mapper alone, because `all` includes the staged roles --spec refuses
+    assert with_roles
+    assert any(e.data.get("roles", {}).get("names") == ["spec_mapper"] for e in produced["started"])
     chosen = sorted(set(registry()) - set(pipeline.BY_OPTION))
     for event in with_roles:
         assert sorted(event.data["roles"]) == ["model", "names", "thinking_tokens"]
