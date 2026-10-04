@@ -33,6 +33,7 @@ from boss.sandbox import Sandbox, SandboxMode, SandboxUnavailable, python_readab
 DEFAULT_TIMEOUT_S = 60.0
 TREE_TIMEOUT_S = 180.0  # a whole imported test suite in one pytest process
 SANDBOX_ENV = "BOSS_GATE_SANDBOX"
+AUDIT_HOME_ENV = "BOSS_AUDIT_HOME"  # a store outside the project that a check must not read
 OUTPUT_TAIL_CHARS = 4000
 _COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", ".git")
 # kn: in-process verdicts are forgeable by deliberately adversarial code that reads the plugin's
@@ -89,6 +90,27 @@ def sandbox_mode(environ: Mapping[str, str]) -> SandboxMode:
     except ValueError:
         allowed = "|".join(m.value for m in SandboxMode)
         raise GateError(f"{SANDBOX_ENV}={raw!r} is not one of {allowed}") from None
+
+
+def secret_paths(*anchors: Path) -> tuple[Path, ...]:
+    """Folders a check must not read: the `.boss` that holds any anchor (investor key, ledger,
+    run store) and the audit home. Linux only hides what it is told to; every sandboxed command
+    is wrapped through `_wrap`, so this is the one place the list is made."""
+    found: dict[Path, None] = {}
+    for anchor in anchors:
+        for parent in (anchor, *anchor.parents):
+            if parent.name == ".boss" and parent.is_dir():
+                found[parent] = None
+    audit = os.environ.get(AUDIT_HOME_ENV, "")
+    if os.path.isabs(audit) and Path(audit).exists():
+        found[Path(audit).resolve()] = None
+    return tuple(found)
+
+
+def _wrap(tool: Sandbox, cmd: list[str], tmp: Path, *anchors: Path) -> list[str]:
+    return tool.wrap(
+        cmd, writable=tmp.resolve(), readable=python_readable(), hidden=secret_paths(*anchors)
+    )
 
 
 def run_gate(
@@ -150,7 +172,7 @@ def _run_one(
             "-p", plugin, f"--junitxml={report}", "-q", "--no-header",
         ]  # fmt: skip
         if tool is not None:
-            cmd = tool.wrap(cmd, writable=tmp.resolve(), readable=python_readable())
+            cmd = _wrap(tool, cmd, tmp, workspace, src)
         start = time.monotonic()
         exit_code, output, timed_out = _run_bounded(cmd, tmp / "ws", _env(tmp), timeout_s)
         duration = time.monotonic() - start
@@ -166,7 +188,9 @@ def _run_one(
         return CheckResult(check.id, status, exit_code, detail, tail, duration, sandboxed)
 
 
-def _pytest_cmd(tmp: Path, args: list[str], report: Path, tool: Sandbox | None) -> list[str]:
+def _pytest_cmd(
+    tmp: Path, args: list[str], report: Path, tool: Sandbox | None, *anchors: Path
+) -> list[str]:
     # Whole-tree runs (imported benchmark tasks) only: no signed proof, so a product written to
     # fake its own test results can (T12). A single check goes through `run_gate`'s plugin path.
     cmd = [
@@ -175,7 +199,7 @@ def _pytest_cmd(tmp: Path, args: list[str], report: Path, tool: Sandbox | None) 
         f"--junitxml={report}", "-q", "--no-header",
     ]  # fmt: skip
     if tool is not None:
-        cmd = tool.wrap(cmd, writable=tmp.resolve(), readable=python_readable())
+        cmd = _wrap(tool, cmd, tmp, *anchors)
     return cmd
 
 
@@ -324,7 +348,7 @@ def run_tree(
         args = [str(rel), "--continue-on-collection-errors", "-o", "junit_family=xunit1"]
         start = time.monotonic()
         exit_code, output, timed_out = _run_bounded(
-            _pytest_cmd(tmp, args, report, tool), ws, _env(tmp), timeout_s
+            _pytest_cmd(tmp, args, report, tool, workspace, tree), ws, _env(tmp), timeout_s
         )
         duration = time.monotonic() - start
         tail, sandboxed = output[-OUTPUT_TAIL_CHARS:], tool is not None
