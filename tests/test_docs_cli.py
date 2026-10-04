@@ -187,11 +187,24 @@ def test_a_run_folder_holds_what_the_document_lists(text, happy):
     listed = {r[0].strip("`").replace("<worker>", "w1").strip("/") for r in rows}
     # a run without roles writes the rest; the paths below appear only when a role ran
     listed -= set(ROLE_PATHS)
+    listed -= {DISPATCH_PROMPT}  # only a run with --dispatch rules saves the text of each slice
     for path in listed:
         assert (run_dir / path).exists(), f"documented but not written: {path}"
     assert {p.name for p in run_dir.iterdir()} == {p.split("/")[0] for p in listed}
     assert (run_dir / "checks" / "test_c01.py").is_file()
     assert (run_dir / "product" / "rev.py").is_file()
+
+
+DISPATCH_PROMPT = "logs/w1-s<N>.prompt.txt"
+
+
+def test_a_dispatch_run_saves_the_text_of_each_slice_where_the_document_says(text, tmp_path):
+    argv = ["fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules"]
+    code, run_dir, _ = run_cli(tmp_path, argv)
+    assert code == cli.EXIT_OK
+    rows = {r[0].strip("`").replace("<worker>", "w1") for r in table(section(text, "Run folder"))}
+    assert DISPATCH_PROMPT in rows
+    assert (run_dir / "logs" / "w1-s1.prompt.txt").is_file()
 
 
 # Path in the document's table -> the path in a run folder, for what only a run with roles writes.

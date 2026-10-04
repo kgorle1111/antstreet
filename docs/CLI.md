@@ -37,6 +37,13 @@ Argument: `idea`, what to build, in plain words.
   called, ends the run with a message and exit 130: nothing was funded, what the calls so far cost
   is on the ledger, and there is nothing to resume. Ctrl-C at the approval question counts as
   reject.
+- The dispatch options are checked before anything is spent (exit 2): `--max-tier` needs `--dispatch
+  rules`; with `--dispatch rules`, `--model` must be `haiku`, `sonnet` or `opus` (or a full id of
+  one), may not be above `--max-tier`, and `--reserve` may not be given (the reserve is per model).
+  Under `--dispatch rules` the term sheet also shows `Route: one agent (one file, N checks)` when
+  everything is built in one file, or `Route: firm (K tasks, files ...)`. On the one-agent route a
+  fired worker is replaced only by a stronger one; in the firm it is replaced as before. You may
+  set `"route": "firm"` on a one-file sheet; `"one_agent"` on a sheet with several files is refused.
 - `--roles` is checked before anything is spent. An unknown name, or a role without the roles it
   needs, is a usage error (exit 2) that says what to change. `--fix-budget` below one reserve plus
   $0.005 is refused the same way.
@@ -53,6 +60,8 @@ Argument: `idea`, what to build, in plain words.
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
 | `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |
 | `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
+| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D38 to D40 in `docs/DECISIONS.md`. |
+| `--max-tier` | none | With `--dispatch rules`: the dearest model dispatch may use, `haiku`, `sonnet` or `opus`. Without it dispatch stays at `sonnet`. A sheet that names a dearer tier, in the first plan or in an edit, is refused before it can be approved and again before anyone is hired. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
@@ -183,6 +192,12 @@ questions` (the count rule is in `bench/METHOD.md`).
 
 Argument: `run`, a run id. Default: the latest run in the folder.
 
+For a run made with `--dispatch rules`, each worker is one line (`w2 on t1: sonnet/default,
+escalated from haiku (fired: no progress), $0.0300, 1 slice, delivered; ran as claude-sonnet-...`),
+and the report rehashes every saved prompt (`logs/<worker>-s<N>.prompt.txt`) against the hash its
+`slice_start` recorded. A file that is missing or changed is printed as `CONTEXT CHECK FAILED` and
+the command exits 1.
+
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
@@ -239,7 +254,7 @@ run `--live` again. The other checks make no paid call. The two costs are the CL
 | Code | Meaning |
 |---|---|
 | `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, or a worker did not start isolated (a hook event later in the run counts). `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. |
 | `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
 | `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
@@ -469,6 +484,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `checks/` | The check files, `test_c01.py` and so on. Outside every workspace; copied fresh for each gate run. |
 | `workspaces/<worker>/` | One folder per worker (`w1`, `w2`, ...). A replacement's folder also holds `previous_attempt/`. |
 | `logs/<worker>.jsonl` | The worker's raw stream, with secrets masked. |
+| `logs/<worker>-s<N>.prompt.txt` | Under `--dispatch rules`: the exact text of slice N, its system prompt, a NUL byte and its user prompt. Its SHA-256 is on the slice's `slice_start`. |
 | `product/` | The built files, assembled from each task's best worker at the end of a run. |
 | `report.md` | The board report, saved when `boss fund` or `boss resume` finishes. |
 | `stories.json` | The product manager's stories, when that role ran. |

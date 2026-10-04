@@ -17,6 +17,7 @@ from docs_support import DOCS, ROOT, code_spans, read, run_cli, section, table
 
 from boss import budget, held_out, pipeline, state
 from boss.approval import content_hashes
+from boss.dispatch import DispatchPolicy, plan_dispatch
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
@@ -29,7 +30,7 @@ from boss.rundir import RunPaths
 from boss.runner import SliceRun
 from boss.stream import Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import IsolationError
+from boss.worker import IsolationError, ModelMismatchError
 
 # The module-scoped `produced` fixture runs ~20 whole runs (over two minutes). Under xdist each
 # worker that received one of these tests would build its own copy, so the module is pinned to one
@@ -95,6 +96,24 @@ class Script:
         )
 
 
+class ModelScript(Script):
+    """A scripted worker whose init names the model it ran: the launched one unless `ran` says
+    otherwise."""
+
+    def __init__(self, *steps, ran=None):
+        super().__init__(*steps)
+        self.ran = ran
+
+    def __call__(self, spec, workspace, log_path, *, env):
+        run = super().__call__(spec, workspace, log_path, env=env)
+        return dataclasses.replace(run, model_id=self.ran or f"claude-{spec.model}-4-5-20251001")
+
+
+def dispatched(rounds=None) -> TermSheet:
+    policy = DispatchPolicy("sonnet", 100_000)
+    return plan_dispatch(sheet(rounds), tier="haiku", profile=None, policy=policy, reads={})
+
+
 def step(
     code, status="continuing", outcome=Outcome.COMPLETED, cost=10_000, disputes=(), denials=()
 ):
@@ -128,8 +147,8 @@ def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=Non
                 ask=lambda q: next(replies), say=lambda _: None, slice_runner=worker, gate=run_gate,
                 sleep=lambda _: None,
             )  # fmt: skip
-        except IsolationError:
-            assert expect is IsolationError
+        except (IsolationError, ModelMismatchError) as exc:
+            assert expect is type(exc)
     return read_events(paths.ledger)
 
 
@@ -234,6 +253,23 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
                             answers=["n"]))  # fmt: skip
     runs.append(firm_events(where("held-out"), Script(step(GOOD, "done")), held=True))
     runs.append(examiner_events(where("examiner")))
+    # dispatch: w1 stalls and w2 is hired one tier up; a thinner round steps the effort instead
+    on = FirmConfig(dispatch=True)
+    runs.append(firm_events(where("dispatch"), ModelScript(
+        step(BAD), step(BAD), step(GOOD, "done")), dispatched(), config=on))  # fmt: skip
+    thin = dispatched((Round(1, 400_000, 2),))
+    runs.append(
+        firm_events(
+            where("dispatch-refused"),
+            ModelScript(step(BAD, cost=120_000), step(BAD, cost=120_000), step(GOOD, "done")),
+            thin,
+            config=on,
+        )
+    )
+    runs.append(firm_events(where("wrong-model"), ModelScript(
+        step(HALF), ran="claude-sonnet-4-5-20250929"), dispatched(), config=on,
+        expect=ModelMismatchError))  # fmt: skip
+    runs.append(cli_events(where("cli-dispatch"), extra=("--dispatch", "rules")))
     runs.append(cli_events(where("cli-approved")))
     runs.append(cli_events(where("cli-rejected"), answers=("r",)))
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
@@ -366,6 +402,12 @@ def test_nested_evidence_keys_are_documented(produced, text):
     [evidence_rows] = [table(sections(text)["fired"].split("Evidence keys")[1])]
     documented = {r[0].strip("`") for r in evidence_rows}
     written = {k for e in produced["fired"] for k in e.data["evidence"]}
+    assert written == documented
+
+
+def test_the_dispatch_keys_of_a_hire_are_documented(produced, text):
+    documented = {r[0].strip("`") for r in table(sections(text)["hired"].split("Dispatch keys")[1])}
+    written = {k for e in produced["hired"] if "dispatch" in e.data for k in e.data["dispatch"]}
     assert written == documented
 
 

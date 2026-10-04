@@ -3,7 +3,7 @@
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
   1    nothing was built: no usable term sheet, the investor rejected it, a worker did not start
-       isolated, the approved checks changed, or the run cannot be read
+       isolated or ran the wrong model, the approved checks changed, or the run cannot be read
   2    usage error: a bad option, a blank idea, a budget too small to fund one slice, or roles
        that cannot run together
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,

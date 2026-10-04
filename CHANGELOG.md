@@ -10,6 +10,18 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss fund --dispatch rules [--max-tier T]` (off by default): the term sheet shows a route (one
+  agent for a one-file idea, else the firm) and a table of each task's model, effort and step-up.
+- Under dispatch you can edit the route and each task's model before approving; the approval
+  covers them, and a value outside the whitelist is refused before approval and again at hire.
+- Under dispatch a worker the gate fired for no progress or a slice limit is replaced one tier up,
+  once per task. Nothing else changes a model. The worst case is printed in dollars first.
+- Under dispatch each slice records a hash of the exact text the worker was given, saved as
+  `logs/<worker>-s<N>.prompt.txt`, and the model the CLI says it ran; a wrong model stops the run.
+- `boss report` prints who did what on which model at what cost, and re-verifies the saved
+  prompts (D38 to D40, T47 to T53).
+- A pre-registered experiment E6 in `bench/PREREG.md`: fixed Haiku, fixed Sonnet and dispatch at the
+  same per-cell budget.
 - The single arm's `result.json` records `final_status`, the status word of its last slice, and the
   KPI scorecard reads it before the ledger (B70).
 - `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false

@@ -254,6 +254,24 @@ Only the boss's drafting call costs money; no worker runs.
   them passed every check of their own draft: they survive it by construction, so the baseline
   recall is biased down. Fresh drafts (`--out`) do not have that bias.
 
+## Dispatch arms (E6)
+
+E6 in [PREREG.md](PREREG.md) compares three firm arms at the same per-cell budget, through the
+runner's own options and `--firm-args`, so the bench code is unchanged and each result records its
+arm in `firm_args`:
+
+```bash
+uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-haiku --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku
+uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-sonnet --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet
+uv run python -m boss.bench.run --out bench/results/raw/e6-dispatch --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier sonnet"
+```
+
+A dispatch cell's ledger holds what to count: a `hired` event whose `dispatch` has `from_tier` is
+an escalation fired, one with `refused` is a step the round could not fund, and a fired task whose
+product later passes is rescued. No command counts them yet (B72): read them from the ledgers.
+A cell whose run stopped for a wrong model (T53) is reported apart, not counted as a failure of
+the arm; no command separates it yet (B72). The model each worker ran is `slice_end.model_id`.
+
 ## Reproducing
 
 ```bash
