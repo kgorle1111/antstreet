@@ -15,7 +15,49 @@ from boss.bench.tasks import load_task, load_tasks
 ROOT = Path(__file__).parent.parent
 TASKS = ROOT / "bench" / "tasks"
 TRUTH = ROOT / "bench" / "spec_truth"
-ORIGINAL_17 = sorted(p.stem for p in TRUTH.glob("*.json"))
+ORIGINAL_17 = sorted(
+    [
+        "bigdecimal",
+        "calc",
+        "csvline",
+        "duration",
+        "intervals",
+        "jsonpointer",
+        "justify",
+        "linediff",
+        "lrucache",
+        "matrixops",
+        "roman",
+        "semver",
+        "slugify",
+        "tokenbucket",
+        "toposort",
+        "wildcard",
+        "workdays",
+    ]
+)
+LATER_18 = sorted(
+    [
+        "bytesize",
+        "cronnext",
+        "dedentblock",
+        "exprtokens",
+        "fracmath",
+        "iniparse",
+        "isoweek",
+        "luhn",
+        "mdheadings",
+        "minheap",
+        "moneysplit",
+        "prefixtrie",
+        "rangesum",
+        "ringbuffer",
+        "shortestpath",
+        "unionfind",
+        "urlquery",
+        "wordwrap",
+    ]
+)
 
 NON_ASCII_CHECK = (
     "from slugify import slugify\n\ndef test_a():\n    assert slugify('Crème') == 'creme'\n"
@@ -70,6 +112,16 @@ def test_there_are_hand_labels_for_the_17_original_tasks_and_every_one_loads():
         if task.id in ORIGINAL_17:
             labels = ev.load_labels(TRUTH, task)
             assert set(labels.hidden) == {c.id for c in task.hidden_checks()}
+
+
+def test_there_are_hand_labels_for_the_18_later_tasks_and_every_one_loads():
+    assert len(LATER_18) == 18 and not set(LATER_18) & set(ORIGINAL_17)
+    assert sorted(p.stem for p in TRUTH.glob("*.json")) == sorted(ORIGINAL_17 + LATER_18)
+    loaded = [t for t in load_tasks(TASKS) if t.id in LATER_18]
+    assert sorted(t.id for t in loaded) == LATER_18
+    for task in loaded:
+        labels = ev.load_labels(TRUTH, task)
+        assert set(labels.hidden) == {c.id for c in task.hidden_checks()}
 
 
 def test_labels_made_for_another_idea_are_refused(tmp_path):

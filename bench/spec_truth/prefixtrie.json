@@ -1,0 +1,94 @@
+{
+  "idea_sha256": "bab34d6c88969106992ab87cf398d1041290dd1254a687744bfdedfa1564120b",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "count_prefix": [
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18"
+    ],
+    "deep_words": [
+      "R11",
+      "R15",
+      "R19",
+      "R21",
+      "R24",
+      "R25"
+    ],
+    "delete": [
+      "R09",
+      "R11",
+      "R12",
+      "R13",
+      "R14",
+      "R15",
+      "R19",
+      "R21"
+    ],
+    "insert_and_contains": [
+      "R03",
+      "R06",
+      "R07",
+      "R09",
+      "R10",
+      "R15",
+      "R19",
+      "R20"
+    ],
+    "longest_common_prefix": [
+      "R14",
+      "R21",
+      "R22",
+      "R23"
+    ],
+    "random_ops": [
+      "R06",
+      "R09",
+      "R10",
+      "R11",
+      "R15",
+      "R19",
+      "R21"
+    ],
+    "validation": [
+      "R04",
+      "R05",
+      "R06",
+      "R08",
+      "R17",
+      "R20"
+    ],
+    "words_with_prefix": [
+      "R19",
+      "R20"
+    ]
+  },
+  "rules": {
+    "R03": "Words are non-empty strings and are case-sensitive.",
+    "R04": "`insert(\"\")` and `delete(\"\")` raise `ValueError`.",
+    "R05": "`insert`, `delete`, `count_prefix` and `words_with_prefix` r",
+    "R06": "`word in trie` never raises: it is `False` for `\"\"` and for ",
+    "R07": "`PrefixTrie(words)` inserts each word in order, ignoring rep",
+    "R08": "An empty string among them raises `ValueError`.",
+    "R09": "`insert(word)` returns `True` when the word was added and `F",
+    "R10": "`len(trie)` is the number of distinct stored words.",
+    "R11": "`delete(word)` returns `True` when the word was stored and i",
+    "R12": "A string that is only a prefix of stored words is not stored",
+    "R13": "Deleting a stored word that is a prefix of other stored word",
+    "R14": "Nothing of a deleted word lingers: later answers are exactly",
+    "R15": "`count_prefix(prefix)` is the number of stored words that st",
+    "R16": "A word starts with itself, so a stored `\"car\"` counts for th",
+    "R17": "The prefix `\"\"` matches every word, so it gives `len(trie)`.",
+    "R18": "A prefix that no word starts with gives `0`.",
+    "R19": "`words_with_prefix(prefix)` returns a new list of those same",
+    "R20": "It is `[]` when there are none, and every word for the prefi",
+    "R21": "`longest_common_prefix()` returns the longest string that ev",
+    "R22": "For one stored word it is that word.",
+    "R23": "It stops at the end of a stored word: for `\"car\"` and `\"cart",
+    "R24": "Words may be thousands of characters long.",
+    "R25": "No method may hit Python's recursion limit."
+  }
+}
