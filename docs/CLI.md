@@ -293,8 +293,9 @@ See [../bench/METHOD.md](../bench/METHOD.md).
 | `--reps` | `1` | Drafts per task. |
 | `--boss-model` | `haiku` | Model for the boss's call. |
 | `--boss-thinking` | none | Thinking tokens per draft. |
-| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/boss/prompts`. |
+| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/boss/prompts`. `term_sheet_v3.md` also passes the idea's rules and keeps `rules.json` and `claims.json` in each draft's folder. |
 | `--jobs` | `2` | Drafts to make and score at once. |
+| `--max-spend` | none | Dollars. Makes the drafts one at a time and stops before a call that could take the measured spend past this (a call may cost up to its $0.25 cap; a cost the CLI did not report counts at that cap). |
 | `--dry-run` | off | List the drafts and exit. |
 | `--score-existing` | none | Score the boss drafts already saved in a `boss.bench.run` results folder; spends nothing. |
 
