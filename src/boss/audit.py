@@ -29,10 +29,11 @@ from pathlib import Path
 from boss import gitrepo, held_out
 from boss.approval import content_hashes, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
+from boss.budget import RESERVE_MICROS
 from boss.gate import Check, CheckResult, CheckStatus, missing_modules, run_gate
 from boss.ledger import EventType
+from boss.pipeline import Pipeline, Setup
 from boss.redact import safe_text
-from boss.roles.examiner import run_examiner
 from boss.rundir import Recorder, RunPaths
 from boss.stream import Usage
 from boss.termsheet import Task, TermSheet
@@ -332,10 +333,11 @@ def plan(
         task = draft.sheet.tasks[0]
         brief = seal_brief(base, request_hash(request))
         sheet = dataclasses.replace(draft.sheet, tasks=(Task(task.id, brief, (".",)),))
-        held = held_out_n > 0 and run_examiner(
-            sheet, paths, ledger, run_id, n=held_out_n, env=env, model=boss_model,
-            executable=executable, say=say,
+        pipe = Pipeline(
+            Setup((), boss_model, boss_thinking), repo, paths, ledger, run_id, env, executable,
+            ask, say,
         )  # fmt: skip
+        held = held_out_n > 0 and pipe.examine(sheet, held_out_n, RESERVE_MICROS)
         say("Running the checks on the base...")
         observed = run_checks(base_tree, paths, sheet, tree_modules(base_tree))
         approved = review_term_sheet(
