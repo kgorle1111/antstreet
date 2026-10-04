@@ -27,7 +27,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from boss import __version__, audit, audit_check
+from boss import __version__, audit, audit_check, audit_report
 from boss.approval import NotApprovedError, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from boss.budget import (
@@ -254,6 +254,10 @@ def _audit_parser(sub: Any) -> None:
         "--claim-text", help="a file with the agent's own words; kept as a hash only"
     )
     check.add_argument("--agent", type=_agent_arg, help="a label for the agent, to report by")
+    report = steps.add_parser("report", help="verdicts per run, and the false-pass rate")
+    report.add_argument("run", nargs="?", help="audit run id (default: the latest)")
+    report.add_argument("--all", action="store_true", help="every run in the store")
+    report.add_argument("--agent", type=_agent_arg, help="only this agent's verdicts")
 
 
 def _review_options(parser: argparse.ArgumentParser) -> None:
@@ -737,7 +741,9 @@ def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: 
     try:
         if args.audit_command == "plan":
             return _audit_plan(args, environ, store, ask, say)
-        return _audit_check(args, store, say)
+        if args.audit_command == "check":
+            return _audit_check(args, store, say)
+        return _audit_report(args, store, say)
     except KeyboardInterrupt:
         say("Interrupted.")
         return EXIT_INTERRUPTED
@@ -796,6 +802,12 @@ def _audit_check(args: argparse.Namespace, store: Path, say: Say) -> int:
     )
     say(audit_check.render_check(verdict))
     return EXIT_INCOMPLETE if verdict.verdict in ("refuted", "inconclusive") else EXIT_OK
+
+
+def _audit_report(args: argparse.Namespace, store: Path, say: Say) -> int:
+    chosen = audit_report.run_ids(store, args.run, every=args.all)
+    say(audit_report.render(audit_report.collect(store, chosen, args.agent)))
+    return EXIT_OK
 
 
 def _doctor(args: argparse.Namespace, project: Path, environ: Mapping[str, str], say: Say) -> int:
