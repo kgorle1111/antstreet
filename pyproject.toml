@@ -41,6 +41,7 @@ files = ["src/boss"]
 testpaths = ["tests"]
 addopts = "-q"
 markers = [
+    "slow: spawns many subprocesses (sandboxed gates, benchmark task validation, simulated firms). Left out of a plain `uv run pytest`; CI runs them.",
     "sigint: a fake worker sends a real SIGINT to the pytest process (Ctrl-C mid-run). Under load plus coverage that has hung a parallel worker, so CI runs these after the parallel run, serially.",
 ]
 
