@@ -26,6 +26,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from boss import __version__
+from boss import dispatch as dispatching
 from boss.approval import NotApprovedError, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from boss.budget import (
@@ -36,6 +37,7 @@ from boss.budget import (
     reserve_for,
     round_budget,
 )
+from boss.context import derive_reads, verify
 from boss.firm import (
     DEFAULT_SLICE_MICROS,
     DEFAULT_WORKER_MODEL,
@@ -75,7 +77,7 @@ from boss.signing import SigningError
 from boss.state import run_state
 from boss.stream import Usage
 from boss.termsheet import TermSheet, TermSheetError
-from boss.worker import CLI, IsolationError, billing_mode, usd, worker_env
+from boss.worker import CLI, IsolationError, ModelMismatchError, billing_mode, usd, worker_env
 
 RUNS_DIR = Path(".boss") / "runs"
 EXECUTABLE_VAR = "BOSS_CLAUDE_BIN"  # override the `claude` binary, e.g. for tests
@@ -162,6 +164,20 @@ def _parser() -> argparse.ArgumentParser:
         default=0,
         help=f"checks an examiner writes that the workers never see, run on the finished product "
         f"(0 to {MAX_HELD_OUT}; default 0, off)",
+    )
+    fund.add_argument(
+        "--dispatch",
+        choices=("off", "rules"),
+        default="off",
+        help="per-task dispatch: 'rules' puts each task's model, effort and route in the term "
+        "sheet for you to read and edit, steps a worker up one tier only when the gate fired its "
+        "predecessor, and records the model that ran (default: off, every worker on --model)",
+    )
+    fund.add_argument(
+        "--max-tier",
+        choices=dispatching.TIERS,
+        help="the dearest model dispatch may use; needs --dispatch rules "
+        f"(default with it: {dispatching.DEFAULT_MAX_TIER})",
     )
     fund.add_argument("--max-slices", type=_count_arg, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=_count_arg, default=FiringPolicy().stall_slices)
@@ -282,6 +298,10 @@ def _fund(
     if args.slice < MIN_SLICE_MICROS:
         say(f"--slice must be at least ${usd(MIN_SLICE_MICROS)}: a smaller slice is never funded.")
         return EXIT_USAGE
+    refusal = _dispatch_refusal(args)
+    if refusal is not None:
+        say(refusal)
+        return EXIT_USAGE
     reserve = args.reserve if args.reserve is not None else reserve_for(args.model)
     needed = min_round_budget(reserve)
     # Rounds are capped at the number of checks, which the boss has not drafted yet: only the best
@@ -352,9 +372,10 @@ def _fund(
                 return dataclasses.replace(draft.sheet, rounds=rounds)
             return draft.sheet
 
+        policy = _dispatch_policy(args)
         pipe = Pipeline(
             Setup(roles, args.boss_model, args.boss_thinking),
-            project, paths, ledger, run_id, env, executable, ask, say,
+            project, paths, ledger, run_id, env, executable, ask, say, policy,
         )  # fmt: skip
         try:
             plan = pipe.plan(
@@ -384,6 +405,28 @@ def _fund(
             record("boss", EventType.STOPPED, data={"reason": reason})
             say(f"Stopped before approval: {reason}. Raise --budget, lower --rounds or --reserve.")
             return EXIT_FAILED
+        view = None
+        if policy is not None:
+            planned = dispatching.plan_dispatch(
+                plan.sheet,
+                tier=dispatching.tier_of(args.model) or args.model,
+                profile=args.profile,
+                policy=policy,
+                reads=derive_reads(plan.sheet, paths.checks),
+            )
+            if refused := dispatching.dispatch_problems(planned, policy):
+                reason = "the dispatch cannot run: " + "; ".join(refused)
+                record("boss", EventType.STOPPED, data={"reason": reason})
+                say(f"Stopped before approval: {reason}. Raise --budget or lower --model.")
+                return EXIT_FAILED
+            plan = dataclasses.replace(plan, sheet=planned)
+            level = dispatching.RunLevel(
+                args.boss_model,
+                "critic" if "critic" in roles else "off",
+                args.held_out,
+                args.parallel,
+            )
+            view = dispatching.DispatchView(policy, level, args.stall_slices, {})
         held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, reserve)
         try:
             sheet = review_term_sheet(
@@ -396,6 +439,7 @@ def _fund(
                 say=say,
                 notes=plan.notes,
                 held_out_dir=paths.held_out if held else None,
+                view=view,
             )
         except SigningError as exc:
             say(f"The approval could not be signed, so nothing was funded: {exc}")
@@ -414,11 +458,34 @@ def _fund(
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
             held_out=args.held_out,
             thinking_tokens=args.worker_thinking,
+            dispatch=policy is not None,
+            max_tier=policy.max_tier if policy is not None else dispatching.DEFAULT_MAX_TIER,
         )
         pipe.record_start(config)
         fix = args.fix_budget or default_fix_budget(config)
         outcome = _build(pipe, sheet, config, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _dispatch_refusal(args: argparse.Namespace) -> str | None:
+    """Why the dispatch flags cannot be used together, before anything is spent."""
+    if args.dispatch == "off":
+        return "--max-tier needs --dispatch rules." if args.max_tier else None
+    tier = dispatching.tier_of(args.model)
+    if tier is None:
+        return f"--dispatch rules needs --model to be one of {', '.join(dispatching.TIERS)}."
+    top = args.max_tier or dispatching.DEFAULT_MAX_TIER
+    if dispatching.rank(tier) > dispatching.rank(top):
+        return f"--model {tier} is above --max-tier {top}; raise --max-tier."
+    if args.reserve is not None:
+        return "--reserve cannot be used with --dispatch rules: the reserve is per model."
+    return None
+
+
+def _dispatch_policy(args: argparse.Namespace) -> dispatching.DispatchPolicy | None:
+    if args.dispatch == "off":
+        return None
+    return dispatching.DispatchPolicy(args.max_tier or dispatching.DEFAULT_MAX_TIER, args.slice)
 
 
 def _fix_budget_refusal(needed: int, reserve: int) -> str:
@@ -488,6 +555,8 @@ def _run(
         )
     except IsolationError as exc:
         say(f"Stopped: the worker did not start isolated ({exc}). Run `boss doctor`.")
+    except ModelMismatchError as exc:
+        say(f"Stopped: the wrong model ran ({exc}). The slice was booked; nothing more was spent.")
     except NotApprovedError as exc:
         say(f"Stopped: {exc}. Nothing was spent.")
     except KeyboardInterrupt:
@@ -499,7 +568,8 @@ def _run(
 def _finish(paths: RunPaths, outcome: FirmReport | int, say: Say) -> int:
     if isinstance(outcome, int):
         return outcome
-    text = render_report(build_report(paths.events()))
+    events = paths.events()
+    text, unverified = _report_text(paths, events)
     (paths.root / "report.md").write_text(text, encoding="utf-8")
     say(text)
     if outcome.stopped:
@@ -507,7 +577,20 @@ def _finish(paths: RunPaths, outcome: FirmReport | int, say: Say) -> int:
         if not outcome.all_passed:
             say(f"To continue this run: `boss resume {paths.root.name}`")
     say(f"Run folder: {paths.root}  (built files: {paths.product})")
+    if unverified:
+        return EXIT_FAILED
     return EXIT_OK if outcome.all_passed else EXIT_INCOMPLETE
+
+
+def _report_text(paths: RunPaths, events: Sequence[Event]) -> tuple[str, list[str]]:
+    """The board report, with a failure line for each saved prompt that no longer matches the
+    hash its slice recorded (only a run with dispatch on has any to check)."""
+    text = render_report(build_report(events))
+    problems = verify(paths, events)
+    if problems:
+        text += "\nCONTEXT CHECK FAILED: what a worker was given is not what was recorded\n"
+        text += "".join(f"  {p}\n" for p in problems)
+    return text, problems
 
 
 def _resume(
@@ -568,7 +651,8 @@ def _resume_run(
     # The roles a run was started with are on its ledger; a run without any resumes without any.
     setup = recorded_setup(events) or Setup((), DEFAULT_MODEL, None)
     with paths.writer() as ledger:
-        pipe = Pipeline(setup, project, paths, ledger, run, env, executable, ask, say)
+        policy = config.dispatch_policy()
+        pipe = Pipeline(setup, project, paths, ledger, run, env, executable, ask, say, policy)
         stops = [e for e in events if e.event is EventType.STOPPED]
         if run_state(events, [t.id for t in sheet.tasks]).stopped:
             say(f"Run {run} was stopped: {stops[-1].data.get('reason', 'no reason recorded')}")
@@ -664,8 +748,9 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
         return EXIT_FAILED
     report = build_report(events)
     if args.command == "report":
-        say(render_report(report))
-        return EXIT_OK
+        text, unverified = _report_text(RunPaths(project / RUNS_DIR / run), events)
+        say(text)
+        return EXIT_FAILED if unverified else EXIT_OK
     last = events[-1]
     passed = sum(c.status == "passed" for c in report.checks)
     unknown = report.total.unknown_cost_events

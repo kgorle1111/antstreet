@@ -26,6 +26,7 @@ from typing import Any
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
 from boss.budget import RESERVE_MICROS
 from boss.context import imported_modules
+from boss.dispatch import DispatchPolicy
 from boss.errors import Outcome
 from boss.firm import Advise, FirmConfig, FirmReport, config_data
 from boss.gate import Check, CheckStatus, GateError, run_gate
@@ -156,6 +157,7 @@ class Pipeline:
     executable: str
     ask: Ask
     say: Say
+    policy: DispatchPolicy | None = None  # `--dispatch rules`: what an amended sheet is held to
 
     def _on(self, name: str) -> bool:
         return name in self.setup.roles
@@ -563,7 +565,7 @@ class Pipeline:
             budget_micros=sheet.budget_micros + fix_micros,
         )
         try:
-            validate(amended, self.paths.checks)
+            validate(amended, self.paths.checks, self.policy)
         except TermSheetError as exc:
             problems = _one_line("; ".join(exc.problems), 250)
             self.say(f"The amended term sheet does not validate: {problems}")
