@@ -22,7 +22,7 @@ from boss.bench.drafts import CLAIMS_FILE, DRAFT_FILE, SCORED, DraftCell, draft_
 from boss.bench.spec_eval import Product, kills_products, read_sources
 from boss.bench.table import wilson_interval
 from boss.bench.tasks import BenchTask, load_tasks
-from boss.errors import Outcome
+from boss.errors import INFRASTRUCTURE
 from boss.report import dollars
 from boss.roles.base import RoleError
 from boss.roles.spec_mapper import SPEC_MAPPER, RuleMap, compare, map_rules
@@ -340,9 +340,13 @@ def run_mapper(
             }
         except RoleError as exc:
             usage = exc.usage
+            if exc.outcome in INFRASTRUCTURE:  # says nothing about the mapper: keep nothing, stop
+                spent += 0 if usage.cost_micros is None else usage.cost_micros
+                print(
+                    f"Stopped: the call ended as {exc.outcome}; nothing was saved for {draft.task}."
+                )
+                break
             data = {"status": "failed", "detail": str(exc)[:500], "outcome": str(exc.outcome)}
-            if exc.outcome is Outcome.LOGIN:
-                raise
         cost = usage.cost_micros
         spent += SPEC_MAPPER.cap_micros if cost is None else cost
         calls += 1

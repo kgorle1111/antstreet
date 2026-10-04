@@ -318,3 +318,20 @@ def test_a_mapper_call_with_no_reported_cost_counts_at_its_cap_never_as_zero(tmp
     cap = 2 * p1.SPEC_MAPPER.cap_micros - 1
     n, spent = p1.run_mapper(tmp_path / "out", TASKS, cap, environ=environ, executable=cli)
     assert (n, spent) == (1, p1.SPEC_MAPPER.cap_micros), "the second call might not fit"
+
+
+def test_a_plan_limit_stops_the_mapper_pass_and_saves_nothing_so_it_can_be_run_again(
+    tmp_path, fake
+):
+    cli, env, calls = fake
+    made_draft(tmp_path / "out", {"c01": PLAIN}, {"c01": ["R04"]})
+    made_draft(tmp_path / "out", {"c01": PLAIN}, {"c01": ["R04"]}, task="calc")
+    environ = env({})
+    limited = RESULT | {"is_error": True, "result": "You have hit your limit", "total_cost_usd": 0}
+    (Path(environ["HOME"]) / "out.json").write_text(json.dumps(limited))
+    assert p1.run_mapper(tmp_path / "out", TASKS, 1_000_000, environ=environ, executable=cli) == (
+        0,
+        0,
+    )
+    assert calls() == 1, "one call, then the pass stops instead of trying the next draft"
+    assert not list((tmp_path / "out").rglob(p1.MAPPER_FILE)), "nothing saved: it can be rerun"
