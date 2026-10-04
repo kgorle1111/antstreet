@@ -68,7 +68,7 @@ The thinking-off pass was not run (it needed at least $0.60 left after the mappe
   check tests is shown to the investor as uncovered or anchor-missing for 16 of the 34 products, and
   for **16 of 16 products in the non-ASCII subset**. The 18 products with no flag fail on rules that
   name no literal, size, type or exception (`compare`, `"- 1s"`, generator values, ragged rows,
-  `max_length` cut points), as in the offline evaluation. The flags per draft are few: at most 7
+  `max_length` cut points), as in the offline evaluation. The flags per draft are few: at most 4
   rules (uncovered plus anchor-missing) in any draft. So the layer's measured value is in what the
   investor is shown, not in the boss's draft; a benchmark that auto-approves (P2 as designed) cannot
   measure it, and a human is who the view is for.
