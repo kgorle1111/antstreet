@@ -1,4 +1,4 @@
-"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `roles` and `doctor`.
+"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `roles`, `doctor` and `audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
@@ -7,7 +7,8 @@ Exit codes:
   2    usage error: a bad option, a blank idea, a budget too small to fund one slice, or roles
        that cannot run together
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
-       a declined round, a task set aside)
+       a declined round, a task set aside); for `boss audit check`, a refuted or inconclusive
+       verdict
   130  interrupted; continue with `boss resume`
 """
 
@@ -24,8 +25,9 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
-from boss import __version__
+from boss import __version__, audit, audit_check, audit_report
 from boss.approval import NotApprovedError, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from boss.budget import (
@@ -45,6 +47,8 @@ from boss.firm import (
     run_firm,
     started_config,
 )
+from boss.gate import GateError
+from boss.gitrepo import GitError
 from boss.held_out import MAX_HELD_OUT
 from boss.ledger import (
     Event,
@@ -94,6 +98,8 @@ def main(
 ) -> int:
     args = _parser().parse_args(argv)
     environ = os.environ if environ is None else environ
+    if args.command == "audit":
+        return _audit(args, environ, ask, say)
     project = Path(args.dir).resolve()
     try:
         if args.command == "fund":
@@ -207,7 +213,51 @@ def _parser() -> argparse.ArgumentParser:
     )
     doctor = sub.add_parser("doctor", parents=[common], help="check that this machine can run boss")
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
+    _audit_parser(sub)
     return parser
+
+
+def _audit_parser(sub: Any) -> None:
+    audit_cmd = sub.add_parser(
+        "audit",
+        help="check someone else's change against checks sealed before it, from a repo's git",
+        description="Seal checks for a change request, then run them on a commit an agent made.",
+    )
+    steps = audit_cmd.add_subparsers(dest="audit_command", required=True)
+    plan = steps.add_parser(
+        "plan", help="write and seal checks for a request, from a base commit alone"
+    )
+    plan.add_argument("--repo", required=True, help="the git checkout to audit (not modified)")
+    plan.add_argument("--request", required=True, help="a text file holding the change request")
+    plan.add_argument("--base", required=True, help="the branch, tag or commit before the change")
+    plan.add_argument(
+        "--held-out",
+        type=_held_out_arg,
+        default=0,
+        help=f"checks an examiner writes as well, from the request alone (0 to {MAX_HELD_OUT}; "
+        "default 0, off)",
+    )
+    plan.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
+    check = steps.add_parser(
+        "check", help="run a run's sealed checks on a commit and record the gate's verdict"
+    )
+    check.add_argument("run", help="the audit run id that `boss audit plan` printed")
+    check.add_argument("--head", required=True, help="the branch, tag or commit to audit")
+    check.add_argument("--repo", default=".", help="the git checkout holding the head (default: .)")
+    check.add_argument(
+        "--claim",
+        choices=audit_check.CLAIMS,
+        default="none",
+        help="what the agent said of its own work: done, or none (default: none)",
+    )
+    check.add_argument(
+        "--claim-text", help="a file with the agent's own words; kept as a hash only"
+    )
+    check.add_argument("--agent", type=_agent_arg, help="a label for the agent, to report by")
+    report = steps.add_parser("report", help="verdicts per run, and the false-pass rate")
+    report.add_argument("run", nargs="?", help="audit run id (default: the latest)")
+    report.add_argument("--all", action="store_true", help="every run in the store")
+    report.add_argument("--agent", type=_agent_arg, help="only this agent's verdicts")
 
 
 def _review_options(parser: argparse.ArgumentParser) -> None:
@@ -236,6 +286,13 @@ def usd_arg(text: str) -> int:
             f"{text!r} is not a positive dollar amount with at most 6 decimal places"
         )
     return int(micros)
+
+
+def _agent_arg(text: str) -> str:
+    try:
+        return audit_check.agent_label(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _held_out_arg(text: str) -> int:
@@ -674,6 +731,82 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
         f"{run}: last event {last.actor} {last.event}; "
         f"{passed}/{len(report.checks)} checks passing; spend {spend} estimated"
     )
+    return EXIT_OK
+
+
+def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: Say) -> int:
+    """`boss audit plan | check | report`. Every refusal (a dirty tree, a ledger or approval that
+    does not verify, a head off the base, a hostile repository) is exit 1 with the reason."""
+    store = audit.store_root(environ)
+    try:
+        if args.audit_command == "plan":
+            return _audit_plan(args, environ, store, ask, say)
+        if args.audit_command == "check":
+            return _audit_check(args, store, say)
+        return _audit_report(args, store, say)
+    except KeyboardInterrupt:
+        say("Interrupted.")
+        return EXIT_INTERRUPTED
+    except LedgerLockedError:
+        say("Stopped: this audit run is being written by another `boss` process; try again.")
+        return EXIT_FAILED
+    except (
+        audit.AuditError,
+        NotApprovedError,
+        LedgerCorruptError,
+        SigningError,
+        GitError,
+        GateError,
+        TermSheetError,
+    ) as exc:
+        say(f"Stopped: {exc}")
+        return EXIT_FAILED
+
+
+def _audit_plan(
+    args: argparse.Namespace, environ: Mapping[str, str], store: Path, ask: Ask, say: Say
+) -> int:
+    done = audit.plan(
+        Path(args.repo),
+        Path(args.request),
+        args.base,
+        store=store,
+        held_out_n=args.held_out,
+        env=worker_env(environ),
+        executable=environ.get(EXECUTABLE_VAR, CLI),
+        boss_model=args.boss_model,
+        ask=ask,
+        say=say,
+    )
+    if done is None:
+        say("Rejected. No checks were sealed.")
+        return EXIT_FAILED
+    say(
+        f"Sealed audit run {done.run_id}: {done.counted} of {done.total} checks fail on the base "
+        f"and will be counted.\nSeal: {done.seal}\nStore: {store}\n"
+        "Record the seal where the agent cannot change it, and keep the store out of the agent's "
+        f"reach. Then: boss audit check {done.run_id} --head REF --claim done"
+    )
+    return EXIT_OK
+
+
+def _audit_check(args: argparse.Namespace, store: Path, say: Say) -> int:
+    verdict = audit_check.check(
+        args.run,
+        args.head,
+        repo=Path(args.repo),
+        store=store,
+        claim=args.claim,
+        claim_text=Path(args.claim_text) if args.claim_text else None,
+        agent=args.agent,
+    )
+    say(audit_check.render_check(verdict))
+    return EXIT_INCOMPLETE if verdict.verdict in ("refuted", "inconclusive") else EXIT_OK
+
+
+def _audit_report(args: argparse.Namespace, store: Path, say: Say) -> int:
+    chosen = audit_report.run_ids(store, args.run, every=args.all)
+    say(audit_report.render(audit_report.collect(store, chosen, args.agent)))
     return EXIT_OK
 
 

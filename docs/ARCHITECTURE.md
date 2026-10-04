@@ -46,6 +46,10 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `errors.py` | Names the outcome of one CLI run from its stream signals and its stderr. | Trust `subtype` alone. |
 | `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`, with the held-out checks when the run has any. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own; let a held-out result reach a per-worker decision. |
 | `gate.py` | Running checks against a fresh copy of the workspace, inside the OS sandbox when there is one; the verdict. | Read the exit code alone; accept a pass without the plugin's signed proof; run a check from the workspace; modify the original workspace. |
+| `gitrepo.py` | Reading a git repository the user did not write: resolve a ref to a commit, is the tree clean, ancestry, commits between, diff, export a commit's tree. Every call is an argv list in a scrubbed environment with plumbing only, and history is read in an object-only copy of the repository. | Run a program the repository's config names (`core.fsmonitor`, filters, `diff.external`, hooks); pass a ref git could read as an option; check anything out; write to the repository. |
+| `audit.py` | `boss audit plan`, and what plan and check share: the audit store's layout (a project's, in `~/.boss-audit`), the seal (the base commit and the request's hash in the term sheet's one task, so inside the signed approval), the base's public surface, and how a check's result on a tree is read (failing, passing, blocked, timeout). | Write to the audited repository or put check text anywhere outside the store; show the boss a function body, a test or any change; count a check that passes on the base; record a verdict. |
+| `audit_check.py` | `boss audit check`: verifying the run first, exporting both trees from git objects, the verdict, the claim mode, the leak scan, the base's tests run over the head's code, and writing the signed `audited` event. | Run anything before the ledger, the approval and the check files verify; accept a head that does not descend from the sealed base; let a leak or a base-test failure alone produce `refuted`; print a check's code; write a verdict it did not compute. |
+| `audit_report.py` | `boss audit report`: the verdicts the store's key vouches for, the false-pass rate with its Wilson interval per agent and claim mode. | Add a pre-registered verdict to a post-hoc one; read an `audited` event that does not verify; present the rate as more than a floor. |
 | `_gate_plugin.py` | The pytest plugin inside every gate run: writes a signed proof that each collected test really ran and passed. Copied by the gate, never imported by boss. | Import `boss`; read pytest's reports as evidence. |
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
 | `held_out.py` | The `held_out/` folder of a run: its manifest, its content hashes, and the gate its files must pass (ids, parse, a test function, failing on an empty workspace). | Hold a check's body anywhere but that folder; let a file it does not list stand. |
@@ -98,7 +102,8 @@ Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/te
 benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
 has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
-`check_auditor_v1.md`, `consultant_v1.md` and `examiner_v1.md`. Skills are Markdown files under `src/boss/skills/`
+`check_auditor_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `boss audit plan` has one of its
+own, `audit_checks_v1.md`. Skills are Markdown files under `src/boss/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
 
 ## Life of a run
@@ -308,6 +313,29 @@ not. A failure is told to the investor and never read as "no findings". What a r
 is counted from `role_call` events: one critic call per review cycle, and one demo call and one
 usage judgement per build of the product (the last `slice_end`).
 
+## The audit commands
+
+`boss audit` reuses the run's ledger, the investor's signed approval and the gate; it adds no loop
+and funds no worker. It answers one question: did a change somebody else's agent made do what the
+request asked?
+
+1. `plan`: `gitrepo` resolves the base to a hash and refuses a dirty tree; the base is exported to a
+   temporary folder; `audit.public_surface` reduces it to paths and names; one boss call (no tools,
+   `audit_checks_v1.md`, the request and the surface as fenced data) returns checks; each check runs
+   on the base, in the gate; the investor approves through `review_term_sheet` with what each check
+   did on the base shown under the sheet. Everything lands in `<store>/.boss/runs/<id>/`, never in the
+   repository. Nothing the boss was shown comes from the change, because the change need not exist.
+2. `check`: the ledger is read with the store's key (chain, anchor, signatures); `require_approval`
+   matches the term sheet, the check files and the held-out folder; the base commit is read back out
+   of the signed term sheet; the head must descend from it. Both trees are exported; every check runs
+   on the base again to find the counted ones; the counted ones run on the head. The diff is scanned
+   for the checks' text, the base's `tests/` run over the head's code, and `decide` turns it into a
+   verdict, which the gate writes as a signed `audited` event.
+3. `report`: reads the verified `audited` events and computes the false-pass rate per agent and mode.
+
+The verdict is the gate's alone. A model chose the checks and an investor approved them, but nothing a
+model says is read after that: no claim is parsed, no output of the agent is shown to a model.
+
 ## Not built
 
 - Container isolation for the code the gate runs. An OS sandbox exists (`docs/SANDBOX.md`): run and
@@ -316,5 +344,12 @@ usage judgement per build of the product (the last `slice_end`).
 - An investor ruling on a task that was already set aside. It stays set aside for the run,
   resumed or not.
 - A writer for `denied` events. Nothing writes it.
+- In `boss audit` v1: installing dependencies for the checks, non-Python code, checks that need a
+  network, a service or a database, monorepos with several environments, retrying a flaky check,
+  Windows, a GitHub Action, scanning an agent's transcript for a leak, and reading an agent's words
+  to find its claim. The store is private to its owner and outside the repo, which does not stop an
+  agent that runs as the same operating-system user (T51); that needs another user or a container.
+  The audit's signatures are HMACs under a local key, so only the store's owner can check them
+  (B80). See B77 to B84 in [BACKLOG.md](BACKLOG.md).
 - A measured reserve for Sonnet and Opus. Their figures scale Haiku's by output price; only Haiku was measured.
 - API-key (`--bare`) mode verified against the real CLI.

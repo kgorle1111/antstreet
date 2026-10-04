@@ -95,7 +95,11 @@ uv run boss report    # the latest run's board report
 uv run boss status    # one line: last event, checks passing, spend
 uv run boss roles     # the organisation: roles, worker profiles and their skills
 uv run boss doctor    # check this machine; --live adds the two paid calls above
+uv run boss audit plan --repo . --request req.txt --base main   # seal checks for someone else's change
 ```
+
+`boss audit` checks a change an agent made in a git repository against checks sealed before it, and
+reports `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`; see [docs/CLI.md](docs/CLI.md).
 
 `boss resume` reads the run's ledger and the settings it started with. Running it is your decision
 to lift a stop, and the approval, the budget and every limit are checked again. A round that closed
