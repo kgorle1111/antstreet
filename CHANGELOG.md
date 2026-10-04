@@ -27,6 +27,7 @@ what changed for someone using the tool, not which commit did it.
 - A check may cite a rule of the request (`R07`) in its `criteria`, beside a story criterion.
 - `python -m boss.bench.spec_eval`: the offline evaluation of that layer on saved drafts, with hand labels
   in `bench/spec_truth/` and the criteria it is judged by fixed in `bench/spec_truth/CRITERIA.md`.
+- Security: threats T55 to T62 (the spec layer: a rule cited but not tested, an edited rule list, a forged coverage summary, waivers, a hostile idea, the mapper, a prompt tuned to the benchmark, spend).
 - `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
   pass, cost, time) with a task-level bootstrap interval and a verdict of `shown` or `not shown`;
   refuses results from different task sets.

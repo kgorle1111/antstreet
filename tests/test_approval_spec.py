@@ -1,5 +1,5 @@
 """The rule coverage in the investor's approval: what is shown, what is bound by the signature and
-the hashes, and what a forger or a careless edit cannot do (docs/THREAT_MODEL.md, SP1 to SP3)."""
+the hashes, and what a forger or a careless edit cannot do (docs/THREAT_MODEL.md, T55 to T57)."""
 
 import dataclasses
 import json
