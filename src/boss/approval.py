@@ -13,7 +13,8 @@ from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from boss import held_out, signing
+from boss import context, held_out, signing
+from boss.dispatch import DispatchPolicy, DispatchView, render_table
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import _CONTROL_ESCAPES, safe_text
 from boss.termsheet import TermSheet, TermSheetError, validate
@@ -99,6 +100,7 @@ def review_term_sheet(
     say: Say = print,
     notes: Sequence[str] = (),
     held_out_dir: Path | None = None,
+    view: DispatchView | None = None,
 ) -> TermSheet | None:
     """Show the term sheet; loop until the investor approves (returns the sheet) or rejects (None).
 
@@ -108,11 +110,16 @@ def review_term_sheet(
     nothing. Approval is of the sheet and the checks alone, and of the held-out checks when
     `held_out_dir` holds any: the investor reads them with the rest, and their hashes go into the
     same approval event. The ledger writer signs the investor's events (`LedgerWriter`).
+
+    With a `view` (`--dispatch rules`) the sheet shows its route and the dispatch table, the
+    investor may edit both in term_sheet.json, and an edit is held to the view's policy. The
+    approval then records the route it was given on.
     """
+    policy = None if view is None else view.policy
     path = run_dir / TERM_SHEET_FILE
     path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
     while True:
-        shown = render(sheet, checks_dir, held_out_dir)
+        shown = render(sheet, checks_dir, held_out_dir, view)
         say(shown)
         for note in notes:
             say(note)
@@ -123,11 +130,11 @@ def review_term_sheet(
         if answer in ("a", "approve"):
             # Approval binds to what is on disk now, and only if the investor has seen exactly that.
             try:
-                current = _load_valid(path, checks_dir, held_out_dir)
+                current = _load_valid(path, checks_dir, held_out_dir, policy)
             except TermSheetError as exc:
                 say(_problems_text("The term sheet does not validate", exc))
                 continue
-            if render(current, checks_dir, held_out_dir) != shown:
+            if render(current, checks_dir, held_out_dir, view) != shown:
                 say("The term sheet or a check changed since it was shown; review it again.")
                 sheet = current
                 continue
@@ -136,6 +143,8 @@ def review_term_sheet(
             data: dict[str, Any] = {"hashes": content_hashes(approved, checks_dir)}
             if held_out_dir is not None and (held := held_out.hashes(held_out_dir)):
                 data["held_out_hashes"] = held
+            if policy is not None:
+                data["route"] = approved.route
             ledger.append(
                 Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED, data=data)
             )
@@ -155,13 +164,19 @@ def review_term_sheet(
             say("Rejected. Nothing was funded.")
             return None
         if answer in ("e", "edit"):
-            sheet = _reload_after_edit(sheet, path, checks_dir, held_out_dir, ask, say)
+            sheet = _reload_after_edit(sheet, path, checks_dir, held_out_dir, ask, say, policy)
             continue
         say(f"Unrecognised answer {answer!r}.")
 
 
 def _reload_after_edit(
-    sheet: TermSheet, path: Path, checks_dir: Path, held_out_dir: Path | None, ask: Ask, say: Say
+    sheet: TermSheet,
+    path: Path,
+    checks_dir: Path,
+    held_out_dir: Path | None,
+    ask: Ask,
+    say: Say,
+    policy: DispatchPolicy | None,
 ) -> TermSheet:
     has_held_out = held_out_dir is not None and bool(held_out.hashes(held_out_dir))
     folders = f"{checks_dir} and {held_out_dir}" if has_held_out else f"{checks_dir}"
@@ -172,7 +187,7 @@ def _reload_after_edit(
         return sheet
     while True:
         try:
-            return _load_valid(path, checks_dir, held_out_dir)
+            return _load_valid(path, checks_dir, held_out_dir, policy)
         except TermSheetError as exc:
             say(_problems_text("The edited term sheet does not validate", exc))
             try:
@@ -181,7 +196,9 @@ def _reload_after_edit(
                 return sheet
 
 
-def _load_valid(path: Path, checks_dir: Path, held_out_dir: Path | None) -> TermSheet:
+def _load_valid(
+    path: Path, checks_dir: Path, held_out_dir: Path | None, policy: DispatchPolicy | None
+) -> TermSheet:
     """The term sheet as it is on disk, never approved, or TermSheetError. Held-out files are
     held to the same gate as when the examiner wrote them (an edit cannot break it)."""
     try:
@@ -189,7 +206,7 @@ def _load_valid(path: Path, checks_dir: Path, held_out_dir: Path | None) -> Term
     except (OSError, UnicodeDecodeError) as exc:
         raise TermSheetError([f"cannot read {path}: {exc}"]) from exc
     sheet = dataclasses.replace(TermSheet.from_json(text), approved_by_investor=False)
-    validate(sheet, checks_dir)
+    validate(sheet, checks_dir, policy)
     if held_out_dir is not None and (
         found := held_out.problems(held_out_dir, {c.id for c in sheet.checks})
     ):
@@ -201,7 +218,12 @@ def _problems_text(headline: str, exc: TermSheetError) -> str:
     return f"{headline}:\n" + "\n".join(f"  - {p}" for p in exc.problems)
 
 
-def render(sheet: TermSheet, checks_dir: Path, held_out_dir: Path | None = None) -> str:
+def render(
+    sheet: TermSheet,
+    checks_dir: Path,
+    held_out_dir: Path | None = None,
+    view: DispatchView | None = None,
+) -> str:
     lines = [
         "TERM SHEET",
         f"Idea: {sheet.idea}",
@@ -217,6 +239,9 @@ def render(sheet: TermSheet, checks_dir: Path, held_out_dir: Path | None = None)
             f"\nTask {task.id} (owns {', '.join(task.paths)}):",
             f"  {_line(task.brief, MAX_BRIEF_CHARS)}",
         ]
+    if view is not None:
+        sizes = {t.id: context.first_context_chars(sheet, t, checks_dir) for t in sheet.tasks}
+        lines += ["", *render_table(sheet, dataclasses.replace(view, contexts=sizes))]
     for check in sheet.checks:
         code = _check_text(checks_dir / check.file)
         lines += [
