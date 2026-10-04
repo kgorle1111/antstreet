@@ -1,0 +1,50 @@
+{
+  "idea_sha256": "8f65aa3abed65517d361dfce0913925690403ebfe673f90e1d0dc41ef59cb826",
+  "splitter": "v1",
+  "coarse": true,
+  "hidden": {
+    "bracket_edge_cases": [
+      "R07",
+      "R08"
+    ],
+    "char_sets": [
+      "R04",
+      "R05",
+      "R06"
+    ],
+    "escapes": [
+      "R09"
+    ],
+    "filter_names": [
+      "R13"
+    ],
+    "invalid_patterns": [
+      "R10",
+      "R11"
+    ],
+    "literals_and_star": [
+      "R02",
+      "R03"
+    ],
+    "polynomial_time": [
+      "R12"
+    ],
+    "question_mark": [
+      "R03"
+    ]
+  },
+  "rules": {
+    "R02": "An ordinary character matches only itself. The empty pattern",
+    "R03": "`*` matches any run of characters, including none. `?` match",
+    "R04": "`[...]` is a set. It matches exactly one character that is a",
+    "R05": "A `-` is a range operator only when it sits between two memb",
+    "R06": "`[!...]` is a negated set: it matches exactly one character ",
+    "R07": "A `]` directly after `[` or directly after `[!` is an ordina",
+    "R08": "Inside a set, `*`, `?` and `[` are ordinary members.",
+    "R09": "A backslash escapes the next character, both outside and ins",
+    "R10": "A pattern that ends with a lone backslash raises `ValueError",
+    "R11": "The pattern is always checked in full, whatever the text is.",
+    "R12": "Matching must take polynomial time in the lengths of the pat",
+    "R13": "`names` is any iterable of strings. Returns a new list holdi"
+  }
+}

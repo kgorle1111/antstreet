@@ -1,0 +1,42 @@
+{
+  "idea_sha256": "1335ff9c97cd274afcad138498c3abb7cbb34460e0ca4cab7a55776e9571ab05",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "accents": [
+      "R04",
+      "R05"
+    ],
+    "basic": [
+      "R06",
+      "R07"
+    ],
+    "max_length_hyphen": [
+      "R10"
+    ],
+    "max_length_invalid": [
+      "R13"
+    ],
+    "max_length_long_word": [
+      "R11",
+      "R12"
+    ],
+    "separators": [
+      "R07",
+      "R08",
+      "R09"
+    ]
+  },
+  "rules": {
+    "R04": "Accented letters become their plain ASCII letter (é becomes ",
+    "R05": "Characters with no ASCII form are dropped.",
+    "R06": "Everything is lowercased.",
+    "R07": "Every run of characters other than a-z and 0-9 becomes a sin",
+    "R08": "The slug has no leading or trailing hyphen.",
+    "R09": "Text with no letters or digits gives \"\".",
+    "R10": "If `max_length` is given and the slug is longer than it, cut",
+    "R11": "If the first word alone is longer than `max_length`, cut tha",
+    "R12": "The result never ends with a hyphen.",
+    "R13": "A `max_length` below 1 raises `ValueError`."
+  }
+}

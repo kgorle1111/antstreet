@@ -1579,7 +1579,11 @@ def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
         "worker", "consultant", "critic", "worker", "demo_writer", "judge",
     ]  # fmt: skip
     chosen = set(registry()) - set(BY_OPTION)  # the examiner comes with --held-out, not --roles
+    # the spec mapper reads the rules only --spec writes: with none it makes no call and says so
+    # (tests/test_cli_spec.py), and its note is on the sheet
+    chosen -= {"spec_mapper"}
     assert {e.actor for e in fx.role_calls()} == {f"role:{n}" for n in chosen}
+    assert "spec_mapper: not run. It reads the idea's rules, which only --spec makes." in out.text
     assert all(e.round == 0 and e.data["result"] == "ok" for e in fx.role_calls())
     events = fx.events()
     spent = {}

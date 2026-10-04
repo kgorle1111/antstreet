@@ -16,13 +16,13 @@ import json
 import os
 import shutil
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from boss import cli
+from boss import cli, spec
 from boss.bench.results import CellResult, cell_dir, load_results
 from boss.bench.score import DraftScore, draft_checks, score_draft
 from boss.bench.table import MIXED_WARNING, wilson_interval
@@ -30,6 +30,7 @@ from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
 from boss.boss import (
     DEFAULT_CAP_MICROS,
     DEFAULT_MODEL,
+    RULES_PROMPT,
     TERM_SHEET_PROMPT,
     BossError,
     InvalidDraftError,
@@ -45,6 +46,7 @@ from boss.stream import Usage
 from boss.worker import CLI, usd, worker_env
 
 DRAFT_FILE = "draft.json"
+CLAIMS_FILE = "claims.json"  # a draft made with rules: who cites which rule, and the waivers
 REJECTED_FILE = "rejected_output.json"
 CHECKS_DIR = "checks"
 # The term sheet needs a budget to be valid; it is never spent and the prompt does not mention it.
@@ -182,7 +184,8 @@ def run_draft(
         if settings.prompt == STAGED:
             usage = _staged_draft(task, checks_dir, environ, settings)
         else:
-            usage = draft_term_sheet(
+            rules = spec.split(task.idea) if settings.prompt == RULES_PROMPT else None
+            draft = draft_term_sheet(
                 task.idea,
                 DRAFT_BUDGET_MICROS,
                 checks_dir,
@@ -191,7 +194,11 @@ def run_draft(
                 executable=environ.get(cli.EXECUTABLE_VAR, CLI),
                 thinking_tokens=settings.boss_thinking,
                 prompt_name=settings.prompt,
-            ).usage
+                rules=rules,
+            )
+            usage = draft.usage
+            if rules is not None:
+                save_claims(cell, rules, draft)
     except BossError as exc:
         # A call that completed but gave nothing usable is the draft's fault; anything else
         # (capped, timeout, login, ...) says nothing about the prompt.
@@ -204,6 +211,17 @@ def run_draft(
         result = _cell(task, rep, set_hash, settings, SCORED, usage, score=score)
     result.save(cell)
     return result
+
+
+def save_claims(cell: Path, rules: spec.Split, draft: Any) -> None:
+    """Keep the rule list and who cites what, beside the checks, so the coverage of a draft can be
+    read again without a model."""
+    (cell / spec.RULES_FILE).write_text(spec.dumps(rules), encoding="utf-8")
+    kept = {
+        "claims": {c.id: list(c.criteria) for c in draft.sheet.checks},
+        "untested": dict(draft.untested),
+    }
+    (cell / CLAIMS_FILE).write_text(json.dumps(kept, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _staged_draft(
@@ -498,6 +516,14 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         "manager, system designer and tester in place of the boss's one call",
     )
     parser.add_argument("--jobs", type=int, default=2, help="drafts to make and score at once")
+    parser.add_argument(
+        "--max-spend",
+        type=cli.usd_arg,
+        metavar="USD",
+        help="stop making drafts before the measured spend, plus one more call at its cap, would "
+        "pass this; drafts are then made one at a time. A cost the CLI did not report counts as "
+        "the cap",
+    )
     parser.add_argument("--dry-run", action="store_true", help="list the drafts and exit")
     parser.add_argument(
         "--score-existing",
@@ -566,15 +592,48 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         print(f"  {task.id:<14} rep{rep}  {_verdict(result)}")
         return result
 
-    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        results = list(pool.map(run, todo))
+    if args.max_spend is None:
+        with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+            results = list(pool.map(run, todo))
+    else:
+        results = _run_within(run, todo, args.max_spend, done.values())
     print()
     print(render_table([*done.values(), *results]), end="")
     return 0
 
 
+def _run_within(
+    run: Callable[[tuple[BenchTask, int]], DraftCell],
+    todo: Sequence[tuple[BenchTask, int]],
+    cap_micros: int,
+    earlier: Iterable[DraftCell] = (),
+) -> list[DraftCell]:
+    """Make the drafts one at a time, and stop before one that could take the measured spend past
+    `cap_micros`: the next call may cost up to its own cap. A cost the CLI did not report is
+    counted at that cap, never as zero. `earlier` are drafts already made, counted in the spend."""
+    spent = sum(_charge(c) for c in earlier)
+    results: list[DraftCell] = []
+    for item in todo:
+        if spent + DEFAULT_CAP_MICROS > cap_micros:
+            left = len(todo) - len(results)
+            print(
+                f"Stopped at the spend cap: {dollars(spent)} spent of {dollars(cap_micros)}; "
+                f"{left} draft(s) not made."
+            )
+            break
+        cell = run(item)
+        spent += _charge(cell)
+        results.append(cell)
+    print(f"Measured spend {dollars(spent)} of the {dollars(cap_micros)} cap.")
+    return results
+
+
+def _charge(cell: DraftCell) -> int:
+    return DEFAULT_CAP_MICROS if cell.cost_micros is None else cell.cost_micros
+
+
 def _verdict(cell: DraftCell) -> str:
-    cost = "cost unknown" if cell.cost_micros is None else f"${dollars(cell.cost_micros)}"
+    cost = "cost unknown" if cell.cost_micros is None else f"{dollars(cell.cost_micros)}"
     if cell.score is None:
         return f"{cell.status} ({cell.outcome})  {cost}"
     s = cell.score

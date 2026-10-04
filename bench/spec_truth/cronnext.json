@@ -1,0 +1,100 @@
+{
+  "idea_sha256": "7870ff38c2a4c615f498d31a9da9c4b3752c0c41c32d239cc3f62275f38dc50f",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "bad_arguments_and_never": [
+      "R19",
+      "R25",
+      "R30",
+      "R31"
+    ],
+    "basic": [
+      "R06",
+      "R07",
+      "R09",
+      "R10",
+      "R14",
+      "R16",
+      "R22",
+      "R24"
+    ],
+    "calendar": [
+      "R16",
+      "R19",
+      "R22",
+      "R25",
+      "R26"
+    ],
+    "day_rules": [
+      "R06",
+      "R08",
+      "R09",
+      "R16",
+      "R17",
+      "R18",
+      "R20",
+      "R26"
+    ],
+    "fields": [
+      "R08",
+      "R09",
+      "R10",
+      "R11",
+      "R13",
+      "R22"
+    ],
+    "invalid_expressions": [
+      "R06",
+      "R08",
+      "R09",
+      "R10",
+      "R12",
+      "R14",
+      "R15",
+      "R29",
+      "R31"
+    ],
+    "next_fires": [
+      "R22",
+      "R24",
+      "R25",
+      "R26",
+      "R27",
+      "R28",
+      "R30",
+      "R31"
+    ],
+    "strictly_after": [
+      "R22",
+      "R23"
+    ]
+  },
+  "rules": {
+    "R06": "`expr` has five fields separated by one or more spaces or ta",
+    "R07": "Whitespace around the whole expression is ignored.",
+    "R08": "A field is a comma-separated list of one or more items, and ",
+    "R09": "An item is `*` (every value the field allows), a number, or ",
+    "R10": "A `*` or a range may be followed by `/step`, where `step` is",
+    "R11": "So `*/15` in the minute field is 0, 15, 30 and 45, `*/10` in",
+    "R12": "A single number cannot take a step (`5/10` is invalid).",
+    "R13": "A step larger than the range is fine (`*/60` in the minute f",
+    "R14": "Numbers are one or more ASCII digits, and leading zeros are ",
+    "R15": "Month names, weekday names, `@daily` and similar shortcuts, ",
+    "R16": "The minute, hour and month fields must all match.",
+    "R17": "The day is decided by the day-of-month and day-of-week field",
+    "R18": "If one of the two fields is written exactly as `*`, only the",
+    "R19": "A day of the month that a month does not have simply never m",
+    "R20": "A day-of-month value that never exists still allows the day-",
+    "R22": "`next_fire(expr, after)` returns the earliest datetime `t` t",
+    "R23": "Only the minute of `after` counts: after 10:30:00 or 10:30:4",
+    "R24": "The result is a naive `datetime`.",
+    "R25": "If the expression has no match within the 3660 days after `a",
+    "R26": "`next_fires(expr, after, count)` returns a list of the next ",
+    "R27": "`count` of 0 gives an empty list without searching, so even ",
+    "R28": "The expression is still checked when `count` is 0.",
+    "R29": "`ValueError` is raised for an expression that is not valid u",
+    "R30": "A negative `count` and an `after` that has a time zone (`tzi",
+    "R31": "`TypeError` is raised when `expr` is not a `str`, when `afte"
+  }
+}

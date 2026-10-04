@@ -1,0 +1,89 @@
+{
+  "idea_sha256": "f6cf94dd01519dda91197f57d7a47ffa9b178342dab4de78731f450e067b47ae",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "comments": [
+      "R07",
+      "R09",
+      "R10",
+      "R11"
+    ],
+    "errors": [
+      "R13",
+      "R15",
+      "R21",
+      "R29"
+    ],
+    "keyvalue": [
+      "R06",
+      "R07",
+      "R18",
+      "R19",
+      "R20",
+      "R24",
+      "R25"
+    ],
+    "quotes": [
+      "R19",
+      "R26",
+      "R27",
+      "R28"
+    ],
+    "realistic_file": [
+      "R07",
+      "R08",
+      "R10",
+      "R13",
+      "R16",
+      "R17",
+      "R19",
+      "R20",
+      "R23",
+      "R24",
+      "R26"
+    ],
+    "repeats": [
+      "R13",
+      "R16",
+      "R17",
+      "R23",
+      "R24"
+    ],
+    "sections": [
+      "R07",
+      "R08",
+      "R12",
+      "R13",
+      "R14",
+      "R16",
+      "R22"
+    ]
+  },
+  "rules": {
+    "R06": "The text is split into lines at `\\n`.",
+    "R07": "Leading and trailing whitespace of every line is ignored (a ",
+    "R08": "A line that is empty after that is skipped.",
+    "R09": "A comment line is one whose first character, after that stri",
+    "R10": "It is skipped.",
+    "R11": "Comments exist only as whole lines: there are no inline comm",
+    "R12": "A section header is a line that starts with `[`.",
+    "R13": "It must end with `]`, and the name is the text between the b",
+    "R14": "Names are case-sensitive.",
+    "R15": "A header that does not end with `]`, or whose name is empty ",
+    "R16": "A section appears in the result as soon as its header is rea",
+    "R17": "A header for a section that was already opened continues tha",
+    "R18": "Any other line is a key/value line.",
+    "R19": "It is split at its first `=`: the key is the text before it ",
+    "R20": "The value may be empty (`k =` gives `\"\"`) and may itself con",
+    "R21": "A line without `=`, or with an empty key (`= v`), is an erro",
+    "R22": "Keys are case-sensitive.",
+    "R23": "If a key appears again in the same section, the later value ",
+    "R24": "Key/value lines that come before any section header belong t",
+    "R25": "That section is in the result only if at least one such line",
+    "R26": "If a value (after the whitespace removal of rule 5) is at le",
+    "R27": "There are no escape sequences, and single quotes are not spe",
+    "R28": "Any other value, including a lone `\"`, is left as it is.",
+    "R29": "Every error raises `ValueError`, and so does an argument tha"
+  }
+}

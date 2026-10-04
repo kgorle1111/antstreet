@@ -1,0 +1,54 @@
+{
+  "idea_sha256": "408b641e350aea8110c9293e121ecd9d0c64041396317ad16192b1ac5e4fa1ed",
+  "splitter": "v1",
+  "coarse": true,
+  "hidden": {
+    "escapes": [
+      "R04"
+    ],
+    "invalid_pointers": [
+      "R02",
+      "R04",
+      "R05"
+    ],
+    "list_indexes": [
+      "R07"
+    ],
+    "missing_and_leaves": [
+      "R06",
+      "R08"
+    ],
+    "resolve_basic": [
+      "R02",
+      "R03",
+      "R09"
+    ],
+    "set_value": [
+      "R10",
+      "R11",
+      "R12"
+    ],
+    "set_value_errors": [
+      "R07",
+      "R12",
+      "R13"
+    ],
+    "set_value_isolation": [
+      "R10"
+    ]
+  },
+  "rules": {
+    "R02": "The empty pointer `\"\"` refers to the whole document. Any oth",
+    "R03": "Everything after the first `/` is split on `/` into tokens. ",
+    "R04": "Inside a token, `~1` stands for `/` and `~0` stands for `~`.",
+    "R05": "The whole pointer is checked (rules 1 to 3) before the docum",
+    "R06": "From a dict, the decoded token is looked up as an exact key.",
+    "R07": "From a list, the token must be `0` or a digit 1-9 followed b",
+    "R08": "Following any token from a leaf raises `KeyError`, including",
+    "R09": "Follows the tokens from the document and returns the value f",
+    "R10": "Returns a new document and never modifies `document`. The ne",
+    "R11": "The empty pointer returns `value`.",
+    "R12": "Otherwise all tokens except the last are followed with rules",
+    "R13": "The token `-` before the last position never resolves on a l"
+  }
+}

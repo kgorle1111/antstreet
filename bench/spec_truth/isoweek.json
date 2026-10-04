@@ -1,0 +1,62 @@
+{
+  "idea_sha256": "25469e78198e051cf4b4508957d0621e6b2f5cb3ec7434b9736fc6982ce7509b",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "format": [
+      "R11",
+      "R12",
+      "R13"
+    ],
+    "iso_week_midyear": [
+      "R07"
+    ],
+    "parse": [
+      "R12",
+      "R14"
+    ],
+    "parse_errors": [
+      "R15",
+      "R16"
+    ],
+    "roundtrip": [
+      "R07",
+      "R09",
+      "R11",
+      "R14",
+      "R21"
+    ],
+    "type_errors": [
+      "R10",
+      "R17",
+      "R18",
+      "R19",
+      "R20"
+    ],
+    "weeks_in_year": [
+      "R09"
+    ],
+    "year_boundaries": [
+      "R07",
+      "R08",
+      "R09"
+    ]
+  },
+  "rules": {
+    "R07": "`iso_week(d)` returns `(iso_year, week)` as two ints, where ",
+    "R08": "For example 2021-01-03 (a Sunday) is `(2020, 53)`, 2021-01-0",
+    "R09": "`weeks_in_year(year)` is the number of the last week of that",
+    "R10": "It accepts years 1 to 9999; any other int raises `ValueError",
+    "R11": "`format_iso_week(d)` returns the ISO week date as `YYYY-Www-",
+    "R12": "2021-01-03 is `2020-W53-7`, 2024-03-15 is `2024-W11-5`, and ",
+    "R13": "There are no spaces.",
+    "R14": "`parse_iso_week(text)` is the inverse and returns the date.",
+    "R15": "The text must match the format of rule 3 exactly: four ASCII",
+    "R16": "It raises `ValueError` when the text does not match, when th",
+    "R17": "`iso_week` and `format_iso_week` take a `datetime.date`.",
+    "R18": "A `datetime.datetime` is not accepted even though it is a su",
+    "R19": "Any argument that is not a date raises `TypeError`.",
+    "R20": "`parse_iso_week` raises `TypeError` for anything that is not",
+    "R21": "For every date `d`, `parse_iso_week(format_iso_week(d)) == d"
+  }
+}

@@ -618,3 +618,115 @@ with a JSON schema.
   `tests/test_stream_messages.py::test_summed_messages_equal_the_recorded_final_totals`. Reopen when
   the CLI streams a per-message cost or the final output count of each response (check
   `--include-partial-messages` first: it was not probed).
+
+### D38: Audit checks are sealed from the base commit alone, outside the repository, and every claim about a head is computed
+
+- Status: `in force`
+- Decision: `boss audit plan` writes the checks from the request and the base commit's public
+  surface (paths, names and signatures, no bodies, no tests), in one boss call that has no tools,
+  and keeps them in `~/.boss-audit` (or `$BOSS_AUDIT_HOME`), never in the repository. The investor
+  approves them, signed, with the base commit and the request's hash inside the approved term sheet.
+  `boss audit check` then verifies the ledger, the approval and the check files, requires the head to
+  descend from the base, exports both trees from git objects, and counts only the checks that fail on
+  the base. The verdict is the gate's, written as a signed `audited` event; the investor states the
+  claim (`--claim done|none`) and the agent's words are kept as a hash.
+- Why: A check written after the change is seen is fitted to it, and a check an agent can read can be
+  copied. Writing from the base alone means no change need exist, so none can be shown; keeping the
+  text outside the repository, the prompt and the working folder removes the ways an agent in the
+  repo meets it. A check that passes on the base cannot tell a finished change from an unfinished
+  one, so it is shown to the investor and not counted. Statuses are recomputed by running the checks
+  on the base at every `check` so that a stored status is not another thing to forge, and the base and
+  request go in the task brief because that text is already inside the hash the signature covers.
+  The ledger, signature, anchor and gate are reused, so a verdict is as hard to forge as an approval
+  (T46, T54).
+- Rejected: Reading the agent's own words with a model to find its claim: it lets the audited agent
+  talk to the verdict, and a wrong parse is a false accusation. Checks stored in the repository, or
+  in a hidden folder of it: a worker in the repo can read them. Checks written from the change: they
+  would test what was done, not what was asked. Stored base statuses: one more value to protect, and
+  a flaky base would be frozen in. Counting a check that passes on the base: it measures nothing
+  about the change. Public-key signatures (B80): a new dependency, asked for separately.
+- Evidence: `tests/test_audit_plan.py::test_no_check_text_is_anywhere_under_the_repo_and_the_store_is_outside_it`,
+  `tests/test_audit_plan.py::test_a_change_that_already_exists_is_never_shown_to_the_boss`,
+  `tests/test_audit_plan.py::test_the_base_and_the_request_are_inside_the_signed_term_sheet`,
+  `tests/test_audit_check.py::test_a_wrong_implementation_claimed_done_is_refuted`,
+  `tests/test_audit_check.py::test_a_changed_base_commit_in_the_term_sheet_voids_the_approval`,
+  `tests/test_audit_check.py::test_a_passing_check_on_the_base_is_not_counted_even_when_the_head_breaks_it`.
+  This does not make the checks unreadable to an agent running as the same operating-system user
+  (T51, B84). No audited run has been measured yet: the false-pass rate and the share of wrong
+  implementations the checks catch are the design's working figures until one is.
+
+### D39: A verdict is a refutation or the lack of one, a leak only ever downgrades it, and the two claim modes are never pooled
+
+- Status: `in force`
+- Decision: The verdicts are `refuted` (claimed done and a counted check fails on the head),
+  `unrefuted` (claimed done and none does, with at least one counted check, every one run, and no
+  leak), `inconclusive` and `no_claim`. Text of the sealed checks in the change, a counted check that
+  cannot run on the head, or no check that fails on the base make an otherwise passing verdict
+  `inconclusive`; none of them can make a failing one anything but `refuted`. The base's own tests
+  run over the head's code are listed beside the verdict and not part of it. The false-pass rate is
+  `refuted` / (claimed done and not `inconclusive`) with a Wilson interval, per agent label and per
+  claim mode (`pre_registered` only when every commit is dated after the seal, else `post_hoc`), and
+  is reported as a floor.
+- Why: A pass by checks that catch only some wrong implementations is no proof, so the word for it is
+  `unrefuted`, and the rate built on it can only understate. A leak means the checks may have been
+  seen, which makes a pass doubtful but a failure no less real, so it is allowed to remove trust
+  and never to add blame. Commit dates are chosen by the committer, so a post-hoc audit may have
+  been written after the work was read; adding it to pre-registered ones would let the weaker kind
+  borrow the stronger's credit. Old tests broken by a change that was asked to change behaviour are
+  not wrong, so listing them is safer than counting them.
+- Rejected: A `passed` verdict: it claims what the checks cannot show. Counting base-test
+  regressions as refutations: a request that changes behaviour would be refuted for doing its job
+  (B82). One pooled rate: it would hide the difference between a claim made before the checks were
+  sealed and one made after. A leak that refutes: a name collision would accuse an honest change.
+- Evidence: `tests/test_audit_check.py::test_the_verdict_logic`,
+  `tests/test_audit_check.py::test_a_head_that_quotes_a_sealed_test_name_is_flagged_and_a_pass_is_not_trusted`,
+  `tests/test_audit_check.py::test_deleted_and_broken_base_tests_are_caught_though_the_sealed_checks_pass`,
+  `tests/test_audit_check.py::test_claim_mode_needs_a_commit_and_every_commit_after_the_seal`,
+  `tests/test_audit_report.py::test_pre_registered_and_post_hoc_are_never_pooled`,
+  `tests/test_audit_report.py::test_wilson_matches_the_published_score_interval`. Reopen when an
+  audited run measures how many wrong implementations the checks miss.
+### D40: The rule layer's headline counts four anchor types; literals and list items are shown apart
+
+- Status: `under evaluation`
+- Decision: `boss.spec` extracts six kinds of anchor from a rule (a literal, a list item, an exception
+  name, a type, a size, "non-ASCII"). A rule's state and the headline score (anchored rules over
+  scored rules) use only the last four. A missing literal or list item is shown in its own section of
+  the approval view, labelled as not scored.
+- Why: The offline evaluation on 17 tasks and 169 saved drafts (15 known omissions, 61 of 273 scored
+  rules belonging to a failing hidden check, a 22% base rate) found a missing `non_ascii` anchor right
+  in 15 of 21 flags (71%), `exception` 5 of 5, `magnitude` 1 of 1, `type` 2 of 7 (29%), and a missing
+  list item in 11 of 39 (28%, the base rate) and a literal in 1 of 22 (5%). Flagging as many rules at
+  random would have hit 11.0 of the 15 cells, the verifier 12. Scoring the two noisy types would
+  count a rule as uncovered on evidence no better than chance. Pre-registered O1 and O4 failed (94.9%
+  against 95%; a 4.5-point kill-rate gap against 25 on hand mutants that are killed 88% of the time
+  whatever the draft holds), so this is a reduction, not a pass.
+- Rejected: Counting every anchor, as pre-registered: the evaluation's own numbers say two types are
+  noise. Dropping literals and list items altogether: they are cheap to show and a person can judge
+  them; only the score is withheld. Re-tuning the extraction on the same 17 tasks: the tasks are used
+  up, and a held-out set of 18 more is being labelled separately.
+- Evidence: `bench/results/2026-10-03-spec-offline/README.md`,
+  `tests/test_spec_verify.py::test_a_missing_literal_does_not_decide_the_state_or_the_headline_but_is_still_reported`,
+  `tests/test_spec_verify.py::test_only_the_four_types_with_evidence_are_in_the_headline`. Reopen
+  when the 18 held-out tasks are labelled and the same measurements are run on them.
+
+### D41: `--spec` stays off: the rules prompt did not clear its pre-registered bar
+
+- Status: `under evaluation`
+- Decision: `boss fund --spec` exists and is off by default. P2, the 51-cell firm run it was to
+  unlock, is not run. The coverage view and the signed coverage summary are the part that earns
+  its place so far; the prompt is not.
+- Why: P1 (17 drafts, $2.3187) met two of five criteria: (a) kill rate on the failing products 35%
+  against 45% (baseline 31%), (b) on the non-ASCII subset 31% against 40% (baseline 8%), (c) wrong
+  checks 6.1% against 5% (baseline 1.6%); met (d) 1 invalid draft of 17 and (e) 11.2 checks, which
+  cannot fail under a ceiling of 12. Only 2 of the 5 tasks that name non-ASCII input got a
+  non-ASCII test. After the numbers were committed: for 16 of 16 failing products in that subset, a
+  rule the failing check tests was shown as uncovered or anchor-missing to the investor by the
+  verifier.
+- Rejected: Running P2 anyway: the bar was set to decide exactly this, and a benchmark that
+  approves every term sheet cannot measure what the view does. Raising the check ceiling or
+  loosening (c) after seeing the numbers: a new prompt version, not a pass.
+- Evidence: `bench/results/2026-10-03-spec-p1/README.md`, `bench/spec_truth/P1_CRITERIA.md`,
+  `tests/test_bench_spec_p1.py::test_each_criterion_is_decided_at_its_boundary_and_all_five_must_hold`,
+  `tests/test_boss_spec.py::test_the_v3_prompt_names_no_benchmark_task_and_no_special_character_class`.
+  Reopen with a repair call, or when the held-out 18 are measured.
+

@@ -1,0 +1,73 @@
+{
+  "idea_sha256": "11bb87ba2ac5c422269a7b4454474127707b1c56222ea1ea4b2b5f5df904819a",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "format_errors": [
+      "R28"
+    ],
+    "format_quoting": [
+      "R23",
+      "R24",
+      "R25",
+      "R26",
+      "R27"
+    ],
+    "parse_errors": [
+      "R12",
+      "R13",
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R19",
+      "R22"
+    ],
+    "parse_plain": [
+      "R04",
+      "R05",
+      "R10",
+      "R11"
+    ],
+    "parse_quoted": [
+      "R07",
+      "R08",
+      "R09"
+    ],
+    "parse_whitespace": [
+      "R20",
+      "R21"
+    ],
+    "roundtrip": [
+      "R29"
+    ]
+  },
+  "rules": {
+    "R04": "Fields are separated by commas.",
+    "R05": "The empty string parses to `[\"\"]`; `'a,,b'` parses to `[\"a\",",
+    "R07": "A field that starts with a double quote is a quoted field an",
+    "R08": "Inside it, commas and line breaks (`\\n` and `\\r`, in any com",
+    "R09": "The surrounding quotes are not part of the value: `'\"a,b\"'` ",
+    "R10": "Any other field is unquoted.",
+    "R11": "Its text is everything up to the next comma or the end of th",
+    "R12": "An unquoted field must not contain a double quote.",
+    "R13": "A double quote that does not open a field is an error, so `'",
+    "R14": "After a closing quote the next character must be a comma or ",
+    "R15": "Anything else is an error, including whitespace: `'\"a\" ,b'` ",
+    "R16": "A quoted field that is never closed is an error.",
+    "R17": "`'\"abc'` and `'\"abc\"\"'` are errors.",
+    "R18": "The input is one record.",
+    "R19": "A line break (`\\n` or `\\r`) outside a quoted field is an err",
+    "R20": "Whitespace is preserved exactly: `' a , b '` parses to `[\" a",
+    "R21": "Nothing is ever stripped.",
+    "R22": "Every error raises `ValueError`.",
+    "R23": "`format_line` is the inverse: it joins the fields with comma",
+    "R24": "A field is wrapped in double quotes only when it contains a ",
+    "R25": "Every other field is written as it is, so `'a b'` and the em",
+    "R26": "Inside a quoted field every double quote is doubled.",
+    "R27": "`'say \"hi\"'` is written `'\"say \"\"hi\"\"\"'`, and a field that i",
+    "R28": "A field that is not a `str` (for example `None`, an `int` or",
+    "R29": "For every list of strings with at least one element, `parse_"
+  }
+}
