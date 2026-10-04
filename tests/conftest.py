@@ -5,6 +5,26 @@ import signal
 
 import pytest
 
+# Measured 2026-10-04 (`--durations`): each of these spends minutes in subprocesses (gates inside a
+# sandbox, benchmark validation, simulated firms). A plain `uv run pytest` leaves them out; CI runs
+# them. Whole files by name, single tests by node id. Add a test when it takes over ~8 seconds.
+SLOW = (
+    "tests/test_bench_tasks.py",
+    "tests/test_bench_mutants.py",
+    "tests/test_bench_run.py",
+    "tests/test_bench_held_out.py",
+    "tests/test_bench_drafts_staged.py",
+    "tests/test_bench_single_review.py",
+    "tests/test_bench_score.py",
+    "tests/test_firm.py",
+    "tests/test_firm_simulation.py",
+    "tests/test_pipeline.py",
+    "tests/test_docs_ledger.py",
+    "tests/test_docs_contributing.py::test_a_task_built_by_those_steps_validates",
+    "tests/test_docs_cli.py::test_a_run_with_roles_holds_the_extra_paths_the_document_lists",
+    "tests/test_runner.py::test_a_slice_can_be_stopped_from_another_thread_and_its_cost_is_still_read",
+    "tests/test_runner.py::test_worker_ignoring_sigint_and_sigterm_is_still_killed",
+)
 SHARD_ENV = "BOSS_SHARD"
 TIMEOUT_ENV = "BOSS_TEST_TIMEOUT_S"
 
@@ -32,6 +52,13 @@ def shard_of(path: str, count: int) -> int:
 
 
 def pytest_collection_modifyitems(config, items):
+    for item in items:
+        if item.nodeid.startswith(SLOW):
+            item.add_marker(pytest.mark.slow)
+    _shard(config, items)
+
+
+def _shard(config, items):
     """`BOSS_SHARD=i/N` keeps the tests of the files that hash to shard i, so a module's shared
     fixtures and xdist groups stay together and the N shards partition the suite exactly."""
     raw = os.environ.get(SHARD_ENV, "").strip()

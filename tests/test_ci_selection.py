@@ -44,6 +44,28 @@ def test_the_shards_together_collect_exactly_the_whole_suite():
     assert sum(collected(f"{i}/3") for i in range(3)) == whole
 
 
+def count_with(*marker: str) -> int:
+    cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"]
+    out = subprocess.run(
+        [*cmd, "-n", "0", *marker, "tests"],
+        cwd=TESTS.parent,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(TESTS)},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    ).stdout
+    return sum(int(line.rsplit(": ", 1)[1]) for line in out.splitlines() if ": " in line)
+
+
+@pytest.mark.slow
+def test_the_two_ci_runs_together_collect_what_the_quick_default_leaves_out_too():
+    everything = count_with("-m", "slow or not slow")
+    parallel, serial = count_with("-m", "not sigint"), count_with("-m", "sigint")
+    assert parallel + serial == everything
+    assert count_with() < everything  # the default really is the quick subset
+    assert count_with("-m", "slow") > 0 and serial > 0
+
+
 def test_a_test_that_outlives_the_timeout_ends_the_process(tmp_path):
     (tmp_path / "test_hang.py").write_text("import time\n\ndef test_hangs():\n    time.sleep(60)\n")
     (tmp_path / "conftest.py").write_text((TESTS / "conftest.py").read_text())

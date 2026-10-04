@@ -39,7 +39,9 @@ files = ["src/boss"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# A plain `uv run pytest` is the quick run: one worker per core, and not the `slow` tests (CI runs
+# them) nor the `sigint` ones (serial only). A -m on the command line replaces the -m here.
+addopts = "-q -n auto --dist loadgroup -m 'not slow and not sigint'"
 markers = [
     "slow: spawns many subprocesses (sandboxed gates, benchmark task validation, simulated firms). Left out of a plain `uv run pytest`; CI runs them.",
     "sigint: a fake worker sends a real SIGINT to the pytest process (Ctrl-C mid-run). Under load plus coverage that has hung a parallel worker, so CI runs these after the parallel run, serially.",
