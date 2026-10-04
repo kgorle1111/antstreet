@@ -295,6 +295,11 @@ class TreeResult:
 _MISSING_MODULE = re.compile(r"No module named '([^'.]+)")
 
 
+def missing_modules(text: str) -> tuple[str, ...]:
+    """The top-level modules a pytest output says could not be imported, sorted."""
+    return tuple(sorted(set(_MISSING_MODULE.findall(text))))
+
+
 def run_tree(
     workspace: Path,
     tree: Path,
@@ -303,18 +308,20 @@ def run_tree(
     support: Path | None = None,
     timeout_s: float = TREE_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
+    pythonpath: Sequence[str] = DEFAULT_PYTHONPATH,
 ) -> TreeResult:
     """Run a whole pytest tree against a copy of `workspace`; the original is never modified.
 
     `tree` is copied to `test_path` inside the copy, replacing anything the product put there, and
     `support` (harness-owned files, e.g. a shim for a third-party import) is laid over the copy's
-    root. A test passes only when it ran and was neither failed, errored nor skipped. Collection
+    root. `pythonpath` is as for `run_gate`. A test passes only when it ran and was neither failed, errored nor skipped. Collection
     errors do not stop the run (`--continue-on-collection-errors`). Without a clean exit there may
     be no report at all (a timeout, a crash); then `tests` is empty and `detail` says why.
     """
     mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
         raise GateError("pytest is not installed in the environment running boss")
+    ini = _ini(pythonpath)
     workspace, tree = Path(workspace).resolve(), Path(tree).resolve()
     rel = PurePosixPath(test_path)
     if rel.is_absolute() or ".." in rel.parts or rel.parts in ((), (".",)):
@@ -339,7 +346,7 @@ def run_tree(
         shutil.copytree(tree, target, symlinks=True, ignore=_COPY_IGNORE)
         if support is not None:
             shutil.copytree(support, ws, dirs_exist_ok=True)
-        (tmp / "pytest.ini").write_text(_ini(DEFAULT_PYTHONPATH))
+        (tmp / "pytest.ini").write_text(ini)
         (tmp / "home").mkdir()
         report = tmp / "report.xml"
         # xunit1 puts the test's file on every testcase, which is how a node id is rebuilt.
@@ -359,7 +366,7 @@ def run_tree(
             detail = f"pytest exited {exit_code} with no readable JUnit report: {exc}"
             return TreeResult({}, exit_code, detail, tail, duration, sandboxed, ())
     passed = sum(s is CheckStatus.PASSED for s in tests.values())
-    missing = tuple(sorted(set(_MISSING_MODULE.findall(text))))
+    missing = missing_modules(text)
     detail = f"{passed} of {len(tests)} passed"
     return TreeResult(tests, exit_code, detail, tail, duration, sandboxed, missing)
 
