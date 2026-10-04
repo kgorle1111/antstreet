@@ -7,7 +7,8 @@ Exit codes:
   2    usage error: a bad option, a blank idea, a budget too small to fund one slice, or roles
        that cannot run together
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
-       a declined round, a task set aside)
+       a declined round, a task set aside); for `boss audit check`, a refuted or inconclusive
+       verdict
   130  interrupted; continue with `boss resume`
 """
 
@@ -26,7 +27,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from boss import __version__, audit
+from boss import __version__, audit, audit_check
 from boss.approval import NotApprovedError, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from boss.budget import (
@@ -237,6 +238,22 @@ def _audit_parser(sub: Any) -> None:
         "default 0, off)",
     )
     plan.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
+    check = steps.add_parser(
+        "check", help="run a run's sealed checks on a commit and record the gate's verdict"
+    )
+    check.add_argument("run", help="the audit run id that `boss audit plan` printed")
+    check.add_argument("--head", required=True, help="the branch, tag or commit to audit")
+    check.add_argument("--repo", default=".", help="the git checkout holding the head (default: .)")
+    check.add_argument(
+        "--claim",
+        choices=audit_check.CLAIMS,
+        default="none",
+        help="what the agent said of its own work: done, or none (default: none)",
+    )
+    check.add_argument(
+        "--claim-text", help="a file with the agent's own words; kept as a hash only"
+    )
+    check.add_argument("--agent", type=_agent_arg, help="a label for the agent, to report by")
 
 
 def _review_options(parser: argparse.ArgumentParser) -> None:
@@ -265,6 +282,13 @@ def usd_arg(text: str) -> int:
             f"{text!r} is not a positive dollar amount with at most 6 decimal places"
         )
     return int(micros)
+
+
+def _agent_arg(text: str) -> str:
+    try:
+        return audit_check.agent_label(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _held_out_arg(text: str) -> int:
@@ -711,7 +735,9 @@ def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: 
     does not verify, a head off the base, a hostile repository) is exit 1 with the reason."""
     store = audit.store_root(environ)
     try:
-        return _audit_plan(args, environ, store, ask, say)
+        if args.audit_command == "plan":
+            return _audit_plan(args, environ, store, ask, say)
+        return _audit_check(args, store, say)
     except KeyboardInterrupt:
         say("Interrupted.")
         return EXIT_INTERRUPTED
@@ -756,6 +782,20 @@ def _audit_plan(
         f"reach. Then: boss audit check {done.run_id} --head REF --claim done"
     )
     return EXIT_OK
+
+
+def _audit_check(args: argparse.Namespace, store: Path, say: Say) -> int:
+    verdict = audit_check.check(
+        args.run,
+        args.head,
+        repo=Path(args.repo),
+        store=store,
+        claim=args.claim,
+        claim_text=Path(args.claim_text) if args.claim_text else None,
+        agent=args.agent,
+    )
+    say(audit_check.render_check(verdict))
+    return EXIT_INCOMPLETE if verdict.verdict in ("refuted", "inconclusive") else EXIT_OK
 
 
 def _doctor(args: argparse.Namespace, project: Path, environ: Mapping[str, str], say: Say) -> int:
