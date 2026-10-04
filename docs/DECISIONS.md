@@ -641,3 +641,25 @@ with a JSON schema.
   `tests/test_spec_verify.py::test_a_missing_literal_does_not_decide_the_state_or_the_headline_but_is_still_reported`,
   `tests/test_spec_verify.py::test_only_the_four_types_with_evidence_are_in_the_headline`. Reopen
   when the 18 held-out tasks are labelled and the same measurements are run on them.
+
+### D39: `--spec` stays off: the rules prompt did not clear its pre-registered bar
+
+- Status: `under evaluation`
+- Decision: `boss fund --spec` exists and is off by default. P2, the 51-cell firm run it was to
+  unlock, is not run. The coverage view and the signed coverage summary are the part that earns
+  its place so far; the prompt is not.
+- Why: P1 (17 drafts, $2.3187) met two of five criteria: (a) kill rate on the failing products 35%
+  against 45% (baseline 31%), (b) on the non-ASCII subset 31% against 40% (baseline 8%), (c) wrong
+  checks 6.1% against 5% (baseline 1.6%); met (d) 1 invalid draft of 17 and (e) 11.2 checks, which
+  cannot fail under a ceiling of 12. Only 2 of the 5 tasks that name non-ASCII input got a
+  non-ASCII test. After the numbers were committed: for 16 of 16 failing products in that subset, a
+  rule the failing check tests was shown as uncovered or anchor-missing to the investor by the
+  verifier.
+- Rejected: Running P2 anyway: the bar was set to decide exactly this, and a benchmark that
+  approves every term sheet cannot measure what the view does. Raising the check ceiling or
+  loosening (c) after seeing the numbers: a new prompt version, not a pass.
+- Evidence: `bench/results/2026-10-03-spec-p1/README.md`, `bench/spec_truth/P1_CRITERIA.md`,
+  `tests/test_bench_spec_p1.py::test_each_criterion_is_decided_at_its_boundary_and_all_five_must_hold`,
+  `tests/test_boss_spec.py::test_the_v3_prompt_names_no_benchmark_task_and_no_special_character_class`.
+  Reopen with a repair call, or when the held-out 18 are measured.
+
