@@ -48,6 +48,50 @@ RETRY_TIMEOUT_S = 120.0
 EXCLUDED_CELLS = frozenset({("wildcard", 1)})  # class (b): a wrong boss check, not an omission
 DRAFT_GROUPS = ("final3", "heldout3", "pilot", "rerun1", "drafts-single", "drafts-single-think0")
 PRODUCT_GROUPS = ("final3", "heldout3", "pilot", "rerun1")
+# The populations are named, never found by listing the label files: a label file that lands later
+# must not change what CRITERIA.md measured. The scored set is the 17 original tasks; the held-out
+# set is the 18 later tasks, run apart and never pooled with it.
+SCORED_TASKS = (
+    "bigdecimal",
+    "calc",
+    "csvline",
+    "duration",
+    "intervals",
+    "jsonpointer",
+    "justify",
+    "linediff",
+    "lrucache",
+    "matrixops",
+    "roman",
+    "semver",
+    "slugify",
+    "tokenbucket",
+    "toposort",
+    "wildcard",
+    "workdays",
+)
+HELD_OUT_TASKS = (
+    "bytesize",
+    "cronnext",
+    "dedentblock",
+    "exprtokens",
+    "fracmath",
+    "iniparse",
+    "isoweek",
+    "luhn",
+    "mdheadings",
+    "minheap",
+    "moneysplit",
+    "prefixtrie",
+    "rangesum",
+    "ringbuffer",
+    "shortestpath",
+    "unionfind",
+    "urlquery",
+    "wordwrap",
+)
+HELD_OUT_GROUPS = ("new18",)
+POPULATIONS = ("scored", "held-out")
 HARVESTED = re.compile(r"(?:pilot|rerun|final|heldout)")
 STEPS = ("o1", "o2", "o3", "o4", "o5")
 EXTRA_STEPS = ("o4b",)  # added after the first run; not part of "all" and has no criterion
@@ -236,10 +280,10 @@ class DraftRef:
         return f"{self.group}/{self.task}/rep{self.rep}/{self.checks_dir.parent.name}"
 
 
-def find_drafts(raw: Path, tasks: set[str]) -> list[DraftRef]:
+def find_drafts(raw: Path, tasks: set[str], groups: Sequence[str] = DRAFT_GROUPS) -> list[DraftRef]:
     """Every saved draft of these tasks: a folder `checks` with test_*.py in it."""
     found = []
-    for group in DRAFT_GROUPS:
+    for group in groups:
         base = raw / group
         if not base.is_dir():
             continue
@@ -290,10 +334,12 @@ def known_omissions(raw: Path) -> list[Cell]:
     return cells
 
 
-def product_failures(raw: Path, task: str) -> list[set[str]]:
+def product_failures(
+    raw: Path, task: str, groups: Sequence[str] = PRODUCT_GROUPS
+) -> list[set[str]]:
     """For each saved product of the task, the hidden checks it did not pass."""
     out = []
-    for group in PRODUCT_GROUPS:
+    for group in groups:
         for result in sorted((raw / group).glob(f"{task}/*/rep*/result.json")):
             hidden = json.loads(result.read_text(encoding="utf-8")).get("hidden")
             if isinstance(hidden, dict):
@@ -333,7 +379,7 @@ class O3:
 
     @property
     def recall(self) -> float:
-        return sum(1 for c in self.cells if c.hit) / len(self.cells)
+        return sum(1 for c in self.cells if c.hit) / len(self.cells) if self.cells else 0.0
 
     @property
     def median_burden(self) -> float:
@@ -537,11 +583,13 @@ class Product:
         )
 
 
-def failing_products(raw: Path, tasks: set[str]) -> list[Product]:
+def failing_products(
+    raw: Path, tasks: set[str], groups: Sequence[str] = PRODUCT_GROUPS
+) -> list[Product]:
     """Saved products that failed exactly one hidden check: real wrong implementations, each with
     one behaviour to blame, from the four groups that ran products."""
     found = []
-    for group in PRODUCT_GROUPS:
+    for group in groups:
         for result in sorted((raw / group).glob("*/*/rep*/result.json")):
             task, arm, rep = result.parts[-4], result.parts[-3], int(result.parts[-2][3:])
             hidden = json.loads(result.read_text(encoding="utf-8")).get("hidden")
@@ -643,11 +691,20 @@ def run_o5(o3: O3, labels: Mapping[str, Labels], failures: Mapping[str, Sequence
 # --- running and reporting --------------------------------------------------------------------
 
 
-def criteria_header(truth_dir: Path) -> str:
+def criteria_header(truth_dir: Path, population: str = "scored") -> str:
     try:
         sha = hashlib.sha256((truth_dir / CRITERIA_FILE).read_bytes()).hexdigest()[:16]
     except OSError:
         sha = "missing"
+    if population == "held-out":
+        return "\n".join(
+            [
+                "# Offline evaluation of the spec layer: HELD-OUT population (the 18 later tasks)",
+                "",
+                f"`SPLITTER` {spec.SPLITTER}. No criterion was fixed for this population: its "
+                "numbers are read against the scored run's (`CRITERIA.md`), never pooled.",
+            ]
+        )
     return "\n".join(
         [
             "# Offline evaluation of the spec layer",
@@ -751,6 +808,21 @@ def render_o3(o3: O3) -> str:
     return "\n".join(lines)
 
 
+def render_o3_burden(o3: O3) -> str:
+    """The held-out population has no known-omission cells (that list belongs to the scored set),
+    so only the length of the flag list is measured."""
+    lines = [
+        "## O3 burden (held-out population; recall is not measured: no known omissions here)",
+        "",
+        f"- median {o3.median_burden:g} flagged rules per draft over {len(o3.flags_per_draft)} "
+        f"drafts (the scored set's criterion was <= {BURDEN_MEDIAN})",
+        "",
+        "Flags per draft by group (median, drafts):",
+    ]
+    lines += [f"- {g}: {statistics.median(v):g}, {len(v)}" for g, v in o3.by_group.items()]
+    return "\n".join(lines)
+
+
 def render_o4(o4: O4) -> str:
     state = _verdict(o4.passed) if o4.enough else "INCONCLUSIVE (too few triples on a side)"
     lines = [
@@ -789,15 +861,30 @@ def run(
     raw: Path | None,
     workers: int = 8,
     cache_path: Path | None = None,
+    population: str = "scored",
 ) -> str:
-    """The whole report for the chosen steps."""
+    """The whole report for the chosen steps, for one named population.
+
+    `scored` is the 17 tasks CRITERIA.md fixed; `held-out` is the 18 later ones, which are never
+    pooled with them. Which tasks are in a population is the lists above, not the label files
+    that happen to exist.
+    """
+    if population not in POPULATIONS:
+        raise EvalError(f"population must be one of {POPULATIONS}, got {population!r}")
+    held_out = population == "held-out"
+    named = HELD_OUT_TASKS if held_out else SCORED_TASKS
     all_tasks = load_tasks(tasks_dir)
-    originals = [t for t in all_tasks if (truth_dir / f"{t.id}.json").is_file()]
-    labels = {t.id: load_labels(truth_dir, t) for t in originals}
-    by_id = {t.id: t for t in originals}
-    parts = [criteria_header(truth_dir)]
+    known = {t.id: t for t in all_tasks}
+    if missing_tasks := [t for t in named if t not in known]:
+        raise EvalError(
+            f"tasks named for the {population} population are not in {tasks_dir}: {missing_tasks}"
+        )
+    chosen = [known[t] for t in named]
+    labels = {t.id: load_labels(truth_dir, t) for t in chosen}
+    by_id = {t.id: t for t in chosen}
+    parts = [criteria_header(truth_dir, population)]
     if "o1" in steps:
-        parts.append(render_o1(run_o1(all_tasks)))
+        parts.append(render_o1(run_o1(chosen if held_out else all_tasks)))
     if "o2" in steps:
         parts.append(
             render_o2(
@@ -811,16 +898,18 @@ def run(
     if needs_raw and raw is None:
         raise EvalError("O3-O5 need --raw, the folder of saved cells")
     if raw is not None and needs_raw:
-        drafts = find_drafts(raw, set(labels))
-        o3 = run_o3(drafts, labels, known_omissions(raw))
+        draft_groups = HELD_OUT_GROUPS if held_out else DRAFT_GROUPS
+        product_groups = HELD_OUT_GROUPS if held_out else PRODUCT_GROUPS
+        drafts = find_drafts(raw, set(labels), draft_groups)
+        o3 = run_o3(drafts, labels, [] if held_out else known_omissions(raw))
         if "o3" in steps:
-            parts.append(render_o3(o3))
+            parts.append(render_o3_burden(o3) if held_out else render_o3(o3))
         if "o4" in steps:
             parts.append(render_o4(_o4(drafts, by_id, labels, workers, cache_path)))
         if "o4b" in steps:
-            parts.append(_o4b(drafts, raw, by_id, labels, workers, cache_path))
+            parts.append(_o4b(drafts, raw, by_id, labels, workers, cache_path, product_groups))
         if "o5" in steps:
-            failures = {t: product_failures(raw, t) for t in labels}
+            failures = {t: product_failures(raw, t, product_groups) for t in labels}
             parts.append(render_o5(run_o5(o3, labels, failures)))
     return "\n\n".join(parts) + "\n"
 
@@ -854,8 +943,9 @@ def _o4b(
     labels: Mapping[str, Labels],
     workers: int,
     cache_path: Path | None,
+    groups: Sequence[str] = PRODUCT_GROUPS,
 ) -> str:
-    products = failing_products(raw, set(labels))
+    products = failing_products(raw, set(labels), groups)
     path = cache_path.with_name(cache_path.stem + "-o4b.json") if cache_path else None
     cache: dict[str, dict[str, bool]] = {}
     if path is not None and path.is_file():
@@ -897,6 +987,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--truth", type=Path, default=Path("bench/spec_truth"))
     parser.add_argument("--raw", type=Path, help="folder of saved cells (bench/results/raw)")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--population",
+        choices=POPULATIONS,
+        default="scored",
+        help="scored: the 17 tasks CRITERIA.md fixed; held-out: the 18 later tasks, never pooled",
+    )
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--cache", type=Path, help="kill results per draft, to resume a long run")
     args = parser.parse_args(argv)
@@ -911,6 +1007,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raw=args.raw,
             workers=args.workers,
             cache_path=args.cache,
+            population=args.population,
         )
     except EvalError as exc:
         print(f"spec_eval: {exc}", file=sys.stderr)

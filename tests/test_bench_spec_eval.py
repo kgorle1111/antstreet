@@ -15,7 +15,7 @@ from boss.bench.tasks import load_task, load_tasks
 ROOT = Path(__file__).parent.parent
 TASKS = ROOT / "bench" / "tasks"
 TRUTH = ROOT / "bench" / "spec_truth"
-ORIGINAL_17 = sorted(p.stem for p in TRUTH.glob("*.json"))
+ORIGINAL_17 = sorted(ev.SCORED_TASKS)
 
 NON_ASCII_CHECK = (
     "from slugify import slugify\n\ndef test_a():\n    assert slugify('Crème') == 'creme'\n"
@@ -66,6 +66,7 @@ def test_every_report_header_names_the_hash_of_the_criteria_file():
 
 def test_there_are_hand_labels_for_the_17_original_tasks_and_every_one_loads():
     assert len(ORIGINAL_17) == 17
+    assert all((TRUTH / f"{t}.json").is_file() for t in ORIGINAL_17)
     for task in load_tasks(TASKS):
         if task.id in ORIGINAL_17:
             labels = ev.load_labels(TRUTH, task)
@@ -486,3 +487,91 @@ def test_all_means_the_five_pre_registered_steps_and_never_the_extra_one_unless_
     ev.main(["all", "o4b"])
     ev.main(["o4b"])
     assert seen == [ev.STEPS, (*ev.STEPS, "o4b"), ("o4b",)]
+
+
+# --- the populations ----------------------------------------------------------------------------
+
+
+def test_the_scored_set_is_the_17_tasks_criteria_md_fixed_and_the_held_out_set_is_18_others():
+    pinned = (
+        "bigdecimal calc csvline duration intervals jsonpointer justify linediff lrucache "
+        "matrixops roman semver slugify tokenbucket toposort wildcard workdays"
+    )
+    assert sorted(ev.SCORED_TASKS) == sorted(pinned.split())
+    assert len(ev.HELD_OUT_TASKS) == 18 and len(set(ev.HELD_OUT_TASKS)) == 18
+    assert not set(ev.SCORED_TASKS) & set(ev.HELD_OUT_TASKS), "never pooled"
+    on_disk = {p.name for p in TASKS.iterdir()}
+    assert set(ev.SCORED_TASKS) | set(ev.HELD_OUT_TASKS) <= on_disk
+
+
+def held_out_labels(truth: Path) -> None:
+    """Valid label files for the 18 held-out tasks (every hidden check labelled with the first
+    scored rule), made here so that the test does not need, or read, the real ones."""
+    for task in load_tasks(TASKS):
+        if task.id in ev.HELD_OUT_TASKS:
+            split = spec.split(task.idea)
+            rule = split.scorable[0]
+            data = {
+                "idea_sha256": split.idea_sha256,
+                "splitter": spec.SPLITTER,
+                "coarse": split.coarse,
+                "hidden": {c.id: [rule.id] for c in task.hidden_checks()},
+                "rules": {rule.id: " ".join(rule.text.split())[:60]},
+            }
+            (truth / f"{task.id}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_a_label_file_that_lands_later_does_not_change_the_scored_set(tmp_path):
+    before = ev.run(["o1", "o2"], tasks_dir=TASKS, truth_dir=TRUTH, raw=None)
+    truth = tmp_path / "truth"
+    shutil.copytree(TRUTH, truth)
+    held_out_labels(truth)
+    (truth / "stray.json").write_text("{}", encoding="utf-8")
+    assert len(list(truth.glob("*.json"))) > 17 + 18 - 1
+    after = ev.run(["o1", "o2"], tasks_dir=TASKS, truth_dir=truth, raw=None)
+    assert after == before, "O2 rows and the header must be those of the 17 named tasks"
+    assert "luhn" not in after.split("## O2")[1]
+
+
+def test_the_held_out_population_runs_only_the_18_and_says_it_is_not_pooled(tmp_path):
+    truth = tmp_path / "truth"
+    shutil.copytree(TRUTH, truth)
+    held_out_labels(truth)
+    text = ev.run(["o1", "o2"], tasks_dir=TASKS, truth_dir=truth, raw=None, population="held-out")
+    assert text.startswith("# Offline evaluation of the spec layer: HELD-OUT population")
+    assert "never pooled" in text and "CRITERIA.md" in text
+    rows = re.findall(r"^  - (\w+): \d+/\d+$", text.split("## O2")[1], re.M)
+    assert sorted(rows) == sorted(ev.HELD_OUT_TASKS)
+    assert "59 ideas" not in text and "18 ideas" in text
+
+
+def test_the_held_out_population_without_its_labels_is_an_error_not_a_fallback():
+    with pytest.raises(ev.EvalError, match="cannot read the labels"):
+        ev.run(["o2"], tasks_dir=TASKS, truth_dir=TRUTH, raw=None, population="held-out")
+    with pytest.raises(ev.EvalError, match="population must be"):
+        ev.run(["o1"], tasks_dir=TASKS, truth_dir=TRUTH, raw=None, population="all")
+
+
+def test_held_out_drafts_come_from_their_own_group_and_burden_needs_no_known_omissions(tmp_path):
+    write(tmp_path / "new18/luhn/firm/rep1/.boss/runs/r1/checks/test_c01.py", PLAIN_CHECK)
+    write(tmp_path / "final3/luhn/firm/rep1/.boss/runs/r1/checks/test_c01.py", PLAIN_CHECK)
+    found = ev.find_drafts(tmp_path, {"luhn"}, ev.HELD_OUT_GROUPS)
+    assert [d.group for d in found] == ["new18"]
+    assert [d.group for d in ev.find_drafts(tmp_path, {"luhn"})] == ["final3"]
+    o3 = ev.run_o3(
+        found, {"luhn": ev.Labels("luhn", spec.split("1. It adds. Raises `ValueError`."), {})}, []
+    )
+    assert o3.recall == 0.0 and o3.cells == ()
+    assert "recall is not measured" in ev.render_o3_burden(o3)
+
+
+def test_a_held_out_run_with_saved_cells_reports_burden_from_its_own_group_only(tmp_path):
+    truth = tmp_path / "truth"
+    shutil.copytree(TRUTH, truth)
+    held_out_labels(truth)
+    raw = tmp_path / "raw"
+    write(raw / "new18/luhn/firm/rep1/.boss/runs/r1/checks/test_c01.py", PLAIN_CHECK)
+    write(raw / "final3/luhn/firm/rep1/.boss/runs/r1/checks/test_c01.py", PLAIN_CHECK)
+    text = ev.run(["o3"], tasks_dir=TASKS, truth_dir=truth, raw=raw, population="held-out")
+    assert "over 1 drafts" in text and "- new18: " in text and "final3" not in text
+    assert "recall is not measured" in text

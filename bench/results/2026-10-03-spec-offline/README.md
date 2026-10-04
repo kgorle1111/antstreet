@@ -67,3 +67,10 @@ Predictions recorded before the run: O3 recall passes 65% (hit), O3 burden passe
   the drafts were read against them; no second reader.
 - The 18 later tasks have no labels, so no held-out check of a rule tuned on these 17 exists yet.
 - Hand mutants and the benchmark ideas are strict and numbered; real requests split worse.
+- **Known splitter v1 limit (reported by the labeller of the 18 later tasks, after this run).** v1 marks
+  some real behaviour sentences as context, so they can never be flagged or labelled: the sentences
+  before the first numbered item, and heading-like lines. Named cases: `isoweek` ("week 1 contains
+  January 4" rules), `wordwrap` R04, `exprtokens` R04 ("text exactly as written"). That is a recall
+  ceiling in v1, not in the measure. v1 is left as it is because its numbers are pre-registered; this
+  is an input to a v2.
+
