@@ -37,7 +37,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | Module | Owns | Never |
 |---|---|---|
 | `__init__.py` | The package version, read from installed metadata. | Hold logic. |
-| `approval.py` | Showing the term sheet (and the held-out checks, if any), the approve/reject/edit loop, content hashes, signing the approval, `require_approval`. | Set approval without an investor answer; accept a hash that does not match the files on disk, or a signature that does not verify. |
+| `approval.py` | Showing the term sheet (and the held-out checks, if any), the approve/reject/edit loop, content hashes, `require_approval`. The approval is signed by the ledger writer, like every investor event. | Set approval without an investor answer; accept a hash that does not match the files on disk, or a signature that does not verify. |
 | `boss.py` | The boss's one model call: command line, draft schema, turning a draft into a term sheet. | Take ids, file names, money or round plan from the model; give the boss a tool. |
 | `briefs.py` | What a worker is told: first brief, continuation after a gate run, reassignment brief, and the note about checks the investor added. | Call a model; present a worker's earlier words as instructions. |
 | `budget.py` | Round budgets, top-ups, remaining money, slice caps, the reserve, unlock test, round plan. Charges a slice that did work with no cost, or that never ended, at its cap, until a later slice resumes its session and reports the total that covers it. | Use floats; read a clock. |
@@ -49,10 +49,11 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `_gate_plugin.py` | The pytest plugin inside every gate run: writes a signed proof that each collected test really ran and passed. Copied by the gate, never imported by boss. | Import `boss`; read pytest's reports as evidence. |
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
 | `held_out.py` | The `held_out/` folder of a run: its manifest, its content hashes, and the gate its files must pass (ids, parse, a test function, failing on an empty workspace). | Hold a check's body anywhere but that folder; let a file it does not list stand. |
-| `ledger.py` | The event schema, the exclusive appender that chains each line to the one before, the reader that checks the chain, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0. |
+| `ledger.py` | The event schema, the exclusive appender that chains each line to the one before, refuses a cut-off last line, signs every investor event and anchors the last line when it has the project's key path, the reader that checks the chain and (with that path) the signatures and the anchor, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0; append to a ledger the key does not vouch for; hand a reader an investor event it has not verified. |
 | `limits.py` | Hard run limits: spend ceiling, slices, workers, wall clock, and the size of a worker's folder. | Depend on the round budget or the rule. |
 | `pipeline.py` | The roles the investor chose, around the loop: before approval (stories, staged draft, audit, judge, notes under the sheet), while a dispute is open (the consultant's line), after the build (the critic and the fix round, the demo, the judge of the usage note). Booking every role call, the `started` event's `roles`, and what a resume still owes. | Decide anything: a note binds nothing, a proposal changes the run only when the investor says yes; record an amendment by anyone but the investor; call a role that was not chosen; write a role's model text to the screen unmade safe. |
 | `redact.py` | Masking secrets and control characters in text that is stored or shown (`safe_text`), in linear time. | Return text that still contains a matched secret. |
+| `kpi.py` | The investor-question count and the run facts the KPIs use (product verdict, held-out grades, the single arm's last status word, the ledger's time span), all from events. | Read model text or anything but events; count a figure the ledger does not hold as 0. |
 | `report.py` | The board report, computed from events, including one line per `role_call`; the held-out results (or why there are none) apart from the visible checks. | Read anything but events; fold an unknown cost into a total as 0; let a held-out result replace a visible one. |
 | `retry.py` | Pure decisions on infrastructure failures: wait, pause, give up. | Sleep; read a clock; touch a process. |
 | `roles/__init__.py` | `registry()`: every role, collected from the `SPECS` of the modules in the package. | List a role by hand; accept two roles with one name. |
@@ -70,10 +71,10 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `roles/stories.py` | The shape of user stories and acceptance criteria, and the word-for-word quote check against the idea. | Accept a criterion whose source is not a fragment of the idea. |
 | `rule.py` | The firing decision from a worker's slice history. | Read model output or state outside the history it is given. |
 | `rulings.py` | The investor's questions on a disputed check or a blocked task, and reading `ruled` events back. | Decide for the investor; change the approved term sheet. |
-| `rundir.py` | Run folder layout, the event recorder, counting a folder's bytes against the size limit, assembling `product/`. | Copy a file into a path another task owns; follow a symlink. |
+| `rundir.py` | Run folder layout (the project's investor key path, the ledger writer and reader that use it), the event recorder, counting a folder's bytes against the size limit, assembling `product/`. | Copy a file into a path another task owns; follow a symlink. |
 | `runner.py` | Running one slice as a supervised child process; isolation check at init and on any later hook event; cutting its log at 50 MB; stopping it. | Leave a child running; start in a workspace holding agent config. |
 | `sandbox.py` | Building the command that runs one check inside a macOS `sandbox-exec` or Linux `bwrap` sandbox; probing that the tool works. | Run a check; put a path into profile text; trust a tool it has not probed. |
-| `signing.py` | The investor's per-project key file (`.boss/investor.key`) and the HMAC on approval events. | Print, log or put the key in an error; create it readable by anyone but the owner. |
+| `signing.py` | The investor's per-project key file (`.boss/investor.key`), the HMAC on every investor event, and the anchor file (`.boss/anchors/<run>`: the HMAC of the ledger's line count and last line hash). | Print, log or put the key in an error; create it readable by anyone but the owner; sign an event that is not yet chained. |
 | `skills/__init__.py` | Loading and parsing skill files: a header of `name`, `version` and `description`, then a body. | Accept another header; load a body over 4,000 characters. |
 | `state.py` | Rebuilding run state (workers, tasks, rounds, stops, sessions, dropped checks) from events. | Read anything but events. |
 | `stream.py` | Reading the CLI's `stream-json` output; usage and cost. | Raise on malformed input; turn a missing cost into 0. |
@@ -83,16 +84,19 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `bench/audit.py` | Auditing saved drafts with the check auditor and scoring its flags against the reference solution (`python -m boss.bench.audit`). | Show the auditor the reference or a mutant; spend money under `--dry-run`. |
 | `bench/drafts.py` | Drafting checks per task, with the boss's one call or the three-role staged draft, and scoring each draft (`python -m boss.bench.drafts`). | Start a worker; show the boss a hidden check, the reference or a mutant. |
 | `bench/imported.py` | Converting a downloaded external task into an imported bench task folder (`python -m boss.bench.imported`). | Write task data into the repository; overwrite an existing task. |
+| `bench/paired.py` | A paired comparison of two arms by task: the mean per-task difference of one KPI with a task-level bootstrap interval (`python -m boss.bench.paired`). | Compare results of different task sets; count an infrastructure failure; call one task enough to show a difference. |
 | `bench/replay.py` | Replaying a firing policy over recorded ledgers, offline. | Call a model; use a different rule from the live one; walk past DONE or ESCALATE. |
 | `bench/results.py` | One benchmark cell's result record and its load checks. | Accept a wrongly typed field. |
-| `bench/run.py` | Running benchmark cells through the single and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
+| `bench/run.py` | Running benchmark cells through the single, single-review and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
 | `bench/score.py` | Scoring a draft's checks (precision on the reference, recall on the mutants) and a critic's verified findings against the reference. | Spend money; count a mutant killed only by a wrong check as caught. |
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
+| `bench/kpi.py` | The fixed KPI scorecard of benchmark results: one column per folder, arm, model, budget and firm options. | Count an infrastructure failure in a figure; show an unknown cost or an unrecorded figure as 0; pool columns that share a label. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
 
 Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/term_sheet_v1.md`
-(one task), `term_sheet_v2.md` (several tasks), `builder_v3.md` (every worker) and `solo_v1.md` (the
-benchmark's single agent). Each role has its own: `product_manager_v1.md`, `user_agent_v1.md`,
+(one task), `term_sheet_v2.md` (several tasks), `builder_v4.md` (every worker) and `solo_v2.md` (the
+benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
+has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
 `check_auditor_v1.md`, `consultant_v1.md` and `examiner_v1.md`. Skills are Markdown files under `src/boss/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
@@ -110,7 +114,8 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
    invalid.
 4. The draft is validated: structure, then every check run on an empty workspace. Any problem
    ends the run (`stopped`, exit 1).
-5. With `--rounds N` above 1, the round plan is replaced by an equal split.
+5. With `--rounds N` above 1, the round plan is replaced by an equal split (or by story priority when roles draft), with
+   fewer rounds if the run's reserve plus $0.005 would not fit in each.
 6. The investor reads the term sheet and every check, and approves, rejects or edits. Approval is
    an `approved` event holding hashes of the term sheet and each check file, and of the held-out
    files when the run has them. With `--held-out N`, `boss fund` first has the examiner write

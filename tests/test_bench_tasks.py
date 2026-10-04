@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from changed_tasks import select
 
 from boss.bench.tasks import TaskError, load_task, load_tasks, task_set_hash, validate_task
 
@@ -26,16 +27,18 @@ def problems(task_dir) -> list[str]:
 
 # What the benchmark arms are scored against: the idea, hidden checks and reference of all 17
 # tasks. It must not move when mutants are added: results recorded under it stay comparable.
-SHIPPED_SET_HASH = "767892a59e311ab5"  # 35 tasks since 2026-10-02
+SHIPPED_SET_HASH = "0a83fc97a753b08c"  # 59 tasks since 2026-10-03
 ORIGINAL_SET_HASH = "c130282a6eec5fe8"  # the first 17, which every earlier result ran on
 
 
 def test_every_shipped_task_is_valid():
     tasks = load_tasks(TASKS)
-    assert len(tasks) == 35, "benchmark tasks are missing"
+    assert len(tasks) == 59, "benchmark tasks are missing"
     # Each validation is many short pytest processes; running four tasks at once keeps it quick.
+    # All tasks are loaded and counted above; BOSS_VALIDATE_TASKS_SINCE (pull-request CI) narrows
+    # only which of them are run through the gate.
     with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(validate_task, tasks))
+        list(pool.map(validate_task, select(tasks)))
 
 
 def test_the_shipped_task_set_hash_is_pinned():
@@ -59,7 +62,7 @@ def test_every_multi_file_task_is_valid_and_needs_more_than_one_module():
     tasks = load_tasks(MULTI)
     assert len(tasks) == 8 and task_set_hash(tasks) == MULTI_SET_HASH
     with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(validate_task, tasks))
+        list(pool.map(validate_task, select(tasks)))
     for task in tasks:
         modules = sorted(p.name for p in task.reference_dir.glob("*.py"))
         assert len(modules) >= 2, f"{task.id} is meant to need several modules: {modules}"

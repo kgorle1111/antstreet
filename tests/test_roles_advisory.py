@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.boss import load_prompt
 from boss.roles import registry
@@ -71,6 +72,7 @@ RESULT = {
 FAKE = f"""#!{sys.executable}
 import json, os, sys
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 

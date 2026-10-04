@@ -455,6 +455,18 @@ def test_plan_budget_below_round_count_raises() -> None:
         plan_rounds(2, 9, 3)
 
 
+def test_plan_min_round_drops_rounds_from_the_end_until_each_can_fund_a_slice() -> None:
+    assert plan_rounds(900, 9, 3, min_round_micros=300) == plan_rounds(900, 9, 3)
+    assert plan_rounds(899, 9, 3, min_round_micros=300) == plan_rounds(899, 9, 2)
+    assert plan_rounds(599, 9, 3, min_round_micros=300) == (Round(1, 599, 9),)
+    assert plan_rounds(10, 9, 3, min_round_micros=300) == (Round(1, 10, 9),)  # one round: all of it
+
+
+def test_plan_min_round_defaults_to_no_floor() -> None:
+    assert plan_rounds(100, 7, 3, min_round_micros=0) == plan_rounds(100, 7, 3)
+    assert plan_rounds(3, 9, 3) == (Round(1, 1, 3), Round(2, 1, 6), Round(3, 1, 9))
+
+
 def test_plan_small_budget_still_ok_when_fewer_rounds_are_used() -> None:
     assert plan_rounds(2, 2, 5) == (Round(1, 1, 1), Round(2, 1, 2))
 

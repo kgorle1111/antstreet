@@ -19,7 +19,15 @@ from typing import Any
 from boss.errors import Outcome, classify
 from boss.stream import StreamReader, Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, as_list, validate
-from boss.worker import CLI, usd, uses_api_key, with_thinking
+from boss.worker import (
+    CLI,
+    SCHEMA_TOOL,
+    IsolationError,
+    require_isolation,
+    usd,
+    uses_api_key,
+    with_thinking,
+)
 
 TERM_SHEET_PROMPT = "term_sheet_v1.md"
 MULTI_TASK_PROMPT = "term_sheet_v2.md"  # used when the boss may split the work
@@ -28,6 +36,8 @@ DEFAULT_MODEL = "haiku"
 DEFAULT_CAP_MICROS = 250_000  # $0.25; live drafts cost $0.008-0.060, and a capped draft is wasted
 DEFAULT_TIMEOUT_S = 300.0
 MAX_CHECKS = 8
+# What init must list for a boss or role call: no tools but the one the CLI adds for --json-schema.
+BOSS_TOOLS = (SCHEMA_TOOL,)
 
 
 def draft_schema(max_tasks: int) -> dict[str, Any]:
@@ -79,6 +89,14 @@ class BossError(Exception):
         self.usage = usage
 
 
+class BossIsolationError(BossError):
+    """The call did not start in the configuration we launched (see `require_isolation`). Its
+    output is not used; its spend is still carried for the ledger."""
+
+    def __init__(self, problems: str, usage: Usage) -> None:
+        super().__init__(f"isolation failure: {problems}", Outcome.CRASHED, usage)
+
+
 class InvalidDraftError(BossError):
     """The call succeeded and was paid for, but the draft does not validate as a term sheet."""
 
@@ -110,11 +128,18 @@ def build_boss_command(
     cap_micros: int,
     api_key: bool,
 ) -> list[str]:
-    """Exact argv for a boss call: no tools, replaced system prompt, JSON-schema output."""
+    """Exact argv for a boss call: no tools, replaced system prompt, JSON-schema output.
+
+    `stream-json` rather than `json` because only its `system/init` event reports the tools, MCP
+    servers and permission mode the CLI really started with; the answer still arrives in the
+    final `result` event. `dontAsk` is stated so that init has one mode to verify.
+    """
     return [
-        CLI, "--print", "--output-format", "json", "--bare" if api_key else "--safe-mode",
+        CLI, "--print", "--output-format", "stream-json", "--verbose",
+        "--bare" if api_key else "--safe-mode",
         "--model", model,
         "--tools", "",
+        "--permission-mode", "dontAsk",
         "--system-prompt", system_prompt,
         "--json-schema", json.dumps(schema, separators=(",", ":")),
         "--max-budget-usd", usd(cap_micros),
@@ -198,8 +223,18 @@ def _call(argv: list[str], env: Mapping[str, str], timeout_s: float) -> StreamRe
                 Usage(None, 0, 0, 0),
             ) from exc
     reader = StreamReader()
-    reader.feed(proc.stdout)
+    for line in proc.stdout.split("\n"):  # not splitlines(): it also splits on U+2028 inside JSON
+        reader.feed(line)
     outcome = classify(reader.signals())
+    # A call that failed before init, and ran no hook, has nothing to verify; a completed one
+    # must show init.
+    if outcome is Outcome.COMPLETED or reader.init is not None or reader.hook_events:
+        try:
+            require_isolation(
+                reader.init, hook_events=reader.hook_events, expected_tools=BOSS_TOOLS
+            )
+        except IsolationError as exc:
+            raise BossIsolationError(str(exc), reader.usage()) from exc
     if outcome is not Outcome.COMPLETED:
         raise BossError(f"boss call ended as {outcome}", outcome, reader.usage())
     return reader

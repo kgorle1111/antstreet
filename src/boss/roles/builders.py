@@ -15,7 +15,7 @@ from boss.boss import load_prompt
 from boss.skills import load_skill
 
 DEFAULT_PROFILE = "generalist"
-DEFAULT_BASE_PROMPT = "builder_v3.md"  # pinned to firm.BUILDER_PROMPT by a test, not imported
+DEFAULT_BASE_PROMPT = "builder_v4.md"  # pinned to firm.BUILDER_PROMPT by a test, not imported
 _NAME = re.compile(r"[a-z][a-z_]{1,30}")
 
 _EVERY_BUILDER = (

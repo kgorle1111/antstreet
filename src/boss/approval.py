@@ -99,7 +99,6 @@ def review_term_sheet(
     say: Say = print,
     notes: Sequence[str] = (),
     held_out_dir: Path | None = None,
-    key_path: Path | None = None,
 ) -> TermSheet | None:
     """Show the term sheet; loop until the investor approves (returns the sheet) or rejects (None).
 
@@ -108,8 +107,7 @@ def review_term_sheet(
     opinions on the draft (stories, coverage, an audit): they are shown under the sheet and bind
     nothing. Approval is of the sheet and the checks alone, and of the held-out checks when
     `held_out_dir` holds any: the investor reads them with the rest, and their hashes go into the
-    same approval event. With a `key_path` the approval event is signed with the project's
-    investor key, which is created there on first use.
+    same approval event. The ledger writer signs the investor's events (`LedgerWriter`).
     """
     path = run_dir / TERM_SHEET_FILE
     path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
@@ -138,8 +136,6 @@ def review_term_sheet(
             data: dict[str, Any] = {"hashes": content_hashes(approved, checks_dir)}
             if held_out_dir is not None and (held := held_out.hashes(held_out_dir)):
                 data["held_out_hashes"] = held
-            if key_path is not None:
-                data = signing.signed(signing.load_or_create_key(key_path), run_id, 0, data)
             ledger.append(
                 Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED, data=data)
             )

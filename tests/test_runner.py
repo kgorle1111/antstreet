@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -10,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from boss.errors import Outcome
-from boss.runner import WorkspaceError, run_slice
+from boss.runner import WorkspaceError, _stop, run_slice
 from boss.worker import SCHEMA_TOOL, WORKER_TOOLS, IsolationError, SliceSpec
 
 INIT = {
@@ -132,16 +133,21 @@ def test_process_killed_mid_run_is_a_crash(fake):
     assert run.usage.cost_micros is None
 
 
+# The fake must start Python and arm itself (handlers, child) before the deadline, which runs from
+# the launch. 1.5 s was enough alone and not on a runner busy with parallel workers.
+ARM_S = 8.0
+
+
 def test_timeout_stops_the_worker_and_its_children(fake):
     start = time.monotonic()
-    run = fake("hang", timeout_s=1.5)
+    run = fake("hang", timeout_s=ARM_S)
     assert run.outcome is Outcome.TIMEOUT
-    assert time.monotonic() - start < 10
+    assert time.monotonic() - start < 60  # not the 120 s the fake sleeps
     assert_dead(fake.child_pid)
 
 
 def test_worker_ignoring_sigint_and_sigterm_is_still_killed(fake):
-    run = fake("stubborn", timeout_s=1.5)
+    run = fake("stubborn", timeout_s=ARM_S)
     assert run.outcome is Outcome.TIMEOUT
     assert run.exit_code == -9
     assert_dead(fake.child_pid)
@@ -179,7 +185,7 @@ def test_planted_agent_config_blocks_the_launch(fake, planted):
 
 
 def test_timeout_interrupts_first_so_the_slice_cost_is_still_recorded(fake):
-    run = fake("graceful", timeout_s=1.0)
+    run = fake("graceful", timeout_s=ARM_S)
     assert run.outcome is Outcome.TIMEOUT
     assert run.usage.cost_micros == 5400
 
@@ -219,3 +225,11 @@ def test_stopping_a_hung_slice_kills_it_and_its_children(fake):
 def test_an_unset_stop_event_changes_nothing(fake):
     run = fake("ok", stop=threading.Event())
     assert run.outcome is Outcome.COMPLETED
+
+
+def test_stopping_a_worker_that_already_exited_reaps_it_instead_of_raising():
+    # An exited, unreaped group leader is a zombie; macOS refuses killpg on its group with EPERM.
+    proc = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    time.sleep(1.0)  # let it exit; nothing reaps it until _stop does
+    _stop(proc, grace_s=1.0)
+    assert proc.returncode == 0

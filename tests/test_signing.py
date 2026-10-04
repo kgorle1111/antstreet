@@ -21,12 +21,13 @@ import pytest
 from docs_support import run_cli
 from test_gate_sandbox import ON, attempt, denied, requires_sandbox
 
+from boss import signing
 from boss.approval import NotApprovedError, content_hashes, require_approval, review_term_sheet
 from boss.firm import run_firm
-from boss.ledger import Event, EventType, LedgerWriter, read_events
+from boss.ledger import GENESIS, Event, EventType, LedgerUnverifiedError, LedgerWriter, read_events
 from boss.rundir import RunPaths
 from boss.sandbox import SandboxMode
-from boss.signing import SigningError, key_path, load_key, load_or_create_key, signed, verify
+from boss.signing import SigningError, key_path, load_key, load_or_create_key, sign, verify
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
 from boss.worker import SliceSpec, build_command, worker_env
 
@@ -59,11 +60,10 @@ def project(tmp_path):
 
 def approve(run: RunPaths) -> list[Event]:
     """The investor approves through the real review function; returns the ledger."""
-    with LedgerWriter(run.ledger) as ledger:
+    with run.writer() as ledger:
         result = review_term_sheet(
-            SHEET, run.checks, run.root, ledger, "r1",
-            ask=lambda _: "a", say=lambda _: None, key_path=run.investor_key,
-        )  # fmt: skip
+            SHEET, run.checks, run.root, ledger, "r1", ask=lambda _: "a", say=lambda _: None
+        )
         assert result is not None
     return read_events(run.ledger)
 
@@ -75,11 +75,12 @@ def check(run: RunPaths, events=None) -> None:
     )  # fmt: skip
 
 
-def rewrite(run: RunPaths, events: list[Event]) -> list[Event]:
+def rewrite(run: RunPaths, events: list[Event], key_path: Path | None = None) -> list[Event]:
     """What a worker with write access to the ledger can do: write any events it likes through
-    the real writer, so the chain is recomputed and valid from the first line."""
+    the real writer, so the chain is recomputed and valid from the first line. It has no key; an
+    attacker with a key of their own passes `key_path`."""
     run.ledger.unlink()
-    with LedgerWriter(run.ledger) as ledger:
+    with LedgerWriter(run.ledger, key_path) as ledger:
         for event in events:
             ledger.append(event)
     return read_events(run.ledger)
@@ -184,10 +185,19 @@ def test_the_key_stays_out_of_git(tmp_path):
 
 
 def event_of(key, run="r1", round=0, **data):
-    return Event(
-        run=run, round=round, actor="investor", event=EventType.APPROVED,
-        data=signed(key, run, round, data),
-    )  # fmt: skip
+    event = Event(
+        run=run, round=round, actor="investor", event=EventType.APPROVED, data=data, prev=GENESIS
+    )
+    return sign(key, event)
+
+
+def legacy_approval(key, run="r1", round=0, **data):
+    """An approval as the first version of signing wrote it (no `v2:` prefix, no event, actor or
+    `prev` in the digest)."""
+    event = Event(run=run, round=round, actor="investor", event=EventType.APPROVED, data=data)
+    return dataclasses.replace(
+        event, data={**data, "sig": signing._digest_v1(key, event)}, prev=GENESIS
+    )
 
 
 def test_a_signature_verifies_and_changes_with_the_key():
@@ -204,15 +214,21 @@ def test_a_signature_verifies_and_changes_with_the_key():
         lambda e: dataclasses.replace(e, data={**e.data, "hashes": {"term_sheet": "ac"}}),
         lambda e: dataclasses.replace(e, data={**e.data, "added_checks": ["c03"]}),
         lambda e: dataclasses.replace(e, data={k: v for k, v in e.data.items() if k != "hashes"}),
+        lambda e: dataclasses.replace(e, actor="boss"),
+        lambda e: dataclasses.replace(e, event=EventType.RESUMED),
+        lambda e: dataclasses.replace(e, prev="1" * 64),
+        lambda e: dataclasses.replace(e, prev=None),
     ],
 )
-def test_the_signature_covers_the_run_the_round_and_every_data_key(mutate):
+def test_the_signature_covers_the_run_the_round_the_actor_the_type_the_place_and_every_data_key(
+    mutate,
+):
     key = b"\x01" * 32
     event = event_of(key, hashes={"term_sheet": "ab"})
     assert verify(key, event) and not verify(key, mutate(event))
 
 
-@pytest.mark.parametrize("sig", [None, "", 5, ["x"], "é" * 64, "A" * 64])
+@pytest.mark.parametrize("sig", [None, "", 5, ["x"], "é" * 64, "A" * 64, "v2:", "v2:é" * 20])
 def test_a_malformed_signature_is_false_not_an_exception(sig):
     key = b"\x01" * 32
     event = event_of(key, hashes={})
@@ -220,11 +236,27 @@ def test_a_malformed_signature_is_false_not_an_exception(sig):
     assert verify(key, bad) is False
 
 
-def test_signing_does_not_change_the_data_it_was_given():
-    data = {"hashes": {"a": "b"}}
-    out = signed(b"\x01" * 32, "r", 0, data)
-    assert data == {"hashes": {"a": "b"}} and set(out) == {"hashes", "sig"}
-    assert signed(b"\x01" * 32, "r", 0, out) == out  # signing again ignores the old signature
+def test_signing_does_not_change_the_event_it_was_given():
+    key = b"\x01" * 32
+    event = Event(run="r", round=0, actor="investor", event=EventType.RESUMED, prev=GENESIS)
+    out = sign(key, event)
+    assert event.data == {} and set(out.data) == {"sig"}
+    assert sign(key, out) == out  # signing again ignores the old signature
+
+
+def test_an_event_without_a_place_in_a_chain_cannot_be_signed():
+    event = Event(run="r", round=0, actor="investor", event=EventType.RESUMED)
+    with pytest.raises(ValueError, match="prev"):
+        sign(b"\x01" * 32, event)
+
+
+def test_the_first_form_of_signature_still_verifies_but_only_on_an_approval():
+    key = b"\x01" * 32
+    old = legacy_approval(key, hashes={"term_sheet": "ab"})
+    assert verify(key, old) and not verify(b"\x02" * 32, old)
+    # moved onto another event type, the same signature is worthless: it never covered the type
+    assert not verify(key, dataclasses.replace(old, event=EventType.RESUMED))
+    assert not verify(key, dataclasses.replace(old, event=EventType.TOPPED_UP))
 
 
 # --- the real flow ---------------------------------------------------------------------------
@@ -234,18 +266,18 @@ def test_the_investors_approval_is_signed_and_verified_and_the_key_is_created_fo
     assert project.investor_key is not None and not project.investor_key.exists()
     events = approve(project)
     [approval] = [e for e in events if e.event is EventType.APPROVED]
-    assert HEX.fullmatch(approval.data["sig"]) and approval.prev is not None
+    assert approval.data["sig"].startswith("v2:") and HEX.fullmatch(approval.data["sig"][3:])
+    assert approval.prev is not None
     check(project, events)
     assert stat.S_IMODE(project.investor_key.stat().st_mode) == 0o600
 
 
 def test_the_key_never_reaches_the_ledger_the_screen_or_an_error(project):
     said = []
-    with LedgerWriter(project.ledger) as ledger:
+    with project.writer() as ledger:
         review_term_sheet(
-            SHEET, project.checks, project.root, ledger, "r1",
-            ask=lambda _: "a", say=said.append, key_path=project.investor_key,
-        )  # fmt: skip
+            SHEET, project.checks, project.root, ledger, "r1", ask=lambda _: "a", say=said.append
+        )
     secret = project.investor_key.read_text().strip()
     assert secret not in project.ledger.read_text()
     assert secret not in "\n".join(said)
@@ -275,7 +307,8 @@ def test_an_approval_forged_after_a_check_was_edited_is_refused(project):
     for forgery in (
         forged(project),  # no signature at all
         forged(project, sig="0" * 64),  # a made-up one
-        forged(project, sig=signed(b"\x07" * 32, "r1", 0, {"hashes": {}})),  # the wrong key
+        forged(project, sig="v2:" + "0" * 64),
+        forged(project, sig=legacy_approval(b"\x07" * 32, hashes={}).data["sig"]),  # wrong key
     ):
         events = rewrite(project, [*old, forgery])
         assert events[-1].prev is not None
@@ -288,7 +321,7 @@ def test_the_firm_spends_nothing_on_a_forged_approval(project):
     (project.checks / "test_c01.py").write_text(C01 + "\n# edited\n")
     rewrite(project, [*read_events(project.ledger), forged(project)])
     spent = []
-    with LedgerWriter(project.ledger) as ledger, pytest.raises(NotApprovedError):
+    with LedgerWriter(project.ledger) as ledger, pytest.raises(LedgerUnverifiedError):
         run_firm(
             SHEET, project, ledger, "r1", env={}, say=lambda _: None,
             slice_runner=lambda *a, **k: spent.append(1),
@@ -447,7 +480,7 @@ def test_fund_signs_its_approval_and_the_run_it_builds_verifies_it(tmp_path):
     run = RunPaths(run_dir)
     events = read_events(run.ledger)
     approvals = [e for e in events if e.event is EventType.APPROVED and "hashes" in e.data]
-    assert approvals and all(e.data["sig"] and e.prev for e in approvals)
+    assert approvals and all(e.data["sig"].startswith("v2:") and e.prev for e in approvals)
     secret = run.investor_key.read_text().strip()
     assert secret not in run.ledger.read_text() and secret not in "\n".join(said)
     assert stat.S_IMODE(run.investor_key.stat().st_mode) == 0o600

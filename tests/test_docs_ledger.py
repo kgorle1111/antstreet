@@ -31,6 +31,11 @@ from boss.stream import Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
 from boss.worker import IsolationError
 
+# The module-scoped `produced` fixture runs ~20 whole runs (over two minutes). Under xdist each
+# worker that received one of these tests would build its own copy, so the module is pinned to one
+# worker (needs `--dist loadgroup`, which CI and CONTRIBUTING.md pass).
+pytestmark = pytest.mark.xdist_group("docs-ledger")
+
 DOC = DOCS / "LEDGER.md"
 SRC = ROOT / "src" / "boss"
 

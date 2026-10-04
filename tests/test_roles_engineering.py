@@ -8,6 +8,7 @@ import sys
 from dataclasses import replace
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.errors import Outcome
 from boss.roles import engineering, registry
@@ -127,6 +128,7 @@ system = argv[argv.index("--system-prompt") + 1]
 role = "designer" if system.startswith("You are the system designer") else "tester"
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({{"role": role, "argv": argv}}) + "\\n")
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_" + role.upper()])
 """
 
@@ -989,6 +991,15 @@ def test_more_rounds_are_planned_by_story_priority_and_the_sheet_still_validates
     draft = staged(cli, n_rounds=2)
     # S1 is `must` (c01, c02), S2 is `should` (c03): unlock at 2 checks, then at all 3
     assert draft.sheet.rounds == (Round(1, 298_334, 2), Round(2, 201_666, 3))
+    validate(draft.sheet, cli.checks_dir)
+
+
+def test_the_runs_reserve_reaches_the_round_plan(cli):
+    cli.designer(DESIGN)
+    cli.tester(TESTS)
+    # 500,000 funds two default rounds, but a Sonnet run's two rounds would each be under 305,000.
+    draft = staged(cli, n_rounds=2, reserve_micros=300_000)
+    assert draft.sheet.rounds == (Round(1, 500_000, 3),)
     validate(draft.sheet, cli.checks_dir)
 
 

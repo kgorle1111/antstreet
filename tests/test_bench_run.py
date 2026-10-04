@@ -1,10 +1,12 @@
 """Benchmark runner against a fake `claude` that plays boss and worker. No model calls."""
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT
 
 from boss.bench.results import CellResult, cell_dir, load_results
 from boss.bench.run import main, run_cell
@@ -44,7 +46,8 @@ result = {{"type": "result", "subtype": "success", "is_error": False,
 if os.path.exists(os.path.join(home, "login_broken")):
     say(result | {{"is_error": True, "api_error_status": 401, "terminal_reason": "api_error",
                   "total_cost_usd": 0, "modelUsage": {{}}}})
-elif argv[argv.index("--output-format") + 1] == "json":
+elif argv[argv.index("--tools") + 1] == "":
+    say({BOSS_INIT!r})
     draft = {DRAFT!r}
     if os.path.exists(os.path.join(home, "draft.json")):
         draft = json.load(open(os.path.join(home, "draft.json")))
@@ -90,6 +93,14 @@ def test_single_arm_with_a_correct_product(bench):
     assert (
         CellResult.load(cell_dir(bench.results, "slugify", "single", 1) / "result.json") == result
     )
+
+
+def test_the_single_arm_records_its_final_status_word_and_the_firm_none(bench):
+    single = bench("single")
+    assert single.final_status == "done"
+    saved = CellResult.load(cell_dir(bench.results, "slugify", "single", 1) / "result.json")
+    assert saved.final_status == "done"
+    assert bench("firm").final_status is None  # its claim is its checks, not a word
 
 
 def test_firm_arm_with_a_correct_product(bench):
@@ -202,6 +213,17 @@ def test_a_finished_cell_is_not_run_again(bench):
     assert len(bench.calls()) == calls
 
 
+@pytest.mark.parametrize("arm", ["single", "firm"])
+def test_a_cell_cut_off_before_its_result_is_refused_not_run_on_top_of(bench, arm):
+    out = cell_dir(bench.results, "slugify", arm, 1)
+    (out / ".boss" / "runs" / "20261003T113026Z-618816").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="cut off before its result; move the folder aside"):
+        bench(arm)
+    assert not (bench.home / "argv.log").exists()  # refused before any model call
+    shutil.rmtree(out)
+    assert bench(arm).passed
+
+
 def test_login_failure_is_an_infrastructure_failure_in_both_arms(bench):
     (bench.home / "login_broken").write_text("")
     single, firm = bench("single"), bench("firm")
@@ -254,3 +276,21 @@ def test_a_run_paused_for_the_plan_limit_is_an_infrastructure_outcome():
     assert _outcome(finished) == "completed"
     paused = [*finished, ev(EventType.PAUSED, actor="boss", reason="five_hour window at 96%")]
     assert _outcome(paused) == "usage_limit"
+
+
+# B71: a cell the environment cut off is excluded whatever its product scored.
+def test_runner_records_infrastructure_even_when_the_product_passed(bench, monkeypatch):
+    monkeypatch.setattr("boss.bench.run._outcome", lambda events: "usage_limit")
+    result = bench("single")
+    assert result.passed and result.failure_class == "infrastructure" and not result.counted
+
+
+def test_runner_records_infrastructure_for_a_prefixed_outcome_that_passed(bench, monkeypatch):
+    monkeypatch.setattr("boss.bench.run._outcome", lambda events: "boss:login")
+    result = bench("firm")
+    assert result.passed and result.failure_class == "infrastructure"
+
+
+def test_runner_leaves_a_passing_ordinary_cell_unclassified_and_counted(bench):
+    result = bench("single")
+    assert result.passed and result.failure_class is None and result.counted

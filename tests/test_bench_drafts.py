@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.bench import drafts
 from boss.bench.drafts import (
@@ -61,6 +62,7 @@ with open(os.path.join(home, "calls.log"), "a") as log:
     log.write(json.dumps({{"thinking": os.environ.get("MAX_THINKING_TOKENS")}}) + "\\n")
 mode = open(os.path.join(home, "mode")).read().strip() if os.path.exists(home + "/mode") else "ok"
 base = {RESULT!r}
+print({BOSS_INIT_LINE!r})
 if mode == "login":
     print(json.dumps(base | {{"is_error": True, "api_error_status": 401,
                              "terminal_reason": "api_error", "total_cost_usd": 0,
@@ -168,13 +170,13 @@ def test_a_draft_is_saved_with_its_checks_cost_tokens_and_real_score(env):
 
 
 def test_the_boss_sees_the_idea_with_the_chosen_prompt_model_and_thinking_and_nothing_else(env):
-    settings = settings_for("solo_v1.md", "sonnet", 0)
+    settings = settings_for("solo_v2.md", "sonnet", 0)
     env.environ["SECRET_TOKEN"] = "hunter2"
     cell(env, settings=settings)
     [call] = env.calls()
     argv = call["argv"]
     assert argv[argv.index("--model") + 1] == "sonnet"
-    assert argv[argv.index("--system-prompt") + 1] == load_prompt("solo_v1.md")
+    assert argv[argv.index("--system-prompt") + 1] == load_prompt("solo_v2.md")
     assert env.task("alpha").idea in argv[-1]
     assert "SECRET_TOKEN" not in call["env"]
     assert env.thinking() == ["0"]
@@ -304,7 +306,7 @@ def test_drafts_made_with_other_settings_are_refused_before_anything_is_spent(
     for extra in (
         ["--boss-model", "opus"],
         ["--boss-thinking", "1000"],
-        ["--prompt", "solo_v1.md"],
+        ["--prompt", "solo_v2.md"],
     ):
         assert env.run(extra) == 1
         err = capsys.readouterr().err
@@ -372,7 +374,7 @@ def test_a_damaged_draft_file_is_named_before_anything_is_spent(env, stub_score,
 def test_the_real_task_set_is_listed_under_its_pinned_hash(capsys):
     assert main(["--tasks", str(REAL_TASKS), "--out", "/nonexistent/unused", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "task set 767892a59e311ab5: 35 drafts, 35 to make" in out
+    assert "task set 0a83fc97a753b08c: 59 drafts, 59 to make" in out
 
 
 def test_tasks_are_validated_before_the_first_paid_call(env, monkeypatch):

@@ -20,6 +20,11 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   A torn last line counts. `boss resume` calls `ledger.repair_torn_tail` before it reads the file:
   it cuts an incomplete last line (only when every earlier line is valid) and says what it removed.
   No other command repairs: `boss report` and `boss status` report a torn ledger as damaged.
+- `LedgerWriter` never appends to a cut-off last line, because the next line would be glued onto
+  it and the file could no longer be repaired. Opening a file whose last line has no newline and
+  does not parse as an event raises `LedgerCorruptError` naming `boss resume`, and changes nothing.
+  A last line that is a complete event and only lost its newline gets the newline, under the
+  writer's lock; the next `prev` is the same either way.
 - The version `v` must be the integer 1: `true` and `1.0` make the line corrupt. Adding `prev`
   (below) did not change the version: it is an optional key, a reader older than the chain refuses
   a line that has it (its fields differ from the schema), and a reader that knows the chain reads
@@ -37,10 +42,40 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   last line the next line chains from the new last line.
 - What the chain proves. It is unkeyed, so it catches any edit that does not also recompute every
   later line: a changed byte, a deleted, inserted or reordered line, a line from another ledger.
-  It does not stop a forger who recomputes it; that is what the signature on an approval is for
-  (below). It also cannot see the end of the file: dropping the last lines leaves a valid chain,
-  and the last line is not covered until another line follows it. A ledger with every `prev`
-  removed reads as an older one. `docs/THREAT_MODEL.md` T46 states the limits.
+  It does not stop a forger who recomputes it; that is what the signature on an investor event is
+  for (below). It also cannot see the end of the file: dropping the last lines leaves a valid
+  chain, and the last line is not covered until another line follows it; that is what the anchor
+  is for (below). A ledger with every `prev` removed reads as an older one.
+  `docs/THREAT_MODEL.md` T46 states the limits.
+- Signatures. When a run is in a project (`<project>/.boss/runs/<id>`), `LedgerWriter` signs every
+  event whose actor is `investor` as it writes it: `data.sig` is `v2:` and the HMAC-SHA-256 (hex)
+  with `<project>/.boss/investor.key` of every field of the line (run, round, actor, event, cost,
+  tokens, billing, time, `data` without `sig`, and `prev`). So an investor event cannot be edited,
+  moved to another run or place, replayed, or kept when any line before it is edited, even by a
+  forger who recomputes the chain. The events are `approved`, `ruled`, `resumed`, `topped_up` and
+  the investor's `stopped`; no other actor's event is signed. An approval written by the first
+  version of signing has a bare hex `sig` over its run, round and data; it still verifies, on an
+  `approved` event only.
+- `read_events(path, key_path)` with the project's key path (`RunPaths.events`, which every
+  command, the loop and the pipeline use) refuses the ledger with `LedgerUnverifiedError` (a
+  `LedgerCorruptError`) naming the first line when an investor event does not verify. When the key
+  exists, an unsigned investor event is accepted only on a line without `prev` (older than the
+  chain); a signed one is refused when the key is missing. With no key file, nothing can be
+  verified and an unsigned event is accepted as it always was. The readers that act on an investor
+  event (`rulings.ruled`, `budget.is_top_up`, `state.run_state`, the round-funding check, the
+  pipeline's `_settled`, `require_approval`) only ever see events that passed this.
+  `LedgerWriter` runs the same check when it opens, so it never appends to a ledger the key does
+  not vouch for.
+- Anchor. After every append, once the project has a key, `LedgerWriter` replaces (atomically:
+  temporary file, `fsync`, rename, `fsync` of the folder) `<project>/.boss/anchors/<run id>`, a JSON
+  object `{"lines": N, "last": "<SHA-256 of line N>", "mac": "<HMAC with the investor key over the
+  run id, N and that hash>"}`. A reader that passes the key path refuses a ledger with fewer than
+  `lines` lines (naming how many were dropped), whose line `lines` is not the recorded one (an edit
+  of the last line), or whose anchor does not verify. Lines past `lines` are not vouched for: the
+  anchor is written after the line, so a crash, or a reader racing the writer, leaves some. A
+  missing anchor is refused when the ledger holds a `v2:` signed event (it was written by code that
+  anchors, so the file was deleted) and accepted otherwise (an older run, or one not yet approved).
+  An anchor with the key missing is refused.
 - Keys are sorted. Timestamps are UTC ISO 8601.
 - `state.py`'s docstring lists the `data` contract for thirteen event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
@@ -200,18 +235,20 @@ The same, in a run that named roles:
 - Actor: `investor`
 - Round: the round of the last event in the ledger
 - Written by `cli.py` when `boss resume` finds the run stopped. It lifts the stop: a stop holds
-  until a later `resumed`, and a later stop holds again. Nothing else writes it. It has no keys.
+  until a later `resumed`, and a later stop holds again. Nothing else writes it. Its only key is
+  the signature: an unsigned or forged one is refused when the ledger is read, so it cannot lift a
+  stop.
 - Lifting a stop does not skip a check: the approval, the budget and every hard limit are verified
   again before the next slice.
 
 | Key | Type | Meaning |
 |---|---|---|
-| none | | |
+| `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Example:
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {}, "event": "resumed", "round": 1, "run": "20260930T115339Z-97e2b3", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:53:40.133254+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"sig": "v2:02fd5ae8cb08ff5f593615717f871b34d6d8aff11a6c3dfda28fe59cec9e7e98"}, "event": "resumed", "prev": "f05dd6f39d389e5a81a1273664ea0392abaeae922862036e01b844bb8e129b47", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T11:53:40.133254+00:00", "v": 1}
 ```
 
 ### `hired`
@@ -266,7 +303,10 @@ Example:
 - Round: the current round
 - Written by `firm.py` when the CLI process ends, whatever the outcome.
 - Cost and tokens: this slice's own spend, the difference between the CLI's cumulative session
-  totals; `null` if unknown. Billing is `api` or `subscription`.
+  totals (never below zero); cost is `null` if unknown. A slice that got no totals (it was
+  killed, or the CLI zeroed them) books the input-side tokens of its own messages and no output
+  tokens; the next slice's difference includes its real spend. Billing is `api` or
+  `subscription`.
 - The benchmark's single arm writes it with `slice`, `outcome` and `status` only. `status` there
   is cleaned the same way.
 
@@ -277,6 +317,7 @@ Example:
 | `outcome` | str | How the run ended: `completed`, `capped`, `max_turns`, `refusal`, `timeout`, `crashed`, `login`, `rate_limited`, `usage_limit`, `api_error` or `session_lost` (the CLI no longer had the session to resume; the next attempt starts a new one). |
 | `status` | object or null | The worker's own report, cleaned: `status` (`done`, `continuing`, `blocked` or `none`) and `reason` (secrets masked, control characters shown as escapes, at most 500 characters). `null` if it gave none. A note, never a pass. |
 | `session_total_micros` | int or null | The CLI's cumulative cost for the session after this slice; `null` if unknown. |
+| `session_total_tokens` | list or null | The CLI's cumulative tokens for the session after this slice, as `[in, out, cached]`; `null` if the slice got no totals. The next slice of the session is booked against it. Ledgers from before this key carry none. |
 | `exit_code` | int or null | The CLI process's exit code. |
 | `denials` | int | How many tool calls the CLI refused. |
 | `denied_tools` | list | The distinct names of the refused tools, sorted. |
@@ -286,7 +327,7 @@ Example:
 Example:
 
 ```json
-{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
+{"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "session_total_tokens": [10, 5, 0], "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
 ```
 
 ### `check_result`
@@ -385,6 +426,7 @@ Example:
 | `ruling` | str | `dropped`, `kept`, `unblocked` or `declined`. |
 | `check` | str | The check ruled on. Present for `dropped` and `kept` only. |
 | `note` | str | The investor's note, on one line, secrets masked, at most 1000 characters. Present for `unblocked` only. |
+| `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Examples:
 
@@ -397,7 +439,7 @@ Examples:
 ```
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"ruling": "declined"}, "event": "ruled", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T11:53:36.246239+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"ruling": "declined", "sig": "v2:583ded96c7a685332ecf92bc442d56c2a69824e475803ac896eb46bad9e15a7a"}, "event": "ruled", "prev": "615362e7cf3d7296fd55fe95617522e00d3774a098d0a3848838c4e693621d23", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T11:53:36.246239+00:00", "v": 1}
 ```
 
 ### `disputed`
@@ -539,17 +581,16 @@ Example:
   `held_out_hashes` as well as its `hashes`, or it does not match. After an amendment, the
   amendment's hashes are the ones that match.
 - Signature. The investor's key is 32 random bytes in `<project>/.boss/investor.key` (hex, mode
-  0600, created by the first approval in the project, inside the project's ignored `.boss/`).
-  `approval.review_term_sheet` and `pipeline.py` sign with it; `require_approval` verifies with
-  it and never prints it. When the key file exists, a signed approval counts only if its `sig`
-  verifies (an edited approval, one moved to another run, or one signed with another key does
-  not), and an unsigned approval counts only if its line has no `prev`, that is, it was written
-  before the chain: every line the code writes now is chained and signed. When the key file is
-  missing, a signed approval cannot be verified and is refused, and an unsigned one is accepted
-  (as it always was). A key file that is unreadable, readable by others, a symlink or not 32
-  bytes of hex stops the check with an error that does not quote it. Losing the key voids the
-  signed approvals of the project's runs.
-- The round form (`{"round": N}`) is not signed; only the chain covers it.
+  0600, created by the first investor event in the project, inside the project's ignored `.boss/`).
+  `LedgerWriter` signs every investor event with it, the three forms of `approved` included (see
+  Signatures above), and `require_approval` verifies with it and never prints it. When the key file
+  exists, a signed approval counts only if its `sig` verifies (an edited approval, one moved to
+  another run or place, or one signed with another key does not), and an unsigned approval counts
+  only if its line has no `prev`, that is, it was written before the chain: every line the code
+  writes now is chained and signed. When the key file is missing, a signed approval cannot be
+  verified and is refused, and an unsigned one is accepted (as it always was). A key file that is
+  unreadable, readable by others, a symlink or not 32 bytes of hex stops the check with an error
+  that does not quote it. Losing the key voids the signed events of the project's runs.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -557,7 +598,7 @@ Example:
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
 | `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
-| `sig` | str | HMAC-SHA-256 (hex) with the project's investor key over the event's run id, its round and every other key of `data`. On the first form and on an amendment when the run is in a project (`<project>/.boss/runs/<id>`). Absent from approvals written before signing. |
+| `sig` | str | On every form. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`). Approvals written by the first version of signing carry a bare hex `sig` over their run, round and data; approvals older than signing have none. |
 
 Examples:
 
@@ -569,17 +610,19 @@ Examples:
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"round": 2}, "event": "approved", "round": 2, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:28.108273+00:00", "v": 1}
 ```
 
-A signed approval on a chained line, as `boss fund` writes it (the key that signed this one was
-thrown away):
+The first two examples are unsigned and unchained: the first is older than signing, the second
+was written outside a project (a test's run folder). In a project every investor event carries
+`prev` and `sig`, as in the next two (the key that signed them was thrown away). A signed approval,
+as `boss fund` writes it:
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"hashes": {"term_sheet": "aa0ce180f53592efa47a651dc9e0b62d750b5817cec5f2dce48f585f158c7f5b", "test_c01.py": "46dcc9df463d18fec190640e9731fb76fd54990602d51e6f562260ee40137215", "test_c02.py": "ef8fdb7658a4589dad9a7e41b8b287e591fb402c96b8b5b3bc1438cbe7fe1173"}, "sig": "61434adc9e66de41b498b390a0e654e87b71c026f05b2a1d446a371d99d61757"}, "event": "approved", "prev": "7211d3a5bb23508fb9e64a0dc9863c1f0475689c6c0c16e91731ce7d99839f50", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:52:27.361484+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"hashes": {"term_sheet": "aa0ce180f53592efa47a651dc9e0b62d750b5817cec5f2dce48f585f158c7f5b", "test_c01.py": "46dcc9df463d18fec190640e9731fb76fd54990602d51e6f562260ee40137215", "test_c02.py": "ef8fdb7658a4589dad9a7e41b8b287e591fb402c96b8b5b3bc1438cbe7fe1173"}, "sig": "v2:641b282b994350128b7ed8524b68500a73dad5f1e5eee113e5cae602a6949211"}, "event": "approved", "prev": "b87dac9056fcb0aa1702b8b8a51f98408b164689f7f17e3f753bf1feea4e03ff", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:52:27.361484+00:00", "v": 1}
 ```
 
 An amendment (signed like the first form, in round 2):
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added_checks": ["c03"], "hashes": {"term_sheet": "3358c4b8c732606c083e7f794881519b229ba89c5d388c2be6f7e79448cae768", "test_c01.py": "1d8375400c8f62ba12608933211da7dade2459fb89df181c1f23150d29b89b56", "test_c02.py": "8be209cefbc72a3ceb2b34f55206827c0a0efd55aa9e6d45b66b1fe3fba83f63", "test_c03.py": "65ba46c76ea3d12622b3ae82f9715b4baf58c84be286d8cb03645894e00ca6a1"}, "round": 2, "sig": "b19804ca0c46db6f21d950a8fa527f9970f5c7ede78c19cc111df7251c0a7562"}, "event": "approved", "prev": "fc9ef3312be6ddc0b9ac051bec79f7636249921f56c2fe09d2393d43901739e1", "round": 2, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:41.920211+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added_checks": ["c03"], "hashes": {"term_sheet": "3358c4b8c732606c083e7f794881519b229ba89c5d388c2be6f7e79448cae768", "test_c01.py": "1d8375400c8f62ba12608933211da7dade2459fb89df181c1f23150d29b89b56", "test_c02.py": "8be209cefbc72a3ceb2b34f55206827c0a0efd55aa9e6d45b66b1fe3fba83f63", "test_c03.py": "65ba46c76ea3d12622b3ae82f9715b4baf58c84be286d8cb03645894e00ca6a1"}, "round": 2, "sig": "v2:adcb9a85d6fe9daf6134391aca9dc6e8c6c5c5388807e66f6120d1cbb073d7d2"}, "event": "approved", "prev": "0da687d01ba1bbfb554ea25d742c468035b9909c9471e81e6dfa307197b812e6", "round": 2, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:41.920211+00:00", "v": 1}
 ```
 
 ### `topped_up`
@@ -597,11 +640,12 @@ An amendment (signed like the first form, in round 2):
 | Key | Type | Meaning |
 |---|---|---|
 | `micros` | int | Extra budget for the round, a positive integer. Anything else makes the budget code raise. |
+| `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Example, `boss topup --round 1 --amount 0.25` on a round that had run out of money:
 
 ```json
-{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"micros": 250000}, "event": "topped_up", "round": 1, "run": "20261002T204817Z-75dfce", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:48:19.193786+00:00", "v": 1}
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"micros": 250000, "sig": "v2:dfda8844d673948b2b77d479b4464dee1fb77733da6912a495f97c3388a47f63"}, "event": "topped_up", "prev": "4be3ea985fb0bd3310654b880a2858826e97e546af41463965caa7373a4f68b1", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:48:19.193786+00:00", "v": 1}
 ```
 
 ### `paused`
@@ -644,6 +688,7 @@ Example:
 |---|---|---|
 | `reason` | str | Why the run stopped. |
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
+| `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Examples:
 

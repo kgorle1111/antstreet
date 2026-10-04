@@ -171,7 +171,7 @@ def test_the_recorded_refusals_give_a_short_clean_reason_for_each_call():
     run = SliceRun(
         Outcome.COMPLETED, Usage(1, 0, 0, 0), None, None, 0, 0.1, Path("x"), denials=reader.denials
     )
-    data = slice_end_fields(run, 1, "t1", 0)["data"]
+    data = slice_end_fields(run, 1, "t1", 0, (0, 0, 0))["data"]
     # Recorded with CLI 2.1.285: both refusals carry the same long message; only its first
     # sentence is kept, once per tool.
     assert data["denial_reasons"] == [

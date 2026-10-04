@@ -31,7 +31,7 @@ from boss.briefs import (
 )
 from boss.errors import INFRASTRUCTURE, Outcome
 from boss.gate import Check, CheckResult, run_gate
-from boss.ledger import Event, EventType, LedgerWriter, read_events
+from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import safe_text
 from boss.roles.builders import builder_system_prompt
 from boss.rule import Decision, FiringPolicy, Verdict, decide
@@ -55,7 +55,7 @@ from boss.worker import (
     usd,
 )
 
-BUILDER_PROMPT = "builder_v3.md"
+BUILDER_PROMPT = "builder_v4.md"
 DEFAULT_WORKER_MODEL = "haiku"
 DEFAULT_SLICE_MICROS = 100_000
 MAX_WORKERS_PER_TASK = 2  # the first worker plus one reassignment
@@ -156,6 +156,7 @@ class _Pending:
     spec: SliceSpec
     start: dict[str, Any]  # the slice_start event's data
     previous_total: int  # the session's running total before this slice
+    previous_tokens: tuple[int, int, int]  # its token totals: in, out, cached
 
 
 @dataclass(slots=True)
@@ -177,7 +178,7 @@ class _Firm:
     advise: Advise | None  # an opinion to show the investor before a dispute is ruled on
 
     def events(self) -> list[Event]:
-        return read_events(self.paths.ledger)
+        return self.paths.events()
 
     def require_approval(self, events: Sequence[Event]) -> None:
         """The investor's approval must match the checks and the held-out folder on disk now."""
@@ -350,9 +351,10 @@ class _Firm:
 
     def _approve(self, round_: Round, record: Recorder) -> bool:
         passed = self.state().passing_total()
+        funding = budget.round_budget(self.sheet, self.events(), round_.n)  # with any top-ups
         question = (
             f"Round {round_.n}: {passed}/{self.required()} checks pass. "
-            f"Fund ${usd(round_.budget_micros)} more? [y]es / [n]o "
+            f"Fund ${usd(funding)} more? [y]es / [n]o "
         )
         try:
             answer = self.ask(question).strip().lower()
@@ -483,7 +485,11 @@ class _Firm:
                 failure = failure or result
             else:
                 fields = slice_end_fields(
-                    result, pending.number, pending.task.id, pending.previous_total
+                    result,
+                    pending.number,
+                    pending.task.id,
+                    pending.previous_total,
+                    pending.previous_tokens,
                 )
                 record(actor, EventType.SLICE_END, billing=billing_mode(self.env), **fields)
                 finished.append((pending, result))
@@ -650,7 +656,9 @@ class _Firm:
         )
         number = ws.slices + 1
         start = {"slice": number, "task": task.id, "cap_micros": cap, "session": session}
-        return _Pending(task, worker, number, spec, start, ws.session_total_micros)
+        return _Pending(
+            task, worker, number, spec, start, ws.session_total_micros, ws.session_total_tokens
+        )
 
     def _status_line(self, task: Task, worker: str, number: int, round_n: int) -> None:
         events = self.events()
@@ -894,7 +902,7 @@ def run_firm(
     cancel: threading.Event | None = None,
     advise: Advise | None = None,
 ) -> FirmReport:
-    events = read_events(paths.ledger)
+    events = paths.events()
     require_approval(events, sheet, paths.checks, paths.held_out, paths.investor_key)
     try:
         held_out_store.load(paths.held_out)  # approved files are hashed; an unreadable list is not

@@ -26,6 +26,10 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # A pull request run diffs against origin/<base> (BOSS_VALIDATE_TASKS_SINCE below), which
+          # needs the history back to the merge base.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -84,7 +88,25 @@ jobs:
       # On Linux the sandbox must run, not be skipped: `require` makes the gate and the sandbox
       # tests fail loudly (SandboxUnavailable, with the fix) when bwrap cannot start. macOS keeps
       # `auto`, which is the default and sandboxes there with sandbox-exec.
+      #
+      # -n auto runs the tests on one worker per core (pytest-xdist); pytest-cov merges the
+      # workers' coverage. --dist loadgroup keeps tests marked xdist_group (the ledger document's
+      # expensive shared fixture) on one worker.
+      #
+      # The tests marked sigint make a fake worker send a real SIGINT to the pytest process. On a
+      # busy machine with coverage on, that hung a parallel worker, so they run afterwards in a
+      # second, serial invocation. It appends to the first one's coverage data and reports and
+      # enforces the floor over the whole suite.
+      #
+      # A pull request fully validates only the benchmark tasks it changes (the task set hash and
+      # count are still checked for all of them); a push to main validates every task.
       - name: Test
         env:
           BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
-        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30
+          BOSS_VALIDATE_TASKS_SINCE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30
+
+      - name: Test (Ctrl-C tests, serial)
+        env:
+          BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
+        run: uv run pytest -m sigint --cov --cov-append --cov-report=term-missing --cov-fail-under=96

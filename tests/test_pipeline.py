@@ -8,10 +8,12 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT
 
 from boss.boss import load_prompt
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
@@ -106,7 +108,8 @@ def fill(value, fragment):
     return value
 
 
-if argv[argv.index("--output-format") + 1] == "json":   # the boss or a role
+if argv[argv.index("--tools") + 1] == "":   # the boss or a role
+    say({BOSS_INIT!r})
     system = argv[argv.index("--system-prompt") + 1]
     table = json.load(open(os.path.join(folder, "prompts.json")))
     who = table.get(hashlib.sha256(system.encode()).hexdigest(), "unknown")
@@ -400,6 +403,13 @@ Spend (estimated by the CLI, not a bill)
   worker:w1    $0.0060   tokens in 10 / out 5 / cached 0
   total        $0.0100   tokens in 20 / out 10 / cached 0
 
+KPIs
+  Delivered: yes (1 of 1 checks pass on the product)
+  False pass: not measured (the run had no checks its workers never saw)
+  Cost: $0.0100 (estimated)
+  Time: SPAN
+  Investor questions: 1
+
 Workers
   w1 on t1 (haiku): completed, status done: "wrote rev.py", 1 slice(s)
 
@@ -411,6 +421,7 @@ def test_with_no_roles_the_ledger_and_the_output_are_what_they_always_were(fx, m
     out = fx.fund()
     assert out.code == EXIT_OK
     shown = out.text.replace(fx.run_dir.name, "RUN").replace(str(fx.project.resolve()), "PROJECT")
+    shown = re.sub(r"Time: .*", "Time: SPAN", shown)  # the span is this run's wall clock
     assert shown == TODAYS_OUTPUT
     assert [(e.actor, str(e.event)) for e in fx.events()] == [
         ("boss", "boss_call"),
@@ -660,6 +671,30 @@ def test_more_rounds_are_planned_by_story_priority_when_the_sheet_is_staged(fx):
     assert [(r["n"], r["unlock_checks"]) for r in sheet["rounds"]] == [(1, 1), (2, 2)]
     assert sum(r["budget_micros"] for r in sheet["rounds"]) == 500_000 == sheet["budget_micros"]
     assert fx.events(EventType.BOSS_CALL) == []
+
+
+@pytest.mark.parametrize(
+    ("extra", "budget", "n_rounds", "floor"),
+    [
+        (("--model", "sonnet"), "0.60", 1, 305_000),  # two rounds would each be under 305,000
+        (("--model", "sonnet"), "0.62", 2, 305_000),
+        (("--reserve", "0.30"), "0.60", 1, 305_000),  # an explicit reserve beats the model's
+        ((), "0.60", 2, 105_000),  # the default (haiku) is unchanged: 300,000 each
+    ],
+    ids=["sonnet-one-round", "sonnet-two-rounds", "explicit-reserve", "default"],
+)
+def test_the_staged_plan_is_valid_for_the_runs_own_reserve_from_the_start(
+    fx, extra, budget, n_rounds, floor
+):
+    script_stage_1(fx, stories=TWO_STORIES, design_out=design(("S1", "S2")))
+    fx.set("tester", ok(checks_out("S1.1", "S2.1")))
+    fx.fund(
+        "--roles", "product_manager,system_designer,tester", "--rounds", "2", *extra, budget=budget
+    )
+    rounds = json.loads((fx.run_dir / "term_sheet.json").read_text())["rounds"]
+    assert len(rounds) == n_rounds
+    assert all(r["budget_micros"] >= floor for r in rounds)
+    assert sum(r["budget_micros"] for r in rounds) == int(float(budget) * 1_000_000)
 
 
 def test_the_boss_still_splits_a_rounds_budget_when_it_drafts_alone(fx):
@@ -916,6 +951,7 @@ def test_the_consultant_is_not_called_when_nothing_is_disputed(fx):
     assert out.code == EXIT_OK and fx.role_calls() == [] and "consultant" not in fx.calls()
 
 
+@pytest.mark.sigint
 def test_resume_takes_its_roles_from_the_ledger_and_does_not_run_stage_one_again(fx):
     script_stage_1(fx)
     fx.set("tester", ok(checks_out("S1.1", "S1.2", codes=(CHECK1, WRONG))))
@@ -1036,6 +1072,7 @@ def test_anything_but_a_yes_is_a_no_and_the_findings_stay_in_the_report(fx, answ
     assert sheet["budget_micros"] == 500_000
     assert fx.role_calls("critic")[0].data["verified"] == 1  # on the ledger, so in the report
     [ruling] = fx.events(EventType.RULED)  # the no, so that a resume can tell it from a Ctrl-C
+    assert ruling.data.pop("sig")  # signed, like every investor event (T46)
     assert (ruling.actor, ruling.data) == ("investor", {"ruling": "declined"})
 
 
@@ -1064,6 +1101,7 @@ def test_a_no_after_a_ctrl_c_is_recorded_and_ends_the_review(fx):
     out = fx.run("resume")
     assert out.code == EXIT_OK and asked(out, "Add these") == [] and fx.events() == before
     [ruling] = fx.events(EventType.RULED)
+    assert ruling.data.pop("sig")
     assert (ruling.actor, ruling.round, ruling.data) == ("investor", 0, {"ruling": "declined"})
     assert fx.calls().count("critic") == 2
 
@@ -1280,6 +1318,7 @@ def test_resuming_after_the_investor_said_no_does_not_ask_again(fx):
     assert out.code == EXIT_OK and fx.events() == before and asked(out, "Add these") == []
 
 
+@pytest.mark.sigint
 def test_a_run_interrupted_before_stage_three_gets_its_critic_on_resume_exactly_once(fx):
     critic_finds(fx, finding())
     (fx.folder / "interrupt").write_text("")
@@ -1293,6 +1332,7 @@ def test_a_run_interrupted_before_stage_three_gets_its_critic_on_resume_exactly_
     assert fx.events() == before
 
 
+@pytest.mark.sigint
 def test_resume_can_offer_the_fix_round_with_its_own_budget(fx):
     critic_finds(fx, finding())
     (fx.folder / "interrupt").write_text("")
@@ -1464,6 +1504,7 @@ def test_a_refused_demo_is_not_asked_for_again_on_resume(fx):
     assert fx.events() == before and not usage_file(fx).exists()
 
 
+@pytest.mark.sigint
 def test_a_run_interrupted_before_the_demo_gets_it_on_resume(fx):
     fx.set("demo_writer", ok(DEMO))
     (fx.folder / "interrupt").write_text("")
@@ -1473,6 +1514,7 @@ def test_a_run_interrupted_before_the_demo_gets_it_on_resume(fx):
     assert len(fx.role_calls("demo_writer")) == 1
 
 
+@pytest.mark.sigint
 def test_an_interrupted_fix_round_continues_on_resume_without_a_second_critic(fx):
     critic_finds(fx, finding())
     fx.set("demo_writer", ok(DEMO))
@@ -1606,6 +1648,7 @@ def test_the_default_model_is_the_bosss_and_the_cli_chooses_the_thinking(fx):
     assert model_and_thinking(fx, "check_auditor") == [("haiku", "unset")]
 
 
+@pytest.mark.sigint
 def test_a_resumed_run_calls_its_roles_with_the_model_and_thinking_it_was_started_with(fx):
     with_a_wrong_check(fx)
     fx.set("consultant", ok(ADVICE))
@@ -1616,6 +1659,7 @@ def test_a_resumed_run_calls_its_roles_with_the_model_and_thinking_it_was_starte
     assert model_and_thinking(fx, "consultant") == [("sonnet", "0")]
 
 
+@pytest.mark.sigint
 def test_a_run_started_without_roles_resumes_without_roles(fx):
     (fx.folder / "interrupt").write_text("")
     fx.fund()
@@ -1819,6 +1863,7 @@ def test_the_fix_round_goes_in_front_of_the_unopened_rounds_and_the_sheet_stays_
 
 
 @pytest.mark.parametrize("who", ["user_agent", "boss"])
+@pytest.mark.sigint
 def test_ctrl_c_while_a_call_runs_before_approval_ends_the_run_cleanly(fx, who):
     script_stage_1(fx)
     (fx.folder / f"interrupt_{who}").write_text("")
@@ -1830,6 +1875,7 @@ def test_ctrl_c_while_a_call_runs_before_approval_ends_the_run_cleanly(fx, who):
     events = fx.events()
     assert [e.actor for e in events if e.event is EventType.ROLE_CALL] == ["role:product_manager"]
     assert (events[-1].actor, events[-1].event) == ("investor", EventType.STOPPED)
+    assert events[-1].data.pop("sig")
     assert events[-1].data == {"reason": "interrupted before approval"}
     assert fx.events(EventType.APPROVED) == [] and not (fx.run_dir / "workspaces").exists()
     again = fx.run("resume")

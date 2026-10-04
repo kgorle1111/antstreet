@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from boss.errors import RunSignals
@@ -24,12 +24,16 @@ _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 class Usage:
     """Session totals from `modelUsage`, which, unlike top-level `usage`, includes subagents and
     the response that crossed a budget cap. After a resume they are cumulative for the session.
+
+    `cumulative` says the tokens are those session totals. A slice with no totals (killed, or the
+    CLI zeroed them) carries the input-side sums of its own messages instead, and is False.
     """
 
     cost_micros: int | None  # None = unknown
     tokens_in: int  # input + cache-creation tokens, both billed as input
     tokens_out: int
     tokens_cached: int  # cache reads
+    cumulative: bool = field(default=False, compare=False)  # metadata: equal figures are equal
 
 
 class StreamReader:
@@ -128,7 +132,13 @@ class StreamReader:
         )
         tokens_out = sum(_count(m, "outputTokens") for m in models)
         tokens_cached = sum(_count(m, "cacheReadInputTokens") for m in models)
-        return Usage(_cost_micros(result, bool(models)), tokens_in, tokens_out, tokens_cached)
+        return Usage(
+            _cost_micros(result, bool(models)),
+            tokens_in,
+            tokens_out,
+            tokens_cached,
+            cumulative=True,
+        )
 
     def _message_usage(self, cost_micros: int | None) -> Usage:
         """Input-side tokens summed from the messages seen, for a slice with no totals: it was

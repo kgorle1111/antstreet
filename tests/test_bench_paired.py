@@ -1,0 +1,250 @@
+"""The paired comparison, on hand-built results whose answers are known."""
+
+import dataclasses
+
+import pytest
+from docs_support import ROOT, captured_parser
+
+from boss.bench.paired import (
+    KPIS,
+    MIN_TASKS,
+    bootstrap_interval,
+    compare,
+    main,
+    render,
+    task_values,
+)
+from boss.bench.results import CellResult, cell_dir
+
+
+def cell(task, arm="firm", rep=1, *, ok=True, cost=0, secs=1.0, visible=None, infra=False, h="h"):
+    """A result; `visible` is (passed, total) of the boss's own checks."""
+    return CellResult(
+        task=task,
+        arm=arm,
+        rep=rep,
+        set_hash=h,
+        model="haiku",
+        budget_micros=400_000,
+        hidden={"c": "passed" if ok else "failed"},
+        visible_passed=visible[0] if visible else None,
+        visible_total=visible[1] if visible else None,
+        cost_micros=cost,
+        boss_micros=0,
+        unknown_cost_events=0,
+        outcome="completed",
+        failure_class=None if ok else ("infrastructure" if infra else "model"),
+        duration_s=secs,
+    )
+
+
+def sides(oks_a, oks_b, **kw):
+    """Cells for tasks t0, t1, ... : arm firm passes by `oks_a`, arm single by `oks_b`."""
+    a = [cell(f"t{i}", "firm", ok=ok, **kw) for i, ok in enumerate(oks_a)]
+    b = [cell(f"t{i}", "single", ok=ok, **kw) for i, ok in enumerate(oks_b)]
+    return a, b
+
+
+def run(a, b, kpi="delivery", arm_a="firm", arm_b="single", **kw):
+    return compare(a, b, arm_a, arm_b, kpi, resamples=2000, **kw)
+
+
+def test_an_obvious_win_is_shown():
+    a, b = sides([True] * 10, [False] * 10)
+    p = run(a, b)
+    assert (p.tasks, p.mean, p.low, p.high) == (10, 1.0, 1.0, 1.0)
+    assert p.shown and "verdict: shown" in render(p)
+
+
+def test_a_tie_is_not_shown():
+    a, b = sides([True, False] * 5, [True, False] * 5)
+    p = run(a, b)
+    assert (p.mean, p.low, p.high) == (0.0, 0.0, 0.0) and not p.shown
+    assert render(p).endswith("verdict: not shown")
+
+
+def test_a_loss_is_not_shown():
+    a, b = sides([False] * 10, [True] * 10)
+    p = run(a, b)
+    assert p.mean == -1.0 and p.high < 0 and not p.shown
+
+
+def test_a_win_whose_interval_reaches_zero_is_not_shown():
+    # 3 tasks gained, 2 lost: mean +0.2, but resampling often draws more losses than gains.
+    a, b = sides([True] * 3 + [False] * 2 + [True] * 5, [False] * 3 + [True] * 2 + [True] * 5)
+    p = run(a, b)
+    assert p.mean == pytest.approx(0.1) and p.low < 0 < p.high and not p.shown
+
+
+def test_one_task_cannot_show_anything():
+    a, b = sides([True], [False])
+    p = run(a, b)
+    assert (p.tasks, p.mean) == (1, 1.0) and MIN_TASKS == 2
+    assert not p.shown
+
+
+def test_delivery_is_the_share_of_a_tasks_runs_and_tasks_are_weighted_equally():
+    a = [cell("t0", ok=r != 4, rep=r) for r in (1, 2, 3, 4)] + [cell("t1", ok=False)]
+    b = [cell("t0", "single", ok=False), cell("t1", "single", ok=True)]
+    assert task_values(a, "firm", "delivery") == {"t0": 0.75, "t1": 0.0}
+    p = run(a, b)
+    assert (p.tasks, p.mean) == (2, -0.125)  # +0.75 on t0, -1 on t1, however many runs each had
+
+
+def test_cost_is_the_mean_per_task_and_lower_is_a_win():
+    a = [cell(t, cost=c) for t, c in [("t0", 1_000_000), ("t0", 3_000_000), ("t1", 2_000_000)]]
+    b = [cell("t0", "single", cost=4_000_000), cell("t1", "single", cost=4_000_000)]
+    assert task_values(a, "firm", "cost_per_delivery") == {"t0": 2.0, "t1": 2.0}
+    p = run(a, b, "cost_per_delivery")
+    assert (p.mean, p.low, p.high) == (-2.0, -2.0, -2.0) and p.tasks == 2 and p.shown
+    swapped = run(b, a, "cost_per_delivery", arm_a="single", arm_b="firm")
+    assert swapped.mean == 2.0 and not swapped.shown
+
+
+def test_equal_costs_are_a_tie():
+    a, b = sides([True] * 6, [True] * 6, cost=123_457)
+    p = run(a, b, "cost_per_delivery")
+    assert (p.mean, p.low, p.high, p.shown) == (0.0, 0.0, 0.0, False)
+
+
+def test_time_is_the_median_of_a_tasks_runs_and_lower_is_a_win():
+    a = [cell("t0", secs=s, rep=i) for i, s in enumerate([10.0, 20.0, 600.0])]
+    a += [cell("t1", secs=30.0), cell("t1", secs=50.0, rep=2)]
+    b = [cell("t0", "single", secs=50.0), cell("t1", "single", secs=50.0)]
+    assert task_values(a, "firm", "time") == {"t0": 20.0, "t1": 40.0}
+    p = run(a, b, "time")
+    assert (p.mean, p.shown) == (-20.0, True)
+
+
+def test_false_pass_counts_runs_that_pass_every_visible_check_and_fail_a_hidden_one():
+    gamed = cell("t0", ok=False, visible=(3, 3))
+    honest = cell("t0", rep=2, ok=False, visible=(2, 3))
+    right = cell("t0", rep=3, ok=True, visible=(3, 3))
+    unmeasured = cell("t0", rep=4, ok=False)  # no visible checks recorded: not counted as gamed
+    assert task_values([gamed, honest, right, unmeasured], "firm", "false_pass") == {"t0": 0.25}
+    a = [cell(f"t{i}", ok=True, visible=(1, 1)) for i in range(8)]
+    b = [cell(f"t{i}", "firm", ok=False, visible=(1, 1)) for i in range(8)]
+    p = compare(a, b, "firm", "firm", "false_pass", resamples=500)
+    assert (p.mean, p.shown) == (-1.0, True)  # A never gamed, B always did: lower is a win
+
+
+def test_false_pass_is_refused_for_an_arm_without_visible_checks():
+    a, b = sides([True] * 3, [True] * 3)
+    with pytest.raises(ValueError, match="only the firm arm"):
+        run(a, b, "false_pass")
+
+
+def test_infrastructure_cells_are_excluded_and_counted():
+    a = [cell("t0"), cell("t1", ok=False, infra=True), cell("t2")]
+    b = [cell("t0", "single", ok=False), cell("t1", "single"), cell("t2", "single", ok=False)]
+    p = run(a, b)
+    assert (p.tasks, p.unpaired, p.infrastructure, p.mean) == (2, 1, 1, 1.0)
+    assert "not on both sides: 1" in render(p) and "infrastructure cells excluded: 1" in render(p)
+
+
+def test_a_task_on_one_side_only_is_not_paired():
+    a = [cell("t0"), cell("t1")]
+    b = [cell("t0", "single", ok=False)]
+    p = run(a, b)
+    assert (p.tasks, p.unpaired) == (1, 1)
+
+
+def test_different_task_set_hashes_are_refused():
+    a = [cell("t0", h="one")]
+    b = [cell("t0", "single", h="two")]
+    with pytest.raises(ValueError, match="different task sets"):
+        run(a, b)
+    mixed_on_one_side = [cell("t0", h="one"), cell("t1", h="two")]
+    with pytest.raises(ValueError, match="different task sets"):
+        run(mixed_on_one_side, [cell("t0", "single", h="one")])
+
+
+def test_a_side_without_the_arm_or_without_a_shared_task_is_refused():
+    a, b = sides([True], [True])
+    with pytest.raises(ValueError, match="no results for arm 'single-review'"):
+        run(a, b, arm_b="single-review")
+    with pytest.raises(ValueError, match="no task has a counted run on both sides"):
+        run([cell("t0")], [cell("t9", "single")])
+    with pytest.raises(ValueError, match="kpi must be one of"):
+        run(a, b, "speed")
+
+
+def test_the_same_seed_gives_the_same_interval_and_the_interval_brackets_the_mean():
+    diffs = [1.0, 0.0, -1.0, 1.0, 0.0, 0.0, 1.0, -1.0, 0.0, 1.0, 0.0, 0.0]
+    first = bootstrap_interval(diffs, 10_000, seed=7)
+    assert bootstrap_interval(diffs, 10_000, seed=7) == first
+    low, high = first
+    assert low < sum(diffs) / len(diffs) < high
+    assert bootstrap_interval(diffs, 200, seed=1) != bootstrap_interval(diffs, 200, seed=2)
+    a, b = sides([True, False, True, False] * 3, [False, False, True, True] * 3)
+    assert run(a, b, seed=3) == run(a, b, seed=3)
+
+
+def test_the_interval_is_the_percentile_of_the_resampled_means():
+    # Two tasks, differences 0 and 1: a resampled mean is 0, 0.5 or 1 with chance 1/4, 1/2, 1/4,
+    # so the 2.5% point is 0 and the 97.5% point is 1.
+    assert bootstrap_interval([0.0, 1.0], 10_000, seed=0) == (0.0, 1.0)
+    with pytest.raises(ValueError):
+        bootstrap_interval([], 10, 0)
+
+
+def test_the_interval_matches_the_exact_distribution_of_a_resampled_mean():
+    # 20 tasks, 10 gained: a resampled mean is Binomial(20, 1/2) / 20, whose 2.5% and 97.5% points
+    # are 6/20 and 14/20 (P(X<=5) = 0.021, P(X<=6) = 0.058).
+    assert bootstrap_interval([1.0] * 10 + [0.0] * 10, 10_000, seed=0) == (0.3, 0.7)
+
+
+def test_a_strong_consistent_gain_excludes_zero_and_a_balanced_one_does_not():
+    assert bootstrap_interval([1.0] * 18 + [0.0] * 2, 5000, 0)[0] > 0
+    low, high = bootstrap_interval([1.0, -1.0] * 10, 5000, 0)
+    assert low < 0 < high
+
+
+def test_command_line_reads_two_folders_and_prints_the_verdict(tmp_path, capsys):
+    a, b = sides([True] * 8, [False] * 8)
+    for c in a + b:
+        c.save(cell_dir(tmp_path / "run", c.task, c.arm, c.rep))
+    assert main([str(tmp_path / "run"), str(tmp_path / "run"), "--resamples", "500"]) == 0
+    out = capsys.readouterr().out
+    assert "paired firm vs single, delivery" in out and "tasks: 8" in out
+    assert "mean difference (firm - single): +1.0000" in out and out.endswith("verdict: shown\n")
+    for kpi in KPIS:
+        if kpi != "false_pass":
+            assert main([str(tmp_path / "run"), str(tmp_path / "run"), "--kpi", kpi]) == 0
+
+
+def test_command_line_refuses_mismatched_sets_and_empty_folders(tmp_path, capsys):
+    cell("t0", h="one").save(cell_dir(tmp_path / "x", "t0", "firm", 1))
+    cell("t0", "single", h="two").save(cell_dir(tmp_path / "y", "t0", "single", 1))
+    assert main([str(tmp_path / "x"), str(tmp_path / "y")]) == 1
+    assert "different task sets" in capsys.readouterr().err
+    assert main([str(tmp_path / "x"), str(tmp_path / "nowhere")]) == 1
+    assert "no results for arm" in capsys.readouterr().err
+
+
+def test_a_confounded_comparison_is_warned_about(tmp_path, capsys):
+    a = cell("t0")
+    b = dataclasses.replace(cell("t0", "single"), model="sonnet", budget_micros=1)
+    a.save(cell_dir(tmp_path / "x", "t0", "firm", 1))
+    b.save(cell_dir(tmp_path / "y", "t0", "single", 1))
+    assert main([str(tmp_path / "x"), str(tmp_path / "y")]) == 0
+    out = capsys.readouterr().out
+    assert "WARNING: model differs" in out and "WARNING: budget_micros differs" in out
+
+
+def test_every_option_and_kpi_is_documented_where_the_docs_say_it():
+    cli = (
+        (ROOT / "docs" / "CLI.md")
+        .read_text(encoding="utf-8")
+        .split("`python -m boss.bench.paired`")[1]
+    )
+    cli = cli.split("\n## ")[0]
+    options = {s for a in captured_parser(main)._actions for s in a.option_strings} - {
+        "-h",
+        "--help",
+    }
+    assert options == {"--arm-a", "--arm-b", "--kpi", "--resamples", "--seed"}
+    for text in (cli, (ROOT / "bench" / "METHOD.md").read_text(encoding="utf-8")):
+        assert all(kpi in text for kpi in KPIS)
+    assert all(f"`{o}`" in cli for o in options)
+    assert "`shown`" in cli and "`not shown`" in cli

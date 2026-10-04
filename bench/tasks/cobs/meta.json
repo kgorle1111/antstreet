@@ -1,0 +1,1 @@
+{"id": "cobs", "title": "COBS byte stuffing that removes every zero byte, with block-boundary rules", "difficulty": "hard"}

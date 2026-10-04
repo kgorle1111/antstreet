@@ -5,6 +5,7 @@ import json
 import sys
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 import boss.roles.critic as critic
 from boss.errors import Outcome
@@ -48,6 +49,7 @@ PASSES = HEAD + 'def test_two_words():\n    assert reverse_words("a b") == "b a"
 FAKE = f"""#!{sys.executable}
 import json, os, sys
 open(os.environ["FAKE_ARGV"], "w").write(json.dumps(sys.argv))
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 RESULT = {

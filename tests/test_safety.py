@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT
 from gate_forgers import NONCE_READER
 
 from boss import termsheet
@@ -469,7 +470,8 @@ with open(os.path.join(home, "env.log"), "a") as log:
 say = lambda e: print(json.dumps(e), flush=True)
 result = {{"type": "result", "subtype": "success", "is_error": False, "session_id": "s-1",
           "terminal_reason": "completed", "modelUsage": {{}}, "total_cost_usd": 0.004}}
-if sys.argv[sys.argv.index("--output-format") + 1] == "json":
+if sys.argv[sys.argv.index("--tools") + 1] == "":
+    say({BOSS_INIT!r})
     draft = {{"tasks": [{{"id": "t1", "brief": "Create rev.py.", "paths": ["rev.py"]}}],
              "checks": [{{"description": "d", "task": "t1", "code": {CHECK!r}}}]}}
     say(result | {{"structured_output": draft}})
@@ -544,7 +546,9 @@ def test_the_boss_cannot_choose_ids_file_names_or_money(tmp_path):
         "structured_output": hostile,
     }
     fake = tmp_path / "fake-claude"
-    fake.write_text(f"#!{sys.executable}\nprint({json.dumps(result)!r})\n")
+    fake.write_text(
+        f"#!{sys.executable}\nprint({json.dumps(BOSS_INIT)!r})\nprint({json.dumps(result)!r})\n"
+    )
     fake.chmod(0o755)
     checks = tmp_path / "run" / "checks"
     draft = draft_term_sheet(

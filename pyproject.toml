@@ -15,6 +15,7 @@ boss = "boss.cli:main"
 dev = [
     "mypy>=1.11",
     "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.6",
 ]
 
@@ -39,6 +40,9 @@ files = ["src/boss"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "sigint: a fake worker sends a real SIGINT to the pytest process (Ctrl-C mid-run). Under load plus coverage that has hung a parallel worker, so CI runs these after the parallel run, serially.",
+]
 
 [tool.coverage.run]
 source = ["src/boss"]

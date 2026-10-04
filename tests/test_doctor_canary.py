@@ -28,7 +28,7 @@ RESULT = {
 }
 DENIED = {"type": "system", "subtype": "permission_denied", "tool_name": "Write"}
 FAKE = f"""#!{sys.executable}
-import json, os, re, sys
+import json, os, re, sys, time
 argv = sys.argv[1:]
 if argv[:1] == ["--version"]:
     print("2.1.285 (Claude Code)")
@@ -48,6 +48,11 @@ else:                                       # the canary slice
     elif mode == "escaped":
         open(target, "w").write("canary")
     print(json.dumps({RESULT!r}), flush=True)
+    if mode == "unisolated":
+        # A worker that is not isolated is still running when the runner refuses it. If this fake
+        # exited first, the runner's killpg would hit a zombie group leader, which macOS answers
+        # with EPERM (src/boss/runner.py `_stop` catches only ProcessLookupError).
+        time.sleep(30)
 """
 
 

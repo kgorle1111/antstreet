@@ -9,6 +9,7 @@ import re
 import sys
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 from test_firm import BAD, C01, C02, C03, ENV, GOOD, HALF, STARTED, Script, sheet, step
 
 from boss import held_out
@@ -485,6 +486,7 @@ FAKE = f"""#!{sys.executable}
 import os, sys
 if os.environ.get("FAKE_FAIL"):
     sys.exit(1)
+print({BOSS_INIT_LINE!r})
 print(os.environ["FAKE_OUTPUT"])
 """
 EXAMINED = {

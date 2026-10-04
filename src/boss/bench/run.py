@@ -19,14 +19,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from boss import cli
-from boss.bench.results import ARMS, CellResult, cell_dir
+from boss.bench.results import ARMS, INFRA_OUTCOMES, CellResult, cell_dir
 from boss.bench.score import count_wrong_checks
 from boss.bench.tasks import BenchTask, grade_imported, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
-from boss.errors import INFRASTRUCTURE, Outcome
+from boss.errors import Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
 from boss.held_out import MAX_HELD_OUT
+from boss.kpi import single_final_status
 from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
 from boss.report import build_report
 from boss.rundir import Recorder, RunPaths
@@ -41,8 +42,12 @@ from boss.worker import (
     worker_env,
 )
 
-SOLO_PROMPT = "solo_v1.md"
-_INFRA_OUTCOMES = {str(o) for o in INFRASTRUCTURE} | {"isolation"}
+SOLO_PROMPT = "solo_v2.md"
+SELF_REVIEW_PROMPT = "self_review_v1.md"
+# `single-review` spends no more than `single`: its one slice cap (SLICE_SHARE of the cell budget)
+# is split, the build getting this share and the review the rest.
+BUILD_SHARE = 0.75
+DEFAULT_ARMS = ("single", "firm")  # `single-review` costs a second slice, so it is asked for
 
 
 def run_cell(
@@ -73,12 +78,18 @@ def run_cell(
     out = cell_dir(results_dir, task.id, arm, rep)
     if (out / "result.json").is_file():
         return CellResult.load(out / "result.json")
+    if out.is_dir() and any(out.iterdir()):  # a cut-off run's ledger would be read as this cell's
+        raise RuntimeError(
+            f"{out} holds a run cut off before its result; move the folder aside and run again"
+        )
     out.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     wrong_checks = None
     held_out_passed = held_out_total = held_out_wrong = None
     if arm == "single":
         workspace, events = _run_single(task, out, environ, model, budget_micros)
+    elif arm == "single-review":
+        workspace, events = _run_single_review(task, out, environ, model, budget_micros)
     else:
         workspace, events = _run_firm(
             task, out, environ, model, boss_model, budget_micros, firm_args
@@ -94,9 +105,10 @@ def run_cell(
     closed = next((e for e in reversed(events) if e.event is EventType.ROUND_CLOSED), None)
     spend = total(events)
     failure = None
-    if not passed:
-        infra = outcome.removeprefix("boss:") in _INFRA_OUTCOMES
-        failure = "infrastructure" if infra else "unlabelled"
+    if outcome.removeprefix("boss:") in INFRA_OUTCOMES:
+        failure = "infrastructure"  # recorded even when the product passed: the cell is excluded
+    elif not passed:
+        failure = "unlabelled"
     result = CellResult(
         task=task.id,
         arm=arm,
@@ -118,41 +130,86 @@ def run_cell(
         held_out_passed=held_out_passed,
         held_out_total=held_out_total,
         held_out_wrong=held_out_wrong,
+        final_status=None if arm == "firm" else single_final_status(events),
     )
     result.save(out)
     return result
 
 
+def slice_caps(budget_micros: int, review: bool) -> list[int]:
+    """Caps of the single agent's slices; they sum to at most SLICE_SHARE of the cell budget."""
+    total = max(1, int(budget_micros * SLICE_SHARE))
+    if not review:
+        return [total]
+    build = int(total * BUILD_SHARE)
+    if build < 1 or total - build < 1:
+        raise ValueError(f"budget {budget_micros} is too small to split into two slices")
+    return [build, total - build]
+
+
 def _run_single(
     task: BenchTask, out: Path, environ: Mapping[str, str], model: str, budget_micros: int
 ) -> tuple[Path, list[Event]]:
+    return _run_slices(task, out, environ, model, budget_micros, review=False)
+
+
+def _run_single_review(
+    task: BenchTask, out: Path, environ: Mapping[str, str], model: str, budget_micros: int
+) -> tuple[Path, list[Event]]:
+    return _run_slices(task, out, environ, model, budget_micros, review=True)
+
+
+def _run_slices(
+    task: BenchTask,
+    out: Path,
+    environ: Mapping[str, str],
+    model: str,
+    budget_micros: int,
+    *,
+    review: bool,
+) -> tuple[Path, list[Event]]:
+    """The single agent's build slice and, for `review`, one resume of the same session that asks
+    it to review its own work. The review runs only after a build that ended normally or at its
+    cap; any other end stands as the cell's outcome."""
     env = worker_env(environ)
     workspace = out / "workspace"
     workspace.mkdir(exist_ok=True)
-    spec = SliceSpec(
-        session_id=uuid.uuid4(),
-        resume=False,
-        prompt=f"Build this:\n\n{task.idea}\n\nWhen you stop, report your status.",
-        model=model,
-        cap_micros=max(1, int(budget_micros * SLICE_SHARE)),
-        append_system_prompt=load_prompt(SOLO_PROMPT),
-    )
+    session = uuid.uuid4()
+    caps = slice_caps(budget_micros, review)
+    prompts = [f"Build this:\n\n{task.idea}\n\nWhen you stop, report your status."]
+    if review:
+        prompts.append(load_prompt(SELF_REVIEW_PROMPT).strip())
+    solo = load_prompt(SOLO_PROMPT)
+    specs = [
+        SliceSpec(
+            session_id=session,
+            resume=n > 0,
+            prompt=prompt,
+            model=model,
+            cap_micros=cap,
+            append_system_prompt=solo,
+        )
+        for n, (prompt, cap) in enumerate(zip(prompts, caps, strict=True))
+    ]
     ledger_path = out / "ledger.jsonl"
     with LedgerWriter(ledger_path) as ledger:
         record = Recorder(ledger, f"bench-{task.id}", round=1)
-        start = {"slice": 1, "cap_micros": spec.cap_micros, "session": str(spec.session_id)}
-        record("worker:solo", EventType.SLICE_START, data=start)
-        try:
-            run = run_slice(
-                spec,
-                workspace,
-                out / "logs" / "solo.jsonl",
-                env=env,
-                executable=environ.get(cli.EXECUTABLE_VAR, CLI),
-            )
-        except IsolationError as exc:
-            record("worker:solo", EventType.ERROR, cost_micros=None, data={"isolation": str(exc)})
-        else:
+        for n, spec in enumerate(specs, 1):
+            start = {"slice": n, "cap_micros": spec.cap_micros, "session": str(spec.session_id)}
+            record("worker:solo", EventType.SLICE_START, data=start)
+            try:
+                run = run_slice(
+                    spec,
+                    workspace,
+                    out / "logs" / "solo.jsonl",
+                    env=env,
+                    executable=environ.get(cli.EXECUTABLE_VAR, CLI),
+                )
+            except IsolationError as exc:
+                record(
+                    "worker:solo", EventType.ERROR, cost_micros=None, data={"isolation": str(exc)}
+                )
+                break
             record(
                 "worker:solo",
                 EventType.SLICE_END,
@@ -162,8 +219,10 @@ def _run_single(
                 tokens_cached=run.usage.tokens_cached,
                 billing=billing_mode(env),
                 # The same cleaning as the firm arm: a worker's words are model output.
-                data={"slice": 1, "outcome": str(run.outcome), "status": clean_status(run.status)},
+                data={"slice": n, "outcome": str(run.outcome), "status": clean_status(run.status)},
             )
+            if run.outcome not in (Outcome.COMPLETED, Outcome.CAPPED):
+                break
     return workspace, read_events(ledger_path)
 
 
@@ -226,7 +285,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     parser = argparse.ArgumentParser(prog="python -m boss.bench.run", description=__doc__)
     parser.add_argument("--tasks", type=Path, default=Path("bench/tasks"))
     parser.add_argument("--out", type=Path, required=True, help="results folder for this run")
-    parser.add_argument("--arms", nargs="+", choices=ARMS, default=list(ARMS))
+    parser.add_argument("--arms", nargs="+", choices=ARMS, default=list(DEFAULT_ARMS))
     parser.add_argument("--reps", type=int, default=1)
     parser.add_argument("--budget", type=cli.usd_arg, required=True, help="dollars per cell")
     parser.add_argument("--model", default=DEFAULT_WORKER_MODEL)

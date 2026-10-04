@@ -17,7 +17,8 @@ from docs_support import (
 )
 
 from boss import cli, gate, worker
-from boss.bench import audit, drafts, replay
+from boss.bench import audit, drafts, paired, replay
+from boss.bench import kpi as bench_kpi
 from boss.bench import run as bench_run
 from boss.bench import table as bench_table
 from boss.bench.tasks import BenchTask
@@ -46,6 +47,8 @@ def bench_parsers() -> dict[str, argparse.ArgumentParser]:
         "python -m boss.bench.run": captured_parser(bench_run.main),
         "python -m boss.bench.drafts": captured_parser(drafts.main),
         "python -m boss.bench.table": captured_parser(bench_table.main),
+        "python -m boss.bench.paired": captured_parser(paired.main),
+        "python -m boss.bench.kpi": captured_parser(bench_kpi.main),
         "python -m boss.bench.replay": captured_parser(replay.main),
         "python -m boss.bench.audit": captured_parser(audit.main),
     } | {

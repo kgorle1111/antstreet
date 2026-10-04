@@ -135,11 +135,19 @@ def unlocked(
     return passing_checks >= threshold
 
 
-def plan_rounds(budget_micros: int, n_checks: int, n_rounds: int = 3) -> tuple[Round, ...]:
-    """Split a budget into equal-as-possible rounds, earliest rounds taking the remainder."""
+def plan_rounds(
+    budget_micros: int, n_checks: int, n_rounds: int = 3, *, min_round_micros: int = 0
+) -> tuple[Round, ...]:
+    """Split a budget into equal-as-possible rounds, earliest rounds taking the remainder.
+
+    With `min_round_micros` (a run passes `min_round_budget(reserve)`), rounds are dropped from
+    the end until every round has at least that much; one round keeps the whole budget.
+    """
     if budget_micros <= 0 or n_checks <= 0 or n_rounds <= 0:
         raise ValueError("budget_micros, n_checks and n_rounds must be positive")
     rounds = min(n_rounds, n_checks)
+    while rounds > 1 and budget_micros < rounds * min_round_micros:
+        rounds -= 1
     if budget_micros < rounds:
         raise ValueError(f"budget of {budget_micros} micros cannot fund {rounds} rounds")
     base, extra = divmod(budget_micros, rounds)

@@ -65,7 +65,7 @@ def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, flo
 
 
 def _counted(results: Sequence[CellResult]) -> list[CellResult]:
-    return [r for r in results if r.failure_class != "infrastructure"]
+    return [r for r in results if r.counted]
 
 
 def _visible_pass(r: CellResult) -> bool:

@@ -1,10 +1,13 @@
 """CLI tests. `boss fund` runs end to end against a fake `claude` that plays boss and worker."""
 
 import json
+import signal
 import sys
 
 import pytest
+from boss_init import BOSS_INIT
 
+import boss.cli as cli_module
 from boss.cli import (
     EXIT_FAILED,
     EXIT_INCOMPLETE,
@@ -47,7 +50,8 @@ argv = sys.argv[1:]
 say = lambda e: print(json.dumps(e), flush=True)
 result = {{"type": "result", "subtype": "success", "is_error": False,
           "terminal_reason": "completed", "modelUsage": {USAGE!r}, "session_id": "s-1"}}
-if argv[argv.index("--output-format") + 1] == "json":   # the boss drafting a term sheet
+if argv[argv.index("--tools") + 1] == "":   # the boss drafting a term sheet
+    say({BOSS_INIT!r})
     thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
     open(os.path.join(os.environ["HOME"], "boss_thinking.txt"), "w").write(thinking)
     draft = {DRAFT!r}
@@ -215,23 +219,42 @@ def test_the_early_budget_check_refuses_only_what_no_round_plan_could_fund(boss)
     assert len(boss.runs()) == 1  # the refusal made no run folder
 
 
-def test_the_real_round_plan_is_checked_after_the_draft_and_before_approval(boss):
+@pytest.mark.parametrize(
+    ("budget", "extra", "rounds"),
+    [
+        # Two checks over $0.20 would be two rounds of $0.10, each under the $0.105 one slice
+        # needs: the plan keeps one round instead of paying for a draft that is then refused.
+        ("0.20", (), [200_000]),
+        ("0.21", (), [105_000, 105_000]),
+        # A Sonnet worker's $0.30 reserve raises the floor to $0.305: $0.60 is one round.
+        ("0.60", ("--model", "sonnet"), [600_000]),
+        ("0.62", ("--model", "sonnet"), [310_000, 310_000]),
+        ("0.60", ("--reserve", "0.30"), [600_000]),
+    ],
+)
+def test_the_boss_drafts_only_rounds_the_runs_reserve_can_fund(boss, budget, extra, rounds):
     (boss.project.parent / "fake_two_checks").write_text("")
+    argv = ("fund", "Reverse a string.", "--budget", budget, "--rounds", "3", *extra)
+    code, output = boss(*argv, answers=("r",))
+    assert code == EXIT_FAILED and "Rejected. Nothing was funded." in output  # got to approval
+    [run_dir] = boss.runs()
+    sheet = json.loads((run_dir / "term_sheet.json").read_text())
+    assert [r["budget_micros"] for r in sheet["rounds"]] == rounds
+
+
+def test_a_plan_with_a_round_below_the_minimum_is_still_refused_after_the_draft(boss, monkeypatch):
+    (boss.project.parent / "fake_two_checks").write_text("")
+    real = cli_module.plan_rounds
+    monkeypatch.setattr(
+        cli_module, "plan_rounds", lambda b, n, r, *, min_round_micros: real(b, n, r)
+    )  # a planner that ignores the floor
     # No answers are given: asking the investor to approve would raise.
     argv = ("fund", "Reverse a string.", "--budget", "0.20", "--rounds", "3")
     code, output = boss(*argv, answers=())
-    # Two checks make two rounds of $0.10: each is below the $0.105 one slice needs.
     assert code == EXIT_FAILED and "smallest has $0.1" in output and "at least $0.105" in output
     events = read_events(boss.runs()[0] / "ledger.jsonl")
     assert [e.event for e in events] == [EventType.BOSS_CALL, EventType.STOPPED]  # paid, no hire
     assert "smallest has $0.1" in events[-1].data["reason"]
-    # The earliest round takes the remainder, so it is the last round that is a micro-dollar short.
-    argv = ("fund", "Reverse a string.", "--budget", "0.209999", "--rounds", "3")
-    code, output = boss(*argv, answers=())
-    assert code == EXIT_FAILED and "smallest has $0.104999" in output
-    argv = ("fund", "Reverse a string.", "--budget", "0.21", "--rounds", "3")
-    code, output = boss(*argv, answers=("r",))  # two rounds of $0.105 each can fund a slice
-    assert code == EXIT_FAILED and "Rejected. Nothing was funded." in output  # it got to approval
 
 
 def test_reserve_option_reaches_the_slice_cap(boss):
@@ -334,6 +357,11 @@ def test_resume_continues_a_run_that_was_stopped_and_records_who_lifted_the_stop
     assert kinds.count(EventType.STARTED) == 1 and kinds.count(EventType.SLICE_START) == 0
 
 
+def test_ctrl_c_reaches_the_tests_even_when_pytest_was_started_in_the_background():
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler  # see conftest.py
+
+
+@pytest.mark.sigint
 def test_resume_finishes_an_interrupted_run_without_a_new_draft_or_a_second_hire(boss):
     (boss.project.parent / "fake_interrupt").write_text("")
     code, output = boss("fund", "Reverse a string.", "--budget", "0.50")
@@ -464,10 +492,10 @@ def test_resume_while_another_process_writes_the_run_is_refused_and_changes_noth
     wrong_product(boss)
     boss("fund", "Reverse a string.", "--budget", "0.50", "--max-slices", "1")
     ledger = boss.runs()[0] / "ledger.jsonl"
-    with ledger.open("a") as fh:
-        fh.write('{"actor": "boss", "event": "hir')  # a torn tail the repair would cut
-    before = ledger.read_bytes()
     with LedgerWriter(ledger):  # the other process, still running
+        with ledger.open("a") as fh:  # its append cut short: a torn tail the repair would cut
+            fh.write('{"actor": "boss", "event": "hir')
+        before = ledger.read_bytes()
         code, output = boss("resume")
     assert code == EXIT_FAILED
     assert "still being written by another `boss` process" in output
@@ -513,9 +541,11 @@ def test_topup_writes_one_investor_event_for_the_round_in_micros(boss):
     assert "Continue with `boss resume" in output
     events = events_of_run(boss)
     assert events[:-1] == before
-    assert [(e.actor, e.event, e.round, e.data) for e in events[-1:]] == [
-        ("investor", EventType.TOPPED_UP, 1, {"micros": 200_000})
-    ]
+    [last] = events[-1:]
+    assert last.data.pop("sig").startswith("v2:")  # the investor's events are signed (T46)
+    assert (last.actor, last.event, last.round, last.data) == (
+        "investor", EventType.TOPPED_UP, 1, {"micros": 200_000}
+    )  # fmt: skip
 
 
 def test_a_locked_round_stays_locked_on_resume_until_the_investor_tops_it_up(boss):
@@ -560,6 +590,7 @@ def test_topup_lands_on_the_round_it_names(boss):
     code, output = boss("topup", "--round", "2", "--amount", "0.20")
     assert code == EXIT_OK and "Topped up round 2" in output
     last = events_of_run(boss)[-1]
+    assert last.data.pop("sig")
     assert (last.event, last.round, last.data) == (EventType.TOPPED_UP, 2, {"micros": 200_000})
 
 
@@ -624,10 +655,10 @@ def test_topup_of_a_run_without_a_usable_term_sheet_writes_nothing(boss):
 def test_topup_while_another_process_writes_the_run_is_refused_and_changes_nothing(boss):
     locked_run(boss)
     ledger = boss.runs()[0] / "ledger.jsonl"
-    with ledger.open("a") as fh:
-        fh.write('{"actor": "boss", "event": "hir')  # a torn tail the repair would cut
-    before = ledger.read_bytes()
     with LedgerWriter(ledger):  # the other process, still running
+        with ledger.open("a") as fh:  # its append cut short: a torn tail the repair would cut
+            fh.write('{"actor": "boss", "event": "hir')
+        before = ledger.read_bytes()
         code, output = boss("topup", "--round", "1", "--amount", "0.20")
     assert code == EXIT_FAILED
     assert "still being written by another `boss` process" in output and "top up" in output

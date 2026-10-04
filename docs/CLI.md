@@ -83,9 +83,11 @@ its round budgets plus one reserve per round, or when a worker's folder passes 2
 copies it for every check). See [ARCHITECTURE.md](ARCHITECTURE.md#fixed-limits).
 
 A `--budget` below one reserve plus $0.005 is refused before anything is spent. With `--rounds`
-above 1 the number of rounds depends on how many checks the boss drafts, so the round plan is
-checked again after the draft, before approval: if its smallest round is below one reserve plus
-$0.005, the run stops (exit 1) with the draft paid for and nobody hired.
+above 1 the number of rounds depends on how many checks the boss drafts, so rounds are planned
+with this run's reserve (`--reserve`, or the model's) as a floor: a plan has fewer rounds, down to
+one, rather than a round below one reserve plus $0.005. The plan is checked again after the draft,
+before approval; if a round is still below that, the run stops (exit 1) with the draft paid for
+and nobody hired.
 
 When a disputed check or a blocked worker needs you, the run asks (`boss resume` asks the same):
 
@@ -172,6 +174,13 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 
 `boss report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39).
 
+A **KPIs** section follows the spend. All of it comes from the ledger: `Delivered` (every check
+passes on the assembled product, or NO, or "not recorded" for a ledger with no product verdict),
+`Held-out checks` and `False pass` (every visible check passed but a held-out one failed; "not
+measured" when the run had no held-out checks), `Cost` (an unknown cost is listed beside it, never
+as 0), `Time` (first to last ledger event, so it includes any wait for you) and `Investor
+questions` (the count rule is in `bench/METHOD.md`).
+
 Argument: `run`, a run id. Default: the latest run in the folder.
 
 | Option | Default | Meaning |
@@ -240,8 +249,8 @@ and line.
 
 ## Benchmark commands
 
-`run` makes real model calls for every cell. `drafts` and `audit` make one call per draft. `table`
-and `replay` make none. See [../bench/METHOD.md](../bench/METHOD.md).
+`run` makes real model calls for every cell. `drafts` and `audit` make one call per draft. `table`,
+`kpi` and `replay` make none. See [../bench/METHOD.md](../bench/METHOD.md).
 
 ## `python -m boss.bench.run`
 
@@ -252,7 +261,7 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 |---|---|---|
 | `--tasks` | `bench/tasks` | Folder of task folders. |
 | `--out` | required | Results folder for this run. |
-| `--arms` | `single firm` | Which arms to run: `single`, `firm`, or both. |
+| `--arms` | `single firm` | Which arms to run: `single`, `firm` and `single-review` (the single agent, then its own session resumed once to review its work; never run unless named). |
 | `--reps` | `1` | Repetitions per task and arm. |
 | `--budget` | required | Dollars per cell. The boss's drafting call is on top. |
 | `--model` | `haiku` | Worker model, both arms. |
@@ -304,6 +313,43 @@ Argument: `results_dir`, a folder written by `run`.
 | `--out` | stdout | Write the table to this file instead. |
 
 Exit codes: `0`; `1` when no results are found or a result file is invalid; `2` for a usage error.
+
+## `python -m boss.bench.paired`
+
+`python -m boss.bench.paired [options] DIR_A DIR_B`. Compares two arms by task and prints the
+number of tasks, the mean difference, its 95% interval and a verdict, `shown` or `not shown`.
+See [../bench/METHOD.md](../bench/METHOD.md). It reads results and makes no model call.
+
+Arguments: `dir_a` and `dir_b`, results folders written by `run` (they may be the same folder).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--arm-a` | `firm` | The arm taken from `DIR_A`: `single`, `firm` or `single-review`. |
+| `--arm-b` | `single` | The arm taken from `DIR_B`. The difference is A minus B. |
+| `--kpi` | `delivery` | `delivery`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`. |
+| `--resamples` | `10000` | Task resamples for the interval. |
+| `--seed` | `0` | Seed of the resampling; the same seed gives the same interval. |
+
+Exit codes: `0`; `1` when a folder holds no results for its arm, the two sides ran different task
+sets, no task is on both sides, or a result file is invalid; `2` for a usage error. A different
+model or budget between the sides prints a warning and still runs.
+
+## `python -m boss.bench.kpi`
+
+`python -m boss.bench.kpi RESULTS_DIR [RESULTS_DIR ...]`. Prints the fixed KPI scorecard as one
+markdown table: a row per KPI, a column per arm. The seven KPIs and their definitions are in
+[../bench/METHOD.md](../bench/METHOD.md).
+
+Argument: `results_dir`, one or more folders written by `run`. A column is one folder, arm, model,
+budget and set of firm options, labelled by all of them, so arms from different folders and
+settings sit side by side. The command reads each cell's ledger where the runner left one
+(`ledger.jsonl` for the single arm, `.boss/runs/<id>/ledger.jsonl` for the firm arm); a cell
+without a readable ledger shows "not recorded" for the figures that need it. Columns that ran
+different task sets get a WARNING line above the table. It has no options.
+
+Exit codes: `0`; `1` when no results are found, a result file is invalid, or two columns would carry
+the same label (the same folder name twice, or one folder and arm holding two task sets); `2` for a
+usage error.
 
 ## `python -m boss.bench.replay`
 
@@ -442,9 +488,11 @@ written by `fund` and `resume`; `boss report` prints it again from the ledger wi
 
 | Path | Arm | What it holds |
 |---|---|---|
-| `result.json` | both | The scored result. Its presence marks the cell done. |
+| `result.json` | both | The scored result. Its presence marks the cell done. The single arm's records `final_status`, the status word of its last slice; the firm's leaves it null, as its claim is its checks. |
 | `ledger.jsonl` | single | The single agent's events. |
 | `workspace/` | single | The single agent's files, scored by the hidden checks. |
 | `logs/solo.jsonl` | single | The single agent's raw stream. |
 | `transcript.txt` | firm | What `boss fund` printed. |
 | `.boss/runs/<id>/` | firm | A complete run folder, as above. Its `product/` is scored. |
+
+A `single-review` cell holds the same files as a `single` cell; its ledger and stream have two slices.

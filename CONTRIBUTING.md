@@ -22,7 +22,8 @@ uv sync
 ## Run the tests
 
 ```bash
-uv run pytest                      # the whole suite, no model calls; takes several minutes
+uv run pytest                      # the whole suite, no model calls; takes ten minutes or more
+uv run pytest -n auto --dist loadgroup   # the same, one worker per core (pytest-xdist)
 uv run pytest tests/test_rule.py   # one file
 uv run pytest --cov --cov-report=term-missing   # with line and branch coverage of src/boss
 uv run ruff check .
@@ -34,10 +35,29 @@ uv run mypy
   runs end to end without credentials.
 - One test makes a real model call and costs a few cents. It is skipped unless you set
   `BOSS_LIVE=1`: `BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py`.
+- Run the suite in parallel with `-n auto`; add `--dist loadgroup`, which keeps the tests marked
+  `xdist_group` on one worker (the ledger document's tests share a fixture that takes minutes to
+  build). Coverage works the same way: pytest-cov merges the workers' data. A test must not rely
+  on running first, on a fixed path or port, or on another test's leftovers: CI runs the suite in
+  parallel, so a test that only fails in parallel is a bug in the test.
+- Benchmark task validation is the slowest part of the suite (many short pytest runs per task).
+  `BOSS_VALIDATE_TASKS_SINCE=<git ref>` makes `test_every_shipped_task_is_valid` and
+  `test_every_multi_file_task_is_valid_and_needs_more_than_one_module` run the gate only on the
+  tasks whose files differ from that ref (`git diff --name-only <ref>...HEAD -- bench/tasks
+  bench/tasks-multi`), for example `BOSS_VALIDATE_TASKS_SINCE=origin/main uv run pytest -n auto
+  tests/test_bench_tasks.py`. Every task is still loaded, and the count and set-hash pins are still
+  checked. Unset, or when the ref or the history is unavailable, every task is validated.
+  Pull-request CI sets it to the base branch; a push to main leaves it unset.
+- Tests marked `sigint` make a fake worker send a real SIGINT (Ctrl-C) to the pytest process. On a
+  busy machine with coverage on, that has hung a parallel worker, so CI runs them last, serially,
+  with `-m sigint`; the parallel run leaves them out with `-m "not sigint"`. Mark a new test that
+  does this the same way.
 - CI runs, on Linux and macOS: `uv sync --locked`, `uv run ruff check .`,
-  `uv run ruff format --check .`, `uv run mypy` (strict, over `src/boss`) and
-  `uv run pytest --cov --cov-report=term-missing --cov-fail-under=96 --durations=30`. The coverage floor is 96;
-  it only ever goes up. On Linux it first installs `bubblewrap` and runs the tests with
+  `uv run ruff format --check .`, `uv run mypy` (strict, over `src/boss`) and two pytest runs:
+  `uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30`, then
+  `uv run pytest -m sigint --cov --cov-append --cov-report=term-missing --cov-fail-under=96`,
+  which adds to the first run's coverage data and enforces the floor over the whole suite.
+  The coverage floor is 96; it only ever goes up. On Linux it first installs `bubblewrap` and runs the tests with
   `BOSS_GATE_SANDBOX=require`, so the sandbox tests fail instead of skipping when `bwrap` cannot
   start (docs/SANDBOX.md).
 

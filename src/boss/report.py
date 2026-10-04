@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from boss.held_out import EXAMINER_ACTOR, MANIFEST
 from boss.held_out import SCOPE as HELD_OUT_SCOPE
+from boss.kpi import built, investor_questions, product_verdict, span_seconds
 from boss.ledger import Event, EventType, Totals, total, totals_by
 from boss.redact import safe_text
 
@@ -97,6 +98,10 @@ class Report:
     held_out_written: int = 0  # held-out checks the investor approved
     held_out_summary: str | None = None  # the one line about them; None for a run that never asked
     sandbox_summary: str | None = None  # whether the checks ran confined (T39); None: none ran
+    built: bool = False  # a worker finished at least one slice
+    product: tuple[int, int] | None = None  # (passed, graded) on the assembled product; None: none
+    questions: int = 0  # investor questions, by the rule in `boss.kpi.investor_questions`
+    span_s: float | None = None  # first to last ledger event
 
 
 def build_report(events: Sequence[Event]) -> Report:
@@ -158,6 +163,10 @@ def build_report(events: Sequence[Event]) -> Report:
         held_out_written=written,
         held_out_summary=summary,
         sandbox_summary=_sandbox_summary(ran),
+        built=built(events),
+        product=product_verdict(events),
+        questions=investor_questions(events),
+        span_s=span_seconds(events),
     )
 
 
@@ -317,6 +326,8 @@ def render_report(report: Report) -> str:
             out.append(f"  {actor:<12} {_money(t)}   {_tokens(t)}")
     out.append(f"  {'total':<12} {_money(report.total)}   {_tokens(report.total)}")
 
+    out += ["", "KPIs", *(f"  {line}" for line in _kpi_lines(report))]
+
     out += ["", "Workers"]
     for w in report.workers:
         reason = f': "{w.reason}"' if w.reason else ""
@@ -339,6 +350,51 @@ def render_report(report: Report) -> str:
     if report.notes:
         out += ["", "Notes"] + [f"  {n}" for n in report.notes]
     return "\n".join(out) + "\n"
+
+
+def _kpi_lines(report: Report) -> list[str]:
+    """The run's KPIs. A figure the ledger does not hold says "not recorded", never 0."""
+    delivered: bool | None
+    if report.product is not None:
+        passed, graded = report.product
+        delivered = passed == graded
+        verdict = (
+            f"{'yes' if delivered else 'NO'} ({passed} of {graded} checks pass on the product)"
+        )
+    elif not report.built:
+        delivered, verdict = False, "NO (nothing was built)"
+    else:
+        delivered, verdict = None, "not recorded (no verdict on the product in this ledger)"
+    held = max(report.held_out_written, len(report.held_out))
+    held_passed = sum(c.status == "passed" for c in report.held_out)
+    if delivered is None:
+        false_pass = "not recorded"
+    elif not delivered:
+        false_pass = "no (the product did not pass every visible check)"
+    elif not held:
+        false_pass = "not measured (the run had no checks its workers never saw)"
+    elif held_passed < held:
+        false_pass = (
+            f"YES (every visible check passed, {held - held_passed} of {held} held-out failed)"
+        )
+    else:
+        false_pass = "no (every held-out check passed too)"
+    if report.span_s is None:
+        spent = "not recorded"
+    else:
+        minutes, secs = divmod(round(report.span_s), 60)
+        spent = (
+            f"{minutes}m{secs:02d}s from the first to the last ledger event, "
+            "waiting for the investor included"
+        )
+    return [
+        f"Delivered: {verdict}",
+        *([f"Held-out checks: {held_passed} of {held} passed on the product"] if held else []),
+        f"False pass: {false_pass}",
+        f"Cost: {_money(report.total)} (estimated)",
+        f"Time: {spent}",
+        f"Investor questions: {report.questions}",
+    ]
 
 
 def _detail(text: str) -> str:

@@ -21,7 +21,7 @@ than a single agent given the idea directly?
   The hash encoding was made unambiguous on 2026-09-30: the same 17 task files were
   `7a212cdcc5f4f466` before and are `c130282a6eec5fe8` after. Results recorded under the old
   value ran against identical files.
-- On 2026-10-02, 18 tasks were added: the set has 35 tasks, hash `767892a59e311ab5`. Every result
+- On 2026-10-02, 18 tasks were added, and on 2026-10-03 24 more: the set has 59 tasks, hash `0a83fc97a753b08c`. Every result
   recorded before then ran on the original 17, whose files and hash are unchanged.
 - `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
   make old and new results look like they ran against different tasks. A test pins the hash.
@@ -73,8 +73,29 @@ tests instead of hidden checks written here.
   (`boss resume` is not used). A real run has a human there, who is also the filter for a wrong
   boss check and the one who rules on a dispute.
 - Extra `boss fund` options given with `--firm-args` are recorded in every result.
+- A third arm, `single-review`, is the single arm with a self-review slice; see its own section.
 - The single arm gets one slice. The firm may use several within the same budget: the gate's
   feedback between slices is part of what is being measured.
+
+## The self-review arm (`single-review`)
+
+For experiment E4: does a single agent that reviews its own work do as well as the firm's loop?
+It is the `single` arm with a second slice, and it is graded exactly like `single`.
+
+- Slice 1 is the `single` build. If it ended normally or at its cap, the same session is resumed
+  once (`--resume`) with the fixed prompt `src/boss/prompts/self_review_v1.md`, which asks it to
+  review its work against the request and fix what it finds. A build that ended any other way is
+  not reviewed and stands as the cell's outcome.
+- The two caps share what `single` gets: 80% of the cell budget, split 75% to the build and 25%
+  to the review (`BUILD_SHARE` in `bench/run.py`). A $0.40 cell caps the build at $0.24 and the
+  review at $0.08. The arm never spends more than `single` may.
+- The review prompt does not mention tests, checks, grading, benchmarks or another arm
+  (`tests/test_blinding.py` screens it with every other prompt). It carries no checks of any kind:
+  the agent re-reads its request and its files and nothing else.
+- Results record the arm as `single-review`. `--arms` runs it only when named; it is not in the
+  default `single firm`.
+- Limit: the review's cost is its own slice, but its words are one fixed prompt; a different
+  wording is a different arm.
 
 ## Scoring
 
@@ -104,7 +125,63 @@ start as `unlabelled` and are classified by hand, with the evidence kept in the 
 - **model**: the run completed and the model's work failed the checks.
 - **grading**: a hidden check or the reference is wrong or ambiguous.
 - **infrastructure**: login, rate limit, plan limit, API error, or a worker that did not start
-  isolated. Excluded from every rate and listed separately.
+  isolated. Excluded from every rate and listed separately. The exclusion follows the run's
+  outcome, not the product's score: a cell cut off by one of these is excluded even when every
+  hidden check passed, and old results are read the same way.
+
+## KPIs
+
+Seven figures, fixed before any new run is analysed: their definitions below are the code's, and a
+change to one is a new version of this note, not a re-read of old results. `python -m boss.bench.kpi`
+prints them, from result files and ledgers only, never from what a model wrote. A **counted** cell is
+one that is not an infrastructure failure; infrastructure failures are left out of every figure and
+counted beside it. A figure the data cannot give is shown as "n/a" or "not recorded", never as 0.
+
+1. **Delivery rate**: delivered cells over counted cells, with a Wilson 95% interval. A cell is
+   delivered when every hidden check passed. It is the one outcome a user pays for.
+2. **False-pass rate**: cells where the system said done and a hidden check failed, over cells where
+   the system said done, with a Wilson interval. The firm said done when every visible check passed
+   and, if the cell had held-out checks, every held-out check passed too. The single arm said done
+   when its last status word was `done`, read from the cell's `final_status` and, in results written
+   before that field, from its ledger; a cell with neither is left out, and with none the figure is
+   "n/a". It says how far to trust "done".
+3. **Cost per delivered task**: the known cost of all counted cells, boss calls included, over the
+   delivered cells; "n/a" when none was delivered. The spend on cells that did not deliver is in it,
+   as it is what the user paid. Events of unknown cost are a separate row, never added as 0.
+4. **Time to delivery**: the median wall-clock seconds of delivered cells, beside the median of all
+   counted cells. A person waits this long.
+5. **Reliability (pass^k)**: tasks delivered on every one of their counted runs over tasks with at
+   least one counted run. k is a task's number of counted runs; the table states it, and when it
+   differs between tasks, lists each k with its task count. A user runs the product again and
+   again; one lucky run is not reliability.
+6. **Investor questions**: questions the investor had to answer, per run, from the run's ledger
+   (rule below), over the counted firm cells whose ledger was found, with the number of cells
+   without one. The single arm asks none: 0 by construction. It is the attention the firm asks for.
+7. **Check quality**: boss checks that the reference solution fails over boss checks, summed over
+   the counted cells where `wrong_checks` was measured, without an interval (the checks of one draft
+   are not independent). "n/a" for the single arm, "not measured" where it was not.
+
+**Counting rule for investor questions.** One question is one decision the run needed from the
+investor, and the count is the number of these ledger events:
+
+- `approved` by the investor: the term sheet, a round's funding, or the fix round;
+- `stopped` by the investor with the reason `term sheet rejected` or `round N not funded`;
+- `ruled` by the investor: a ruling on a disputed check, an unblock note, or a declined fix round;
+- `abandoned` by the boss for the reason `disputed`, `blocked` or `refusal`: the task was set aside
+  after the investor was asked. This is the benchmark's automatic `a`, which is no ruling, so these
+  count as what would have been asked;
+- `resumed` and `topped_up` by the investor: each is a step they had to take to go on.
+
+Not counted: the edit-and-re-check loop at the term sheet (the ledger records none of it, so the
+count is a lower bound), the second prompt of an unblock (the note, one decision), a stop for
+"interrupted before approval", and the boss's own `abandoned` for "already reassigned once". A
+declined fix round is recorded even when `--review-cycles 0` offered none, so it can over-count by
+one there. The same count is the `Investor questions` line of `boss report`.
+
+Columns are one folder, arm, model, budget and set of firm options. Two columns with the same
+label are refused rather than pooled. Where two columns' intervals overlap, no difference between
+them is demonstrated; columns that ran different task sets are not comparable at all. Cells of one
+task are not independent, so an interval over cells is narrower than the evidence supports.
 
 ## What the sample supports
 
@@ -116,6 +193,29 @@ start as `unlabelled` and are classified by hand, with the evidence kept in the 
 - What a small set can support: cost per passing cell, the boss's share of cost, and how often
   the firm's visible checks were satisfied while hidden checks failed.
 - Model output varies between runs. Each task is run several times per arm and all runs are kept.
+
+## Paired comparison
+
+The table pools runs, so a task run more often counts more and the two arms are not compared on
+the same tasks. `python -m boss.bench.paired DIR_A DIR_B` compares two arms task by task.
+
+- A task is compared when both sides have at least one counted run of it. Infrastructure failures
+  are excluded and counted, as in the table.
+- Per task and arm, one value: `delivery` is the share of the task's runs that passed every hidden
+  check; `time` the median duration of its runs; `cost_per_delivery` the mean cost of its runs
+  (all of them, delivered or not: a task that delivered nothing has no cost per delivery, and
+  dropping it would favour the arm that fails more); `false_pass` the share of its runs that passed
+  every visible check and failed a hidden one (firm arms only).
+- The difference A minus B is taken per task. The report gives the number of tasks, the mean
+  difference and a 95% percentile interval from 10,000 resamples of tasks with replacement, with a
+  fixed seed so the same results give the same interval.
+- The verdict is `shown` when the interval excludes 0 in A's favour (above 0 for `delivery`, below
+  0 for `false_pass`, cost and time), otherwise `not shown`. With one task it is always
+  `not shown`: every resample is the same task.
+- Results that ran different task sets are refused. A different model or budget between the sides
+  prints a warning, since the difference would then not be the arm's.
+- Limit: a percentile bootstrap over few tasks is too narrow. Nothing is enforced beyond two tasks,
+  so read `shown` from a small set as a lead to repeat, not a finding.
 
 ## Draft evaluation
 

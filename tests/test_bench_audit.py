@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from boss_init import BOSS_INIT_LINE
 
 from boss.bench import audit as audit_module
 from boss.bench.audit import (
@@ -159,6 +160,7 @@ mode = open(home + "/mode").read().strip() if os.path.exists(home + "/mode") els
 base = {{"type": "result", "subtype": "success", "is_error": False,
         "terminal_reason": "completed", "session_id": "s", "total_cost_usd": 0.03,
         "modelUsage": {{"m": {{"inputTokens": 100, "outputTokens": 50}}}}}}
+print({BOSS_INIT_LINE!r})
 prompt = sys.argv[-1]
 ids = re.findall(r"^Check (c\\d+)$", prompt, re.M)
 kinds = json.load(open(home + "/kinds.json"))

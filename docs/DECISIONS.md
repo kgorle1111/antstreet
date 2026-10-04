@@ -114,17 +114,27 @@ with a JSON schema.
 - Decision: A worker runs with `--safe-mode` (`--bare` when an API key is set). On the CLI's
   `system/init` event the tool list must equal `Read`, `Write`, `Edit` plus the structured-output
   tool, there must be no MCP servers, the mode must be `dontAsk`, no hook may have run, and the CLI
-  must be 2.1.277 or newer. Otherwise the process is killed and the run refused.
+  must be 2.1.277 or newer. Otherwise the process is killed and the run refused. The boss's draft
+  call and every role call use the same check: they run with `--output-format stream-json
+  --verbose --permission-mode dontAsk` (the answer is still the final `result` event), and `init`
+  must list only the structured-output tool, with no MCP servers, mode `dontAsk` and no hook
+  event anywhere in the output. The check runs once the process has ended, so it cannot stop a
+  call, but a violation discards the output, books the spend and fails the call as `crashed`.
 - Why: A plain `-p` run inherits the user's setup. Probe P2 showed `--safe-mode` gives no MCP
   servers and no hooks, and still lists plugins (their hooks do not run), so the check counts hook
   events instead of reading the plugin list.
 - Rejected: A plain headless run: it exposed 86 tools, 3 connectors, 60 skills, 238 agents and a
   session-start hook, and cost $0.058 for one word against $0.010 with `--safe-mode`. Trusting the
-  flags without reading `init`.
-- Evidence: `tests/test_worker_isolation.py::test_recorded_unisolated_run_is_refused_for_every_reason`,
+  flags without reading `init`. Keeping `--output-format json` for the boss and roles: its single
+  result (`tests/fixtures/json_boss_schema_call_2.1.285.json`) has no tools, MCP or permission
+  field, so those calls could not be verified.
+- Evidence: `tests/test_boss_isolation.py`, `tests/test_worker_isolation.py::test_recorded_unisolated_run_is_refused_for_every_reason`,
   `tests/test_runner.py::test_unisolated_worker_is_stopped_and_refused`;
   `tests/fixtures/stream_safe_mode_ok_2.1.285.jsonl`. The `--bare` mode has not been run against the
-  real CLI.
+  real CLI. No `init` from a real no-tool call has been recorded: the tool list a boss call is
+  expected to show (only the structured-output tool) and `--permission-mode dontAsk` with
+  `--tools ""` are inferred from the worker recordings, and `tests/boss_init.py` builds the fake
+  `init` the same way.
 
 ### D08: Workers get no shell
 
@@ -157,13 +167,13 @@ with a JSON schema.
 - Status: `in force`
 - Decision: A worker runs in slices: one that starts a session uses `--session-id` with a new id
   (D32), later ones `--resume` it, each with `--max-budget-usd`. Between slices the gate runs and the rule decides. A slice's spend
-  is the session total after it minus the total before. The CLI must be 2.1.277 or newer.
+  and tokens are the session totals after it minus the totals before. The CLI must be 2.1.277 or newer.
 - Why: Spend cannot be read reliably mid-run (output tokens are placeholders until a response
   ends) and a killed process leaves no result. Probe P4: from 2.1.277 a resumed call reports the
   session's cumulative total, and a resume after a capped slice was coherent (one sample).
 - Rejected: Killing a worker on a mid-run cost reading. Summing per-call figures.
-- Evidence: `tests/test_firm.py::test_second_slice_resumes_the_session_with_gate_feedback_and_costs_are_deltas`;
-  `tests/fixtures/stream_resume_after_cap_2.1.285.jsonl`.
+- Evidence: `tests/test_firm.py::test_second_slice_resumes_the_session_with_gate_feedback_and_costs_are_deltas`,
+  `tests/test_slice_tokens.py`; `tests/fixtures/stream_resume_after_cap_2.1.285.jsonl`.
 
 ### D11: Outcomes are classified from structured signals, and provider failures never count against a worker
 
@@ -197,7 +207,7 @@ with a JSON schema.
 - Why: The gate runs checks with the interpreter that runs `boss`, so an install step per run would
   need its own environment and a network.
 - Rejected: Third-party dependencies in built products, for now. Whether they come in is open.
-- Evidence: `src/boss/prompts/builder_v3.md`,
+- Evidence: `src/boss/prompts/builder_v4.md` (the same lines as `builder_v3.md`),
   `tests/test_bench_tasks.py::test_reference_must_be_stdlib_only`.
 
 ### D14: The gate runs worker code on the host, with no container
@@ -469,8 +479,9 @@ with a JSON schema.
   `tests/test_cli.py::test_resume_refuses_a_run_whose_checks_changed_and_spends_nothing`,
   `tests/test_firm.py::test_a_paused_round_stays_open_and_a_resume_finishes_it`,
   `tests/test_firm.py::test_a_round_that_closed_below_its_threshold_stays_locked_on_resume`.
-  A ledger with a torn last line cannot be resumed: `ledger.repair_torn_tail` exists and no command
-  calls it (B10).
+  A ledger whose last line was cut by a hard kill is repaired when `boss resume` and `boss topup`
+  call `ledger.repair_torn_tail` before writing, which tells the investor what was removed;
+  `LedgerWriter.__enter__` refuses such a file via `_end_last_line` (B64).
 
 ### D32: Every attempt that is not a proven resume starts a new session id
 
