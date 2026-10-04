@@ -154,3 +154,15 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B82 | Decide whether a base test that the head breaks or a test file it deletes should change a verdict | A request that changes behaviour breaks old tests honestly, so v1 lists both beside the verdict (`regressions`, `tests_deleted`) and counts neither; a rule needs audited cases to be set against | open |
 | B83 | A third-party module that the request itself names, and that is not installed, makes a check fail on the base and on the head, so a change is refuted for it | Telling "the agent did not write this module" from "this machine does not have it" needs the request understood; `observe` treats a module the request names as the agent's to write | open |
 | B84 | The audit store is outside the repo and mode 0700; an agent running as the same operating-system user can still read `~/.boss-audit` | Needs another OS user or a container: the same gap as the gate's (T12, T51) | open |
+
+## Spec layer, added later
+
+| Id | Item | Why it was deferred | Status |
+|---|---|---|---|
+| B85 | Wire `boss.spec` into `boss fund --spec`: rule list in the boss prompt, `rules` per check, the coverage view in the approval, `rules.json` in the approval hash | Needs the paid draft eval (P1) to show the prompt helps; branch B of the spec plan | done: `boss.py`, `approval.py`, `cli.py`, `prompts/term_sheet_v3.md`; off by default until P1 and a firm run say it earns its cost |
+| B86 | Rules in languages other than English; `spec.py` kn: English sentence punctuation only; add terminators for another script when one appears | The benchmark ideas are English | open |
+| B87 | Anchors are presence in a check's syntax tree; `spec.py` kn: presence in the syntax tree, not proof the check asserts it; a mutation pass is proof | A mutation pass over the built product would be proof; needs a product to mutate | open |
+| B88 | The optional mapper role that reads the rules and the check code and says which rules each check asserts | Branch C of the spec plan; advisory until its precision is measured | done: `roles/spec_mapper.py`, `--roles spec_mapper`; its precision against the mutant ground truth is not measured yet |
+| B89 | Label the 18 later tasks (`bench/spec_truth/`) so a change to the anchors can be checked on tasks it was not tuned on | The offline eval of the 17 original tasks found `literal` anchors noisy; any fix needs data it has not seen | open |
+| B90 | `jsonpointer`, `semver` and `wildcard` split into one rule per numbered item (more than 40 sentences); decide whether the cap should be higher | Misses the O1 criterion by 0.1 point; a higher cap costs prompt length | open |
+| B91 | Splitter v2: v1 marks some real behaviour sentences as context (text before the first numbered item; heading-like lines), so they can never be flagged or labelled: `isoweek` "week 1 contains January 4", `wordwrap` R04, `exprtokens` R04 | v1's numbers are pre-registered, so it was left alone; found by the labeller of the 18 later tasks | open |

@@ -68,6 +68,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `roles/delivery.py` | The demo writer: a demo script and a usage note for a finished product. | Show output the code did not capture from a gated run; accept a script that imports more than the standard library and the product. |
 | `roles/engineering.py` | The system designer and the tester, the staged draft (`draft_staged`) that chains them, and the term sheet assembled from their output. | Take ids or file names from the model; skip `termsheet.validate`. |
 | `roles/examiner.py` | The examiner: held-out checks written from the idea and the public names alone, its gate, and `run_examiner` (booking the call, storing the checks, telling the investor when none were kept). | Show it a visible check's body, description or file name; keep a check whose quote is not a fragment of the idea or that passes on an empty workspace. |
+| `roles/spec_mapper.py` | The spec mapper: one call that says which rules each check asserts, from the rules and the check code alone, and the comparison with what the boss cites. | Show it, or let it see, what the boss says a check covers; accept a line that is not an assertion or a rule id that is not the idea's; decide anything. |
 | `roles/judge.py` | The judge, which scores an artifact against a rubric, and the calibration that compares it with a person. | Hand out a score with no quote from the artifact; mark a judgement calibrated anywhere but `judge_artifact`. |
 | `roles/org.py` | The organisation chart, built from each role's department and parent (`python -m boss.roles.org`). | Draw roles that do not form a tree under the boss. |
 | `roles/planning.py` | Funding rounds that unlock in story-priority order. | Call a model. |
@@ -80,6 +81,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `sandbox.py` | Building the command that runs one check inside a macOS `sandbox-exec` or Linux `bwrap` sandbox; probing that the tool works. | Run a check; put a path into profile text; trust a tool it has not probed. |
 | `signing.py` | The investor's per-project key file (`.boss/investor.key`), the HMAC on every investor event, and the anchor file (`.boss/anchors/<run>`: the HMAC of the ledger's line count and last line hash). | Print, log or put the key in an error; create it readable by anyone but the owner; sign an event that is not yet chained. |
 | `skills/__init__.py` | Loading and parsing skill files: a header of `name`, `version` and `description`, then a body. | Accept another header; load a body over 4,000 characters. |
+| `spec.py` | Splitting a request into rules with offsets, extracting the literals a test of each rule must contain, and checking which rules a draft's checks cover, in code. | Call a model; run a check; count an unverifiable claim as verified; let a model write or reword a rule. |
 | `state.py` | Rebuilding run state (workers, tasks, rounds, stops, sessions, dropped checks) from events. | Read anything but events. |
 | `stream.py` | Reading the CLI's `stream-json` output; usage and cost. | Raise on malformed input; turn a missing cost into 0. |
 | `termsheet.py` | Term sheet types, JSON round trip, validation. | Accept a wrong JSON type; skip the empty-workspace run of every check. |
@@ -93,16 +95,19 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `bench/results.py` | One benchmark cell's result record and its load checks. | Accept a wrongly typed field. |
 | `bench/run.py` | Running benchmark cells through the single, single-review and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
 | `bench/score.py` | Scoring a draft's checks (precision on the reference, recall on the mutants) and a critic's verified findings against the reference. | Spend money; count a mutant killed only by a wrong check as caught. |
+| `bench/spec_p1.py` | Scoring the drafts the rules prompt made on the saved failing products against the P1 criteria, and the capped, paid pass of the spec mapper over them. | Spend past its cap; count a draft that is not usable in a rate; change a criterion (`bench/spec_truth/P1_CRITERIA.md`). |
+| `bench/spec_eval.py` | The offline evaluation of `spec.py` on saved drafts, hand labels and hand-written mutants, against criteria written down before the run (`bench/spec_truth/CRITERIA.md`). | Call a model; spend money; change a criterion after seeing a number; read a harvested mutant. |
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
 | `bench/kpi.py` | The fixed KPI scorecard of benchmark results: one column per folder, arm, model, budget and firm options. | Count an infrastructure failure in a figure; show an unknown cost or an unrecorded figure as 0; pool columns that share a label. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
 
 Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/term_sheet_v1.md`
-(one task), `term_sheet_v2.md` (several tasks), `builder_v4.md` (every worker) and `solo_v2.md` (the
+(one task), `term_sheet_v2.md` (several tasks), `term_sheet_v3.md` (one task whose checks cite the
+idea's rules, `boss fund --spec`), `builder_v4.md` (every worker) and `solo_v2.md` (the
 benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
 has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
-`check_auditor_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `boss audit plan` has one of its
+`check_auditor_v1.md`, `spec_mapper_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `boss audit plan` has one of its
 own, `audit_checks_v1.md`. Skills are Markdown files under `src/boss/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
 

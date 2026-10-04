@@ -1,0 +1,56 @@
+{
+  "idea_sha256": "5c4ba2b8cdb979fe519f1d2356ba202d4ea6a45423c214ea0a492c54d323f16f",
+  "splitter": "v1",
+  "coarse": true,
+  "hidden": {
+    "compare_build": [
+      "R13"
+    ],
+    "compare_core": [
+      "R09",
+      "R10",
+      "R11"
+    ],
+    "compare_prerelease": [
+      "R11",
+      "R12"
+    ],
+    "parse_invalid_input": [
+      "R03",
+      "R05",
+      "R08"
+    ],
+    "parse_leading_zeros": [
+      "R03",
+      "R06"
+    ],
+    "parse_structure": [
+      "R02",
+      "R04",
+      "R05",
+      "R08"
+    ],
+    "parse_valid": [
+      "R02",
+      "R07"
+    ],
+    "sort_versions": [
+      "R14"
+    ]
+  },
+  "rules": {
+    "R02": "A valid version is `MAJOR.MINOR.PATCH`, optionally followed ",
+    "R03": "A numeric part is one or more ASCII digits (0-9) with no lea",
+    "R04": "The prerelease starts at the first `-` after the patch part ",
+    "R05": "An identifier is one or more characters from `0-9`, `A-Z`, `",
+    "R06": "A prerelease identifier made only of ASCII digits is numeric",
+    "R07": "`parse` returns `(major, minor, patch, prerelease, build)`. ",
+    "R08": "`parse` raises `ValueError` for anything invalid: missing pa",
+    "R09": "`compare(a, b)` parses both arguments (so invalid input rais",
+    "R10": "Precedence compares major, then minor, then patch, each nume",
+    "R11": "If major, minor and patch are equal, a version with a prerel",
+    "R12": "If both have a prerelease, compare the identifiers left to r",
+    "R13": "Build metadata is ignored: versions that differ only in buil",
+    "R14": "`sort_versions(versions)` returns a new list of the same str"
+  }
+}

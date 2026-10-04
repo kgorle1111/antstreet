@@ -1,0 +1,63 @@
+{
+  "idea_sha256": "37b037f7f9af327135a2de858ec2549dc8c4f60aaf496d1c11a7fa482beed43d",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "apply": [
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R20",
+      "R21"
+    ],
+    "apply_errors": [
+      "R19"
+    ],
+    "change_order": [
+      "R09"
+    ],
+    "diff_basic": [
+      "R05",
+      "R06",
+      "R07",
+      "R10",
+      "R12"
+    ],
+    "diff_minimal": [
+      "R08"
+    ],
+    "odd_lines": [
+      "R06",
+      "R07"
+    ],
+    "scale": [
+      "R24"
+    ],
+    "stats": [
+      "R22",
+      "R23"
+    ]
+  },
+  "rules": {
+    "R05": "`diff` returns a list of tuples.",
+    "R06": "The kept and removed lines, in order, equal `old`.",
+    "R07": "The kept and added lines, in order, equal `new`.",
+    "R08": "The diff is minimal: the number of kept lines equals the len",
+    "R09": "Within every run of consecutive changes (the ops between two",
+    "R10": "Replacing line `a` by `b` gives `[(\"-\", \"a\"), (\"+\", \"b\")]`.",
+    "R12": "Two empty lists give `[]`; identical lists give only kept li",
+    "R14": "`apply` returns a new list and does not modify `old`.",
+    "R15": "It walks `diff_ops` in order with a position in `old`.",
+    "R16": "A `\" \"` or `\"-\"` op consumes the next unconsumed line of `ol",
+    "R17": "A `\"+\"` op appends its line to the result and consumes nothi",
+    "R18": "A `\" \"` op also appends its line to the result.",
+    "R19": "`apply` raises `ValueError` if a `\" \"` or `\"-\"` op does not ",
+    "R20": "`apply` does not require the ops to be in the order `diff` p",
+    "R21": "For every `old` and `new`, `apply(old, diff(old, new)) == ne",
+    "R22": "`stats` returns a dict with exactly the keys `\"kept\"`, `\"add",
+    "R23": "An empty diff gives all zeros.",
+    "R24": "Inputs of up to 2,000 lines each must be handled without rec"
+  }
+}

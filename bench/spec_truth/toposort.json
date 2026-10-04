@@ -1,0 +1,67 @@
+{
+  "idea_sha256": "6f35b61508c2da611eb41c53c1b8704b39e8d3cceda689952d0630853abc2ad5",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "basic_order": [
+      "R09",
+      "R10"
+    ],
+    "cycle_error": [
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18"
+    ],
+    "dependency_only_nodes": [
+      "R05",
+      "R06",
+      "R07",
+      "R08"
+    ],
+    "layers": [
+      "R20",
+      "R21",
+      "R22"
+    ],
+    "no_mutation": [
+      "R23"
+    ],
+    "random_graphs": [
+      "R09",
+      "R11",
+      "R16",
+      "R21"
+    ],
+    "scale": [
+      "R24"
+    ],
+    "smallest_first": [
+      "R11",
+      "R12",
+      "R13"
+    ]
+  },
+  "rules": {
+    "R05": "A value may be any iterable (list, tuple, set, generator), m",
+    "R06": "Each value is consumed at most once.",
+    "R07": "Every node that is a key or appears in any value is a node o",
+    "R08": "Nodes that appear only as dependencies have no dependencies ",
+    "R09": "`toposort` returns a new list that contains every node exact",
+    "R10": "An empty dict gives `[]`.",
+    "R11": "The order is deterministic: at each step, output the smalles",
+    "R12": "This is not a layer-by-layer order: with `{\"a\": [], \"c\": [],",
+    "R13": "The result does not depend on the insertion order of the dic",
+    "R14": "If the graph contains a cycle, including a node that depends",
+    "R15": "`CycleError` is defined in `toposort.py` and is a subclass o",
+    "R16": "`CycleError.cycle` is a list of nodes forming one cycle: the",
+    "R17": "A node that depends on itself gives `[node, node]`.",
+    "R18": "Nodes that merely lead into or out of a cycle are not in the",
+    "R20": "`layers` returns a list of lists.",
+    "R21": "A node with no dependencies is in layer 0; any other node is",
+    "R22": "Each layer is sorted ascending, no layer is empty, and an em",
+    "R23": "Neither function mutates its argument: no keys are added or ",
+    "R24": "A dependency chain of 10,000 nodes must work in both functio"
+  }
+}

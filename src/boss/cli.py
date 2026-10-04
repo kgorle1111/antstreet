@@ -27,9 +27,15 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from boss import __version__, audit, audit_check, audit_report
-from boss.approval import NotApprovedError, review_term_sheet
-from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
+from boss import __version__, audit, audit_check, audit_report, spec
+from boss.approval import NotApprovedError, review_term_sheet, spec_view
+from boss.boss import (
+    DEFAULT_MODEL,
+    RULES_PROMPT,
+    BossError,
+    InvalidDraftError,
+    draft_term_sheet,
+)
 from boss.budget import (
     MIN_SLICE_MICROS,
     min_round_budget,
@@ -168,6 +174,12 @@ def _parser() -> argparse.ArgumentParser:
         default=0,
         help=f"checks an examiner writes that the workers never see, run on the finished product "
         f"(0 to {MAX_HELD_OUT}; default 0, off)",
+    )
+    fund.add_argument(
+        "--spec",
+        action="store_true",
+        help="the boss's checks must cite the rules of your idea (its own sentences, numbered by "
+        "code) and you see which rules no check covers before you approve; one task (default: off)",
     )
     fund.add_argument("--max-slices", type=_count_arg, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=_count_arg, default=FiringPolicy().stall_slices)
@@ -358,9 +370,28 @@ def _fund(
     if args.fix_budget is not None and args.fix_budget < needed:
         say(_fix_budget_refusal(needed, reserve))
         return EXIT_USAGE
+    rules: spec.Split | None = None
+    if args.spec:
+        refusal = _spec_refusal(args, roles)
+        if refusal:
+            say(refusal)
+            return EXIT_USAGE
+        try:
+            rules = spec.split(args.idea.strip())
+        except spec.SpecError as exc:
+            say(f"--spec cannot cover this idea rule by rule: {exc}")
+            return EXIT_USAGE
+        if not rules.scorable:
+            say(
+                "--spec found no rule in the idea to cover: it has no sentence stating a behaviour."
+            )
+            return EXIT_USAGE
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
     paths = RunPaths(project / RUNS_DIR / run_id)
     paths.root.mkdir(parents=True)
+    if rules is not None:
+        paths.rules.write_text(spec.dumps(rules), encoding="utf-8")
+    waivers: dict[str, str] = {}  # rules the boss left untested, with its reasons
     say(f"Run {run_id}: drafting the term sheet...")
     with paths.writer() as ledger:
         record = Recorder(ledger, run_id, round=0)
@@ -379,6 +410,7 @@ def _fund(
                     "model": args.boss_model,
                     "thinking_tokens": args.boss_thinking,
                     "outcome": outcome,
+                    **({"prompt": RULES_PROMPT, "rules": len(rules.scorable)} if rules else {}),
                 },
             )
 
@@ -393,6 +425,7 @@ def _fund(
                     executable=executable,
                     max_tasks=args.max_tasks,
                     thinking_tokens=args.boss_thinking,
+                    rules=rules,
                 )
             except BossError as exc:
                 boss_spend(exc.usage, str(exc.outcome))
@@ -402,6 +435,7 @@ def _fund(
                     say("\n".join(f"  - {p}" for p in exc.problems))
                 return None
             boss_spend(draft.usage, "completed")
+            waivers.update(draft.untested)
             if args.rounds > 1:
                 rounds = plan_rounds(
                     args.budget, len(draft.sheet.checks), args.rounds, min_round_micros=needed
@@ -453,6 +487,8 @@ def _fund(
                 say=say,
                 notes=plan.notes,
                 held_out_dir=paths.held_out if held else None,
+                spec_shown=spec_view(paths.rules, paths.checks, waivers) if rules else None,
+                rules_path=paths.rules if rules else None,
             )
         except SigningError as exc:
             say(f"The approval could not be signed, so nothing was funded: {exc}")
@@ -476,6 +512,18 @@ def _fund(
         fix = args.fix_budget or default_fix_budget(config)
         outcome = _build(pipe, sheet, config, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _spec_refusal(args: argparse.Namespace, roles: Sequence[str]) -> str | None:
+    """Why `--spec` cannot be used with these options, or None. Checked before anything is spent."""
+    if args.max_tasks != 1:
+        return "--spec needs --max-tasks 1: the rules are covered by one builder's checks."
+    if "system_designer" in roles and "tester" in roles:
+        return (
+            "--spec cannot be combined with the staged draft (--roles with system_designer and "
+            "tester): its checks cite story criteria, not the idea's rules."
+        )
+    return None
 
 
 def _fix_budget_refusal(needed: int, reserve: int) -> str:

@@ -115,6 +115,13 @@ def test_criteria_change_the_serialised_sheet_so_an_approval_cannot_survive_a_re
         ("",),
         ("1.1",),
         ("S1.1.1",),
+        ("R00",),
+        ("R1",),
+        ("R100",),
+        ("r01",),
+        ("R01 ",),
+        ("R01\n",),
+        ("R01.1",),
     ],
 )
 def test_a_malformed_criterion_id_is_refused(bad):
@@ -158,3 +165,8 @@ def test_replacing_the_criteria_of_a_check_keeps_the_other_fields():
         "t1",
         ("S1.1",),
     )
+
+
+@pytest.mark.parametrize("good", [("R01",), ("R09", "R10"), ("R99",), ("R01", "S1.1")])
+def test_a_rule_id_of_the_request_is_a_criterion_id(good):
+    assert CheckSpec("c01", "d", "test_c01.py", "t1", good).criteria == good

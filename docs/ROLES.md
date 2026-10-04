@@ -214,6 +214,7 @@ the `started` event, so `boss resume` calls roles the same way.
 | `system_designer` | before approval | The tasks in the term sheet, with the tester's checks | The term sheet's tasks |
 | `tester` | before approval | The checks, each with the criteria it covers, and a coverage matrix | The term sheet's checks |
 | `check_auditor` | before approval | A note with one opinion per check | Nothing |
+| `spec_mapper` | before approval, with `--spec` | A note on which rules each check asserts, and the citations it could not confirm; it never sees what the boss says each check covers | Nothing |
 | `judge` | before approval and after the build | A score of the stories, and a score of `USAGE.md`, each labelled uncalibrated unless a calibration covers it | Nothing |
 | `consultant` | while a dispute is open | One line, marked as an opinion, before the question on a disputed check | Nothing |
 | `critic` | after the build | Each verified finding and how many were rejected; if any, one question: add these checks and fund a fix round | Proposed checks, only if you say yes |

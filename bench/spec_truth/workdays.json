@@ -1,0 +1,57 @@
+{
+  "idea_sha256": "99cbf263809b1c198457a4e046ce6c265dddcb7df31745c4f8c4796a3366ab63",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "add_business_days": [
+      "R13",
+      "R14",
+      "R15"
+    ],
+    "add_business_days_holidays": [
+      "R10",
+      "R11",
+      "R12"
+    ],
+    "add_months": [
+      "R04",
+      "R05",
+      "R06",
+      "R07"
+    ],
+    "between_basic": [
+      "R08"
+    ],
+    "between_holidays": [
+      "R10",
+      "R11"
+    ],
+    "between_reversed": [
+      "R09"
+    ],
+    "type_errors": [
+      "R16",
+      "R17",
+      "R18",
+      "R19"
+    ]
+  },
+  "rules": {
+    "R04": "`add_months` returns the date `months` calendar months after",
+    "R05": "The day of the month is kept, except that it is clamped to t",
+    "R06": "Leap years follow the Gregorian rule (1900 is not a leap yea",
+    "R07": "Every `add_months` result is computed directly from `d`, nev",
+    "R08": "`business_days_between` counts the business days `x` with `s",
+    "R09": "If `end` is earlier than `start`, `business_days_between` re",
+    "R10": "`holidays` is any iterable of dates: a list, tuple, set, or ",
+    "R11": "A holiday that falls on a Saturday or Sunday has no effect, ",
+    "R12": "`holidays` behaves the same way in `add_business_days`.",
+    "R13": "`add_business_days` returns the date `n` business days after",
+    "R14": "`d` itself is never counted, whether or not it is a business",
+    "R15": "With `n == 0`, `add_business_days` returns `d` unchanged, ev",
+    "R16": "`d`, `start` and `end` must be `datetime.date` objects.",
+    "R17": "A `datetime.datetime` is not accepted even though it is a su",
+    "R18": "Any such argument that is not a date raises `TypeError`, as ",
+    "R19": "These errors are raised in every case, including `n == 0` an"
+  }
+}

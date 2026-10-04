@@ -685,3 +685,48 @@ with a JSON schema.
   `tests/test_audit_report.py::test_pre_registered_and_post_hoc_are_never_pooled`,
   `tests/test_audit_report.py::test_wilson_matches_the_published_score_interval`. Reopen when an
   audited run measures how many wrong implementations the checks miss.
+### D40: The rule layer's headline counts four anchor types; literals and list items are shown apart
+
+- Status: `under evaluation`
+- Decision: `boss.spec` extracts six kinds of anchor from a rule (a literal, a list item, an exception
+  name, a type, a size, "non-ASCII"). A rule's state and the headline score (anchored rules over
+  scored rules) use only the last four. A missing literal or list item is shown in its own section of
+  the approval view, labelled as not scored.
+- Why: The offline evaluation on 17 tasks and 169 saved drafts (15 known omissions, 61 of 273 scored
+  rules belonging to a failing hidden check, a 22% base rate) found a missing `non_ascii` anchor right
+  in 15 of 21 flags (71%), `exception` 5 of 5, `magnitude` 1 of 1, `type` 2 of 7 (29%), and a missing
+  list item in 11 of 39 (28%, the base rate) and a literal in 1 of 22 (5%). Flagging as many rules at
+  random would have hit 11.0 of the 15 cells, the verifier 12. Scoring the two noisy types would
+  count a rule as uncovered on evidence no better than chance. Pre-registered O1 and O4 failed (94.9%
+  against 95%; a 4.5-point kill-rate gap against 25 on hand mutants that are killed 88% of the time
+  whatever the draft holds), so this is a reduction, not a pass.
+- Rejected: Counting every anchor, as pre-registered: the evaluation's own numbers say two types are
+  noise. Dropping literals and list items altogether: they are cheap to show and a person can judge
+  them; only the score is withheld. Re-tuning the extraction on the same 17 tasks: the tasks are used
+  up, and a held-out set of 18 more is being labelled separately.
+- Evidence: `bench/results/2026-10-03-spec-offline/README.md`,
+  `tests/test_spec_verify.py::test_a_missing_literal_does_not_decide_the_state_or_the_headline_but_is_still_reported`,
+  `tests/test_spec_verify.py::test_only_the_four_types_with_evidence_are_in_the_headline`. Reopen
+  when the 18 held-out tasks are labelled and the same measurements are run on them.
+
+### D41: `--spec` stays off: the rules prompt did not clear its pre-registered bar
+
+- Status: `under evaluation`
+- Decision: `boss fund --spec` exists and is off by default. P2, the 51-cell firm run it was to
+  unlock, is not run. The coverage view and the signed coverage summary are the part that earns
+  its place so far; the prompt is not.
+- Why: P1 (17 drafts, $2.3187) met two of five criteria: (a) kill rate on the failing products 35%
+  against 45% (baseline 31%), (b) on the non-ASCII subset 31% against 40% (baseline 8%), (c) wrong
+  checks 6.1% against 5% (baseline 1.6%); met (d) 1 invalid draft of 17 and (e) 11.2 checks, which
+  cannot fail under a ceiling of 12. Only 2 of the 5 tasks that name non-ASCII input got a
+  non-ASCII test. After the numbers were committed: for 16 of 16 failing products in that subset, a
+  rule the failing check tests was shown as uncovered or anchor-missing to the investor by the
+  verifier.
+- Rejected: Running P2 anyway: the bar was set to decide exactly this, and a benchmark that
+  approves every term sheet cannot measure what the view does. Raising the check ceiling or
+  loosening (c) after seeing the numbers: a new prompt version, not a pass.
+- Evidence: `bench/results/2026-10-03-spec-p1/README.md`, `bench/spec_truth/P1_CRITERIA.md`,
+  `tests/test_bench_spec_p1.py::test_each_criterion_is_decided_at_its_boundary_and_all_five_must_hold`,
+  `tests/test_boss_spec.py::test_the_v3_prompt_names_no_benchmark_task_and_no_special_character_class`.
+  Reopen with a repair call, or when the held-out 18 are measured.
+

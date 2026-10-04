@@ -56,6 +56,7 @@ Argument: `idea`, what to build, in plain words.
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
 | `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |
 | `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
+| `--spec` | off | The boss's checks must cite the rules of your idea, which code cuts out of your own sentences and numbers R01, R02, ...; each check names the 1 to 5 rules it tests, and the boss may list rules it leaves untested, with a reason. Before you approve you see the coverage, uncovered rules first, then claims a check cannot be testing (the check does not contain a non-ASCII string, the exception, the size or the type the rule names), then the boss's waivers; literals and list items are shown apart and not scored. The rule list is saved as `rules.json`, hashed in your approval, and a coverage summary is recorded in it. One task only (`--max-tasks 1`), not with the staged draft (`--roles system_designer,tester`). Refused before any spend when the idea has more than 40 numbered items or paragraphs, or no sentence stating a behaviour. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
@@ -413,8 +414,9 @@ See [../bench/METHOD.md](../bench/METHOD.md).
 | `--reps` | `1` | Drafts per task. |
 | `--boss-model` | `haiku` | Model for the boss's call. |
 | `--boss-thinking` | none | Thinking tokens per draft. |
-| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/boss/prompts`. |
+| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/boss/prompts`. `term_sheet_v3.md` also passes the idea's rules and keeps `rules.json` and `claims.json` in each draft's folder. |
 | `--jobs` | `2` | Drafts to make and score at once. |
+| `--max-spend` | none | Dollars. Makes the drafts one at a time and stops before a call that could take the measured spend past this (a call may cost up to its $0.25 cap; a cost the CLI did not report counts at that cap). |
 | `--dry-run` | off | List the drafts and exit. |
 | `--score-existing` | none | Score the boss drafts already saved in a `boss.bench.run` results folder; spends nothing. |
 
@@ -598,7 +600,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `demo/` | `demo.py` and `USAGE.md` as installed in `product/`. Kept because `product/` is rebuilt on every run, and a `resume` copies them back. |
 | `demo_scratch/` | Where the demo writer ran its script against a copy of the product. |
 
-A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
+A run started with `--spec` also has `rules.json`, the rule list of its idea. A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
 never inside a workspace or `product/`) and, if the examiner's output was refused,
 `examiner_refused.json`; `boss fund --held-out N` creates them. `workspaces/`, `logs/` and `product/`
 exist only once a worker has been hired. `report.md` is

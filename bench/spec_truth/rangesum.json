@@ -1,0 +1,70 @@
+{
+  "idea_sha256": "aee12fd25b4a8cd6b6415e6c775e096da3f4c2b85ea5429a82bf068953b23ec2",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "basic": [
+      "R05",
+      "R07",
+      "R10",
+      "R11",
+      "R12"
+    ],
+    "copies_input": [
+      "R04"
+    ],
+    "errors": [
+      "R06",
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R19"
+    ],
+    "random_ops": [
+      "R07",
+      "R08",
+      "R09",
+      "R10",
+      "R12"
+    ],
+    "ranges": [
+      "R06",
+      "R10",
+      "R11",
+      "R12",
+      "R13"
+    ],
+    "scale": [
+      "R05",
+      "R09",
+      "R10",
+      "R12",
+      "R20"
+    ],
+    "updates": [
+      "R08",
+      "R09"
+    ]
+  },
+  "rules": {
+    "R04": "`RangeSum(values)` takes its own copy of the values: changin",
+    "R05": "`len(rs)` is the number of values and never changes.",
+    "R06": "An empty sequence is allowed.",
+    "R07": "`get(i)` returns the current value at position `i`.",
+    "R08": "`set(i, value)` replaces it.",
+    "R09": "`update(i, delta)` adds `delta` to it; `delta` may be negati",
+    "R10": "`prefix(n)` is the sum of the first `n` elements, positions ",
+    "R11": "`prefix(0)` is `0` and `prefix(len(rs))` is the sum of every",
+    "R12": "`range_sum(lo, hi)` is the sum of the elements at positions ",
+    "R13": "When `lo == hi` it is `0`, for any `lo` from `0` to `len(rs)",
+    "R14": "Errors, checked in this order.",
+    "R15": "An index argument that is not an `int` (a float such as `1.0",
+    "R16": "For `range_sum`, `lo > hi` raises `ValueError`.",
+    "R17": "Then a position that is out of range raises `IndexError`: fo",
+    "R18": "Negative positions are errors, they do not count from the en",
+    "R19": "An operation that raises leaves the contents unchanged.",
+    "R20": "It must stay fast: 100,000 values with 50,000 mixed updates "
+  }
+}

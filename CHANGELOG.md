@@ -18,6 +18,15 @@ what changed for someone using the tool, not which commit did it.
 - Security: threats T51 to T54 (the audit store read by the agent, checks fitted to the change, a leak in the diff, a forged seal).
 - The single arm's `result.json` records `final_status`, the status word of its last slice, and the
   KPI scorecard reads it before the ledger (B70).
+- `boss fund --spec` (off by default): the boss's checks cite the rules of your idea, and you see
+  which rules no check covers before you approve. The rule list and a coverage summary are in your
+  signed approval. One task; not with the staged draft.
+- `boss fund --roles spec_mapper` (with `--spec`): a second reader, blind to the boss's claims, says
+  which rules each check asserts; the note lists citations it could not confirm.
+- `term_sheet_v3.md`, the prompt `--spec` uses; the check ceiling is 12 with rules, 8 without.
+- A check may cite a rule of the request (`R07`) in its `criteria`, beside a story criterion.
+- `python -m boss.bench.spec_eval`: the offline evaluation of that layer on saved drafts, with hand labels
+  in `bench/spec_truth/` and the criteria it is judged by fixed in `bench/spec_truth/CRITERIA.md`.
 - `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
   pass, cost, time) with a task-level bootstrap interval and a verdict of `shown` or `not shown`;
   refuses results from different task sets.

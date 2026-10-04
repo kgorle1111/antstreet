@@ -1,0 +1,50 @@
+{
+  "idea_sha256": "dda4594cdc7d3d19aff7d93dae3c4489831f31db4b06f9a44c88a0893b4b7429",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "basic": [
+      "R09",
+      "R11",
+      "R12",
+      "R13"
+    ],
+    "capacity_cap": [
+      "R11"
+    ],
+    "clock_backwards": [
+      "R19",
+      "R20",
+      "R21"
+    ],
+    "refill": [
+      "R10"
+    ],
+    "refusal": [
+      "R14"
+    ],
+    "validation": [
+      "R05"
+    ],
+    "wait_time": [
+      "R16",
+      "R17",
+      "R18"
+    ]
+  },
+  "rules": {
+    "R05": "`rate`, `capacity` and `cost` must be greater than 0, otherw",
+    "R09": "A new bucket is full: it holds `capacity` tokens.",
+    "R10": "Tokens refill continuously, not in whole ticks: after `dt` s",
+    "R11": "`available()` returns the current number of tokens as a `flo",
+    "R12": "It does not change the bucket.",
+    "R13": "`allow(cost=1)` returns `True` and removes `cost` tokens if ",
+    "R14": "Otherwise it returns `False` and removes nothing, and the to",
+    "R16": "`wait_time(cost=1)` returns, as a `float`, the number of sec",
+    "R17": "It does not remove tokens.",
+    "R18": "A `cost` greater than `capacity` raises `ValueError`, becaus",
+    "R19": "The clock may go backwards.",
+    "R20": "The bucket only counts time forward from the latest clock re",
+    "R21": "Refilling resumes once the clock passes the latest reading s"
+  }
+}

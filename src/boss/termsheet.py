@@ -20,7 +20,9 @@ from boss.gate import Check, CheckStatus, run_gate
 
 _CHECK_FILE_RE = re.compile(r"^test_[A-Za-z0-9_]+\.py\Z")
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}\Z")
-_CRITERION_ID_RE = re.compile(r"S[1-9]\d?\.[1-9]\d*\Z")  # as roles.stories numbers them: S2.1
+# A story's criterion as roles.stories numbers it (S2.1), or a rule of the request as boss.spec
+# numbers it (R07). One field, two namespaces: a run uses one or the other.
+_CRITERION_ID_RE = re.compile(r"(?:S[1-9]\d?\.[1-9]\d*|R(?:0[1-9]|[1-9]\d))\Z")
 
 
 class TermSheetError(Exception):

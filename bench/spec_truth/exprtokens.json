@@ -1,0 +1,79 @@
+{
+  "idea_sha256": "8ece1917a22d72301108ae0bf66d5d5f1256f0d24567dbc4690073b769fe1f6c",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "errors": [
+      "R10",
+      "R13",
+      "R22",
+      "R24",
+      "R25",
+      "R26",
+      "R27"
+    ],
+    "expressions": [
+      "R07",
+      "R08",
+      "R10",
+      "R11",
+      "R15",
+      "R16",
+      "R19",
+      "R20",
+      "R23"
+    ],
+    "identifiers": [
+      "R08",
+      "R16",
+      "R17",
+      "R18",
+      "R24"
+    ],
+    "numbers": [
+      "R08",
+      "R10",
+      "R11",
+      "R12",
+      "R14",
+      "R15"
+    ],
+    "operators": [
+      "R08",
+      "R19",
+      "R20",
+      "R21",
+      "R22",
+      "R24"
+    ],
+    "positions": [
+      "R07",
+      "R08",
+      "R09",
+      "R23"
+    ]
+  },
+  "rules": {
+    "R07": "A space, tab, `\\n` or `\\r` between tokens is skipped and nev",
+    "R08": "Tokens need no separators: `'2x+3'` gives `NUM 2` at 0, `IDE",
+    "R09": "Empty text, or text of only such whitespace, gives `[]`.",
+    "R10": "A `NUM` is one of: one or more ASCII digits (`12`); digits, ",
+    "R11": "It may then be followed by an exponent: `e` or `E`, an optio",
+    "R12": "The exponent is part of the number only when all of it is pr",
+    "R13": "A `.` that is not followed by a digit does not belong to a n",
+    "R14": "The longest match is taken: `'1.5.2'` gives `NUM 1.5` and `N",
+    "R15": "A number has no sign: `'-5'` is `OP -` and `NUM 5`.",
+    "R16": "An `IDENT` is an ASCII letter or `_`, followed by any number",
+    "R17": "`'x1_y'` is one identifier.",
+    "R18": "A digit cannot start one, and a non-ASCII letter is not part",
+    "R19": "An `OP` is one of the single characters `+ - * / % ^ < >` or",
+    "R20": "Two-character operators win over one-character ones: `'**'` ",
+    "R21": "`'<>'` is `OP <` then `OP >`.",
+    "R22": "A lone `=` or a lone `!` is not an operator.",
+    "R23": "`(` is a `LPAREN`, `)` is a `RPAREN`, `,` is a `COMMA`; the ",
+    "R24": "Any other character is an error: `tokenize` raises `TokenErr",
+    "R25": "So `'1 $ 2'` has position 2, `'5.'` has position 1, `'a = b'",
+    "R26": "`TokenError` is a subclass of `ValueError` and is defined in",
+    "R27": "An argument that is not a `str` raises `ValueError` (a plain"
+  }
+}
