@@ -1,0 +1,65 @@
+{
+  "idea_sha256": "0ee7d9e7142de98d83dbabe16929a79b65cff5b1fe22aaefe6a21c471cab441d",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "big_amounts": [
+      "R05",
+      "R16"
+    ],
+    "errors": [
+      "R17",
+      "R18",
+      "R19"
+    ],
+    "even": [
+      "R12"
+    ],
+    "invariants": [
+      "R05",
+      "R06",
+      "R08",
+      "R09"
+    ],
+    "negative_total": [
+      "R12",
+      "R13",
+      "R14",
+      "R15"
+    ],
+    "ratio_basic": [
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R11"
+    ],
+    "ratio_ties": [
+      "R05",
+      "R06"
+    ],
+    "zero_and_scaling": [
+      "R09",
+      "R10",
+      "R11",
+      "R12"
+    ]
+  },
+  "rules": {
+    "R05": "`split_by_ratio` gives share `i` the exact proportion `total",
+    "R06": "The shares with the largest fractional part of the exact pro",
+    "R07": "So splitting 100 by `[1, 1, 1]` is `[34, 33, 33]` and splitt",
+    "R08": "The result has one share per ratio, in the same order as `ra",
+    "R09": "A ratio of 0 always gets 0.",
+    "R10": "Scaling every ratio by the same factor changes nothing: `[2,",
+    "R11": "`ratios` may be any iterable of ints, such as a list, a tupl",
+    "R12": "`split_even(total, parts)` is `split_by_ratio(total, [1] * p",
+    "R13": "`total` may be zero or negative.",
+    "R14": "A negative total is split as its absolute value and every sh",
+    "R15": "Zero gives all zeros.",
+    "R16": "All the arithmetic is exact integer arithmetic, so it stays ",
+    "R17": "A `total`, `parts` or ratio that is not an `int` raises `Typ",
+    "R18": "A `ratios` argument that is not iterable raises `TypeError` ",
+    "R19": "Values that are ints but unusable raise `ValueError`: `parts"
+  }
+}

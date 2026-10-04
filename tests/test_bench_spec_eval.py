@@ -15,7 +15,49 @@ from boss.bench.tasks import load_task, load_tasks
 ROOT = Path(__file__).parent.parent
 TASKS = ROOT / "bench" / "tasks"
 TRUTH = ROOT / "bench" / "spec_truth"
-ORIGINAL_17 = sorted(ev.SCORED_TASKS)
+ORIGINAL_17 = sorted(
+    [
+        "bigdecimal",
+        "calc",
+        "csvline",
+        "duration",
+        "intervals",
+        "jsonpointer",
+        "justify",
+        "linediff",
+        "lrucache",
+        "matrixops",
+        "roman",
+        "semver",
+        "slugify",
+        "tokenbucket",
+        "toposort",
+        "wildcard",
+        "workdays",
+    ]
+)
+LATER_18 = sorted(
+    [
+        "bytesize",
+        "cronnext",
+        "dedentblock",
+        "exprtokens",
+        "fracmath",
+        "iniparse",
+        "isoweek",
+        "luhn",
+        "mdheadings",
+        "minheap",
+        "moneysplit",
+        "prefixtrie",
+        "rangesum",
+        "ringbuffer",
+        "shortestpath",
+        "unionfind",
+        "urlquery",
+        "wordwrap",
+    ]
+)
 
 NON_ASCII_CHECK = (
     "from slugify import slugify\n\ndef test_a():\n    assert slugify('Crème') == 'creme'\n"
@@ -71,6 +113,16 @@ def test_there_are_hand_labels_for_the_17_original_tasks_and_every_one_loads():
         if task.id in ORIGINAL_17:
             labels = ev.load_labels(TRUTH, task)
             assert set(labels.hidden) == {c.id for c in task.hidden_checks()}
+
+
+def test_there_are_hand_labels_for_the_18_later_tasks_and_every_one_loads():
+    assert len(LATER_18) == 18 and not set(LATER_18) & set(ORIGINAL_17)
+    assert sorted(p.stem for p in TRUTH.glob("*.json")) == sorted(ORIGINAL_17 + LATER_18)
+    loaded = [t for t in load_tasks(TASKS) if t.id in LATER_18]
+    assert sorted(t.id for t in loaded) == LATER_18
+    for task in loaded:
+        labels = ev.load_labels(TRUTH, task)
+        assert set(labels.hidden) == {c.id for c in task.hidden_checks()}
 
 
 def test_labels_made_for_another_idea_are_refused(tmp_path):
@@ -545,9 +597,11 @@ def test_the_held_out_population_runs_only_the_18_and_says_it_is_not_pooled(tmp_
     assert "59 ideas" not in text and "18 ideas" in text
 
 
-def test_the_held_out_population_without_its_labels_is_an_error_not_a_fallback():
+def test_the_held_out_population_without_its_labels_is_an_error_not_a_fallback(tmp_path):
+    for name in ORIGINAL_17:  # the scored labels only, as before the held-out set existed
+        (tmp_path / f"{name}.json").write_bytes((TRUTH / f"{name}.json").read_bytes())
     with pytest.raises(ev.EvalError, match="cannot read the labels"):
-        ev.run(["o2"], tasks_dir=TASKS, truth_dir=TRUTH, raw=None, population="held-out")
+        ev.run(["o2"], tasks_dir=TASKS, truth_dir=tmp_path, raw=None, population="held-out")
     with pytest.raises(ev.EvalError, match="population must be"):
         ev.run(["o1"], tasks_dir=TASKS, truth_dir=TRUTH, raw=None, population="all")
 
@@ -575,3 +629,8 @@ def test_a_held_out_run_with_saved_cells_reports_burden_from_its_own_group_only(
     text = ev.run(["o3"], tasks_dir=TASKS, truth_dir=truth, raw=raw, population="held-out")
     assert "over 1 drafts" in text and "- new18: " in text and "final3" not in text
     assert "recall is not measured" in text
+
+
+def test_the_test_lists_match_the_evaluations_scored_and_held_out_sets():
+    assert sorted(ev.SCORED_TASKS) == ORIGINAL_17
+    assert sorted(ev.HELD_OUT_TASKS) == LATER_18

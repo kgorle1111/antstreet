@@ -1,0 +1,94 @@
+{
+  "idea_sha256": "516b2c2180f023c39681b22521cbc2aa1efcbd8722d77531ee1e54dcd31bacaa",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "format_binary": [
+      "R23",
+      "R25",
+      "R27",
+      "R28",
+      "R29",
+      "R30",
+      "R33",
+      "R34"
+    ],
+    "format_decimal": [
+      "R25",
+      "R26",
+      "R27",
+      "R28",
+      "R29",
+      "R34"
+    ],
+    "format_errors": [
+      "R23",
+      "R24",
+      "R25",
+      "R26"
+    ],
+    "format_rounding": [
+      "R28",
+      "R29",
+      "R31",
+      "R32"
+    ],
+    "parse_errors": [
+      "R08",
+      "R09",
+      "R10",
+      "R20",
+      "R21"
+    ],
+    "parse_numbers": [
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R18",
+      "R19"
+    ],
+    "parse_units": [
+      "R05",
+      "R07",
+      "R11",
+      "R12",
+      "R13",
+      "R14",
+      "R15",
+      "R16",
+      "R17"
+    ]
+  },
+  "rules": {
+    "R05": "The text is a number, optionally followed by a unit.",
+    "R06": "Spaces and tabs may appear between the number and the unit (",
+    "R07": "With no unit the number is a count of bytes: `512` is 512.",
+    "R08": "A number is one or more ASCII digits 0-9, optionally followe",
+    "R09": "`.5`, `5.`, `1.5.5`, `1,5`, `1e3`, `1_000`, a sign (`-1 KB` ",
+    "R10": "Digits with a space inside (`1 000 KB`) are invalid.",
+    "R11": "Units are case-insensitive, so `kib`, `KIB` and `KiB` are th",
+    "R12": "The decimal units are `KB`, `MB`, `GB`, `TB` and `PB`, which",
+    "R13": "The binary units are `KiB`, `MiB`, `GiB`, `TiB` and `PiB`, w",
+    "R14": "`B` is one byte.",
+    "R15": "The single letters `K`, `M`, `G`, `T` and `P` are short for ",
+    "R16": "`Kb` is the same as `KB` (1000), not kilobits.",
+    "R17": "The result is an `int`.",
+    "R18": "The number times the unit size is computed exactly, and when",
+    "R19": "Large values are exact: `9007199254740993` is 90071992547409",
+    "R20": "`parse_size` raises `ValueError` for anything else: the empt",
+    "R21": "Input that is not a `str` (an int, a float, None, bytes) rai",
+    "R23": "`format_size` takes an int `n` of zero or more.",
+    "R24": "A negative `n` raises `ValueError`, and an `n` that is not a",
+    "R25": "With `binary=True` the units are `B`, `KiB`, `MiB`, `GiB`, `",
+    "R26": "With `binary=False` they are `B`, `KB`, `MB`, `GB`, `TB`, `P",
+    "R27": "The unit is the largest one whose size is at most `n`; below",
+    "R28": "There is no unit above PiB or PB: 1024**6 is `1024 PiB`.",
+    "R29": "The number shown is `n` divided by the unit size, rounded to",
+    "R30": "A byte count is written as a plain integer with no decimal.",
+    "R31": "If the rounded number reaches the step (1024, or 1000 with `",
+    "R32": "Just below that boundary the lower unit stays: 1048524 is `1",
+    "R33": "The number and the unit are separated by a single space, and",
+    "R34": "Large values are exact; there is no limit on `n`."
+  }
+}

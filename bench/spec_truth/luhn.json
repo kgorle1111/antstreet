@@ -1,0 +1,74 @@
+{
+  "idea_sha256": "470bbae7aa3487fe403c4c9ecf0ccbb82424f79261948aa40a1124f5f6b5e4e2",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "check_digit": [
+      "R05",
+      "R18",
+      "R19",
+      "R20",
+      "R21"
+    ],
+    "doubling_rule": [
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R17"
+    ],
+    "malformed": [
+      "R12",
+      "R13",
+      "R15",
+      "R16",
+      "R24"
+    ],
+    "payload_errors": [
+      "R20",
+      "R22",
+      "R23",
+      "R24"
+    ],
+    "separators": [
+      "R11",
+      "R12",
+      "R13",
+      "R17"
+    ],
+    "valid_numbers": [
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R15",
+      "R17"
+    ],
+    "with_check_digit": [
+      "R18",
+      "R22"
+    ]
+  },
+  "rules": {
+    "R05": "Starting from the rightmost digit and moving left, leave the",
+    "R06": "If doubling gives a number above 9, subtract 9 from it.",
+    "R07": "Add up all the resulting values.",
+    "R08": "The number is valid when that sum is divisible by 10.",
+    "R09": "For example `79927398713` is valid and `79927398710` is not,",
+    "R11": "Spaces and hyphens may appear anywhere in the text, any numb",
+    "R12": "After they are removed, only the ASCII digits 0-9 may remain",
+    "R13": "Any other character (a letter, a tab or newline, a dot, a pl",
+    "R15": "`is_valid(text)` returns `True` or `False` and never raises ",
+    "R16": "It returns `False` for text with invalid characters, and for",
+    "R17": "It is `True` when the Luhn check of rule 1 holds, so `00` an",
+    "R18": "`check_digit(payload)` returns the single digit (an int from",
+    "R19": "For `7992739871` it is 3, for `0` it is 0, for `5` it is 9.",
+    "R20": "The payload follows rule 2 and needs at least one digit.",
+    "R21": "Exactly one digit works for any payload.",
+    "R22": "`with_check_digit(payload)` returns the payload digits, with",
+    "R23": "`check_digit` and `with_check_digit` raise `ValueError` for ",
+    "R24": "All three functions raise `TypeError` for an argument that i"
+  }
+}
