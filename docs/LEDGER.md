@@ -124,6 +124,8 @@ otherwise.
 | `model` | str | The boss model, from `--boss-model`. |
 | `thinking_tokens` | int or null | The thinking budget from `--boss-thinking`; `null` means the CLI's own default. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose draft was unusable or invalid. |
+| `prompt` | str | Only with `--spec`: `term_sheet_v3.md`, the prompt that asks for rule citations. |
+| `rules` | int | Only with `--spec`: how many scored rules of the idea the boss was given. |
 
 Example:
 
@@ -564,7 +566,9 @@ Example:
 - Actor: `investor`
 - Three forms, all by the investor:
   - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`, and
-    `held_out_hashes` when the run has held-out checks.
+    `held_out_hashes` when the run has held-out checks, `rules.json` among its `hashes` and a
+    `spec` coverage summary (rule and anchor counts, the uncovered and waived rule ids, the digest
+    of the rule list) when the run was started with `--spec`. The summary is inside the signed data.
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
   - An amendment: the investor approves more checks and a round added to an approved term sheet.
     It carries `hashes` of the amended term sheet and its check files, `round` (the round the
@@ -594,8 +598,9 @@ Example:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file. Present in the first form, and in an amendment. |
+| `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file, and `rules.json` for a run started with `--spec`. Present in the first form, and in an amendment. |
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
+| `spec` | object | Only with `--spec`, in the first form: `rules_sha256` (digest of the rule list), `rules` (scored rules), `anchored`, `unanchored`, `anchor_missing`, `unscored_missing` (counts), `uncovered` and `waived` (rule ids) and `waived_reasons` (id to the boss's one-line reason). Inside the signed data. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
 | `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
 | `sig` | str | On every form. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`). Approvals written by the first version of signing carry a bare hex `sig` over their run, round and data; approvals older than signing have none. |

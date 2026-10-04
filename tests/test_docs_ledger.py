@@ -141,6 +141,23 @@ def cli_events(tmp_path, *, binary=None, answers=("a",), extra=()):
     return read_events(run_dir / "ledger.jsonl")
 
 
+def cli_spec_events(tmp_path):
+    """`boss fund --spec`: a boss that cites the idea's rules, so `boss_call` carries `prompt` and
+    `rules` and `approved` carries the coverage summary."""
+    from test_cli import DRAFT as PLAIN
+    from test_cli import FAKE_CLAUDE
+    from test_cli_spec import CITING, IDEA
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake = tmp_path / "fake-claude-spec"
+    fake.write_text(FAKE_CLAUDE.replace(repr(PLAIN), repr(CITING)))
+    fake.chmod(0o755)
+    _, run_dir, _ = run_cli(
+        tmp_path, ["fund", IDEA, "--budget", "0.50", "--spec"], binary=str(fake)
+    )
+    return read_events(run_dir / "ledger.jsonl")
+
+
 def cli_resumed_events(tmp_path):
     """A run stopped by a wall-clock limit that is already over, then `boss resume` on it."""
     fund = ["fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9"]
@@ -233,6 +250,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_events(where("cli-rejected"), answers=("r",)))
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
+    runs.append(cli_spec_events(where("cli-spec")))
     runs.append(cli_resumed_events(where("cli-resumed")))
     runs.append(cli_topped_up_events(where("cli-topped-up")))
     runs.append(roles_events(where("cli-roles")))
