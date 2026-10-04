@@ -41,6 +41,8 @@ MODES = ("pre_registered", "post_hoc")
 VERDICTS = ("refuted", "unrefuted", "inconclusive", "no_claim")
 MAX_LISTED = 50  # a list kept in the ledger event is cut here
 MAX_CLAIM_TEXT_BYTES = 64 * 1024
+# kn: leak thresholds (4+ word test names, 16+ character literals) are a guess; tune them on real
+# audited diffs
 MIN_NAME_PARTS = 4  # test_<three or more words>: a shorter name is common enough to collide
 MIN_LITERAL_CHARS = 16
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
@@ -130,8 +132,8 @@ def claim_mode(commits: list[gitrepo.Commit], sealed_at: datetime) -> str:
 def leak_scan(diff: str, check_texts: Mapping[str, str], request: str) -> list[str]:
     """Which sealed checks the added lines of `diff` quote: a test function named in them, or a
     string literal of theirs. Names and literals the request itself contains are not leaks: the
-    agent was given them. Heuristic by design (`kn:`): a long name or literal is rare by chance, a
-    short one is not, so only long ones count, and a hit only ever downgrades `unrefuted`."""
+    agent was given them. A long name or literal is rare by chance and a short one is not, so only
+    long ones count, and a hit only ever downgrades `unrefuted`."""
     added = "\n".join(
         line[1:]
         for line in diff.splitlines()
@@ -141,7 +143,7 @@ def leak_scan(diff: str, check_texts: Mapping[str, str], request: str) -> list[s
     found: set[str] = set()
     for check_id, text in check_texts.items():
         try:
-            tree = ast.parse(text.lstrip("﻿"))
+            tree = ast.parse(text.lstrip("\ufeff"))
         except (SyntaxError, ValueError, RecursionError):
             continue
         for node in ast.walk(tree):
