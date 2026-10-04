@@ -45,3 +45,48 @@ def test_a_forged_audited_line_is_a_valid_line_but_not_a_verdict(tmp_path):
 def test_an_actor_that_is_not_one_of_the_known_forms_is_refused(actor):
     with pytest.raises(ValueError, match="unknown actor"):
         ev(actor)
+
+
+# --- the key signs an audit verdict, so a line someone else adds or edits is not one ----------
+
+
+@pytest.fixture
+def run(tmp_path):
+    from boss.rundir import RunPaths
+
+    return RunPaths(tmp_path / "store" / ".boss" / "runs" / "r1")
+
+
+def test_the_writer_signs_an_audited_event_and_a_reader_with_the_key_accepts_it(run):
+    with run.writer() as ledger:
+        ledger.append(ev("gate"))
+    [event] = run.events()
+    assert event.data["sig"].startswith("v2:")
+    assert audited([event]) == [event]
+
+
+def test_an_audited_line_added_without_the_key_is_refused_even_with_a_valid_chain(run):
+    from boss.ledger import LedgerUnverifiedError
+
+    with run.writer() as ledger:
+        ledger.append(ev("gate"))
+    with LedgerWriter(run.ledger) as keyless:  # chains correctly, signs nothing
+        keyless.append(ev("gate"))
+    assert len(read_events(run.ledger)) == 2  # a plain read cannot tell
+    with pytest.raises(LedgerUnverifiedError, match="`audited` event by gate"):
+        run.events()
+
+
+def test_an_audited_verdict_edited_with_the_chain_recomputed_is_refused(run):
+    import json
+
+    from boss.ledger import GENESIS, LedgerUnverifiedError
+
+    with run.writer() as ledger:
+        ledger.append(ev("gate"))
+    line = json.loads(run.ledger.read_text())
+    line["data"]["verdict"] = "unrefuted"
+    line["prev"] = GENESIS
+    run.ledger.write_text(json.dumps(line, sort_keys=True) + "\n")
+    with pytest.raises(LedgerUnverifiedError):
+        run.events()

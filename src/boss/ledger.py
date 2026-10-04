@@ -53,6 +53,13 @@ class EventType(StrEnum):
 AUDIT_ACTOR = "gate"  # the only actor whose `audited` event counts
 
 
+def is_signed_kind(event: Event) -> bool:
+    """The events the project's key signs: the investor's decisions, and the audit verdicts (a
+    verdict is a record other people are shown, so a line edited or added by someone without the
+    key must not read as one)."""
+    return event.actor == "investor" or event.event is EventType.AUDITED
+
+
 def audited(events: Iterable[Event]) -> list[Event]:
     """The `audited` events written by the gate. One from any other actor is not a verdict: the
     ledger accepts it as a line, readers of verdicts must not count it."""
@@ -254,7 +261,7 @@ class LedgerWriter:
             raise LedgerError("writer is not open; use `with LedgerWriter(path) as w:`")
         with self._append_lock:  # the link, the write and the next link are one step
             event = replace(event, prev=self._prev)
-            if self._key_path is not None and event.actor == "investor":
+            if self._key_path is not None and is_signed_kind(event):
                 event = signing.sign(signing.load_or_create_key(self._key_path), event)
             # serialise first so a bad event never leaves a partial line
             line = event.to_json()
@@ -377,15 +384,17 @@ def _vouched(
     """
     stamped = False
     for lineno, e in enumerate(events, start=1):
-        if e.actor != "investor":
+        if not is_signed_kind(e):
             continue
         signed = signing.SIG_KEY in e.data
         stamped = stamped or str(e.data.get(signing.SIG_KEY, "")).startswith(signing.SIG_V2)
         older = key is None or e.prev is None  # with no key nothing can be checked
         ok = older if not signed else key is not None and signing.verify(key, e)
         if not ok:
+            kind = f"{'investor ' if e.actor == 'investor' else ''}`{e.event}` event"
+            by = "" if e.actor == "investor" else f" by {e.actor}"
             raise LedgerUnverifiedError(
-                f"{path}:{lineno}: investor `{e.event}` event whose signature does not verify "
+                f"{path}:{lineno}: {kind}{by} whose signature does not verify "
                 "against .boss/investor.key (forged, edited, moved, or the key was replaced)"
             )
     if key is None:

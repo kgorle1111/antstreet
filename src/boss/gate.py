@@ -314,9 +314,10 @@ def run_tree(
 
     `tree` is copied to `test_path` inside the copy, replacing anything the product put there, and
     `support` (harness-owned files, e.g. a shim for a third-party import) is laid over the copy's
-    root. `pythonpath` is as for `run_gate`. A test passes only when it ran and was neither failed, errored nor skipped. Collection
-    errors do not stop the run (`--continue-on-collection-errors`). Without a clean exit there may
-    be no report at all (a timeout, a crash); then `tests` is empty and `detail` says why.
+    root. `pythonpath` is as for `run_gate`. A test passes only when it ran and was neither failed,
+    errored nor skipped. Collection errors do not stop the run
+    (`--continue-on-collection-errors`). Without a clean exit there may be no report at all (a
+    timeout, a crash); then `tests` is empty and `detail` says why.
     """
     mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
