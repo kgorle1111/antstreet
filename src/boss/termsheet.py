@@ -14,9 +14,12 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, fields
 from itertools import combinations, product
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from boss.gate import Check, CheckStatus, run_gate
+
+if TYPE_CHECKING:
+    from boss.dispatch import DispatchPolicy
 
 _CHECK_FILE_RE = re.compile(r"^test_[A-Za-z0-9_]+\.py\Z")
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}\Z")
@@ -65,13 +68,35 @@ class CheckSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class Dispatch:
+    """How one task is worked on (`boss fund --dispatch rules`). Values are checked against the
+    whitelist by `dispatch.dispatch_problems`, not here, so a bad edit reports every problem."""
+
+    agent: str
+    profile: str | None
+    tier: str
+    effort: str
+    escalate_to: str  # "none", or the tier a worker fired for no progress may be replaced by
+    max_workers: int
+    slice_micros: int | None  # None: the run's --slice
+    reads: tuple[str, ...]  # ids of other tasks whose interface names this task is shown
+
+    def __post_init__(self) -> None:
+        _types(self, agent=str, profile=(str, type(None)), tier=str, effort=str, escalate_to=str)
+        _types(self, max_workers=int, slice_micros=(int, type(None)), reads=tuple)
+        if not all(isinstance(r, str) for r in self.reads):
+            raise TypeError("Dispatch.reads must be strings")
+
+
+@dataclass(frozen=True, slots=True)
 class Task:
     id: str
     brief: str
     paths: tuple[str, ...]  # workspace paths this task owns; "." means the whole workspace
+    dispatch: Dispatch | None = None  # left out of the JSON if None
 
     def __post_init__(self) -> None:
-        _types(self, id=str, brief=str, paths=tuple)
+        _types(self, id=str, brief=str, paths=tuple, dispatch=(Dispatch, type(None)))
         if not all(isinstance(p, str) for p in self.paths):
             raise TypeError("Task.paths must be strings")
 
@@ -84,6 +109,7 @@ class TermSheet:
     checks: tuple[CheckSpec, ...]
     tasks: tuple[Task, ...]
     approved_by_investor: bool = False
+    route: str | None = None  # "one_agent" or "firm" under --dispatch; left out of the JSON if None
 
     def __post_init__(self) -> None:
         _types(
@@ -94,6 +120,7 @@ class TermSheet:
             checks=tuple,
             tasks=tuple,
             approved_by_investor=bool,
+            route=(str, type(None)),
         )
 
     def gate_checks(self) -> list[Check]:
@@ -104,6 +131,11 @@ class TermSheet:
         for check in data["checks"]:
             if not check["criteria"]:
                 del check["criteria"]  # older sheets keep the JSON their approval hashes cover
+        for task in data["tasks"]:
+            if task["dispatch"] is None:
+                del task["dispatch"]
+        if data["route"] is None:
+            del data["route"]
         return json.dumps(data, indent=2)
 
     @classmethod
@@ -111,16 +143,22 @@ class TermSheet:
         try:
             raw = json.loads(text)
             return cls(
-                **_fields(raw, cls, nested=("rounds", "checks", "tasks")),
+                **_fields(raw, cls, nested=("rounds", "checks", "tasks"), optional=("route",)),
                 rounds=tuple(Round(**_fields(r, Round)) for r in raw["rounds"]),
                 checks=tuple(_check_from(c) for c in raw["checks"]),
-                tasks=tuple(
-                    Task(**_fields(t, Task) | {"paths": tuple(as_list(t["paths"]))})
-                    for t in raw["tasks"]
-                ),
+                tasks=tuple(_task_from(t) for t in raw["tasks"]),
             )
         except (ValueError, KeyError, TypeError) as exc:
             raise TermSheetError([f"not a valid term sheet: {exc}"]) from exc
+
+
+def _task_from(raw: Any) -> Task:
+    data = _fields(raw, Task, optional=("dispatch",))
+    found, dispatch = data.get("dispatch"), None
+    if found is not None:
+        d = _fields(found, Dispatch)
+        dispatch = Dispatch(**d | {"reads": tuple(as_list(d["reads"]))})
+    return Task(**data | {"paths": tuple(as_list(data["paths"])), "dispatch": dispatch})
 
 
 def _check_from(raw: Any) -> CheckSpec:
@@ -146,16 +184,21 @@ def _fields(
     return {k: v for k, v in raw.items() if k not in nested}
 
 
-def validate(sheet: TermSheet, checks_dir: Path) -> None:
-    """Raise TermSheetError listing every problem. Runs the gate only if the structure is sound."""
-    problems = structural_problems(sheet, checks_dir)
+def validate(sheet: TermSheet, checks_dir: Path, policy: DispatchPolicy | None = None) -> None:
+    """Raise TermSheetError listing every problem. Runs the gate only if the structure is sound.
+    `policy` is the run's dispatch policy; None means `--dispatch` is off."""
+    problems = structural_problems(sheet, checks_dir, policy)
     if not problems:
         problems = empty_workspace_problems(sheet, checks_dir)
     if problems:
         raise TermSheetError(problems)
 
 
-def structural_problems(sheet: TermSheet, checks_dir: Path) -> list[str]:
+def structural_problems(
+    sheet: TermSheet, checks_dir: Path, policy: DispatchPolicy | None = None
+) -> list[str]:
+    from boss.dispatch import dispatch_problems  # dispatch imports this module
+
     p: list[str] = []
     if not sheet.idea.strip():
         p.append("idea is empty")
@@ -170,6 +213,7 @@ def structural_problems(sheet: TermSheet, checks_dir: Path) -> list[str]:
     p += _money_problems(sheet)
     p += _round_problems(sheet)
     p += _ownership_problems(sheet)
+    p += dispatch_problems(sheet, policy)
     for check in sheet.checks:
         p += check_file_problems(check, checks_dir)
     return p
