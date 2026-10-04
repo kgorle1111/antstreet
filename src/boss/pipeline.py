@@ -597,7 +597,7 @@ class Pipeline:
         # The approval goes on the ledger before the sheet on disk changes: an interruption between
         # the two leaves the old, still approved sheet to resume, never a sheet nobody approved.
         data = {
-            "hashes": content_hashes(amended, self.paths.checks),
+            "hashes": content_hashes(amended, self.paths.checks, self.paths.rules),
             "round": n,
             "added_checks": [c.id for c in checks],
         }
