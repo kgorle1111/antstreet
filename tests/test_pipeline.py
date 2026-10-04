@@ -1785,7 +1785,7 @@ def test_with_the_default_of_one_task_a_two_task_design_is_refused_and_the_boss_
 
 
 def test_an_amended_sheet_that_does_not_validate_is_not_offered(fx, monkeypatch):
-    def refuse(sheet, checks_dir):
+    def refuse(sheet, checks_dir, policy=None):
         raise TermSheetError(["the rounds do not add up"])
 
     monkeypatch.setattr("boss.pipeline.validate", refuse)
