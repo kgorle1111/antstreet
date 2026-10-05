@@ -49,38 +49,61 @@ def index_of(argv: list[str], *seq: str) -> int:
     return next(i for i in range(len(argv)) if argv[i : i + len(seq)] == list(seq))
 
 
-def test_the_mask_comes_after_the_root_and_before_every_bind(tmp_path, anywhere):
+def binds(argv: list[str]) -> list[tuple[int, str]]:
+    """(position, source) of every --ro-bind/--bind after the four tmpfs roots, masks excluded."""
+    start = index_of(argv, "--tmpfs", "/run") + 2
+    out = []
+    for i in range(start, len(argv) - 2):
+        if argv[i] in ("--ro-bind", "--bind") and argv[i + 1] != "/dev/null":
+            out.append((i, argv[i + 1]))
+    return out
+
+
+def test_the_mask_comes_after_the_root_and_the_four_tmpfs_mounts(tmp_path, anywhere):
     boss, ws, checks, outside_key = layout(tmp_path)
-    work = boss / "runs" / "r1" / "gate"  # the writable folder may itself live under `.boss`
-    work.mkdir()
     argv = bwrap_argv(
-        "bwrap", ["x"], writable=work, readable=[checks, Path("/usr")], hidden=[boss, outside_key]
+        "bwrap", ["x"], writable=ws, readable=[checks, Path("/usr")], hidden=[boss, outside_key]
     )
     root, run_tmpfs = index_of(argv, "--ro-bind", "/", "/"), index_of(argv, "--tmpfs", "/run")
-    dir_mask = index_of(argv, "--tmpfs", str(boss))
-    file_mask = index_of(argv, "--ro-bind", "/dev/null", str(outside_key))
-    first_bind = min(
-        index_of(argv, "--ro-bind", str(checks), str(checks)),
-        index_of(argv, "--bind", str(work), str(work)),
+    assert root < run_tmpfs < index_of(argv, "--tmpfs", str(boss))
+    assert run_tmpfs < index_of(argv, "--ro-bind", "/dev/null", str(outside_key))
+
+
+def test_a_readable_ancestor_of_a_secret_is_bound_before_the_mask(tmp_path, anywhere):
+    boss, ws, checks, outside_key = layout(tmp_path)
+    project = boss.parent  # holds `.boss`, as a project dir or a python prefix could
+    argv = bwrap_argv(
+        "bwrap", ["x"], writable=ws, readable=[project, tmp_path], hidden=[boss, outside_key]
     )
-    assert root < run_tmpfs < dir_mask < first_bind
-    assert run_tmpfs < file_mask < first_bind
+    masks = (
+        index_of(argv, "--tmpfs", str(boss)),
+        index_of(argv, "--ro-bind", "/dev/null", str(outside_key)),
+    )
+    for ancestor in (project, tmp_path):
+        assert index_of(argv, "--ro-bind", str(ancestor), str(ancestor)) < min(masks)
 
 
-def test_the_workspace_and_the_checks_stay_bound_after_the_mask(tmp_path, anywhere):
+def test_a_readable_path_inside_a_secret_is_bound_after_the_mask(tmp_path, anywhere):
     boss, ws, checks, _ = layout(tmp_path)
-    argv = bwrap_argv("bwrap", ["x"], writable=ws, readable=[checks], hidden=[boss])
-    tail = argv[index_of(argv, "--tmpfs", str(boss)) :]
-    assert tail[2:] == [
-        "--ro-bind",
-        str(checks),
-        str(checks),
-        "--bind",
-        str(ws),
-        str(ws),
-        "--",
-        "x",
-    ]
+    argv = bwrap_argv("bwrap", ["x"], writable=ws, readable=[checks, boss.parent], hidden=[boss])
+    mask = index_of(argv, "--tmpfs", str(boss))
+    assert index_of(argv, "--ro-bind", str(boss.parent), str(boss.parent)) < mask
+    assert mask < index_of(argv, "--ro-bind", str(checks), str(checks))
+
+
+def test_the_writable_bind_is_last_and_no_later_bind_re_exposes_a_secret(tmp_path, anywhere):
+    boss, ws, checks, outside_key = layout(tmp_path)
+    readable = [checks, boss.parent, Path("/usr"), tmp_path]
+    argv = bwrap_argv("bwrap", ["x"], writable=ws, readable=readable, hidden=[boss, outside_key])
+    assert argv[-5:] == ["--bind", str(ws), str(ws), "--", "x"]
+    masks = {
+        boss: index_of(argv, "--tmpfs", str(boss)),
+        outside_key: index_of(argv, "--ro-bind", "/dev/null", str(outside_key)),
+    }
+    for secret, mask in masks.items():
+        for pos, source in binds(argv):
+            reaches = str(secret) == source or str(secret).startswith(f"{source}/")
+            assert not (reaches and pos > mask), (source, secret)
 
 
 def test_a_secret_under_a_hidden_root_or_missing_adds_nothing(tmp_path):
