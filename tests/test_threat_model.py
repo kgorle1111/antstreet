@@ -54,9 +54,9 @@ def test_the_document_lists_threats(rows):
     assert len(rows) >= 20
 
 
-def test_threat_ids_are_unique_and_increasing(rows):
-    numbers = [int(r["id"][1:]) for r in rows]  # gaps are allowed: parallel branches reserve ranges
-    assert numbers == sorted(set(numbers))
+def test_threat_ids_are_unique_and_consecutive(rows):
+    ids = [r["id"] for r in rows]
+    assert ids == [f"T{n:02d}" for n in range(1, len(ids) + 1)]
 
 
 def test_every_row_has_a_threat_a_control_and_an_allowed_status(rows):

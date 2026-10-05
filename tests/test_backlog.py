@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BACKLOG = (ROOT / "docs" / "BACKLOG.md").read_text(encoding="utf-8")
 STATUSES = ("open", "building", "done", "wont")
-ROW = re.compile(r"^\| (B\d{2,3}) \| (.+) \|$", re.M)
+ROW = re.compile(r"^\| (B\d\d) \| (.+) \|$", re.M)
 KN = re.compile(r"#.*?\bkn: (.+)$")
 QUOTED = 40  # characters of a kn comment that must appear in the register
 
@@ -25,11 +25,9 @@ def shortcuts() -> list[tuple[str, str]]:
     return found
 
 
-def test_ids_are_unique_and_increasing():
-    numbers = [
-        int(rid[1:]) for rid, _ in rows()
-    ]  # gaps are allowed: parallel branches reserve ranges
-    assert numbers == sorted(set(numbers))
+def test_ids_are_unique_and_consecutive():
+    ids = [rid for rid, _ in rows()]
+    assert ids == [f"B{n:02d}" for n in range(1, len(ids) + 1)]
 
 
 def test_every_entry_says_what_it_is_and_has_a_known_status():
