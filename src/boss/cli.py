@@ -1,4 +1,5 @@
-"""Commands: `fund`, `resume`, `topup`, `report`, `status`, `verify`, `roles`, `doctor`, `mcp`, `audit`.
+"""Commands: `fund`, `resume`, `topup`, `report`, `status`, `verify`, `roles`, `doctor`, `mcp`,
+`audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
