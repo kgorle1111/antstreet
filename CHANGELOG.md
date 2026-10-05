@@ -10,8 +10,24 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss audit plan --repo R --request FILE --base REF [--held-out N]`: seals checks for a change request from the base commit's names alone, kept in `~/.boss-audit` and never in the repo; you approve them, signed; it prints a run id and a seal.
+- `boss audit check RUN --head REF`: runs the sealed checks on a commit and signs a verdict: `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`. It refuses a head off the base, an edited check and a forged approval.
+- `boss audit check` calls a claim `pre_registered` only when every commit is dated after the seal (dates can be forged), flags a change that quotes the checks, and lists base tests the head deleted or broke.
+- `boss audit report [RUN | --all] [--agent L]`: verdicts, and the false-pass rate with a Wilson interval per agent and claim mode. Pre-registered and post-hoc results are never added together; the rate is a floor.
+- Ledger: the `audited` event, signed with the project's key like an investor's event, and `purpose` `audit_checks` on `boss_call`.
+- Security: threats T51 to T54 (the audit store read by the agent, checks fitted to the change, a leak in the diff, a forged seal).
 - The single arm's `result.json` records `final_status`, the status word of its last slice, and the
   KPI scorecard reads it before the ledger (B70).
+- `boss fund --spec` (off by default): the boss's checks cite the rules of your idea, and you see
+  which rules no check covers before you approve. The rule list and a coverage summary are in your
+  signed approval. One task; not with the staged draft.
+- `boss fund --roles spec_mapper` (with `--spec`): a second reader, blind to the boss's claims, says
+  which rules each check asserts; the note lists citations it could not confirm.
+- `term_sheet_v3.md`, the prompt `--spec` uses; the check ceiling is 12 with rules, 8 without.
+- A check may cite a rule of the request (`R07`) in its `criteria`, beside a story criterion.
+- `python -m boss.bench.spec_eval`: the offline evaluation of that layer on saved drafts, with hand labels
+  in `bench/spec_truth/` and the criteria it is judged by fixed in `bench/spec_truth/CRITERIA.md`.
+- Security: threats T55 to T62 (the spec layer: a rule cited but not tested, an edited rule list, a forged coverage summary, waivers, a hostile idea, the mapper, a prompt tuned to the benchmark, spend).
 - `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
   pass, cost, time) with a task-level bootstrap interval and a verdict of `shown` or `not shown`;
   refuses results from different task sets.

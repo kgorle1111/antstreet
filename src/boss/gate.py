@@ -46,7 +46,7 @@ _BOOTSTRAP = (  # not `-m pytest`: the plugin folder joins sys.path, the workspa
     "import sys; sys.path.insert(0, sys.argv[1]); import pytest\n"
     "sys.exit(pytest.main(sys.argv[2:]))"
 )
-_INI = "[pytest]\npythonpath = ws\n"
+DEFAULT_PYTHONPATH = ("ws",)
 
 
 class GateError(Exception):
@@ -119,10 +119,13 @@ def run_gate(
     checks: Sequence[Check],
     timeout_s: float = DEFAULT_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
+    pythonpath: Sequence[str] = DEFAULT_PYTHONPATH,
 ) -> list[CheckResult]:
     """Run every check against a fresh copy of `workspace`. The original is never modified.
 
     `sandbox=None` defers to `BOSS_GATE_SANDBOX`, then to AUTO: the one place the variable is read.
+    `pythonpath` is what the check can import from, as folders inside the copy: `ws` is the
+    workspace itself, `ws/src` a src-layout package folder. See `_ini`.
     """
     mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
@@ -130,13 +133,32 @@ def run_gate(
     workspace, checks_dir = Path(workspace).resolve(), Path(checks_dir).resolve()
     if not workspace.is_dir():
         raise GateError(f"workspace {workspace} does not exist")
+    ini = _ini(pythonpath)
     sources = [_check_source(checks_dir, c) for c in checks]
     try:
         tool = select(mode) if checks else None
     except SandboxUnavailable as exc:
         raise GateError(str(exc)) from exc
     runs = zip(checks, sources, strict=True)
-    return [_run_one(workspace, c, src, timeout_s, tool) for c, src in runs]
+    return [_run_one(workspace, c, src, timeout_s, tool, ini) for c, src in runs]
+
+
+def _ini(pythonpath: Sequence[str]) -> str:
+    """The pytest.ini of a check. Entries are checked because each becomes a line of the file and
+    a folder on `sys.path`: one that names a place outside the copy, or carries a newline, would
+    let the caller's data write config or import from the host."""
+    if isinstance(pythonpath, str) or not pythonpath:
+        raise GateError("pythonpath must be a non-empty list of folders inside `ws`, e.g. ['ws']")
+    for entry in pythonpath:
+        parts = PurePosixPath(entry).parts
+        if not entry.isprintable() or not parts or parts[0] != "ws" or ".." in parts:
+            raise GateError(
+                f"pythonpath entry {entry!r} is not inside the workspace copy; "
+                "use `ws` or a folder under it such as `ws/src`"
+            )
+        if any(c in entry for c in " ,:"):
+            raise GateError(f"pythonpath entry {entry!r} has a space or separator; rename it")
+    return "[pytest]\npythonpath = " + " ".join(pythonpath) + "\n"
 
 
 def _check_source(checks_dir: Path, check: Check) -> Path:
@@ -149,7 +171,7 @@ def _check_source(checks_dir: Path, check: Check) -> Path:
 
 
 def _run_one(
-    workspace: Path, check: Check, src: Path, timeout_s: float, tool: Sandbox | None
+    workspace: Path, check: Check, src: Path, timeout_s: float, tool: Sandbox | None, ini: str
 ) -> CheckResult:
     with tempfile.TemporaryDirectory(prefix="boss_gate_") as tmp_name:
         tmp = Path(tmp_name)
@@ -157,7 +179,7 @@ def _run_one(
         (tmp / "checks").mkdir()
         target = tmp / "checks" / src.name
         shutil.copy2(src, target)
-        (tmp / "pytest.ini").write_text(_INI)
+        (tmp / "pytest.ini").write_text(ini)
         (tmp / "home").mkdir()
         report = tmp / "report.xml"
         nonce, plugin = secrets.token_hex(32), f"_boss_gate_{secrets.token_hex(8)}"
@@ -297,6 +319,11 @@ class TreeResult:
 _MISSING_MODULE = re.compile(r"No module named '([^'.]+)")
 
 
+def missing_modules(text: str) -> tuple[str, ...]:
+    """The top-level modules a pytest output says could not be imported, sorted."""
+    return tuple(sorted(set(_MISSING_MODULE.findall(text))))
+
+
 def run_tree(
     workspace: Path,
     tree: Path,
@@ -305,18 +332,21 @@ def run_tree(
     support: Path | None = None,
     timeout_s: float = TREE_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
+    pythonpath: Sequence[str] = DEFAULT_PYTHONPATH,
 ) -> TreeResult:
     """Run a whole pytest tree against a copy of `workspace`; the original is never modified.
 
     `tree` is copied to `test_path` inside the copy, replacing anything the product put there, and
     `support` (harness-owned files, e.g. a shim for a third-party import) is laid over the copy's
-    root. A test passes only when it ran and was neither failed, errored nor skipped. Collection
-    errors do not stop the run (`--continue-on-collection-errors`). Without a clean exit there may
-    be no report at all (a timeout, a crash); then `tests` is empty and `detail` says why.
+    root. `pythonpath` is as for `run_gate`. A test passes only when it ran and was neither failed,
+    errored nor skipped. Collection errors do not stop the run
+    (`--continue-on-collection-errors`). Without a clean exit there may be no report at all (a
+    timeout, a crash); then `tests` is empty and `detail` says why.
     """
     mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
         raise GateError("pytest is not installed in the environment running boss")
+    ini = _ini(pythonpath)
     workspace, tree = Path(workspace).resolve(), Path(tree).resolve()
     rel = PurePosixPath(test_path)
     if rel.is_absolute() or ".." in rel.parts or rel.parts in ((), (".",)):
@@ -341,7 +371,7 @@ def run_tree(
         shutil.copytree(tree, target, symlinks=True, ignore=_COPY_IGNORE)
         if support is not None:
             shutil.copytree(support, ws, dirs_exist_ok=True)
-        (tmp / "pytest.ini").write_text(_INI)
+        (tmp / "pytest.ini").write_text(ini)
         (tmp / "home").mkdir()
         report = tmp / "report.xml"
         # xunit1 puts the test's file on every testcase, which is how a node id is rebuilt.
@@ -361,7 +391,7 @@ def run_tree(
             detail = f"pytest exited {exit_code} with no readable JUnit report: {exc}"
             return TreeResult({}, exit_code, detail, tail, duration, sandboxed, ())
     passed = sum(s is CheckStatus.PASSED for s in tests.values())
-    missing = tuple(sorted(set(_MISSING_MODULE.findall(text))))
+    missing = missing_modules(text)
     detail = f"{passed} of {len(tests)} passed"
     return TreeResult(tests, exit_code, detail, tail, duration, sandboxed, missing)
 

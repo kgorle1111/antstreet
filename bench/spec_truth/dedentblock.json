@@ -1,0 +1,68 @@
+{
+  "idea_sha256": "77d7d3f1a19b9444cac26a602dd9441ece91857502ce3ac58eb0db33e3591b3d",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "blank_lines": [
+      "R05",
+      "R11",
+      "R13",
+      "R14",
+      "R15",
+      "R17"
+    ],
+    "dedent_basic": [
+      "R08",
+      "R13",
+      "R15",
+      "R16",
+      "R18"
+    ],
+    "margin": [
+      "R08",
+      "R09",
+      "R10",
+      "R11",
+      "R12"
+    ],
+    "other_characters": [
+      "R05",
+      "R06",
+      "R07",
+      "R09",
+      "R13",
+      "R16"
+    ],
+    "properties": [
+      "R09",
+      "R11",
+      "R13",
+      "R14",
+      "R15",
+      "R16",
+      "R19"
+    ],
+    "tabs": [
+      "R10",
+      "R13",
+      "R16"
+    ]
+  },
+  "rules": {
+    "R05": "A line is blank when it is empty or consists only of spaces ",
+    "R06": "Only the space and the tab count as indentation or blank-mak",
+    "R07": "In particular `\\r` is not removed or treated as a line end: ",
+    "R08": "The indentation of a line is the run of spaces and tabs at i",
+    "R09": "`common_margin(text)` returns the longest string that is the",
+    "R10": "The comparison is character by character, so a tab and a spa",
+    "R11": "Blank lines are ignored, whatever they contain.",
+    "R12": "If there is no non-blank line, the margin is `\"\"`.",
+    "R13": "`dedent(text)` removes the margin from the start of every no",
+    "R14": "Every blank line, whatever spaces or tabs it held, becomes t",
+    "R15": "The number of lines never changes: a trailing `\\n` in the in",
+    "R16": "Nothing else is changed: text after the margin, including it",
+    "R17": "If there is no non-blank line, every line becomes empty, so ",
+    "R18": "A line whose indentation is longer than the margin keeps the",
+    "R19": "Both functions raise `ValueError` when `text` is not a `str`"
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "idea_sha256": "7c2cf21c9eac900fde2faea31cd5df7511b19984cb36e8fc2740b84fdb03b9ac",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "anchors": [
+      "R11",
+      "R20",
+      "R21",
+      "R22"
+    ],
+    "code_fences": [
+      "R05",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R19"
+    ],
+    "document": [
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R11",
+      "R12",
+      "R15",
+      "R20",
+      "R23",
+      "R26",
+      "R29"
+    ],
+    "duplicate_anchors": [
+      "R15",
+      "R22",
+      "R23",
+      "R24"
+    ],
+    "headings": [
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R10",
+      "R14",
+      "R30"
+    ],
+    "titles": [
+      "R10",
+      "R11",
+      "R12",
+      "R13",
+      "R23"
+    ],
+    "tree": [
+      "R25",
+      "R26",
+      "R27",
+      "R28",
+      "R30"
+    ]
+  },
+  "rules": {
+    "R05": "The text is split into lines at `\\n`, and a `\\r` at the end ",
+    "R06": "Only `#` headings count (no underlined headings).",
+    "R07": "A heading line starts with one to six `#` in its first colum",
+    "R08": "`level` is the number of `#`.",
+    "R09": "So `'## A'` is a heading of level 2, while `'#A'` (no space ",
+    "R10": "The title is the rest of the line without surrounding whites",
+    "R11": "A closing sequence is removed from it: if the title ends wit",
+    "R12": "So `'## A ##'` has the title `\"A\"`, `'# A # B'` has the titl",
+    "R13": "A heading whose title is empty (`'#'`, `'## '`, `'# #'`) is ",
+    "R14": "The rest of the title, including inline Markdown such as bac",
+    "R15": "Lines inside a fenced code block are not headings.",
+    "R16": "A fence opens on a line that starts, in its first column, wi",
+    "R17": "It closes at the next line that starts with the same charact",
+    "R18": "A fence that is never closed runs to the end of the text.",
+    "R19": "The fence lines themselves are not headings.",
+    "R20": "The `anchor` is made from the title: it is lowercased; every",
+    "R21": "`'Hello, World!'` gives `hello-world`, `'The `code` part'` g",
+    "R22": "If nothing is left, the anchor is `section`.",
+    "R23": "Anchors are made unique in document order: the first heading",
+    "R24": "Two headings with the title `Setup` give `setup` and `setup-",
+    "R25": "`heading_tree` returns the headings as a nested outline: a l",
+    "R26": "A heading is a child of the nearest heading before it that h",
+    "R27": "Levels may be skipped: an `###` right after a `#` is a child",
+    "R28": "Siblings keep document order.",
+    "R29": "Both functions raise `ValueError` when the argument is not a",
+    "R30": "A text with no headings gives `[]`."
+  }
+}
