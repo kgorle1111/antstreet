@@ -47,6 +47,10 @@ def top_up(micros: object, round_n: int = 1, actor: str = "investor") -> Event:
     )
 
 
+def test_a_top_up_of_one_micro_is_accepted() -> None:
+    assert round_budget(sheet(), [top_up(1)], 1) == 600_001
+
+
 def test_round_budget_is_sheet_amount_without_events() -> None:
     assert round_budget(sheet(), [], 1) == 600_000
     assert round_budget(sheet(), [], 2) == 400_000
@@ -164,6 +168,16 @@ def test_unknown_cost_charges_match_each_slice_to_its_own_start() -> None:
     ]
     assert remaining(sheet(), events, 1) == 600_000 - 40_000 - 90_000
     assert remaining(sheet(), events, 2) == 400_000 - 70_000
+
+
+def test_a_slice_cap_of_one_micro_is_charged() -> None:
+    assert remaining(sheet(), [start(1, 1)], 1) == 600_000 - 1
+
+
+def test_an_end_closes_only_the_slice_it_names() -> None:
+    # Slice 2 never reports a cost; slice 1 ends later with one. Only slice 2 is charged.
+    events = [start(1, 40_000), start(2, 70_000), end(2, None), end(1, 5)]
+    assert remaining(sheet(), events, 1) == 600_000 - 5 - 70_000
 
 
 def test_a_slice_that_started_and_never_ended_is_charged_at_its_cap() -> None:
@@ -448,6 +462,11 @@ def test_plan_budget_equal_to_round_count() -> None:
 def test_plan_non_positive_inputs_raise(budget: int, n_checks: int, n_rounds: int) -> None:
     with pytest.raises(ValueError, match="positive"):
         plan_rounds(budget, n_checks, n_rounds)
+
+
+def test_plan_non_positive_inputs_say_which_inputs_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="budget_micros, n_checks and n_rounds must be positive"):
+        plan_rounds(0, 8)
 
 
 def test_plan_budget_below_round_count_raises() -> None:

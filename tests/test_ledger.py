@@ -185,3 +185,58 @@ def test_unserialisable_data_leaves_the_file_untouched(path):
     with LedgerWriter(path) as w, pytest.raises(TypeError):
         w.append(ev(data={"when": object()}))
     assert path.read_bytes() == before
+
+
+def test_every_event_with_an_unknown_cost_is_counted() -> None:
+    t = total([ev(cost_micros=None), ev(cost_micros=None), ev(cost_micros=7)])
+    assert (t.unknown_cost_events, t.cost_micros) == (2, 7)
+
+
+def test_the_default_timestamp_is_utc() -> None:
+    from datetime import UTC, datetime
+
+    assert datetime.fromisoformat(ev().ts).utcoffset() == UTC.utcoffset(None)
+
+
+def test_a_line_is_written_with_its_keys_in_sorted_order() -> None:
+    keys = list(json.loads(ev(data={"b": 1, "a": 2}).to_json()))
+    assert keys == sorted(keys)
+    assert list(json.loads(ev(data={"b": 1, "a": 2}).to_json())["data"]) == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"run": 5}, "run must be a string"),
+        ({"run": ""}, "run must be non-empty"),
+        ({"round": -1}, "round must be a non-negative int"),
+        ({"tokens_in": -1}, "tokens_in must be a non-negative int"),
+        ({"tokens_cached": True}, "tokens_cached must be a non-negative int"),
+        ({"prev": "xyz"}, "prev must be 64 lower-case hex digits"),
+    ],
+)
+def test_an_invalid_event_says_which_field_and_why(overrides, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        ev(**overrides)
+
+
+def test_a_line_that_cannot_be_read_says_why() -> None:
+    good = json.loads(ev().to_json())
+    with pytest.raises(ValueError, match="nested too deeply"):
+        Event.from_json("[" * 100_000)
+    with pytest.raises(ValueError, match="prev must be a string"):
+        Event.from_json(json.dumps(good | {"prev": None}))
+    with pytest.raises(ValueError, match=r"fields differ from schema: \['zzz'\]"):
+        Event.from_json(json.dumps(good | {"zzz": 1}))
+    del good["cost_micros"]
+    with pytest.raises(ValueError, match=r"fields differ from schema: \['cost_micros'\]"):
+        Event.from_json(json.dumps(good))
+
+
+def test_a_ledger_whose_last_line_lost_its_newline_can_be_appended_to_after_several_lines(
+    path,
+) -> None:
+    write_all(path, [ev(), ev(), ev()])
+    path.write_bytes(path.read_bytes().removesuffix(b"\n"))
+    write_all(path, [ev()])
+    assert len(read_events(path)) == 4
