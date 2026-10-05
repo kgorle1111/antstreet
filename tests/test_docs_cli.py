@@ -16,6 +16,7 @@ from docs_support import (
     table,
 )
 
+from boss import audit as audit_run
 from boss import cli, gate, worker
 from boss.bench import audit, drafts, paired, replay
 from boss.bench import kpi as bench_kpi
@@ -37,7 +38,12 @@ def parsers() -> dict[str, argparse.ArgumentParser]:
     """Every documented command, by the name used in the document's headings."""
     top = cli._parser()
     found = {"boss": top}
-    found |= {f"boss {name}": p for name, p in top._subparsers._group_actions[0].choices.items()}
+    for name, parser in top._subparsers._group_actions[0].choices.items():
+        steps = getattr(parser, "_subparsers", None)  # a command with steps of its own: `audit`
+        if steps is None:
+            found[f"boss {name}"] = parser
+        else:
+            found |= {f"boss {name} {s}": p for s, p in steps._group_actions[0].choices.items()}
     return found
 
 
@@ -105,7 +111,7 @@ def test_every_option_of_every_command_is_documented_with_its_default(text, pars
 
 
 def test_every_subcommand_is_documented_and_no_other_is(text, parsers):
-    documented = set(re.findall(r"^## `(boss \w+)`\s*$", text, re.M))
+    documented = set(re.findall(r"^## `(boss \w+(?: \w+)?)`\s*$", text, re.M))
     assert documented == {n for n in parsers if n != "boss"}
 
 
@@ -149,6 +155,7 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
     rows = {r[0].strip("`"): r for r in table(section(text, "Environment variables"))}
     expected = {
         cli.EXECUTABLE_VAR,
+        audit_run.HOME_VAR,
         worker._API_KEY_VAR,
         worker._THINKING_VAR,
         *worker._ENV_ALLOWLIST,
@@ -166,6 +173,7 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
         "bench/audit.py",
         "roles/judge.py",
         "gate.py",
+        "gitrepo.py",
         "sandbox.py",
     }
     for module in ("gate", "sandbox", "bench.drafts", "bench.audit", "roles.judge"):

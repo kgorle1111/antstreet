@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from boss import context, held_out, signing
+from boss import context, held_out, signing, spec
 from boss.dispatch import DispatchPolicy, DispatchView, render_table
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import _CONTROL_ESCAPES, safe_text
@@ -27,16 +27,65 @@ Ask = Callable[[str], str]
 Say = Callable[[str], None]
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class SpecShown:
+    """What the investor is shown about the rules: the view, and what the approval records."""
+
+    text: str
+    summary: dict[str, Any]
+
+
+SpecView = Callable[[TermSheet], SpecShown]
+
+
+def spec_view(
+    rules_path: Path, checks_dir: Path, untested: Mapping[str, str] | None = None
+) -> SpecView:
+    """The investor's rule coverage view for a term sheet, recomputed from the files on disk each
+    time it is asked for: the rule list is re-derived from the sheet's idea (a list edited to drop
+    a rule is `spec.SpecError`), and the claims are the checks' own `criteria`. `untested` is the
+    boss's waivers, rule id to reason."""
+    waived = dict(untested or {})
+
+    def view(sheet: TermSheet) -> SpecShown:
+        split = spec.load(rules_path, sheet.idea)
+        sources = {}
+        for check in sheet.checks:
+            try:
+                sources[check.id] = (checks_dir / check.file).read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeDecodeError):
+                continue  # reported as unreadable by verify
+        claims = {c.id: c.criteria for c in sheet.checks}
+        report = spec.verify(split, claims, sources, waived)
+        if report.problems:  # a claim on a rule that does not exist is not a claim to approve
+            problems = "; ".join(report.problems)
+            raise spec.SpecError(f"the checks' rule citations are malformed: {problems}")
+        summary = report.to_summary()
+        summary["waived_reasons"] = {
+            r: safe_text(" ".join(waived[r].split()), limit=MAX_DESCRIPTION_CHARS)
+            for r in summary["waived"]
+        }
+        return SpecShown(spec.render_report(report, waived), summary)
+
+    return view
+
+
 class NotApprovedError(Exception):
     """No investor approval matches the current term sheet and check files."""
 
 
-def content_hashes(sheet: TermSheet, checks_dir: Path) -> dict[str, str]:
-    """Hashes of what the investor approved. The approval flag itself is excluded."""
+def content_hashes(
+    sheet: TermSheet, checks_dir: Path, rules_path: Path | None = None
+) -> dict[str, str]:
+    """Hashes of what the investor approved. The approval flag itself is excluded. A run with a
+    rule list (`rules_path` names a file that exists) hashes it too, under `rules.json`; a run
+    without one has the hashes it always had, so an old approval still verifies."""
     unapproved = dataclasses.replace(sheet, approved_by_investor=False)
     hashes = {"term_sheet": hashlib.sha256(unapproved.to_json().encode()).hexdigest()}
     for check in sheet.checks:
         hashes[check.file] = hashlib.sha256((checks_dir / check.file).read_bytes()).hexdigest()
+    if rules_path is not None and rules_path.is_file():
+        hashes[spec.RULES_FILE] = hashlib.sha256(rules_path.read_bytes()).hexdigest()
     return hashes
 
 
@@ -46,6 +95,7 @@ def require_approval(
     checks_dir: Path,
     held_out_dir: Path | None = None,
     key_path: Path | None = None,
+    rules_path: Path | None = None,
 ) -> None:
     """Raise NotApprovedError unless an investor approval matches the files on disk. With a
     `held_out_dir`, the approval must also match that folder exactly, so a held-out file edited,
@@ -55,14 +105,20 @@ def require_approval(
     With a `key_path` that holds the project's investor key, a signed approval must carry a valid
     HMAC, and an unsigned one counts only when it is older than the hash chain (its line has no
     `prev`): a line written by this code always signs, so an unsigned approval inside the chain
-    is a forgery. Without a key file nothing can be verified and a signature is not required."""
+    is a forgery. Without a key file nothing can be verified and a signature is not required.
+
+    A `rules_path` that exists must hold the rule list of the term sheet's idea (`spec.load`) and
+    match the approval's `rules.json` hash: a rule dropped from it, before or after approval,
+    voids the approval."""
     try:
-        current = content_hashes(sheet, checks_dir)
+        current = content_hashes(sheet, checks_dir, rules_path)
+        if rules_path is not None and rules_path.is_file():
+            spec.load(rules_path, sheet.idea)
         held = None if held_out_dir is None else held_out.hashes(held_out_dir)
         key = None if key_path is None else signing.load_key(key_path)
     except OSError as exc:  # a check deleted or made unreadable is a check that changed
         raise NotApprovedError(f"an approved check cannot be read: {exc}") from exc
-    except signing.SigningError as exc:
+    except (signing.SigningError, spec.SpecError) as exc:
         raise NotApprovedError(str(exc)) from exc
     unverified = False
     for event in events:
@@ -101,6 +157,8 @@ def review_term_sheet(
     notes: Sequence[str] = (),
     held_out_dir: Path | None = None,
     view: DispatchView | None = None,
+    spec_shown: SpecView | None = None,
+    rules_path: Path | None = None,
 ) -> TermSheet | None:
     """Show the term sheet; loop until the investor approves (returns the sheet) or rejects (None).
 
@@ -114,12 +172,27 @@ def review_term_sheet(
     With a `view` (`--dispatch rules`) the sheet shows its route and the dispatch table, the
     investor may edit both in term_sheet.json, and an edit is held to the view's policy. The
     approval then records the route it was given on.
+
+    With `spec_shown` the rule coverage (uncovered rules first) is printed above the term sheet and
+    is part of what the investor must have seen: it is recomputed before an approval, and a change
+    since it was shown means "review it again". A rule list that is not the idea's (`SpecError`)
+    cannot be approved. The approval then records the coverage summary and hashes the rule list at
+    `rules_path` with the rest.
     """
     policy = None if view is None else view.policy
     path = run_dir / TERM_SHEET_FILE
     path.write_text(dataclasses.replace(sheet, approved_by_investor=False).to_json())
     while True:
-        shown = render(sheet, checks_dir, held_out_dir, view)
+        try:
+            coverage = spec_shown(sheet) if spec_shown else None
+            spec_problem = None
+        except spec.SpecError as exc:
+            coverage, spec_problem = None, str(exc)
+        shown = (coverage.text + "\n\n" if coverage else "") + render(
+            sheet, checks_dir, held_out_dir, view
+        )
+        if spec_problem:
+            say(f"The rule list cannot be used: {spec_problem}")
         say(shown)
         for note in notes:
             say(note)
@@ -128,19 +201,34 @@ def review_term_sheet(
         except (EOFError, KeyboardInterrupt):
             answer = "r"
         if answer in ("a", "approve"):
+            if spec_problem:
+                say(
+                    f"Not approved: the rule list is not the idea's ({spec_problem}). "
+                    "Reject, or edit and re-check."
+                )
+                continue
             # Approval binds to what is on disk now, and only if the investor has seen exactly that.
             try:
                 current = _load_valid(path, checks_dir, held_out_dir, policy)
+                now = spec_shown(current) if spec_shown else None
             except TermSheetError as exc:
                 say(_problems_text("The term sheet does not validate", exc))
                 continue
-            if render(current, checks_dir, held_out_dir, view) != shown:
+            except spec.SpecError as exc:
+                say(f"Not approved: the rule list cannot be used: {exc}")
+                continue
+            again = (now.text + "\n\n" if now else "") + render(
+                current, checks_dir, held_out_dir, view
+            )
+            if again != shown:
                 say("The term sheet or a check changed since it was shown; review it again.")
                 sheet = current
                 continue
             approved = dataclasses.replace(current, approved_by_investor=True)
             path.write_text(approved.to_json())
-            data: dict[str, Any] = {"hashes": content_hashes(approved, checks_dir)}
+            data: dict[str, Any] = {"hashes": content_hashes(approved, checks_dir, rules_path)}
+            if now is not None:
+                data["spec"] = now.summary
             if held_out_dir is not None and (held := held_out.hashes(held_out_dir)):
                 data["held_out_hashes"] = held
             if policy is not None:

@@ -267,17 +267,25 @@ uv run python -m boss.bench.run --out bench/results/raw/e6-dispatch --arms firm 
 uv run python -m boss.bench.run --out bench/results/raw/e6-cascade --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch cascade --max-tier opus"
 ```
 
-The multi-file set takes the same two flags with `--max-tasks 3 --parallel 3` added to
-`--firm-args`. A cascade cell's ledger holds every attempt: `hired.dispatch` (tier, effort, `from_tier`),
+The eight multi-file tasks (`bench/tasks-multi`) take the same four arms with the firm run at three
+tasks, three at once, same $0.80 budget and 3 reps:
+
+```bash
+uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-haiku --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3"
+uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-sonnet --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet --firm-args "--max-tasks 3 --parallel 3"
+uv run python -m boss.bench.run --out bench/results/raw/e6-multi-dispatch --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch rules --max-tier sonnet"
+uv run python -m boss.bench.run --out bench/results/raw/e6-multi-cascade --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch cascade --max-tier opus"
+```
+
 the gate's `fired` verdict, `slice_end.cost_micros` and `slice_end.model_id`; `boss routing` run
 over a project that holds those runs prints the fail rate and mean cost per task kind and tier. Cells
 do not share a project, so the arm's starts are all the prior.
 
 A dispatch cell's ledger holds what to count: a `hired` event whose `dispatch` has `from_tier` is
 an escalation fired, one with `refused` is a step the round could not fund, and a fired task whose
-product later passes is rescued. No command counts them yet (B72): read them from the ledgers.
-A cell whose run stopped for a wrong model (T53) is reported apart, not counted as a failure of
-the arm; no command separates it yet (B72). The model each worker ran is `slice_end.model_id`.
+product later passes is rescued. No command counts them yet (B93): read them from the ledgers.
+A cell whose run stopped for a wrong model (T69) is reported apart, not counted as a failure of
+the arm; no command separates it yet (B93). The model each worker ran is `slice_end.model_id`.
 
 ## Reproducing
 

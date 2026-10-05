@@ -54,6 +54,11 @@ class RunPaths:
         return self.root / "held_out"
 
     @property
+    def rules(self) -> Path:
+        """The rule list of a run started with `--spec` (`boss.spec`); absent otherwise."""
+        return self.root / "rules.json"
+
+    @property
     def examiner_refused(self) -> Path:
         return self.root / "examiner_refused.json"
 

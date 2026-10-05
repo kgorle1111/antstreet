@@ -1,7 +1,8 @@
 # Benchmark results
 
 One folder per run: `table.md` (what `python -m boss.bench.table` printed) and `results.jsonl`
-(every cell's `result.json`, one per line). Raw ledgers, worker logs and products stay on the
+(every cell's `result.json`, one per line); the later folders hold a write-up (`README.md`), and
+`2026-10-03-blind35` also a `table.md`. Raw ledgers, worker logs and products stay on the
 machine that ran them (`bench/results/raw/`, git-ignored): they hold absolute paths.
 
 Costs are the CLI's client-side estimates. Model: Haiku. Budget: $0.40 per cell.
@@ -13,19 +14,30 @@ Costs are the CLI's client-side estimates. Model: Haiku. Budget: $0.40 per cell.
 | pilot | single | 10/17 | 59% [36-78%] | 90% | $0.091 | $0.154 |
 | pilot | firm | 8/17 | 47% [26-69%] | 83% | $0.194 | $0.413 |
 | rerun1 | firm | 9/17 | 53% [31-74%] | 87% | $0.206 | $0.389 |
-| final3 | single | 32/51 | 63% [49-75%] | 92% | $0.093 | $0.147 |
-| final3 | firm | 35/51 | 69% [55-80%] | 94% | $0.220 | $0.320 |
+| final3 (unblinded) | single | 32/51 | 63% [49-75%] | 92% | $0.093 | $0.147 |
+| final3 (unblinded) | firm | 35/51 | 69% [55-80%] | 94% | $0.220 | $0.320 |
+| blind35 | single | 62/105 | 59% [49-68%] | 92% | $0.088 | $0.150 |
+| blind35 | firm | 64/105 | 61% [51-70%] | 92% | $0.215 | $0.353 |
 
-- The firm went from losing to a single agent (47% against 59%) to level with it (69% against 63%).
-  The intervals overlap: **this does not show the firm is better.** By task, the firm did better
-  on 4, worse on 3 and the same on 10.
-- The firm costs 2.4 times as much per cell and 2.2 times as much per passing cell. 40% of its
-  spend is the boss's draft.
-- 12 of the 36 firm cells that passed every one of the boss's checks failed a hidden check: the
-  boss's checks do not cover the idea.
-- The boss wrote 20 wrong checks out of 397 (the reference solution fails them), in 16 of 51 drafts.
+- **`blind35` is the run to read.** Both arms got the same instruction and neither was told about
+  hidden checks. 35 tasks, 3 runs each: the firm delivered 64 of 105, the single agent 62 of 105.
+  Paired by task the difference is +0.019 [-0.076, +0.124]: **no delivery benefit is shown.** By task
+  the firm did better on 6, worse on 5 and the same on 24. See `2026-10-03-blind35/README.md`.
+- `final3` is labelled unblinded: its single arm was told "Your work will be judged by checks you
+  cannot see" and the firm's workers got no such sentence, and its two arms ran on different commits.
+  The same holds for `new18` (see its note). Its 69% against 63% is not a fair comparison. `pilot`
+  and `rerun1` also ran before the arms' prompts were made equal (commit `6b6111a`); whether they
+  had the same imbalance was not checked.
+- In `blind35` the firm costs 2.4 times as much per cell ($0.215 against $0.088) and 2.4 times as
+  much per passing cell. Paired by task, the difference in mean cost per cell is +$0.127 [+0.109, +0.145] and
+  time +142 s [+122, +165] higher for the firm: both intervals lie wholly on the costly side. 43% of the
+  firm's spend is the boss's draft (`final3`: 40%).
+- 33 of the 87 firm cells that passed every one of the boss's checks failed a hidden check in
+  `blind35` (`final3`: 12 of 36): the boss's checks do not cover the idea.
+- The boss wrote 28 wrong checks out of 813 in `blind35` (the reference solution fails them), in 20
+  of 105 drafts (`final3`: 20 of 397, in 16 of 51).
 
-## Disputes and firings (final3, firm arm)
+## Disputes and firings (final3, unblinded, firm arm)
 
 - Workers disputed 10 checks. **All 10 were wrong**: the reference solution fails each of them.
   With rerun1, that is 13 of 13.

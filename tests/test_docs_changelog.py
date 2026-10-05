@@ -90,6 +90,9 @@ def test_options_the_changelog_names_exist(text):
     known = {s for a in parser._actions for s in a.option_strings} | CLAUDE_FLAGS
     for sub in parser._subparsers._group_actions[0].choices.values():
         known |= {s for a in sub._actions for s in a.option_strings}
+        steps = getattr(sub, "_subparsers", None)  # `audit` has steps of its own
+        for step in steps._group_actions[0].choices.values() if steps else ():
+            known |= {s for a in step._actions for s in a.option_strings}
     named = set(re.findall(r"(?<![\w-])(--[a-z][a-z-]*)", text))
     assert named <= known, f"named in the changelog but not in the CLI: {named - known}"
     commands = set(parser._subparsers._group_actions[0].choices)
@@ -101,7 +104,9 @@ def test_figures_the_changelog_states_match_the_code_and_the_repository(text):
     assert f"slices ({run_limits.max_slices})" in text
     assert f"workers ({run_limits.max_workers})" in text
     assert "coverage floor of 96%" in text
-    assert "--cov-fail-under=96" in read(ROOT / ".github" / "workflows" / "ci.yml")
+    assert "coverage report --show-missing --fail-under=96" in read(
+        ROOT / ".github" / "workflows" / "ci.yml"
+    )
     tasks = load_tasks(ROOT / "bench" / "tasks")
     assert f"{len(tasks)} tasks" in text
     assert "`c130282a6eec5fe8`" in text and task_set_hash(original_tasks()) == "c130282a6eec5fe8"

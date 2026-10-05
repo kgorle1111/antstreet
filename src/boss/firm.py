@@ -226,7 +226,12 @@ class _Firm:
     def require_approval(self, events: Sequence[Event]) -> None:
         """The investor's approval must match the checks and the held-out folder on disk now."""
         require_approval(
-            events, self.sheet, self.paths.checks, self.paths.held_out, self.paths.investor_key
+            events,
+            self.sheet,
+            self.paths.checks,
+            self.paths.held_out,
+            self.paths.investor_key,
+            self.paths.rules,
         )
 
     def state(self) -> RunState:
@@ -1084,7 +1089,7 @@ def run_firm(
     advise: Advise | None = None,
 ) -> FirmReport:
     events = paths.events()
-    require_approval(events, sheet, paths.checks, paths.held_out, paths.investor_key)
+    require_approval(events, sheet, paths.checks, paths.held_out, paths.investor_key, paths.rules)
     try:
         held_out_store.load(paths.held_out)  # approved files are hashed; an unreadable list is not
     except held_out_store.HeldOutError as exc:

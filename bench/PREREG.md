@@ -86,7 +86,7 @@ Added 2026-10-04, before any E6 run.
   delivers at a lower cost per delivered task than a fixed Sonnet or a fixed Haiku, with no loss
   of delivery. The step reaches only the cells that fail a visible check (18 of the 51 failed
   cells in the blind 35-task run); the other 33 failed a hidden check no builder-side step can see.
-- **Feature.** `--dispatch rules` (`docs/DECISIONS.md` D38 to D40).
+- **Feature.** `--dispatch rules` (`docs/DECISIONS.md` D43 to D45).
 - **Arms.** Same code, same blinded prompts, same per-cell budget of $0.80, through `--firm-args`:
   `fixed-haiku` (`--model haiku --boss-model haiku`), `fixed-sonnet` (`--model sonnet --boss-model
   sonnet`), `dispatch` (`--model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier
@@ -103,17 +103,24 @@ Added 2026-10-04, before any E6 run.
   tests the ladder, not the data-driven start (B104). At $0.80 an Opus rung is funded only if the
   earlier rungs left $0.55 free in the round; rungs refused for money are reported apart (`hired`
   with no worker after a `fired`, `abandoned` reason `cascade: ...`) and count as a failure of the arm.
-- **Primary KPI.** Cost per delivered task (the sum of cell cost over delivered cells, a cell
-  counting its boss call), paired by task with a 10,000-resample bootstrap of tasks.
+- **Primary KPI.** Cost per assigned cell (each cell's total cost, boss call included, delivered
+  or not), paired by task (a task's mean over its runs) with a 10,000-resample bootstrap of tasks:
+  `python -m boss.bench.paired --kpi cost_per_delivery`. With the delivery guard met, a lower cost
+  per assigned cell at no lower delivery means a lower cost per delivered task. Reported beside it,
+  not decided on: the pooled cost per delivered task (TOTAL spend over all assigned cells divided by
+  delivered cells) from `python -m boss.bench.kpi`; it has no interval, because a task that
+  delivered nothing has no ratio.
 - **Delivery guard.** Dispatch minus each fixed arm, 95% interval with a lower bound at or above
   -0.10 (the blind run's own interval was [-0.076, +0.124], so this is the narrowest guard the
-  sample supports).
-- **Not shown if.** Dispatch is default-on only if its cost-per-delivered interval is below zero
+  sample supports). Every assigned cell counts in the denominator, a cell that stopped for a wrong
+  model (T69) included: it is never relabelled `infrastructure`. Those stops are still reported
+  apart.
+- **Not shown if.** Dispatch is default-on only if its paired cost-per-assigned-cell interval (the primary KPI) is below zero
   against fixed Sonnet AND (below zero against fixed Haiku, or delivery is higher with the interval
   above zero). Otherwise it stays opt-in and fixed Haiku stays the default.
 - **Reported apart.** Escalations fired, refused and rescued (a fired task that later delivered);
-  cells whose run stopped for a wrong model (T53) are reported apart, not counted as a
-  failure of the arm (no command separates them yet, B72).
+  cells whose run stopped for a wrong model (T69), counted in the guard as above (no command
+  separates them yet, B93).
 - **Cost.** Every Sonnet figure is an assumption (3 times Haiku on the same tokens, the ratio
   `budget.py` uses): no Sonnet or Opus cell has ever run. About $160 for both sets (range $110 to
   $210). Stage 1 first, about $55: 12 tasks, 3 runs, plus the 8 multi-file tasks once; stop if
@@ -127,5 +134,10 @@ equal compute in the literature. They stay off by default and are not claimed to
 
 ## Changes to this plan
 
+- 2026-10-03: the baseline runs before this plan (final3, new18) gave the single arm a sentence
+  saying hidden checks would judge it, which the firm's builder did not get. Both arms now get the
+  same instruction (`solo_v2`, `builder_v4`); `bench/results/2026-10-03-blind35/` is the baseline
+  every experiment here compares against.
 - 2026-10-04: added E6 (per-task dispatch), before any run of it.
 - 2026-10-04: added E6's fourth arm, `cascade`, before any run of it.
+- 2026-10-05: E6's decision rule uses the paired cost per assigned cell, the interval the code computes; the pooled cost per delivered task is reported beside it. No E6 run had happened.

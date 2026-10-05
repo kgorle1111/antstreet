@@ -8,7 +8,6 @@ beside them, never folded in as zero. Every rate carries its sample size and a W
 from __future__ import annotations
 
 import argparse
-import math
 import statistics
 import sys
 from collections.abc import Sequence
@@ -17,6 +16,7 @@ from pathlib import Path
 
 from boss.bench.results import ARMS, CellResult, load_results
 from boss.report import dollars
+from boss.stats import md_table, pct, pct_interval, wilson_interval
 
 CLOSING = (
     "Pass rates from fewer than ~60 paired tasks cannot show a 20-point difference; "
@@ -50,18 +50,6 @@ class ArmSummary:
     held_out_wrong_cells: int | None = None  # cells with at least one wrong held-out check
     median_duration_s: float | None = None  # wall clock per counted cell; None with no cells
     reliable_tasks: int = 0  # tasks whose every counted run passed (pass^k over k runs)
-
-
-def wilson_interval(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    if n == 0:
-        return (0.0, 1.0)
-    p = successes / n
-    denom = 1 + z * z / n
-    centre = (p + z * z / (2 * n)) / denom
-    margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
-    low = 0.0 if successes == 0 else max(0.0, centre - margin)
-    high = 1.0 if successes == n else min(1.0, centre + margin)
-    return (low, high)
 
 
 def _counted(results: Sequence[CellResult]) -> list[CellResult]:
@@ -139,19 +127,8 @@ def per_task(results: Sequence[CellResult]) -> list[tuple[str, dict[str, tuple[i
     return rows
 
 
-def _pct(x: float) -> str:
-    return f"{x * 100:.0f}%"
-
-
 def _rate(s: ArmSummary) -> str:
-    return f"{_pct(s.pass_rate)} [{s.pass_low * 100:.0f}-{s.pass_high * 100:.0f}%]"
-
-
-def _md(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
-    def line(cells: Sequence[str]) -> str:
-        return "| " + " | ".join(cells) + " |"
-
-    return [line(header), line(["---"] * len(header))] + [line(r) for r in rows]
+    return pct_interval(s.pass_rate, s.pass_low, s.pass_high)
 
 
 def _duration(seconds: float | None) -> str:
@@ -194,17 +171,17 @@ def render_table(results: Sequence[CellResult]) -> str:
                 str(s.tasks),
                 str(s.passed),
                 _rate(s),
-                _pct(s.check_rate),
+                pct(s.check_rate),
                 dollars(round(s.mean_cost_micros)) if has_cells else "n/a",
                 per_pass,
-                _pct(s.boss_share),
+                pct(s.boss_share),
                 str(s.unknown_cost_events),
                 str(s.infrastructure),
                 _duration(s.median_duration_s),
                 f"{s.reliable_tasks}/{s.tasks}",
             ]
         )
-    out += _md(
+    out += md_table(
         [
             "arm",
             "cells",
@@ -247,7 +224,7 @@ def render_table(results: Sequence[CellResult]) -> str:
         [task] + [f"{a[0]}/{a[1]}" if (a := by_arm.get(arm)) else "-" for arm in arms]
         for task, by_arm in tasks
     ]
-    out += ["", *_md(["task", *arms], cells), "", CLOSING]
+    out += ["", *md_table(["task", *arms], cells), "", CLOSING]
     return "\n".join(out) + "\n"
 
 

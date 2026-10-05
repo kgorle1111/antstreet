@@ -9,6 +9,7 @@ import pytest
 from docs_support import DOCS, ROOT, code_spans, money, read, section, table
 
 from boss import (
+    audit,
     boss,
     budget,
     cli,
@@ -63,6 +64,7 @@ def test_every_prompt_file_and_prompt_constant_is_named(text):
         boss.MULTI_TASK_PROMPT,
         firm.BUILDER_PROMPT,
         bench_run.SOLO_PROMPT,
+        audit.AUDIT_PROMPT,
     }
     assert used <= prompts, "code names a prompt file that does not exist"
     for name in prompts:

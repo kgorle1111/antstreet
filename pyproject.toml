@@ -1,15 +1,17 @@
 [project]
-# kn: placeholder distribution name; "boss" is taken on PyPI. Final name is decided before the first release.
-name = "boss"
+name = "antstreet"
 version = "0.0.1"
-description = "Fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
+description = "AntStreet: fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 # The gate runs term-sheet checks with pytest, so it is needed at runtime, not only in development.
 dependencies = ["pytest>=8"]
 
 [project.scripts]
-boss = "boss.cli:main"
+antstreet = "boss.cli:main"
+boss = "boss.cli:main"  # alias: `boss` is the bull you talk to
 
 [dependency-groups]
 dev = [
@@ -22,6 +24,10 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]
 build-backend = "uv_build"
+
+# The import name stays `boss` (backlog B100 is the optional rename).
+[tool.uv.build-backend]
+module-name = "boss"
 
 [tool.ruff]
 target-version = "py312"
@@ -39,8 +45,11 @@ files = ["src/boss"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# A plain `uv run pytest` is the quick run: one worker per core, and not the `slow` tests (CI runs
+# them) nor the `sigint` ones (serial only). A -m on the command line replaces the -m here.
+addopts = "-q -n auto --dist loadgroup -m 'not slow and not sigint'"
 markers = [
+    "slow: spawns many subprocesses (sandboxed gates, benchmark task validation, simulated firms). Left out of a plain `uv run pytest`; CI runs them.",
     "sigint: a fake worker sends a real SIGINT to the pytest process (Ctrl-C mid-run). Under load plus coverage that has hung a parallel worker, so CI runs these after the parallel run, serially.",
 ]
 

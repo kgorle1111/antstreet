@@ -142,6 +142,17 @@ def test_verify_finds_a_changed_or_missing_prompt_file_and_only_the_latest_start
     assert verify(paths, [plain]) == []  # a run without dispatch records no hash
 
 
+@pytest.mark.parametrize("bad", ["1", 1.0, True, None, [1], {"n": 1}])
+def test_verify_skips_a_slice_number_that_is_not_an_int_instead_of_crashing(
+    checks_dir, tmp_path, bad
+):
+    s = sheet()
+    b = bundle(s, s.tasks[0], checks_dir)
+    e = start_event("w1", 1, b)
+    e = Event(run=e.run, round=e.round, actor=e.actor, event=e.event, data={**e.data, "slice": bad})
+    assert verify(RunPaths(tmp_path / "run"), [e]) == []
+
+
 def test_mandatory_parts_are_never_cut_and_too_big_a_brief_is_refused_with_its_sizes(checks_dir):
     s = sheet(idea="x " * 400)
     full = bundle(s, s.tasks[1], checks_dir)
