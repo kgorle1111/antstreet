@@ -42,8 +42,7 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   last line the next line chains from the new last line.
 - What the chain proves. It is unkeyed, so it catches any edit that does not also recompute every
   later line: a changed byte, a deleted, inserted or reordered line, a line from another ledger.
-  It does not stop a forger who recomputes it; that is what the signature on an investor event is
-  for (below). It also cannot see the end of the file: dropping the last lines leaves a valid
+  It does not stop a forger who recomputes it; that is what the line signatures are for (below). It also cannot see the end of the file: dropping the last lines leaves a valid
   chain, and the last line is not covered until another line follows it; that is what the anchor
   is for (below). A ledger with every `prev` removed reads as an older one.
   `docs/THREAT_MODEL.md` T46 states the limits.
@@ -57,6 +56,21 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   verdict is a record other people are shown); no other event is signed. An approval written by the first
   version of signing has a bare hex `sig` over its run, round and data; it still verifies, on an
   `approved` event only.
+- Line signatures. When a run is in a project, `LedgerWriter` loads the project's key when it opens
+  (creating it if the project has none) and ends every line it appends with
+  `, "mac": "<hex>"}`: the HMAC-SHA-256 with the investor key of `boss ledger line v1`, the run id
+  (the run folder's name) and the SHA-256 of the line without its `mac` (the same line with that
+  suffix replaced by `}`). `mac` is not an event field: `Event.from_json` drops it, and a `mac`
+  anywhere but the end of the line makes the line corrupt. With the key path, `read_events`
+  refuses, naming the line, a signed line whose `mac` does not verify (edited, forged, copied from
+  another run, or the key was replaced) and an unsigned line after a signed one (appended without
+  the key). Lines before the first signed line are covered by its `prev`. So nobody without the
+  key can edit, forge, insert or append any line, even by recomputing the whole chain, and the
+  writer never re-anchors such a line, because it runs the same check when it opens. Signed lines
+  with the key missing are refused with the path of the key to restore. A ledger in which no line is
+  signed (written before line signing, or by a writer with no key) still loads, and `boss report`
+  says how many lines are unsigned (`Ledger: N of M lines are unsigned`); a signed line's `prev`
+  covers the chained lines before it, and nothing covers lines older than the chain. Checking costs about 1 µs of HMAC per line.
 - `read_events(path, key_path)` with the project's key path (`RunPaths.events`, which every
   command, the loop and the pipeline use) refuses the ledger with `LedgerUnverifiedError` (a
   `LedgerCorruptError`) naming the first line when an investor or `audited` event does not verify. When the key
@@ -72,12 +86,13 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   object `{"lines": N, "last": "<SHA-256 of line N>", "mac": "<HMAC with the investor key over the
   run id, N and that hash>"}`. A reader that passes the key path refuses a ledger with fewer than
   `lines` lines (naming how many were dropped), whose line `lines` is not the recorded one (an edit
-  of the last line), or whose anchor does not verify. Lines past `lines` are not vouched for: the
-  anchor is written after the line, so a crash, or a reader racing the writer, leaves some. A
-  missing anchor is refused when the ledger holds a `v2:` signed event (it was written by code that
-  anchors, so the file was deleted) and accepted otherwise (an older run, or one not yet approved).
-  An anchor with the key missing is refused.
-- Keys are sorted. Timestamps are UTC ISO 8601.
+  of the last line), or whose anchor does not verify. Lines past `lines` must be signed like any
+  other; the anchor is written after the line, so a crash between the two, or a reader racing the
+  writer, sees one, and only such a line, never anchored, can be cut unseen. A missing anchor is
+  refused when the ledger holds a signed line or a `v2:` signed event (it was written by code that
+  anchors, so the file was deleted) and accepted otherwise (an older run). An anchor with the key
+  missing is refused.
+- Keys are sorted, except `mac`, which is always last. Timestamps are UTC ISO 8601.
 - `state.py`'s docstring lists the `data` contract for thirteen event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
 
@@ -622,7 +637,7 @@ Example:
   `held_out_hashes` as well as its `hashes`, or it does not match. After an amendment, the
   amendment's hashes are the ones that match.
 - Signature. The investor's key is 32 random bytes in `<project>/.boss/investor.key` (hex, mode
-  0600, created by the first investor event in the project, inside the project's ignored `.boss/`).
+  0600, created when a ledger writer of the project first opens, inside the project's ignored `.boss/`).
   `LedgerWriter` signs every investor event with it, the three forms of `approved` included (see
   Signatures above), and `require_approval` verifies with it and never prints it. When the key file
   exists, a signed approval counts only if its `sig` verifies (an edited approval, one moved to

@@ -87,7 +87,7 @@ flowchart LR
 | ✅ **Checks before code** | You read and approve the checks first. Workers cannot edit them. |
 | ⚖️ **The gate decides** | A pass needs pytest to exit 0 and a signed proof that every test really ran. |
 | 💸 **Budget caps and firing** | Money is released in rounds against passing checks. Stalled workers are fired. |
-| 🔏 **A ledger you can trust** | Hash-chained lines, approvals signed with a key no worker can read. |
+| 🔏 **A ledger you can trust** | Hash-chained lines, each one signed with a key no worker can read. |
 
 ## 🛠️ How it's engineered
 
