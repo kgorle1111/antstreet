@@ -127,10 +127,17 @@ def reassignment_brief(
     history: Sequence[SliceRecord],
     gate_results: Sequence[CheckResult],
     kept: Path,
+    with_files: bool = True,
+    with_tails: bool = True,
 ) -> str:
     """The first brief for a replacement worker: the task, why its predecessor was stopped, and
-    the predecessor's files, offered under `previous_attempt/` but not imposed."""
+    the predecessor's files, offered under `previous_attempt/` but not imposed. The file list and
+    the gate output in the notes can be left out (the context bundle does when over its bound)."""
     verdict = Verdict(Decision.FIRE, fired.data["reason"], fired.data.get("evidence", {}))
-    notes = handoff.failure_notes(verdict, history, gate_results, fired.data.get("last_reason"))
+    tails = {} if with_tails else {"tail_chars": 0}
+    notes = handoff.failure_notes(
+        verdict, history, gate_results, fired.data.get("last_reason"), **tails
+    )
     files = [p.relative_to(kept).as_posix() for p in sorted(kept.rglob("*")) if p.is_file()]
+    files = files if with_files else []
     return handoff.reassignment_prompt(prompt, notes, files)

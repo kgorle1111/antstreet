@@ -135,8 +135,9 @@ Written without a Linux host: none of this had been executed when it was written
 bwrap --die-with-parent --unshare-net --unshare-pid --unshare-ipc
   --ro-bind / /  --dev /dev  --proc /proc
   --tmpfs /home  --tmpfs /root  --tmpfs /tmp  --tmpfs /run
+  --ro-bind <each readable path not inside a secret> <same>   # interpreter and virtualenv
   --tmpfs <project>/.boss  (or --ro-bind /dev/null <file>)   # secrets, see below
-  --ro-bind <each readable path> <same>      # interpreter and virtualenv, re-exposed under the tmpfs
+  --ro-bind <each readable path inside a secret> <same>      # e.g. the checks folder, re-exposed
   --bind <run folder> <same>                 # the only writable path
   -- <command>
 ```
@@ -147,9 +148,10 @@ The root is bound read-only, so everything outside `/home`, `/root`, `/tmp` and 
 by a check: a project under `/srv`, `/opt` or `/work` would expose `<project>/.boss/` (the investor
 key, the ledger, the run store). `gate.secret_paths` therefore names the `.boss` folder above the
 workspace or checks it is given, plus `BOSS_AUDIT_HOME` when set, and `bwrap_argv` masks each one
-(`--tmpfs` for a folder) after the four tmpfs mounts and before the binds. bwrap applies mounts in
-argv order, so the binds re-expose only the check's own folder, even when it lies under a masked
-path. A `.boss` folder inside the workspace or an exported tree is never copied into the check's
+(`--tmpfs` for a folder) after the four tmpfs mounts and after every readable bind that is not
+inside a secret, then re-binds the readable paths that are (the check's own folder under `.boss`).
+bwrap applies mounts in argv order, so a readable path that contains a secret (an ancestor) is
+bound before the mask and cannot re-expose it, and one inside a mask re-exposes only itself. A `.boss` folder inside the workspace or an exported tree is never copied into the check's
 workspace (`gate._COPY_IGNORE`), so the writable copy holds no key. A key kept anywhere else is not hidden; the upgrade path is an allowlist root. macOS needs no
 mask: its profile denies every read that is not listed. Tests: `tests/test_sandbox_secrets.py`.
 

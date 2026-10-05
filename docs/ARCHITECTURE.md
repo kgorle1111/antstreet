@@ -42,6 +42,8 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `briefs.py` | What a worker is told: first brief, continuation after a gate run, reassignment brief, and the note about checks the investor added. | Call a model; present a worker's earlier words as instructions. |
 | `budget.py` | Round budgets, top-ups, remaining money, slice caps, the reserve, unlock test, round plan. Charges a slice that did work with no cost, or that never ended, at its cap, until a later slice resumes its session and reports the total that covers it. | Use floats; read a clock. |
 | `cli.py` | The `boss` command: parsing, validating counts, amounts and role lists, wiring, exit codes, `resume`, `topup`, `roles`; the `--profile`, `--parallel`, `--roles`, `--review-cycles` and `--fix-budget` options. | Decide pass, fire or money itself; call a role (it hands the pipeline to the loop). |
+| `context.py` | The context bundle of one worker slice: arranges what `briefs.py` produces plus an optional section of interface names, keeps it under `MAX_BUNDLE_CHARS` by leaving optional parts out whole in a fixed order, refuses before spend if the mandatory parts alone are over, hashes the exact text (system prompt, a NUL, user prompt), saves it, and re-verifies the saved files. | Open any file but the task's own check files; read the held-out folder, another task's check code, a hidden check or `.boss/`; cut a mandatory part. |
+| `dispatch.py` | Per-task dispatch as pure functions: the route rule (one agent when everything is one file), the whitelist of tiers, efforts, workers and reads (`dispatch_problems`), the plan from the run's flags, the one-step escalation, the worst case in dollars, the investor's table, and reading a worker's recorded model from the ledger. | Call a model; let the boss, a role or a worker choose a tier or an effort; step a worker up for any firing but the gate's `no progress` and `slice limit`; allow a tier above `--max-tier`. |
 | `doctor.py` | Preflight checks, each with a one-line fix: the gate sandbox, and with `--live` one real worker slice that tries to write outside its folder. | Raise on an expected failure; print an environment value. |
 | `errors.py` | Names the outcome of one CLI run from its stream signals and its stderr. | Trust `subtype` alone. |
 | `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`, with the held-out checks when the run has any. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own; let a held-out result reach a per-worker decision. |
@@ -182,6 +184,38 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
    `budget.round_budget` (so also in the spend ceiling) and, for a locked round, treats the lock
    as lifted (`state.run_state`).
 
+## Dispatch (`--dispatch rules`)
+
+Off, nothing in this section runs and a run is what it was before it existed: the term sheet has
+no `route` or `dispatch`, every worker runs on `--model`, the ledger has none of the keys below.
+
+1. **Plan.** After the boss's draft, `cli.py` calls `dispatch.plan_dispatch`: a pure function of
+   the sheet and the flags. It fills `route` (`route_of`: one agent if the sheet builds one file)
+   and each task's `dispatch` (agent, profile, tier, effort, `escalate_to`, `max_workers`, slice
+   cap, `reads`). The boss's draft carries none of it, so a model's output cannot choose a model.
+2. **Show and approve.** `approval.render` prints the route and the dispatch table with the
+   worst case in dollars. An edit to `term_sheet.json` is re-validated by `dispatch_problems`
+   (the whitelist and `--max-tier`) before it can be approved, and approval is refused if what
+   was shown differs from what is on disk. The sheet, `route` and `dispatch` included, is covered
+   by the approval hash.
+3. **Hire.** Before any worker is hired, `firm.py` re-validates the sheet against the policy the
+   run started with, so a sheet that was edited and somehow approved still cannot reach a dearer
+   model. A task's first worker runs on its `dispatch.tier`; the slice cap leaves room for that
+   model's own reserve (`budget.reserve_for`) and the spend ceiling for the dearest model any task
+   can reach.
+4. **Brief.** `context.build_bundle` arranges the brief, bounds it, and `firm.py` saves the exact
+   text to `logs/<worker>-s<N>.prompt.txt` before it records the `slice_start` that carries the
+   text's hash.
+5. **Step up.** When the gate fires a worker for `no progress` or a `slice limit` (`rule.decide`),
+   `dispatch.replacement_hire` picks the replacement: one tier up if the round can fund it, else
+   the effort from `default` to `high`, else the same. Once per task. On the one-agent route a
+   replacement that is not stronger is not hired. A blocked or disputing worker goes to the
+   investor, and an infrastructure failure is retried on the same model; neither steps anything up.
+6. **Check what ran.** The CLI's `system/init` names the model it started with; `slice_end` records
+   it as `model_id`, and a launched tier that is not in it stops the run after the slice is booked.
+7. **Report.** `boss report` prints one line per worker (tier, effort, why hired, cost, outcome,
+   model that ran) and rehashes each saved prompt.
+
 ## Control flow of `firm.py`
 
 Each row is one decision in `_Firm.run`, `_run_round`, `_current_worker`, `_slice` or `_act`.
@@ -274,6 +308,7 @@ Values in code, checked by the test.
 | Name | Value | Where |
 |---|---|---|
 | Workers per task | 2 | `firm.MAX_WORKERS_PER_TASK` |
+| Context bundle, characters | 30000 | `context.MAX_BUNDLE_CHARS` |
 | Default worker slice | $0.10 | `firm.DEFAULT_SLICE_MICROS` |
 | Reserve held back from every cap | $0.10 | `budget.RESERVE_MICROS` |
 | Smallest slice cap | $0.005 | `budget.MIN_SLICE_MICROS` |

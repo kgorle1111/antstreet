@@ -87,7 +87,10 @@ def test_the_tests_that_signal_their_own_process_run_serially_and_the_document_s
 
 def test_ci_shards_linux_caches_task_validations_and_runs_every_task_nightly(text):
     workflow = read(ROOT / ".github" / "workflows" / "ci.yml")
-    assert workflow.count('shard: "') == 4 and 'shard: "2/3"' in workflow
+    assert workflow.count('"shard":') == 7, "3 Linux shards on a pull request, plus macOS otherwise"
+    assert workflow.count('"os":"macos-latest"') == 1 and '"shard":"2/3"' in workflow
+    assert "github.event_name == 'pull_request' && '[" in workflow
+    assert "not on a pull request" in text and "only on a push to main and the nightly" in text
     assert "BOSS_SHARD: ${{ matrix.shard }}" in workflow and "`BOSS_SHARD`" in text
     assert "actions/cache@v4" in workflow and "BOSS_TASK_CACHE" in workflow
     assert "schedule:" in workflow and "github.event_name != 'schedule'" in workflow

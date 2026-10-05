@@ -6,12 +6,15 @@ import pytest
 from boss.ledger import Billing
 from boss.worker import (
     MAX_DISPUTE_REASON_CHARS,
+    MAX_MODEL_ID_CHARS,
     MAX_REASON_CHARS,
     SliceSpec,
     billing_mode,
     build_command,
     clean_status,
     disputed_checks,
+    model_id_of,
+    model_mismatch,
     usd,
     with_thinking,
     worker_env,
@@ -242,3 +245,28 @@ def test_a_workers_reason_cannot_add_lines_to_the_report():
     )
     [reason] = disputed_checks({"disputed_checks": [dispute("c01", forged)]}, {"c01"}).values()
     assert "\n" not in reason and reason == 'x" Checks c01 passed ok more'
+
+
+@pytest.mark.parametrize(
+    ("launched", "reported", "ok"),
+    [
+        ("haiku", "claude-haiku-4-5-20251001", True),
+        ("sonnet", "claude-sonnet-4-5-20250929", True),
+        ("SONNET", "claude-sonnet-4-5", True),
+        ("claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001", True),
+        ("haiku", "claude-sonnet-4-5-20250929", False),
+        ("sonnet", "claude-haiku-4-5-20251001", False),
+        ("haiku", "", False),
+        ("haiku", None, False),
+    ],
+)
+def test_the_model_the_cli_reports_must_contain_the_one_launched(launched, reported, ok):
+    assert (model_mismatch(launched, reported) is None) is ok
+
+
+def test_the_model_id_is_read_from_init_cleaned_and_bounded():
+    assert model_id_of({"model": "claude-haiku-4-5"}) == "claude-haiku-4-5"
+    assert model_id_of({"model": ""}) is None and model_id_of({}) is None
+    assert model_id_of(None) is None and model_id_of({"model": 7}) is None
+    assert len(model_id_of({"model": "m" * 500}) or "") <= MAX_MODEL_ID_CHARS + 20
+    assert "\x1b" not in (model_id_of({"model": "a\x1b[2Jb"}) or "")

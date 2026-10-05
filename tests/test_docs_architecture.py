@@ -8,7 +8,21 @@ import re
 import pytest
 from docs_support import DOCS, ROOT, code_spans, money, read, section, table
 
-from boss import audit, boss, budget, cli, firm, gate, limits, pipeline, retry, rule, runner, worker
+from boss import (
+    audit,
+    boss,
+    budget,
+    cli,
+    context,
+    firm,
+    gate,
+    limits,
+    pipeline,
+    retry,
+    rule,
+    runner,
+    worker,
+)
 from boss.bench import run as bench_run
 from boss.ledger import Event, EventType
 
@@ -100,6 +114,7 @@ def test_fixed_limits_match_the_code_and_the_named_symbols_exist(text):
     policy, run_limits = rule.FiringPolicy(), limits.RunLimits()
     expected = {
         "Workers per task": str(firm.MAX_WORKERS_PER_TASK),
+        "Context bundle, characters": str(context.MAX_BUNDLE_CHARS),
         "Default worker slice": money(firm.DEFAULT_SLICE_MICROS),
         "Reserve held back from every cap": money(budget.RESERVE_MICROS),
         "Smallest slice cap": money(budget.MIN_SLICE_MICROS),

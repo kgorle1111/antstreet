@@ -22,17 +22,16 @@ jobs:
     # inside bwrap on a 4-core runner: one job over the whole suite hit the 30 minute limit. So
     # Linux is split into three shards by test file (BOSS_SHARD, tests/conftest.py; a file's
     # fixtures and xdist groups stay on one shard) and each job must end in 20 minutes. macOS runs
-    # the whole suite in one job. --durations below names the slow tests so the next slowdown can
+    # the whole suite in one job, off pull requests. --durations below names the slow tests so the next slowdown can
     # be read, not guessed.
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {os: ubuntu-latest, shard: "0/3"}
-          - {os: ubuntu-latest, shard: "1/3"}
-          - {os: ubuntu-latest, shard: "2/3"}
-          - {os: macos-latest, shard: ""}
+        # macOS runs only on a push to main and the nightly run, never on a pull_request (owner
+        # decision 2026-10-05: its minutes cost the most). `matrix` is not visible to a job-level
+        # `if`, so the list itself is chosen here; the Linux shards are the same in both.
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-latest","shard":"0/3"},{"os":"ubuntu-latest","shard":"1/3"},{"os":"ubuntu-latest","shard":"2/3"}]' || '[{"os":"ubuntu-latest","shard":"0/3"},{"os":"ubuntu-latest","shard":"1/3"},{"os":"ubuntu-latest","shard":"2/3"},{"os":"macos-latest","shard":""}]') }}
     steps:
       - uses: actions/checkout@v4
         with:

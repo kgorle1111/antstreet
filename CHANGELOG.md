@@ -10,12 +10,25 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- Licensed under the Apache License 2.0 (`LICENSE`, and `license` in the package metadata).
 - `boss audit plan --repo R --request FILE --base REF [--held-out N]`: seals checks for a change request from the base commit's names alone, kept in `~/.boss-audit` and never in the repo; you approve them, signed; it prints a run id and a seal.
 - `boss audit check RUN --head REF`: runs the sealed checks on a commit and signs a verdict: `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`. It refuses a head off the base, an edited check and a forged approval.
 - `boss audit check` calls a claim `pre_registered` only when every commit is dated after the seal (dates can be forged), flags a change that quotes the checks, and lists base tests the head deleted or broke.
 - `boss audit report [RUN | --all] [--agent L]`: verdicts, and the false-pass rate with a Wilson interval per agent and claim mode. Pre-registered and post-hoc results are never added together; the rate is a floor.
 - Ledger: the `audited` event, signed with the project's key like an investor's event, and `purpose` `audit_checks` on `boss_call`.
 - Security: threats T51 to T54 (the audit store read by the agent, checks fitted to the change, a leak in the diff, a forged seal).
+- `boss fund --dispatch rules [--max-tier T]` (off by default): the term sheet shows a route (one
+  agent for a one-file idea, else the firm) and a table of each task's model, effort and step-up.
+- Under dispatch you can edit the route and each task's model before approving; the approval
+  covers them, and a value outside the whitelist is refused before approval and again at hire.
+- Under dispatch a worker the gate fired for no progress or a slice limit is replaced one tier up,
+  once per task. Nothing else changes a model. The worst case is printed in dollars first.
+- Under dispatch each slice records a hash of the exact text the worker was given, saved as
+  `logs/<worker>-s<N>.prompt.txt`, and the model the CLI says it ran; a wrong model stops the run.
+- `boss report` prints who did what on which model at what cost, and re-verifies the saved
+  prompts (D43 to D45, T63 to T69).
+- A pre-registered experiment E6 in `bench/PREREG.md`: fixed Haiku, fixed Sonnet and dispatch at the
+  same per-cell budget.
 - The single arm's `result.json` records `final_status`, the status word of its last slice, and the
   KPI scorecard reads it before the ledger (B70).
 - `boss fund --spec` (off by default): the boss's checks cite the rules of your idea, and you see
@@ -172,6 +185,11 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- The benchmark's spend cap now reserves a staged draft's full cost (its three role calls) before
+  starting one; it reserved one call's cost and could start a draft that passed the allowance.
+- The mapper pass's spend cap now counts mapper calls saved by an earlier pass, so a resumed pass
+  cannot pass the allowance; a saved call with no recorded cost counts at its cap.
+- A wording fix in the DECISIONS note on the offline evaluation ("hand-written mutants").
 - On macOS, stopping a worker that exits at that same moment no longer fails the slice with
   "Operation not permitted".
 - A benchmark cell whose run ended on an infrastructure stop (usage limit, login, isolation) is
