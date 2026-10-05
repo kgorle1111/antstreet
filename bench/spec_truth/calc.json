@@ -1,0 +1,72 @@
+{
+  "idea_sha256": "505b10d69816f1e7b534608f64ec9d59a4faf5a9173c9a23a51320b8379b120a",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "associativity": [
+      "R10",
+      "R11"
+    ],
+    "division_by_zero": [
+      "R21"
+    ],
+    "malformed_structure": [
+      "R22",
+      "R23",
+      "R25"
+    ],
+    "malformed_tokens": [
+      "R04",
+      "R07",
+      "R24",
+      "R26"
+    ],
+    "precedence": [
+      "R08",
+      "R09",
+      "R12"
+    ],
+    "result_types": [
+      "R17",
+      "R18",
+      "R19"
+    ],
+    "tokens": [
+      "R04",
+      "R05",
+      "R15",
+      "R16",
+      "R20"
+    ],
+    "unary": [
+      "R06",
+      "R13",
+      "R14"
+    ]
+  },
+  "rules": {
+    "R04": "Numbers: a literal is one or more ASCII digits (0-9), option",
+    "R05": "`3`, `2.5`, `0.25` and `007` (value 7, leading zeros are fin",
+    "R06": "Literals are never negative; a minus sign is an operator (ru",
+    "R07": "`.5`, `5.`, `1.2.3` and `1..2` are invalid.",
+    "R08": "Binary operators are `+`, `-`, `*` and `/`, and `/` is true ",
+    "R09": "`*` and `/` bind tighter than `+` and `-`.",
+    "R10": "All four are left-associative, so `10 - 4 - 3` is 3 and `100",
+    "R11": "Long chains must work: an expression of 2000 operands joined",
+    "R12": "Parentheses group subexpressions and can be nested at least ",
+    "R13": "`-` and `+` may also be used as unary operators in front of ",
+    "R14": "A unary operator binds tighter than `*` and `/`.",
+    "R15": "Whitespace, meaning the characters space, tab, newline and c",
+    "R16": "It is not allowed inside a literal: `1 2` is two literals in",
+    "R17": "Result type: the result is an `int` when every literal in th",
+    "R18": "A literal with a decimal point is a decimal literal even whe",
+    "R19": "`4 / 2` is `2.0`.",
+    "R20": "Integer arithmetic is exact for arbitrarily large integers: ",
+    "R21": "A division whose divisor evaluates to zero raises `ZeroDivis",
+    "R22": "Malformed input raises `ValueError`.",
+    "R23": "That covers: an empty or whitespace-only string; unbalanced ",
+    "R24": "In particular there are no other operators (`**`, `//`, `%` ",
+    "R25": "Syntax is checked for the whole expression before anything i",
+    "R26": "A non-string argument (`None`, an int, a float, `bytes`, a l"
+  }
+}

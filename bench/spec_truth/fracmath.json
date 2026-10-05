@@ -1,0 +1,82 @@
+{
+  "idea_sha256": "3a8fa3120ed64fcbb0c2e78d4ce55f2f8bb3266824a051cc418421f6f08d3f73",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "add": [
+      "R03",
+      "R04",
+      "R06",
+      "R17",
+      "R20",
+      "R23",
+      "R24"
+    ],
+    "divide": [
+      "R21",
+      "R22",
+      "R23",
+      "R24"
+    ],
+    "format": [
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R24"
+    ],
+    "parse_errors": [
+      "R10",
+      "R11",
+      "R12"
+    ],
+    "parse_mixed": [
+      "R03",
+      "R04",
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09"
+    ],
+    "parse_simple": [
+      "R03",
+      "R04",
+      "R05",
+      "R08",
+      "R09",
+      "R24"
+    ],
+    "roundtrip": [
+      "R08",
+      "R14",
+      "R16",
+      "R17",
+      "R20",
+      "R21"
+    ]
+  },
+  "rules": {
+    "R03": "`parse_fraction` accepts three forms, with optional whitespa",
+    "R04": "Numbers are one or more ASCII digits and leading zeros are f",
+    "R05": "A single `-` directly in front of the first digit makes the ",
+    "R06": "For a mixed number it applies to the entire value, so `-1 1/",
+    "R07": "In a mixed number the fraction part must be proper: its nume",
+    "R08": "The result is a tuple `(numerator, denominator)` of ints in ",
+    "R09": "So `3/4` is `(3, 4)`, `6/4` is `(3, 2)`, `4/2` is `(2, 1)`, ",
+    "R10": "`parse_fraction` raises `ValueError` for anything else: the ",
+    "R11": "Non-ASCII digits are not digits.",
+    "R12": "Input that is not a `str` raises `TypeError`.",
+    "R14": "`format_fraction(numerator, denominator)` takes two ints in ",
+    "R15": "A zero denominator raises `ValueError`; an argument that is ",
+    "R16": "The canonical text is built from the value in lowest terms: ",
+    "R17": "The `-` always comes first and a zero value never has a sign",
+    "R18": "`(6, 4)` is `1 1/2`, `(-7, 2)` is `-3 1/2`, `(4, 2)` is `2`,",
+    "R20": "`add(a, b)` parses both texts, adds them exactly and returns",
+    "R21": "`divide(a, b)` returns the canonical text of `a / b`: `divid",
+    "R22": "If `b` is zero it raises `ValueError` (not `ZeroDivisionErro",
+    "R23": "`add` and `divide` raise `ValueError` for text `parse_fracti",
+    "R24": "All arithmetic is exact, however large the numbers: nothing "
+  }
+}

@@ -90,6 +90,9 @@ def test_options_the_changelog_names_exist(text):
     known = {s for a in parser._actions for s in a.option_strings} | CLAUDE_FLAGS
     for sub in parser._subparsers._group_actions[0].choices.values():
         known |= {s for a in sub._actions for s in a.option_strings}
+        steps = getattr(sub, "_subparsers", None)  # `audit` has steps of its own
+        for step in steps._group_actions[0].choices.values() if steps else ():
+            known |= {s for a in step._actions for s in a.option_strings}
     named = set(re.findall(r"(?<![\w-])(--[a-z][a-z-]*)", text))
     assert named <= known, f"named in the changelog but not in the CLI: {named - known}"
     commands = set(parser._subparsers._group_actions[0].choices)

@@ -1,0 +1,66 @@
+{
+  "idea_sha256": "f171d8ef8b9b48a6974b6fc17a5df3bd79e221e749bde9b496822a487059452c",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "add": [
+      "R20",
+      "R21"
+    ],
+    "canonical_output": [
+      "R10",
+      "R14",
+      "R15",
+      "R16",
+      "R17",
+      "R18",
+      "R19"
+    ],
+    "compare": [
+      "R22",
+      "R23",
+      "R24"
+    ],
+    "invalid_input": [
+      "R08",
+      "R09",
+      "R10",
+      "R11",
+      "R12",
+      "R13"
+    ],
+    "large_operands": [
+      "R20"
+    ],
+    "multiply": [
+      "R16",
+      "R19",
+      "R20",
+      "R21"
+    ],
+    "subtract": [
+      "R19",
+      "R20",
+      "R21"
+    ]
+  },
+  "rules": {
+    "R08": "An input string has an optional leading `-`, then one or mor",
+    "R09": "Digits are only the ASCII characters `0` to `9`.",
+    "R10": "Leading zeros are allowed (`\"007\"`, `\"-000.50\"`), trailing z",
+    "R11": "Anything else raises `ValueError`.",
+    "R12": "That includes the empty string, `\"-\"`, `\"+5\"`, `\"1.\"`, `\".5\"",
+    "R13": "All four functions validate both arguments before doing anyt",
+    "R14": "Results are canonical.",
+    "R15": "There are no leading zeros: the integer part has no leading ",
+    "R16": "There are no trailing zeros after the decimal point, and if ",
+    "R17": "A negative result starts with `-` directly followed by the c",
+    "R18": "Zero is always returned as `\"0\"`, never `\"-0\"`, `\"0.0\"` or `",
+    "R19": "This includes `\"5\" - \"5\"`, a product where either factor is ",
+    "R20": "Results are exact for any operand size and any mix of scales",
+    "R21": "Signs follow ordinary arithmetic: adding numbers of opposite",
+    "R22": "`compare` compares numeric values, not text.",
+    "R23": "Leading and trailing zeros do not matter (`compare(\"1.50\", \"",
+    "R24": "It returns exactly `-1`, `0` or `1`."
+  }
+}

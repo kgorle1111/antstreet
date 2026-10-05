@@ -45,65 +45,26 @@ reason, and the run it affects is reported under both rules. Why these five and 
 - **Feature.** `--boss-model sonnet` with Haiku workers.
 - **Arms.** firm (Sonnet boss, Haiku workers); single Haiku; single Sonnet; all at the same
   per-task budget.
-- **Primary KPI.** Cost per delivered task.
-- **Not shown if.** Single Sonnet at the same budget delivers at an equal or lower cost per task.
-
-## E3. Parallel waves are faster on work that splits
-
-- **Claim.** On tasks of independent modules, building them at once cuts the time to a delivered
-  product without lowering the delivery rate (EVIDENCE: parallel breadth, centralised agents).
-- **Feature.** `--max-tasks 3 --parallel 3`.
-- **Arms.** firm `--max-tasks 3 --parallel 3`; firm default; single; on `bench/tasks-multi`.
-- **Primary KPI.** Time to delivery; delivery rate must not drop by the paired test.
-- **Not shown if.** Median time to delivery is not at least 1.3x faster, or interface failures
-  cancel the gain.
-
-## E4. A clean-context reviewer finds what the builder missed
-
-- **Claim.** A reviewer with a fresh context finds real bugs that the builder's own review does
-  not (EVIDENCE: clean-context code review).
-- **Feature.** `--roles critic` (a fresh-context critic whose findings become checks only with the
-  investor's yes; the benchmark answers yes).
-- **Arms.** firm `--roles critic`; firm; single, then the same session asked to review its own
-  work, at the same budget.
-- **Primary KPI.** Delivery rate.
-- **Not shown if.** The critic arm does not beat the self-review arm by the paired test.
-
-## E5. The firm is more reliable across runs
-
-- **Claim.** Firing stalled workers and retrying inside a budget makes a task pass every time
-  more often (EVIDENCE: weak; no direct measurement found).
-- **Arms.** firm; single at the firm's mean dollar spend; 5 runs per task.
-- **Primary KPI.** Reliability: tasks delivered on all 5 runs.
-- **Not shown if.** pass^5 is not higher by the paired test.
-
-## E6. Per-task dispatch lowers cost per delivered task without lowering delivery
-
-Added 2026-10-04, before any E6 run.
-
-- **Claim.** Running every worker on the model its task was given (Haiku first, one step up when
-  the gate fires a worker for no progress or a slice limit, a one-agent route for one-file ideas)
-  delivers at a lower cost per delivered task than a fixed Sonnet or a fixed Haiku, with no loss
-  of delivery. The step reaches only the cells that fail a visible check (18 of the 51 failed
-  cells in the blind 35-task run); the other 33 failed a hidden check no builder-side step can see.
-- **Feature.** `--dispatch rules` (`docs/DECISIONS.md` D38 to D40).
-- **Arms.** Same code, same blinded prompts, same per-cell budget of $0.80, through `--firm-args`:
-  `fixed-haiku` (`--model haiku --boss-model haiku`), `fixed-sonnet` (`--model sonnet --boss-model
-  sonnet`), `dispatch` (`--model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier
-  sonnet"`). The single Haiku arm of the blind 35-task run is a reference row only. Sets:
-  `bench/tasks` (35 tasks, 3 runs) and `bench/tasks-multi` (8 tasks, 3 runs, `--max-tasks 3
-  --parallel 3`, which the dispatch arm adds `--dispatch rules` to).
-- **Primary KPI.** Cost per delivered task (the sum of cell cost over delivered cells, a cell
-  counting its boss call), paired by task with a 10,000-resample bootstrap of tasks.
+- **Primary KPI.** Cost per delivered task: the TOTAL spend over all assigned cells of an arm,
+  delivered or not, each cell including its boss call, divided by the number of delivered cells,
+  compared between arms paired by task with a 10,000-resample bootstrap of tasks. What the code
+  computes differs, and the analysis reports both: `python -m boss.bench.kpi` prints exactly this
+  ratio, pooled over the arm's counted cells; `python -m boss.bench.paired --kpi cost_per_delivery`
+  pairs the per-task MEAN cost of a counted cell (all of a task's runs, delivered or not), with no
+  division by deliveries, because a task that delivered nothing has no ratio and dropping it would
+  favour the arm that fails. The pooled ratio is the headline; the paired interval is on cost per
+  assigned cell.
 - **Delivery guard.** Dispatch minus each fixed arm, 95% interval with a lower bound at or above
   -0.10 (the blind run's own interval was [-0.076, +0.124], so this is the narrowest guard the
-  sample supports).
+  sample supports). Every assigned cell counts in the denominator, a cell that stopped for a wrong
+  model (T69) included: it is never relabelled `infrastructure`. Those stops are still reported
+  apart.
 - **Not shown if.** Dispatch is default-on only if its cost-per-delivered interval is below zero
   against fixed Sonnet AND (below zero against fixed Haiku, or delivery is higher with the interval
   above zero). Otherwise it stays opt-in and fixed Haiku stays the default.
 - **Reported apart.** Escalations fired, refused and rescued (a fired task that later delivered);
-  cells whose run stopped for a wrong model (T53) are reported apart, not counted as a
-  failure of the arm (no command separates them yet, B72).
+  cells whose run stopped for a wrong model (T69) are reported apart, not counted as a
+  failure of the arm (no command separates them yet, B92).
 - **Cost.** Every Sonnet figure is an assumption (3 times Haiku on the same tokens, the ratio
   `budget.py` uses): no Sonnet or Opus cell has ever run. About $160 for both sets (range $110 to
   $210). Stage 1 first, about $55: 12 tasks, 3 runs, plus the 8 multi-file tasks once; stop if

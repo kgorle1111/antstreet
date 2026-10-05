@@ -1,0 +1,57 @@
+{
+  "idea_sha256": "acea251e291ac8bdd2d292ec01f8aa2c5c998e6d0ffda11ffb81a4c69775c58a",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "errors": [
+      "R17",
+      "R18",
+      "R19"
+    ],
+    "greedy": [
+      "R07",
+      "R08"
+    ],
+    "indent": [
+      "R06",
+      "R10",
+      "R11"
+    ],
+    "long_words": [
+      "R12",
+      "R13",
+      "R14",
+      "R15",
+      "R16"
+    ],
+    "properties": [
+      "R05",
+      "R09",
+      "R10",
+      "R12",
+      "R14"
+    ],
+    "whitespace": [
+      "R05",
+      "R06",
+      "R09"
+    ]
+  },
+  "rules": {
+    "R05": "The words of `text` are what `str.split()` gives: runs of an",
+    "R06": "Text with no words gives the empty list `[]`.",
+    "R07": "Wrapping is greedy: words are placed in order, and a word go",
+    "R08": "Otherwise the line is finished and the word starts the next ",
+    "R09": "A line never starts or ends with a space (apart from its ind",
+    "R10": "The first line starts with `first_indent` and every later li",
+    "R11": "Both are any strings (`\" \"`, `\"- \"`, `\"\\t\"`), and every char",
+    "R12": "A word that is longer than the room a line has after its ind",
+    "R13": "The line that is open when such a word comes is finished fir",
+    "R14": "Each piece, taken from the front of the word, has exactly as",
+    "R15": "A word that exactly fills a line is not cut.",
+    "R16": "Example: with width 5, `\"abcdefghijkl x\"` gives `[\"abcde\", \"",
+    "R17": "`width` must be an `int` and each indent must leave room for",
+    "R18": "Otherwise, and when `text` or either indent is not a `str`, ",
+    "R19": "This is checked before anything else, also for text without "
+  }
+}

@@ -11,7 +11,8 @@ Every command also accepts `-h` and `--help`.
 ## `boss`
 
 `boss [--version] <command> ...` where the command is `fund`, `resume`, `topup`, `report`,
-`status`, `roles` or `doctor`.
+`status`, `roles`, `doctor` or `audit` (which has three steps of its own: `audit plan`, `audit check`
+and `audit report`).
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -19,6 +20,8 @@ Every command also accepts `-h` and `--help`.
 
 - A command is required. Without one, argparse prints usage and exits 2.
 - Commands run against a project folder (`--dir`). Runs are stored under `<dir>/.boss/runs/`.
+  `boss audit` is the exception: it audits a git repository you name and keeps its runs in the
+  audit store (see `boss audit plan`).
 
 ## `boss fund`
 
@@ -60,8 +63,9 @@ Argument: `idea`, what to build, in plain words.
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
 | `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |
 | `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
-| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D38 to D40 in `docs/DECISIONS.md`. |
+| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D42 to D44 in `docs/DECISIONS.md`. |
 | `--max-tier` | none | With `--dispatch rules`: the dearest model dispatch may use, `haiku`, `sonnet` or `opus`. Without it dispatch stays at `sonnet`. A sheet that names a dearer tier, in the first plan or in an edit, is refused before it can be approved and again before anyone is hired. |
+| `--spec` | off | The boss's checks must cite the rules of your idea, which code cuts out of your own sentences and numbers R01, R02, ...; each check names the 1 to 5 rules it tests, and the boss may list rules it leaves untested, with a reason. Before you approve you see the coverage, uncovered rules first, then claims a check cannot be testing (the check does not contain a non-ASCII string, the exception, the size or the type the rule names), then the boss's waivers; literals and list items are shown apart and not scored. The rule list is saved as `rules.json`, hashed in your approval, and a coverage summary is recorded in it. One task only (`--max-tasks 1`), not with the staged draft (`--roles system_designer,tester`). Refused before any spend when the idea has more than 40 numbered items or paragraphs, or no sentence stating a behaviour. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
 | `--stall-slices` | `2` | Fire a worker after this many counted slices in a row with no new passing check. |
@@ -249,15 +253,133 @@ the file appears, when the worker did not start isolated, or when the call could
 worker did not try the write, it passes with a warning (`inconclusive`) and the exit code stays 0:
 run `--live` again. The other checks make no paid call. The two costs are the CLI's estimates.
 
+## `boss audit plan`
+
+`boss audit plan --repo REPO --request FILE --base REF [--held-out N] [--boss-model MODEL]`. Seals
+checks for a change request before the change is looked at, so that a commit an agent makes later
+can be tested against them. It asks the boss for checks once, runs them on the base commit, shows
+you every check and what it does there, and asks whether to approve. It never writes to `REPO`.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--repo` | required | The git checkout to audit: the folder that holds `.git`. |
+| `--request` | required | A text file with the change request, up to 64 KiB, not starting with `-`. |
+| `--base` | required | The branch, tag or full commit hash the change is made from. A revision expression (`HEAD~1`, `a..b`, `x:path`) is refused. |
+| `--held-out` | `0` | Checks an examiner writes as well, from the request and the names the checks import, 0 to 8; 0 is off. You read and approve them with the rest. |
+| `--boss-model` | `haiku` | Model for the boss's own call. |
+
+- Refused with exit 1, before anything is written: a working tree that is not clean (a staged or
+  modified file, or an untracked one that is not ignored); a ref that is not a plain name or hash; an
+  audit store inside the repo; a request that is empty, too big or starts with `-`.
+- The boss is shown the request and the base's public surface: file paths and, for each Python file
+  outside tests, the names and signatures it exposes. It is never shown a function body, a test, or
+  any change (`src/boss/prompts/audit_checks_v1.md`). The call has no tools.
+- Each check then runs on the base, in the gate, and is shown with what happened: **fails on the
+  base: counted** (it separates a finished change from an unfinished one), **passes on the base:
+  shown, not counted**, **cannot run here: not counted** (it needs a module that is not installed
+  and that neither the base nor the request names), or **timed out on the base: not counted**. If
+  no check fails on the base you are told every verdict would be inconclusive, and can reject.
+- You approve or reject as for `boss fund`; the approval is signed with the audit store's investor
+  key. The sheet's budget figure is a placeholder: the audit funds no worker.
+- The base commit and the request's SHA-256 are in the one synthetic task's brief, so they are inside
+  the hash your approval covers: editing either, a check, or a held-out file voids it.
+- Prints the run id and the **seal**, one SHA-256 over the approved term sheet, every check file and
+  every held-out file. Record the seal somewhere the agent cannot change; `boss audit check` writes
+  it into every verdict.
+- The **audit store** is `$BOSS_AUDIT_HOME`, or `~/.boss-audit` when it is unset. It is laid out like
+  a project: `.boss/runs/<id>/` holds `ledger.jsonl`, `term_sheet.json`, `checks/` and, with
+  `--held-out`, `held_out/`; `.boss/investor.key` and `.boss/anchors/` are as in a project. The
+  folders it creates are mode 0700. No check text is written to the repo, the boss's prompt or any
+  working folder, and a store inside the repo is refused. This keeps the checks from an agent that
+  works in the repo and reads only what it is given. It does not stop one that runs as the same
+  operating-system user and looks in `~/.boss-audit`: that needs another user or a container
+  (T51).
+- The draft's cost is a `boss_call` event with `purpose` `audit_checks`; the examiner's is a
+  `role_call`.
+- Exit 0 when sealed. Exit 1 when you reject, the boss's output is unusable, or a refusal above.
+  Exit 130 on Ctrl-C.
+
+## `boss audit check`
+
+`boss audit check RUN --head REF [--repo REPO] [--claim done|none] [--claim-text FILE] [--agent LABEL]`.
+Runs the sealed checks of audit run `RUN` on a commit and writes the gate's verdict to its ledger as a signed
+`audited` event.
+
+Argument: `run`, the id `boss audit plan` printed.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--head` | required | The branch, tag or full commit hash to audit. |
+| `--repo` | `.` | The git checkout that holds the head and the sealed base. |
+| `--claim` | `none` | What the agent said of its own work: `done`, or `none`. Only a claim of `done` can be refuted. v1 does not read the agent's words to decide this. |
+| `--claim-text` | none | A file with the agent's own words, up to 64 KiB. Kept as a SHA-256 only. |
+| `--agent` | none | A label for the agent (1 to 64 letters, digits and `. _ : @ / + -`), to report by. |
+
+- Verified before anything runs, each refused with exit 1 and nothing written: the run's ledger
+  (hash chain, anchor, every signature), the investor key exists, the term sheet is marked approved
+  and its signed approval matches the term sheet, every check file and every held-out file, the
+  sealed base is in the repo, and **the head descends from the base**.
+- Both trees are exported from git objects only, never checked out. A **counted** check is one that
+  fails on the base, found by running every check there again, so no stored status can be edited.
+  Only counted checks run on the head.
+- Verdict, from the claim and the head:
+
+  | Verdict | When |
+  |---|---|
+  | `refuted` | claim `done`, and a counted check fails on the head. |
+  | `unrefuted` | claim `done`, at least one counted check, every one passes, none could not run, and no text of the sealed checks is in the change. Not proof. |
+  | `inconclusive` | claim `done`, no counted check failed, and: no check fails on the base, or a counted check could not run on the head (timeout, or a module that is not installed), or the change quotes the sealed checks (below). |
+  | `no_claim` | the claim is `none`, whatever the checks say. |
+
+- Claim mode: `pre_registered` when the range has at least one commit and **every** commit is dated
+  after the seal (the investor's `approved` event); otherwise `post_hoc`. Commit dates are chosen by
+  whoever commits and can be forged either way; the mode is a record, not a proof. The output says so
+  for a post-hoc claim.
+- Leak scan: the added lines of the diff are searched for what the sealed checks contain: a test name of four or more
+  words, or a string literal of 16 or more characters, that the request does not itself contain. A hit
+  is listed as `c01 test name` or `c01 string literal` and turns an otherwise passing verdict into
+  `inconclusive`; a refutation stands.
+- Also run, and listed beside the verdict but not part of it: the base's own `tests/` folder
+  against the head's code. It lists base test files the head no longer has, and base tests that
+  pass on the base and fail on the head's code, so a test the agent deleted or weakened still speaks.
+  A request that changes behaviour breaks old tests honestly, so these are for you to read.
+- The output names failing checks by id and description, never by code.
+- The `audited` event is written only after all of the above, signed with the store's key.
+- Exit 0 for `unrefuted` and `no_claim`. Exit 3 for `refuted` and `inconclusive`. Exit 1 for any
+  refusal above. Exit 2 for a bad option.
+
+## `boss audit report`
+
+`boss audit report [RUN] [--all] [--agent LABEL]`. Prints each run's verdicts and the false-pass
+rate. Reads only `audited` events the gate wrote and the store's key vouches for: a ledger with a
+forged or edited one makes the command fail, so part of the store is never reported on.
+
+Argument: `run`, an audit run id. Default: the latest.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--all` | off | Every run in the store. |
+| `--agent` | none | Only this agent's verdicts. |
+
+- A later verdict on the same head, run and agent replaces an earlier one.
+- False-pass rate = `refuted` / (claimed `done` and not `inconclusive`), with a 95% Wilson interval,
+  per agent label and per claim mode. **Pre-registered and post-hoc verdicts are separate rows and
+  are never added together.**
+- The rate is a floor: an unrefuted claim is not a correct one, because the sealed checks catch only
+  some wrong implementations (the design's working figure is about 60%), so the true rate is at
+  least what is shown.
+- Exit 0, also when there are no verdicts yet. Exit 1 for an unknown run, an empty store, or a ledger
+  that does not verify.
+
 ## Exit codes of `boss`
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. |
-| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. |
-| `3` | `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
-| `130` | `fund`, `resume`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
+| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
+| `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
+| `130` | `fund`, `resume`, `audit plan`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 
 A ledger with a damaged line makes `report` and `status` fail with an error that names the file
 and line.
@@ -307,8 +429,9 @@ See [../bench/METHOD.md](../bench/METHOD.md).
 | `--reps` | `1` | Drafts per task. |
 | `--boss-model` | `haiku` | Model for the boss's call. |
 | `--boss-thinking` | none | Thinking tokens per draft. |
-| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/boss/prompts`. |
+| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/boss/prompts`. `term_sheet_v3.md` also passes the idea's rules and keeps `rules.json` and `claims.json` in each draft's folder. |
 | `--jobs` | `2` | Drafts to make and score at once. |
+| `--max-spend` | none | Dollars. Makes the drafts one at a time and stops before a call that could take the measured spend past this (a call may cost up to its $0.25 cap; a cost the CLI did not report counts at that cap). |
 | `--dry-run` | off | List the drafts and exit. |
 | `--score-existing` | none | Score the boss drafts already saved in a `boss.bench.run` results folder; spends nothing. |
 
@@ -464,6 +587,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `CLAUDE_CONFIG_DIR` | worker and boss calls | Passed on so the CLI finds its login. |
 | `BOSS_GATE_SANDBOX` | `boss doctor`, the gate (so `boss fund`, `boss resume` and the benchmarks) | `auto` (default): run each check inside an OS sandbox when the platform has a working one, else unsandboxed. `require`: refuse to run a check without one. `off`: never. Any other value is an error. See [SANDBOX.md](SANDBOX.md). |
 | `MAX_THINKING_TOKENS` | the `claude` CLI | Set by `boss fund` for the boss's call when `--boss-thinking` is given. Never taken from your environment. |
+| `BOSS_AUDIT_HOME` | `boss audit plan`, `check`, `report` | The folder that holds the audit store. Default `~/.boss-audit`, under the `HOME` the command sees. A store inside the audited repo is refused. |
 | `BOSS_LIVE` | `tests/test_end_to_end.py` only | `1` enables the one test that makes a real model call. |
 
 - Nothing else from your environment reaches a worker or boss process. The gate builds its own
@@ -492,7 +616,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `demo/` | `demo.py` and `USAGE.md` as installed in `product/`. Kept because `product/` is rebuilt on every run, and a `resume` copies them back. |
 | `demo_scratch/` | Where the demo writer ran its script against a copy of the product. |
 
-A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
+A run started with `--spec` also has `rules.json`, the rule list of its idea. A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
 never inside a workspace or `product/`) and, if the examiner's output was refused,
 `examiner_refused.json`; `boss fund --held-out N` creates them. `workspaces/`, `logs/` and `product/`
 exist only once a worker has been hired. `report.md` is

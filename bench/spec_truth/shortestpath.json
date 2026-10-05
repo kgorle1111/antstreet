@@ -1,0 +1,76 @@
+{
+  "idea_sha256": "109d7977145f370c90f50f1ff04a5a0ba8be79d28c52c0f53f6981edfdbf44b0",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "basic": [
+      "R06",
+      "R11",
+      "R12",
+      "R13"
+    ],
+    "distances": [
+      "R09",
+      "R17"
+    ],
+    "no_mutation": [
+      "R07",
+      "R09",
+      "R20"
+    ],
+    "random_graphs": [
+      "R11",
+      "R13",
+      "R14",
+      "R15",
+      "R17",
+      "R18"
+    ],
+    "scale": [
+      "R11",
+      "R13",
+      "R15",
+      "R17",
+      "R21"
+    ],
+    "ties": [
+      "R14",
+      "R15",
+      "R16"
+    ],
+    "unknown_nodes": [
+      "R09"
+    ],
+    "unreachable": [
+      "R12",
+      "R13",
+      "R17",
+      "R18"
+    ],
+    "weights": [
+      "R06",
+      "R07",
+      "R08",
+      "R10",
+      "R19"
+    ]
+  },
+  "rules": {
+    "R06": "Every weight must be a number greater than 0.",
+    "R07": "A weight that is zero or negative anywhere in the graph rais",
+    "R08": "`WeightError` is defined in `shortestpath.py` and is a subcl",
+    "R09": "A `source` (or, for `shortest_path`, a `target`) that is not",
+    "R10": "The weights are checked first: a graph with a bad weight rai",
+    "R11": "`shortest_path(graph, source, target)` returns a tuple `(tot",
+    "R12": "When `source == target` the result is `(0, [source])`.",
+    "R13": "When `target` cannot be reached from `source` the result is ",
+    "R14": "Several paths may have the same smallest total.",
+    "R15": "Then the one returned is the path whose node list is smalles",
+    "R16": "For example with edges S to A (weight 2), S to B (1), A to T",
+    "R17": "`distances(graph, source)` returns a dict with an entry for ",
+    "R18": "Nodes that cannot be reached are not in the dict.",
+    "R19": "It applies the weight and `source` checks of rule 1 and 2.",
+    "R20": "Neither function changes `graph`: no keys are added (not eve",
+    "R21": "A chain of 50,000 nodes, and a graph of a few thousand nodes"
+  }
+}
