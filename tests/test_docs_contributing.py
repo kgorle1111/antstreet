@@ -96,7 +96,8 @@ def test_ci_shards_linux_caches_task_validations_and_runs_every_task_nightly(tex
     assert "schedule:" in workflow and "github.event_name != 'schedule'" in workflow
     assert "needs: test" in workflow and "coverage combine" in workflow
     assert "BOSS_TEST_TIMEOUT_S" in workflow and "BOSS_TEST_TIMEOUT_S" in text
-    assert "timeout-minutes: 20" in workflow
+    assert "timeout-minutes: ${{ matrix.os == 'macos-latest' && 45 || 20 }}" in workflow
+    assert "if: ${{ !cancelled() }}" in workflow  # combined coverage runs even if macOS times out
 
 
 def test_the_only_runtime_dependency_is_the_one_stated(text):
