@@ -29,8 +29,8 @@ Costs are the CLI's client-side estimates. Model: Haiku. Budget: $0.40 per cell.
   and `rerun1` also ran before the arms' prompts were made equal (commit `6b6111a`); whether they
   had the same imbalance was not checked.
 - In `blind35` the firm costs 2.4 times as much per cell ($0.215 against $0.088) and 2.4 times as
-  much per passing cell. Paired by task, cost per delivery is +$0.127 [+0.109, +0.145] and time
-  +142 s [+122, +165] higher for the firm: both intervals lie wholly on the costly side. 43% of the
+  much per passing cell. Paired by task, the difference in mean cost per cell is +$0.127 [+0.109, +0.145] and
+  time +142 s [+122, +165] higher for the firm: both intervals lie wholly on the costly side. 43% of the
   firm's spend is the boss's draft (`final3`: 40%).
 - 33 of the 87 firm cells that passed every one of the boss's checks failed a hidden check in
   `blind35` (`final3`: 12 of 36): the boss's checks do not cover the idea.
