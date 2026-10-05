@@ -83,6 +83,23 @@ uv run mypy
   `BOSS_GATE_SANDBOX=require`, so the sandbox tests fail instead of skipping when `bwrap` cannot
   start (docs/SANDBOX.md).
 
+## Mutation testing
+
+Coverage shows a line ran, not that a test would notice it being wrong. `mutmut` (a dev
+dependency, not part of CI: a module takes minutes to an hour) changes one thing in a source line at
+a time and reruns the tests; a "survivor" is a change no test caught.
+
+- Run one module at a time: `uv run python scripts/mutate.py errors` (also `rule`, `budget`, `gate`,
+  `ledger`, `signing`, `firm`, `judge`, `table`, `kpi`, `paired`). The script gives mutmut only that
+  module's test files; mutmut's own full-suite pass is about 5000 tests and fails on the docs tests.
+- List what survived: `uv run python scripts/mutate.py errors --results`; show one change with
+  `uv run mutmut show boss.errors.x_classify__mutmut_16`.
+- Classify each survivor: a real test gap (add the smallest test that kills it), an equivalent
+  change (no behaviour differs), or defensive code that cannot be reached. A timeout means the change
+  made the code hang, which counts as caught.
+- Do not run two modules at once: they share the `mutants/` folder, which version control ignores.
+  Add a module by adding its focused test files to `TARGETS` in `scripts/mutate.py`.
+
 ## Rules
 
 - **Small commits, one concern each.** The subject is a conventional commit: `type(scope): what`,
