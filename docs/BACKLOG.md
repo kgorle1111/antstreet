@@ -180,3 +180,13 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B98 | The investor forces `route: one_agent` on a sheet of several files | It needs the tasks merged into one with the checks reassigned, which is an edit to the tasks, not a flag | open: refused today with a message that says to merge the tasks or set `firm` |
 | B99 | A `dispatch_hint` from the boss's draft, clamped to one step from the rules | A model's guess about difficulty is the signal B53 distrusts | open: a fourth E6 arm, only if the rules arm shows dispatch pays |
 | B100 | Optional phase 2 of the rebrand: rename the Python module `boss` to `antstreet` (`src/boss`, every import, the console script target) | Phase 1 renamed only the distribution and added the `antstreet` command; the import name `boss` could clash with the unrelated `boss` package on PyPI if both are installed in one environment, but nobody has reported it and a rename touches every file | open |
+
+## Cascade (dispatch v2)
+
+| Id | Item | Why it was deferred | Status |
+|---|---|---|---|
+| B101 | Adopt `--dispatch cascade` by default | It is opt-in until E6's fourth arm wins on cost per delivered task at equal delivery by the paired test | open: E6 arm `cascade` in `bench/PREREG.md`; not run |
+| B102 | Priors for the start tier; `routing.py` kn: unmeasured priors; replace each with the project's own rate once MIN_SAMPLE attempts exist | Only Haiku's cost and visible-fail rate were measured; Sonnet's and Opus's failure rates are guesses and their costs are price ratios | open: replace each prior from the E6 ledgers (the cascade arm records every attempt) |
+| B103 | A task with no check has no verifier; `dispatch.py` kn: no reviewer path in v2; a task with no check cannot be verified | An independent reviewer on a different model needs a second model call per attempt and no existing role is built for it | open: trigger is a measured share of tasks with no check, and a critic or judge calibrated on them |
+| B104 | The chooser's statistics ignore effort and pool every file-count and check-count bucket within a kind | An attempt's effort is not on the ledger as its own key and a finer kind would leave every cell under the sample minimum | open: split the kind when one bucket holds 30 attempts |
+| B105 | E6's cascade arm cannot test the data-driven start: each benchmark cell is its own project, so every start is the prior | The chooser needs one project's history | open: replay the chooser over the E6 ledgers copied into one project, then compare |

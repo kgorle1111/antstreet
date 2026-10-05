@@ -258,7 +258,7 @@ Only the boss's drafting call costs money; no worker runs.
 
 ## Dispatch arms (E6)
 
-E6 in [PREREG.md](PREREG.md) compares three firm arms at the same per-cell budget, through the
+E6 in [PREREG.md](PREREG.md) compares four firm arms at the same per-cell budget, through the
 runner's own options and `--firm-args`, so the bench code is unchanged and each result records its
 arm in `firm_args`:
 
@@ -266,16 +266,22 @@ arm in `firm_args`:
 uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-haiku --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku
 uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-sonnet --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet
 uv run python -m boss.bench.run --out bench/results/raw/e6-dispatch --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier sonnet"
+uv run python -m boss.bench.run --out bench/results/raw/e6-cascade --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch cascade --max-tier opus"
 ```
 
-The eight multi-file tasks (`bench/tasks-multi`) take the same three arms with the firm run at three
+The eight multi-file tasks (`bench/tasks-multi`) take the same four arms with the firm run at three
 tasks, three at once, same $0.80 budget and 3 reps:
 
 ```bash
 uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-haiku --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3"
 uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-sonnet --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet --firm-args "--max-tasks 3 --parallel 3"
 uv run python -m boss.bench.run --out bench/results/raw/e6-multi-dispatch --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch rules --max-tier sonnet"
+uv run python -m boss.bench.run --out bench/results/raw/e6-multi-cascade --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch cascade --max-tier opus"
 ```
+
+the gate's `fired` verdict, `slice_end.cost_micros` and `slice_end.model_id`; `boss routing` run
+over a project that holds those runs prints the fail rate and mean cost per task kind and tier. Cells
+do not share a project, so the arm's starts are all the prior.
 
 A dispatch cell's ledger holds what to count: a `hired` event whose `dispatch` has `from_tier` is
 an escalation fired, one with `refused` is a step the round could not fund, and a fired task whose

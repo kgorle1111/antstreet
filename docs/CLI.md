@@ -41,7 +41,7 @@ Argument: `idea`, what to build, in plain words.
   is on the ledger, and there is nothing to resume. Ctrl-C at the approval question counts as
   reject.
 - The dispatch options are checked before anything is spent (exit 2): `--max-tier` needs `--dispatch
-  rules`; with `--dispatch rules`, `--model` must be `haiku`, `sonnet` or `opus` (or a full id of
+  rules` or `cascade`; with either, `--model` must be `haiku`, `sonnet` or `opus` (or a full id of
   one), may not be above `--max-tier`, and `--reserve` may not be given (the reserve is per model).
   Under `--dispatch rules` the term sheet also shows `Route: one agent (one file, N checks)` when
   everything is built in one file, or `Route: firm (K tasks, files ...)`. On the one-agent route a
@@ -63,8 +63,8 @@ Argument: `idea`, what to build, in plain words.
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
 | `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |
 | `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
-| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D43 to D45 in `docs/DECISIONS.md`. |
-| `--max-tier` | none | With `--dispatch rules`: the dearest model dispatch may use, `haiku`, `sonnet` or `opus`. Without it dispatch stays at `sonnet`. A sheet that names a dearer tier, in the first plan or in an edit, is refused before it can be approved and again before anyone is hired. |
+| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D43 to D45 in `docs/DECISIONS.md`. `cascade`: `rules` plus a ladder per task, `haiku`, `sonnet`, `opus`, then `opus` once more at one effort step higher (every rung but the last at effort `off`, the last at `default`), then you are asked. Each rung is climbed only after the gate fired the one before for no progress or a slice limit, and each gets the previous worker's findings in its brief. The tier a task starts on is chosen per task kind (files owned and checks, bucketed) as the one with the lowest expected cost, from the attempts recorded in this project's own earlier runs (`boss routing` shows how); below 5 attempts of a kind and tier a fixed prior is used and the table says `prior` instead of `measured, n=...`. The table shows each task's kind, where its start came from, the ladder after it, and a worst case that prices every rung. A task with no check is refused: the gate is the only verifier. See D46 in `docs/DECISIONS.md`. |
+| `--max-tier` | none | With `--dispatch rules` or `cascade`: the dearest model dispatch may use, `haiku`, `sonnet` or `opus`. Without it dispatch stays at `sonnet`. A sheet that names a dearer tier, in the first plan or in an edit, is refused before it can be approved and again before anyone is hired. |
 | `--spec` | off | The boss's checks must cite the rules of your idea, which code cuts out of your own sentences and numbers R01, R02, ...; each check names the 1 to 5 rules it tests, and the boss may list rules it leaves untested, with a reason. Before you approve you see the coverage, uncovered rules first, then claims a check cannot be testing (the check does not contain a non-ASCII string, the exception, the size or the type the rule names), then the boss's waivers; literals and list items are shown apart and not scored. The rule list is saved as `rules.json`, hashed in your approval, and a coverage summary is recorded in it. One task only (`--max-tasks 1`), not with the staged draft (`--roles system_designer,tester`). Refused before any spend when the idea has more than 40 numbered items or paragraphs, or no sentence stating a behaviour. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
@@ -247,6 +247,22 @@ skills, and whether it is on by default. Every specialist role is marked `off by
 | `--dir` | `.` | Accepted like the other commands. Not used: nothing is read from the project. |
 
 It reads the code only. It makes no model call, reads no run and writes nothing. Exit 0.
+
+## `boss routing`
+
+`boss routing [--dir DIR] [--max-tier TIER]`. Prints what `--dispatch cascade` would choose for this
+project: for each task kind and tier, the attempts recorded, the verified-fail rate and the mean
+cost per attempt, whether the chooser uses that data (`measured, n=...`) or the prior, and the start
+tier it picks per kind and why. A run counts only if the investor key vouches for its ledger, its
+term sheet and its checks match a signed approval; every other run is listed as left out, with the
+reason. Without a key, nothing is read.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder whose `.boss/runs` are read. |
+| `--max-tier` | `sonnet` | The top of the ladder to price: `haiku`, `sonnet` or `opus`. |
+
+It makes no model call and writes nothing. Exit 0.
 
 ## `boss doctor`
 

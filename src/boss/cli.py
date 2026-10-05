@@ -1,4 +1,5 @@
-"""Commands: `fund`, `resume`, `topup`, `report`, `status`, `verify`, `roles`, `doctor`, `audit`.
+"""Commands: `fund`, `resume`, `topup`, `report`, `status`, `routing`, `verify`, `roles`, `doctor`,
+`audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
@@ -27,7 +28,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from boss import __version__, audit, audit_check, audit_report, spec
+from boss import __version__, audit, audit_check, audit_report, routing, spec
 from boss import dispatch as dispatching
 from boss.approval import NotApprovedError, review_term_sheet, spec_view
 from boss.boss import (
@@ -133,6 +134,9 @@ def main(
         return EXIT_OK
     if args.command == "doctor":
         return _doctor(args, project, environ, say)
+    if args.command == "routing":
+        say("\n".join(routing.render_routing(routing.read_runs(project), top=args.max_tier)))
+        return EXIT_OK
     if args.command == "verify":
         return _verify(args, project, say)
     return _show(args, project, say)
@@ -190,16 +194,18 @@ def _parser() -> argparse.ArgumentParser:
     )
     fund.add_argument(
         "--dispatch",
-        choices=("off", "rules"),
+        choices=("off", "rules", "cascade"),
         default="off",
         help="per-task dispatch: 'rules' puts each task's model, effort and route in the term "
         "sheet for you to read and edit, steps a worker up one tier only when the gate fired its "
-        "predecessor, and records the model that ran (default: off, every worker on --model)",
+        "predecessor, and records the model that ran; 'cascade' starts each task on the tier "
+        "its past runs say is cheapest and climbs haiku > sonnet > opus > opus at more effort, "
+        "one rung per verified failure, then asks you (default: off, every worker on --model)",
     )
     fund.add_argument(
         "--max-tier",
         choices=dispatching.TIERS,
-        help="the dearest model dispatch may use; needs --dispatch rules "
+        help="the dearest model dispatch may use; needs --dispatch rules or cascade "
         f"(default with it: {dispatching.DEFAULT_MAX_TIER})",
     )
     fund.add_argument(
@@ -254,6 +260,17 @@ def _parser() -> argparse.ArgumentParser:
     topup.add_argument("run", nargs="?", help="run id (default: the latest)")
     topup.add_argument("--round", required=True, type=_count_arg, help="round to add money to")
     topup.add_argument("--amount", required=True, type=usd_arg, help="dollars to add, e.g. 0.20")
+    routed = sub.add_parser(
+        "routing",
+        parents=[common],
+        help="print the start tier the cascade would choose per task kind, from past runs",
+    )
+    routed.add_argument(
+        "--max-tier",
+        choices=dispatching.TIERS,
+        default=dispatching.DEFAULT_MAX_TIER,
+        help=f"the top of the ladder to price (default: {dispatching.DEFAULT_MAX_TIER})",
+    )
     sub.add_parser(
         "roles", parents=[common], help="print the organisation: roles, profiles, skills"
     )
@@ -515,14 +532,31 @@ def _fund(
             say(f"Stopped before approval: {reason}. Raise --budget, lower --rounds or --reserve.")
             return EXIT_FAILED
         view = None
+        chosen: dict[str, routing.Choice] = {}
         if policy is not None:
-            planned = dispatching.plan_dispatch(
-                plan.sheet,
-                tier=dispatching.tier_of(args.model) or args.model,
-                profile=args.profile,
-                policy=policy,
-                reads=derive_reads(plan.sheet, paths.checks),
-            )
+            reads = derive_reads(plan.sheet, paths.checks)
+            if policy.cascade:
+                chosen = routing.starts_for(
+                    plan.sheet,
+                    routing.read_runs(project).stats,
+                    top=policy.max_tier,
+                    fundable=lambda t: dispatching.fits(t, thinnest, policy.slice_micros),
+                )
+                planned = dispatching.plan_cascade(
+                    plan.sheet,
+                    starts={k: c.tier for k, c in chosen.items()},
+                    profile=args.profile,
+                    policy=policy,
+                    reads=reads,
+                )
+            else:
+                planned = dispatching.plan_dispatch(
+                    plan.sheet,
+                    tier=dispatching.tier_of(args.model) or args.model,
+                    profile=args.profile,
+                    policy=policy,
+                    reads=reads,
+                )
             if refused := dispatching.dispatch_problems(planned, policy):
                 reason = "the dispatch cannot run: " + "; ".join(refused)
                 record("boss", EventType.STOPPED, data={"reason": reason})
@@ -535,7 +569,8 @@ def _fund(
                 args.held_out,
                 args.parallel,
             )
-            view = dispatching.DispatchView(policy, level, args.stall_slices, {})
+            shown = {k: (c.kind, c.source) for k, c in chosen.items()}
+            view = dispatching.DispatchView(policy, level, args.stall_slices, {}, shown)
         held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, reserve)
         try:
             sheet = review_term_sheet(
@@ -571,6 +606,7 @@ def _fund(
             thinking_tokens=args.worker_thinking,
             dispatch=policy is not None,
             max_tier=policy.max_tier if policy is not None else dispatching.DEFAULT_MAX_TIER,
+            cascade=policy is not None and policy.cascade,
         )
         pipe.record_start(config)
         fix = args.fix_budget or default_fix_budget(config)
@@ -581,22 +617,28 @@ def _fund(
 def _dispatch_refusal(args: argparse.Namespace) -> str | None:
     """Why the dispatch flags cannot be used together, before anything is spent."""
     if args.dispatch == "off":
-        return "--max-tier needs --dispatch rules." if args.max_tier else None
+        return "--max-tier needs --dispatch rules or cascade." if args.max_tier else None
     tier = dispatching.tier_of(args.model)
     if tier is None:
-        return f"--dispatch rules needs --model to be one of {', '.join(dispatching.TIERS)}."
+        return (
+            f"--dispatch {args.dispatch} needs --model to be one of {', '.join(dispatching.TIERS)}."
+        )
     top = args.max_tier or dispatching.DEFAULT_MAX_TIER
     if dispatching.rank(tier) > dispatching.rank(top):
         return f"--model {tier} is above --max-tier {top}; raise --max-tier."
     if args.reserve is not None:
-        return "--reserve cannot be used with --dispatch rules: the reserve is per model."
+        return (
+            f"--reserve cannot be used with --dispatch {args.dispatch}: the reserve is per model."
+        )
     return None
 
 
 def _dispatch_policy(args: argparse.Namespace) -> dispatching.DispatchPolicy | None:
     if args.dispatch == "off":
         return None
-    return dispatching.DispatchPolicy(args.max_tier or dispatching.DEFAULT_MAX_TIER, args.slice)
+    return dispatching.DispatchPolicy(
+        args.max_tier or dispatching.DEFAULT_MAX_TIER, args.slice, args.dispatch == "cascade"
+    )
 
 
 def _spec_refusal(args: argparse.Namespace, roles: Sequence[str]) -> str | None:

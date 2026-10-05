@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from boss import budget
@@ -27,6 +27,9 @@ EFFORTS = ("off", "default", "high")
 HIGH_THINKING_TOKENS = 8_000  # kn: unmeasured; the one number to tune after E6
 NO_ESCALATION = "none"
 MAX_TASK_WORKERS = (1, 2)  # 2 is firm.MAX_WORKERS_PER_TASK, pinned by a test
+EFFORT_RANK = {"off": 0, "default": 1, "high": 2}
+Rung = tuple[str, str]  # (tier, effort): one step of the cascade ladder
+CASCADE_WORKERS = tuple(range(1, len(TIERS) + 2))  # every rung of the longest ladder
 ROUTE_ONE_AGENT, ROUTE_FIRM = "one_agent", "firm"
 ROUTES = (ROUTE_ONE_AGENT, ROUTE_FIRM)
 ESCALATING_FIRINGS = frozenset({"no progress", "slice limit"})  # the gate's own words (rule.decide)
@@ -40,6 +43,7 @@ class DispatchPolicy:
 
     max_tier: str
     slice_micros: int  # the run's --slice
+    cascade: bool = False  # `--dispatch cascade`: the ladder, and a start tier chosen from data
 
     def __post_init__(self) -> None:
         if self.max_tier not in TIERS:
@@ -59,6 +63,22 @@ def tier_of(model: str) -> str | None:
 def thinking_for(effort: str, default: int | None) -> int | None:
     """The CLI thinking budget of an effort: off is 0, default is the run's own, high is fixed."""
     return {"off": 0, "default": default, "high": HIGH_THINKING_TOKENS}[effort]
+
+
+def ladder(top: str) -> tuple[Rung, ...]:
+    """The cascade's rungs up to `top`, cheapest first: every tier at effort `off`, then the top
+    tier once more one effort step higher (`default`). After the last rung the investor decides."""
+    return (*((t, "off") for t in TIERS[: rank(top) + 1]), (top, "default"))
+
+
+def rungs_from(start: str, top: str) -> tuple[Rung, ...]:
+    return tuple(r for r in ladder(top) if rank(r[0]) >= rank(start))
+
+
+def next_rung(tier: str, effort: str, top: str) -> Rung | None:
+    """The rung after (tier, effort), or None at the end of the ladder."""
+    here = (rank(tier), EFFORT_RANK[effort])
+    return next((r for r in ladder(top) if (rank(r[0]), EFFORT_RANK[r[1]]) > here), None)
 
 
 # --- the route --------------------------------------------------------------------------------
@@ -114,6 +134,11 @@ def dispatch_problems(sheet: TermSheet, policy: DispatchPolicy | None) -> list[s
             problems.append(f"task {task.id} has no dispatch, and --dispatch is on")
         else:
             problems += _task_problems(sheet, task.id, task.dispatch, policy, ids)
+        if policy.cascade and not any(c.task == task.id for c in sheet.checks):
+            problems.append(  # kn: no reviewer path in v2; a task with no check cannot be verified
+                f"task {task.id} has no check, and --dispatch cascade needs a deterministic "
+                "check to verify each rung"
+            )
     return problems
 
 
@@ -148,10 +173,9 @@ def _task_problems(
     if d.effort not in EFFORTS:
         p.append(f"{at}: effort {_shown(d.effort)} is not one of {list(EFFORTS)}")
     p += _escalation_problems(at, d, policy, tier_ok)
-    if type(d.max_workers) is not int or d.max_workers not in MAX_TASK_WORKERS:
-        p.append(
-            f"{at}: max_workers {_shown(d.max_workers)} is not one of {list(MAX_TASK_WORKERS)}"
-        )
+    workers = CASCADE_WORKERS if policy.cascade else MAX_TASK_WORKERS
+    if type(d.max_workers) is not int or d.max_workers not in workers:
+        p.append(f"{at}: max_workers {_shown(d.max_workers)} is not one of {list(workers)}")
     sm = d.slice_micros
     if sm is not None and (
         type(sm) is not int or not budget.MIN_SLICE_MICROS <= sm <= policy.slice_micros
@@ -234,6 +258,36 @@ def plan_dispatch(
     return dataclasses.replace(sheet, tasks=tasks, route=route)
 
 
+def plan_cascade(
+    sheet: TermSheet,
+    *,
+    starts: Mapping[str, str],
+    profile: str | None,
+    policy: DispatchPolicy,
+    reads: Mapping[str, tuple[str, ...]],
+) -> TermSheet:
+    """The sheet with each task's dispatch filled for the cascade: `starts` (task id -> start tier,
+    from `routing.choose_start`), effort `off`, the ladder's ceiling in `escalate_to`, and one
+    worker per rung from the start tier up."""
+    tasks = tuple(
+        dataclasses.replace(
+            t,
+            dispatch=Dispatch(
+                "builder",
+                profile,
+                starts[t.id],
+                "off",
+                policy.max_tier,
+                len(rungs_from(starts[t.id], policy.max_tier)),
+                None,
+                reads.get(t.id, ()),
+            ),
+        )
+        for t in sheet.tasks
+    )
+    return dataclasses.replace(sheet, tasks=tasks, route=route_of(sheet))
+
+
 @dataclass(frozen=True, slots=True)
 class Step:
     tier: str
@@ -303,10 +357,22 @@ def replacement_hire(
     remaining_micros: int,
     slice_micros: int,
     one_agent: bool,
+    cascade: bool = False,
 ) -> Hire | None:
     """Who replaces a fired worker, or None for nobody. A step up happens only for a firing the
     gate decided on evidence (`ESCALATING_FIRINGS`). On the one-agent route a replacement that is
-    not stronger is not worth paying for, so there is none; in the firm it is hired as before."""
+    not stronger is not worth paying for, so there is none; in the firm it is hired as before.
+    Under the cascade the next rung is hired, or nobody (`cascade_hire`)."""
+    if cascade:
+        return cascade_hire(
+            d,
+            previous,
+            fired_for=fired_for,
+            stalled_slices=stalled_slices,
+            max_tier=max_tier,
+            remaining_micros=remaining_micros,
+            slice_micros=slice_micros,
+        )
     if fired_for in ESCALATING_FIRINGS:
         step = escalate(
             previous.tier,
@@ -324,16 +390,46 @@ def replacement_hire(
     return Hire(step.tier, step.effort, why, previous.tier, step.refused)
 
 
+def cascade_hire(
+    d: Dispatch,
+    previous: Hire,
+    *,
+    fired_for: str,
+    stalled_slices: int,
+    max_tier: str,
+    remaining_micros: int,
+    slice_micros: int,
+) -> Hire | None:
+    """The next rung's worker, or None when the ladder stops and the investor is asked. A rung is
+    climbed only after a firing the gate decided on evidence (`ESCALATING_FIRINGS`): an unverified
+    failure never moves the ladder. None too when the task allows no step, the ladder is at its
+    end, or the round cannot fund the next rung (the same `fits` test as a v1 step)."""
+    if fired_for not in ESCALATING_FIRINGS or d.escalate_to == NO_ESCALATION:
+        return None
+    top = TIERS[min(rank(d.escalate_to), rank(max_tier))]
+    rung = next_rung(previous.tier, previous.effort, top)
+    if rung is None or not fits(rung[0], remaining_micros, slice_micros):
+        return None
+    why = f"predecessor fired: {fired_for}, {stalled_slices} stalled slices"
+    return Hire(rung[0], rung[1], why, previous.tier)
+
+
 def worst_case_micros(sheet: TermSheet, policy: DispatchPolicy, stall_slices: int) -> int:
     """A cap on what stepping every task up can cost: per task, the slices before the rule fires
     a stalled worker, then one slice of its replacement, each priced at its cap plus one reserve
-    (the most a slice can overshoot). The round budgets still stop the run first."""
+    (the most a slice can overshoot). Under the cascade every rung the task can reach is priced at
+    the stalled slices, not one. The round budgets still stop the run first."""
     total = 0
     for task in sheet.tasks:
         d = task.dispatch
         if d is None:
             continue
         cap = policy.slice_micros if d.slice_micros is None else d.slice_micros
+        if policy.cascade:  # every rung the task may reach, each run for its stalled slices
+            top = d.escalate_to if d.escalate_to in TIERS else d.tier
+            rungs = rungs_from(d.tier, top)[: d.max_workers]
+            total += sum(stall_slices * (cap + budget.reserve_for(t)) for t, _ in rungs)
+            continue
         total += stall_slices * (cap + budget.reserve_for(d.tier))
         if d.escalate_to != NO_ESCALATION and d.max_workers == 2:
             after = TIERS[min(rank(d.tier) + 1, rank(d.escalate_to))]
@@ -362,13 +458,25 @@ class DispatchView:
     run: RunLevel
     stall_slices: int
     contexts: Mapping[str, int]  # task id -> characters of its first brief
+    # Cascade only: task id -> (task kind, where its start tier came from: "prior" or "measured")
+    routing: Mapping[str, tuple[str, str]] = field(default_factory=dict)
 
 
 def _money(micros: int) -> str:
     return f"${micros / 1_000_000:.2f}" if micros >= 10_000 else f"${micros / 1_000_000:.3f}"
 
 
+def _ladder_text(d: Dispatch, view: DispatchView) -> str:
+    """What the cascade does after each verified failure, ending where the investor is asked."""
+    top = d.escalate_to if d.escalate_to in TIERS else d.tier
+    rungs = rungs_from(d.tier, top)[1 : d.max_workers]
+    steps = [t if e == "off" else f"{t}/{e}" for t, e in rungs]
+    return " > ".join([*steps, "ask you"])
+
+
 def _if_fired(sheet: TermSheet, d: Dispatch, view: DispatchView) -> str:
+    if view.policy.cascade:
+        return _ladder_text(d, view)
     if d.escalate_to == NO_ESCALATION:
         up = rank(d.tier) + 1
         if up < len(TIERS) and up <= rank(view.policy.max_tier):
@@ -385,7 +493,11 @@ def _if_fired(sheet: TermSheet, d: Dispatch, view: DispatchView) -> str:
 def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
     """The route line and the dispatch table, as lines for `approval.render`."""
     route = sheet.route if sheet.route in ROUTES else ROUTE_FIRM
-    rows = [("task", "agent", "model", "effort", "if fired", "context", "slice cap")]
+    cascade = view.policy.cascade
+    head = ("task", "agent", "model", "effort", "if fired", "context", "slice cap")
+    rows: list[tuple[str, ...]] = [
+        (*head[:1], "kind", "start from", *head[1:]) if cascade else head
+    ]
     first_round = min(r.budget_micros for r in sheet.rounds)
     for task in sheet.tasks:
         d = task.dispatch
@@ -397,9 +509,13 @@ def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
             reserve_micros=budget.reserve_for(d.tier) if d.tier in TIERS else budget.RESERVE_MICROS,
         )
         chars = view.contexts.get(task.id)
+        kind, source = view.routing.get(task.id, ("-", "-"))
+        lead = [task.id]
+        if cascade:
+            lead += [safe_text(kind, limit=24), safe_text(source, limit=40)]
         rows.append(
             (
-                task.id,
+                *lead,
                 safe_text(d.agent, limit=12),
                 safe_text(d.tier, limit=8),
                 safe_text(d.effort, limit=8),
@@ -425,9 +541,14 @@ def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
     over = (
         "  (OVER the budget; the round budget still stops the run)" if worst > budget_total else ""
     )
+    how = (
+        f"every rung runs {view.stall_slices} slices"
+        if view.policy.cascade
+        else f"{view.stall_slices} slices, then one at the new price"
+    )
     lines.append(
         f"Worst case if every task steps up: {_money(worst)} of {_money(budget_total)}"
-        f" ({view.stall_slices} slices, then one at the new price){over}"
+        f" ({how}){over}"
     )
     return lines
 
