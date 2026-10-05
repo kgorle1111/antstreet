@@ -20,19 +20,34 @@ def _guarded() -> list[Path]:
     return paths
 
 
-def _imports(path: Path) -> set[str]:
+def _package(path: Path, root: Path) -> list[str]:
+    return ["boss", *path.relative_to(root).parent.parts]
+
+
+def _imports(path: Path, root: Path = SRC) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
             found.update(a.name for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            found.add(node.module)
-            found.update(f"{node.module}.{a.name}" for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = _package(path, root)
+            if node.level:
+                base = base[: len(base) - (node.level - 1)] if node.level > 1 else base
+                parts = [*base, *(node.module.split(".") if node.module else [])]
+            else:
+                parts = (node.module or "").split(".")
+            if not parts or parts == [""]:
+                continue
+            mod = ".".join(parts)
+            found.add(mod)
+            found.update(f"{mod}.{a.name}" for a in node.names)
     return found
 
 
-def _forbidden(path: Path) -> set[str]:
-    return {n for n in _imports(path) if any(n == b or n.startswith(b + ".") for b in FORBIDDEN)}
+def _forbidden(path: Path, root: Path = SRC) -> set[str]:
+    return {
+        n for n in _imports(path, root) if any(n == b or n.startswith(b + ".") for b in FORBIDDEN)
+    }
 
 
 @pytest.mark.parametrize("path", _guarded(), ids=lambda p: p.relative_to(SRC).as_posix())
@@ -51,7 +66,14 @@ def test_the_guard_names_real_files():
 def test_the_guard_can_fail(tmp_path):
     f = tmp_path / "m.py"
     f.write_text("from boss.cli import EXECUTABLE_VAR\nimport boss.bench.table\n")
-    assert _forbidden(f) == {"boss.cli", "boss.cli.EXECUTABLE_VAR", "boss.bench.table"}
+    assert _forbidden(f, tmp_path) == {"boss.cli", "boss.cli.EXECUTABLE_VAR", "boss.bench.table"}
+
+
+def test_the_guard_resolves_relative_imports(tmp_path):
+    (tmp_path / "roles").mkdir()
+    f = tmp_path / "roles" / "m.py"
+    f.write_text("from ..bench import table\nfrom ..cli import x\nfrom . import judge\n")
+    assert _forbidden(f, tmp_path) == {"boss.bench", "boss.bench.table", "boss.cli", "boss.cli.x"}
 
 
 def _all_modules() -> list[str]:
