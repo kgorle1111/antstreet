@@ -70,6 +70,27 @@ def test_max_spend_counts_an_unreported_cost_at_the_cap_never_as_zero():
     assert len(exact) == 2, "a call that fits the cap exactly is made"
 
 
+def test_max_spend_reserves_the_staged_drafts_full_cap_not_the_single_call_cap():
+    staged = 3 * drafts.DEFAULT_CAP_MICROS  # kn: stand-in for the three staged role caps
+    cheap = DraftCell(
+        "t", 1, "h", "p", "s", "haiku", None, "failed", "crashed", "", None, 0, 0, 0, None
+    )
+    started: list[object] = []
+
+    def run(item):
+        started.append(item)
+        return cheap
+
+    # room for one single-call cap but not a staged draft's worst case: no call may start
+    assert drafts._run_within(run, [("a", 1)], staged - 1, [], staged) == []
+    assert started == []
+    # a staged draft with no reported cost is charged its full cap, so the second one is refused
+    kept = drafts._run_within(run, [("a", 1), ("b", 1)], 2 * staged - 1, [], staged)
+    assert len(kept) == 1 and drafts._charge(cheap, staged) == staged
+    # drafts already made count at the same cap
+    assert drafts._run_within(run, [("c", 1)], 2 * staged - 1, [cheap], staged) == []
+
+
 def test_without_max_spend_every_draft_is_made(env):  # noqa: F811
     assert env.run(["--reps", "2"]) == 0
     assert len(list(env.out.glob("*/rep*/draft.json"))) == 4
