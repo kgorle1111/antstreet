@@ -16,7 +16,15 @@ from test_cli import boss, events_of_run, locked_run, slices_started
 
 from boss import budget, pipeline, rulings, signing
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK
-from boss.ledger import GENESIS, Event, EventType, LedgerUnverifiedError, LedgerWriter, read_events
+from boss.ledger import (
+    GENESIS,
+    Event,
+    EventType,
+    LedgerUnverifiedError,
+    LedgerWriter,
+    adopt_unsigned,
+    read_events,
+)
 from boss.rundir import RunPaths
 from boss.signing import SigningError, load_key
 from boss.state import run_state
@@ -340,6 +348,7 @@ def test_unsigned_investor_events_older_than_the_chain_still_load_with_a_key_pre
     signing.load_or_create_key(run.investor_key)
     run.ledger.parent.mkdir(parents=True, exist_ok=True)
     run.ledger.write_bytes(legacy_line(run, name, signed=False))
+    adopt_unsigned(run.ledger, run.investor_key)  # the investor vouches for the old run
     [event] = run.events()
     assert event.prev is None and "sig" not in event.data
 
@@ -357,12 +366,15 @@ def test_an_approval_signed_in_the_first_form_still_loads_and_nothing_else_does(
     sig = signing._digest_v1(key, approval)
     chained = dataclasses.replace(approval, data={**approval.data, "sig": sig})
     attacker(run, boss_call(), chained)
+    adopt_unsigned(run.ledger, run.investor_key)
     assert run.events()[1].data["sig"] == sig
-    # the same first-form signature on another kind of event is refused, in the chain or out of it
+    # the same first-form signature on another kind of event is refused, in the chain or out of
+    # it, and adopting the run does not make it pass
     for kind in (EventType.RESUMED, EventType.TOPPED_UP, EventType.RULED, EventType.STOPPED):
         attacker(run, boss_call(), dataclasses.replace(chained, event=kind))
-        with pytest.raises(LedgerUnverifiedError):
-            run.events()
+        signing.anchor_path(run.investor_key, run.root.name).unlink(missing_ok=True)
+        with pytest.raises(LedgerUnverifiedError, match="does not verify"):
+            adopt_unsigned(run.ledger, run.investor_key)
 
 
 def test_a_ledger_with_no_key_and_no_signature_loads_as_it_always_did(run):

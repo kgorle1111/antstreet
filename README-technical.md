@@ -286,7 +286,8 @@ What AntStreet does not do, in plain words. Each links to its row in the [threat
 - Every ledger line carries the hash of the line before it and an HMAC with a key in
   `.boss/investor.key` that no worker can read, and your approvals are signed with it too, so an
   edited, forged or appended line, or a forged approval, is refused even when the chain is
-  recomputed.
+  recomputed. A run with no anchor and unsigned lines is refused until you adopt it
+  (`boss verify RUN --adopt-unsigned`).
 - Workers start in an isolated configuration (no hooks, MCP servers or shell) and are refused if
   the CLI reports anything else.
 - A pass needs pytest to exit 0, a test report showing at least one test and no failures, errors

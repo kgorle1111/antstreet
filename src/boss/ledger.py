@@ -250,6 +250,12 @@ class LedgerWriter:
             self._prev, self._lines = _last_line(self.path)
             if self._key_path is not None:  # never append to a ledger the key does not vouch for
                 read_events(self.path, self._key_path)  # before a key is created: a lost one shows
+                run = self.path.parent.name
+                if self._lines and not signing.anchor_path(self._key_path, run).exists():
+                    # with no key the read above could check nothing; signing on top would launder
+                    raise LedgerUnverifiedError(
+                        _unadopted(self.path, run, unsigned_lines(self.path), self._lines)
+                    )
                 self._key = signing.load_or_create_key(self._key_path)
         except BaseException:
             fcntl.flock(fh, fcntl.LOCK_UN)
@@ -358,6 +364,37 @@ def _parse(path: Path) -> tuple[list[Event], list[str], list[_Mark]]:
     return events, hashes, marks
 
 
+def _unadopted(path: Path, run: str, unsigned: int, lines: int) -> str:
+    return (
+        f"{path}: {unsigned} of {lines} lines are unsigned and the run has no anchor: either older "
+        "than line signing or rewritten without the key. If you know the run is genuine, accept "
+        f"it as it is now with `boss verify {run} --adopt-unsigned`"
+    )
+
+
+def adopt_unsigned(path: Path, key_path: Path) -> int:
+    """The investor's decision (`boss verify RUN --adopt-unsigned`) to vouch for a run's ledger as
+    it is now: every check `read_events` makes but the anchor's, then an anchor for the current
+    tail, so later reads and appends verify as for any signed run. Returns the unsigned lines it
+    adopted; 0, changing nothing, when the run already has an anchor (which must verify). Never
+    called by the engine: what it accepts is exactly what the anchor exists to refuse."""
+    path = Path(path)
+    run = path.parent.name
+    with LedgerWriter(path):  # the lock only: no key, so it writes nothing
+        if signing.anchor_path(key_path, run).exists():
+            read_events(path, key_path)
+            return 0
+        events, hashes, marks = _parse(path)
+        anchor_file = signing.anchor_path(key_path, run)
+        try:  # a key is created only for a ledger no key ever signed: a lost one must show
+            key = signing.load_key(key_path) if any(marks) else signing.load_or_create_key(key_path)
+        except signing.SigningError as exc:
+            raise LedgerUnverifiedError(f"{path}: {exc}") from None
+        _vouched(path, run, anchor_file, key, events, hashes, marks, None, adopting=True)
+        signing.write_anchor(key_path, run, len(hashes), hashes[-1] if hashes else GENESIS)
+        return marks.count(None)
+
+
 def unsigned_lines(path: Path) -> int:
     """How many lines carry no `mac`: lines written before line signing or by a writer with no
     key. With a key, `read_events` refuses one after a signed line, so they are always first."""
@@ -402,6 +439,8 @@ def _vouched(
     hashes: list[str],
     marks: list[_Mark],
     anchor: signing.Anchor | None,
+    *,
+    adopting: bool = False,
 ) -> None:
     """Raise LedgerUnverifiedError unless the key vouches for the ledger.
 
@@ -411,8 +450,10 @@ def _vouched(
     their `mac` (a writer appends before it re-anchors, so a crash, or a reader racing it, sees
     one).
     A missing anchor is accepted only when the ledger holds no signed line and no v2-signed event:
-    a ledger that has one was written by code that anchors, so its anchor was deleted (an old run
-    never had one).
+    a ledger that has one was written by code that anchors, so its anchor was deleted. A ledger
+    with unsigned lines and no anchor is refused too: it is older than line signing or was rewritten
+    without the key, and only the investor can tell which (`adopt_unsigned`, which passes
+    `adopting` to skip both anchor rules once).
     From its first signed line on, every line must carry a `mac` that verifies, so a line edited,
     forged or appended without the key is refused wherever it is; the lines before the first
     signed one are covered by its `prev`.
@@ -443,10 +484,12 @@ def _vouched(
         if anchor_file.exists():
             raise LedgerUnverifiedError(f"{path}: has an anchor but the investor key is missing")
     elif anchor is None:
-        if stamped:
+        if stamped and not adopting:
             raise LedgerUnverifiedError(
                 f"{path}: its anchor {anchor_file} is missing, so dropped lines could not be seen"
             )
+        if (unsigned := marks.count(None)) and not adopting:
+            raise LedgerUnverifiedError(_unadopted(path, run, unsigned, len(marks)))
     elif len(events) < anchor.lines:
         raise LedgerUnverifiedError(
             f"{path}: has {len(events)} lines but its anchor records {anchor.lines}: "

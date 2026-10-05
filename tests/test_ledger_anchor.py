@@ -25,6 +25,7 @@ from boss.ledger import (
     LedgerCorruptError,
     LedgerUnverifiedError,
     LedgerWriter,
+    adopt_unsigned,
     read_events,
     repair_torn_tail,
     unsigned_lines,
@@ -268,7 +269,7 @@ def test_a_missing_anchor_is_refused_for_a_ledger_that_was_written_with_anchors(
     assert str(anchor_file(run)) in str(error.value)
 
 
-def test_a_missing_anchor_is_accepted_where_none_was_ever_written(run, tmp_path):
+def test_an_older_run_with_no_anchor_is_refused_until_the_investor_adopts_it(run, tmp_path):
     # an older run: chained, an approval signed in the first form, no anchor
     key = load_or_create_key(run.investor_key)
     approval = Event(run="r1", round=0, actor="investor", event=EventType.APPROVED, data={"x": 1})
@@ -277,7 +278,9 @@ def test_a_missing_anchor_is_accepted_where_none_was_ever_written(run, tmp_path)
         ledger.append(boss_call())
         ledger.append(old)
         ledger.append(boss_call(2))
-    assert not anchor_file(run).exists() and len(run.events()) == 3
+    refused(run, r"3 of 3 lines are unsigned .* `boss verify r1 --adopt-unsigned`")
+    assert adopt_unsigned(run.ledger, run.investor_key) == 3
+    assert len(run.events()) == 3 and adopt_unsigned(run.ledger, run.investor_key) == 0
     # a run that has not been approved yet: boss calls only, and no key at all
     fresh = RunPaths(tmp_path / "other" / ".boss" / "runs" / "r9")
     with fresh.writer() as ledger:
@@ -291,10 +294,39 @@ def test_resuming_an_older_run_starts_anchoring_it_from_the_first_new_line(run):
     old = dataclasses.replace(approval, data={"x": 1, "sig": signing._digest_v1(key, approval)})
     with LedgerWriter(run.ledger) as ledger:
         ledger.append(old)
+    adopt_unsigned(run.ledger, run.investor_key)
     honest(run, resumed())  # the first line the new code writes
     assert read_anchor(run.investor_key, key, "r1").lines == 2  # type: ignore[union-attr]
     put(run, lines_of(run)[:1])
     refused(run, "has 1 lines but its anchor records 2")
+
+
+def test_the_stamped_rule_alone_refuses_a_signed_run_whose_anchor_and_last_line_are_gone(run):
+    honest(run, boss_call(), boss_call(2), boss_call(3))  # signed lines, no investor event
+    anchor_file(run).unlink()
+    put(run, lines_of(run)[:2])
+    refused(run, r"its anchor .* is missing")
+
+
+def test_a_writer_refuses_an_unanchored_unsigned_ledger_even_with_the_key_gone(run):
+    honest(run, boss_call(), boss_call(2), boss_call(3))
+    stripped = [unsigned(line) for line in lines_of(run)]
+    put(run, rechain(stripped, 0, keep_macs=False))
+    anchor_file(run).unlink()
+    run.investor_key.unlink()  # nothing left to check against: the read accepts it ...
+    assert len(run.events()) == 3
+    with pytest.raises(LedgerUnverifiedError, match="--adopt-unsigned"), run.writer():
+        pytest.fail("a new key would sign on top of a ledger nobody vouched for")
+    assert not run.investor_key.exists()
+
+
+def test_adopting_never_accepts_a_forged_signed_line_or_creates_a_key_over_lost_signatures(run):
+    ledger_of(run, 3)
+    anchor_file(run).unlink()
+    run.investor_key.unlink()
+    with pytest.raises(LedgerUnverifiedError, match="key is missing; restore"):
+        adopt_unsigned(run.ledger, run.investor_key)
+    assert not run.investor_key.exists()
 
 
 def test_an_anchor_with_the_key_deleted_is_refused(run):
@@ -455,7 +487,10 @@ def test_an_older_unsigned_ledger_still_loads_says_so_and_is_signed_from_its_nex
     with LedgerWriter(run.ledger) as ledger:  # written before every line was signed
         ledger.append(boss_call())
         ledger.append(boss_call(2))
-    assert unsigned_lines(run.ledger) == 2 and len(run.events()) == 2
+    assert unsigned_lines(run.ledger) == 2 and len(run.events()) == 2  # no key yet: nothing checks
+    load_or_create_key(run.investor_key)
+    refused(run, "--adopt-unsigned")
+    assert adopt_unsigned(run.ledger, run.investor_key) == 2  # the investor vouches for it
     honest(run, boss_call(3))  # resumed by this code: the new line covers the two before it
     assert MAC_TAIL.search(lines_of(run)[-1]) and unsigned_lines(run.ledger) == 2
     put(run, [*lines_of(run)[:2], unsigned(lines_of(run)[2])])  # and its mac cannot be stripped
@@ -468,7 +503,8 @@ def test_the_report_names_a_ledger_no_line_signature_covers(run):
     with LedgerWriter(run.ledger) as ledger:
         ledger.append(boss_call())
     text, _ = _report_text(run, run.events())
-    assert "Ledger: 1 of 1 lines are unsigned" in text
+    assert "Ledger: 1 of 1 lines are unsigned: either older than line signing or rewritten" in text
+    adopt_unsigned(run.ledger, run.investor_key)
     honest(run, boss_call(2))
     text, _ = _report_text(run, run.events())
     assert "Ledger: 1 of 2 lines are unsigned" in text
@@ -508,7 +544,7 @@ def test_accepted_risk_whoever_holds_the_key_can_write_signed_events_and_a_match
     assert run.events()[-1].data["micros"] == 10**9  # T29 and T46: the key is the whole defence
 
 
-def test_accepted_risk_a_ledger_rewritten_with_the_key_and_every_anchor_gone_loads_as_an_old_one(
+def test_accepted_risk_a_rewritten_ledger_with_its_anchor_gone_loads_once_the_investor_adopts_it(
     run,
 ):
     ledger_of(run, 4)
@@ -518,7 +554,23 @@ def test_accepted_risk_a_ledger_rewritten_with_the_key_and_every_anchor_gone_loa
     run.ledger.write_bytes((forged.to_json() + "\n").encode())  # no `prev`, no signature
     for path in anchor_file(run).parent.iterdir():
         path.unlink()
-    assert run.events()[0].data == {
-        "micros": 5
-    }  # refusing unchained ledgers is deliberately not done
+    refused(run, "--adopt-unsigned")  # the downgrade needs a human decision ...
+    adopt_unsigned(run.ledger, run.investor_key)
+    assert run.events()[0].data == {"micros": 5}  # ... and the human cannot tell it from old
     assert os.path.exists(run.investor_key)
+
+
+def test_boss_verify_refuses_an_unanchored_old_run_until_adopt_unsigned_is_given(run):
+    from boss import cli
+
+    with LedgerWriter(run.ledger) as ledger:  # an old run: unsigned, no anchor
+        ledger.append(boss_call())
+    load_or_create_key(run.investor_key)
+    project = run.root.parent.parent.parent
+    said: list[str] = []
+    assert cli.main(["verify", "r1", "--dir", str(project)], say=said.append) == 1
+    assert "--adopt-unsigned" in said[-1]
+    said.clear()
+    assert cli.main(["verify", "r1", "--adopt-unsigned", "--dir", str(project)],
+                    say=said.append) == 0  # fmt: skip
+    assert said[0].startswith("Run r1: adopted 1 unsigned lines") and "verifies" in said[-1]

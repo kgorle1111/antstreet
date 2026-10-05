@@ -64,13 +64,28 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   anywhere but the end of the line makes the line corrupt. With the key path, `read_events`
   refuses, naming the line, a signed line whose `mac` does not verify (edited, forged, copied from
   another run, or the key was replaced) and an unsigned line after a signed one (appended without
-  the key). Lines before the first signed line are covered by its `prev`. So nobody without the
-  key can edit, forge, insert or append any line, even by recomputing the whole chain, and the
-  writer never re-anchors such a line, because it runs the same check when it opens. Signed lines
-  with the key missing are refused with the path of the key to restore. A ledger in which no line is
-  signed (written before line signing, or by a writer with no key) still loads, and `boss report`
-  says how many lines are unsigned (`Ledger: N of M lines are unsigned`); a signed line's `prev`
-  covers the chained lines before it, and nothing covers lines older than the chain. Checking costs about 1 µs of HMAC per line.
+  the key). Lines before the first signed line are covered by its `prev`. Signed lines with the key
+  missing are refused with the path of the key to restore. Checking costs about 1 µs of HMAC per
+  line.
+- What the line signatures and the anchor prove together. Someone without the key who can write
+  the run folder cannot edit, insert or append a line in a run that has its anchor, even by
+  recomputing the whole chain, and the writer never re-anchors such a line, because it runs the
+  same check when it opens. They can still (a) put back an earlier genuine ledger together with its
+  earlier genuine anchor (a rollback is not seen), (b) cut the one line a crash left between its
+  append and its anchor, and (c) strip every signature, rewrite the ledger and delete the anchor,
+  which makes the run look like one older than line signing: that is refused (below) until the
+  investor adopts it, and the investor cannot tell the two apart. The full fix is a trust root
+  outside the run folder that the investor key signs (not built).
+- Unsigned runs. With the key path and no anchor, a ledger with any unsigned line is refused by
+  every reader and by the writer (which also refuses when the key file is gone, so a new key never
+  signs on top of it), naming `boss verify RUN --adopt-unsigned`. That command
+  (`ledger.adopt_unsigned`) is the investor's decision: it makes every other check (chain, every
+  `mac`, every investor signature), refuses to create a key over signed lines whose key is lost,
+  then writes the anchor for the ledger as it is now; later reads and appends work as for any
+  signed run. It changes nothing for a run that has an anchor. `boss report` then says
+  `Ledger: N of M lines are unsigned: either older than line signing or rewritten without the
+  key`. A signed line's `prev` covers the chained lines before it, and nothing covers lines older
+  than the chain.
 - `read_events(path, key_path)` with the project's key path (`RunPaths.events`, which every
   command, the loop and the pipeline use) refuses the ledger with `LedgerUnverifiedError` (a
   `LedgerCorruptError`) naming the first line when an investor or `audited` event does not verify. When the key
@@ -90,8 +105,12 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   other; the anchor is written after the line, so a crash between the two, or a reader racing the
   writer, sees one, and only such a line, never anchored, can be cut unseen. A missing anchor is
   refused when the ledger holds a signed line or a `v2:` signed event (it was written by code that
-  anchors, so the file was deleted) and accepted otherwise (an older run). An anchor with the key
-  missing is refused.
+  anchors, so the file was deleted), and when it holds an unsigned line until the investor adopts
+  the run (above); only an empty ledger needs none. An anchor with the key missing is refused.
+- The benchmark tools (`bench.kpi`, `bench.replay`, `bench.run`) read a firm cell's
+  `.boss/runs/<id>/ledger.jsonl` through `RunPaths`, so with that cell's key: a keyless append is
+  refused, not counted. The single arm's `ledger.jsonl` has no project and no key, and raw results
+  whose `.boss/investor.key` was not kept are read unchecked; nothing in them is vouched for.
 - Keys are sorted, except `mac`, which is always last. Timestamps are UTC ISO 8601.
 - `state.py`'s docstring lists the `data` contract for thirteen event types. This file is the
   complete list; the docstring is a subset of it, and the test checks that.
