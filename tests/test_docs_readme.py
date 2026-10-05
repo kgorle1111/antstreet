@@ -1,4 +1,4 @@
-"""README.md stays true; every relative link in it and in the documents points at a real file."""
+"""README-technical.md stays true; every relative link in it and the documents points at a file."""
 
 import re
 
@@ -17,8 +17,9 @@ from boss import budget, cli, worker
 from boss.bench.tasks import load_tasks
 from boss.ledger import EventType, read_events, total
 
-README = ROOT / "README.md"
+README = ROOT / "README-technical.md"
 LINKED = [
+    ROOT / "README.md",
     README,
     ROOT / "CHANGELOG.md",
     ROOT / "SECURITY.md",
@@ -38,7 +39,7 @@ def text() -> str:
 def slug(heading: str) -> str:
     """The anchor GitHub gives a heading."""
     kept = re.sub(r"[^\w\s-]", "", heading.lower().replace("`", ""))
-    return re.sub(r"\s", "-", kept.strip())
+    return re.sub(r"\s", "-", kept)  # no trim: "🚀 Quickstart" is "-quickstart" on GitHub
 
 
 def anchors(path) -> set[str]:
