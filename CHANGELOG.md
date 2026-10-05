@@ -200,6 +200,7 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- Docs no longer call the benchmark's hidden checks, mutants and labels "hand-written": Claude wrote them, apart from the agents measured. The 29 false passes are now "read and judged real errors", one class debatable.
 - The term sheet question takes `y`/`yes` and `n`/`no` like every other question; `y` was
   "Unrecognised answer" and asked again.
 - `boss fund` with no terminal to ask on (Claude Code, a pipe) no longer reads end of input as a

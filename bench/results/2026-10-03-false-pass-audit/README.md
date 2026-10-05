@@ -5,7 +5,7 @@ against the task text. No model call was made and nothing was spent. The raw cel
 `bench/results/raw/` (git-ignored); nothing from them is copied here except short quotes.
 
 A **false pass** is a firm cell where every visible check (the boss's checks the worker saw) passed,
-but a hidden check (written by hand, never shown to any agent) failed.
+but a hidden check (written by Claude, separately from the agents measured, never shown to any agent) failed.
 
 ## Result
 
@@ -184,8 +184,9 @@ Process findings, not fixes to checks:
 
 > On 17 small Python tasks (3 runs each, Haiku writing both the checks and the code), 29 of 77 runs
 > (38%, 95% Wilson interval 28-49%) passed every check the model wrote and still failed a
-> human-written check the model never saw; we read all 29 against the task text and each is a real
-> error, 13 of them only on non-ASCII input or a returned type.
+> hidden check the model never saw (written by Claude, separately from the agents measured); we read all
+> 29 against the task text and judge each a real error (one class, tokenbucket's int-vs-float return, is
+> debatable), 13 of them only on non-ASCII input or a returned type.
 
 What this does not support: any rate for "coding agents" in general, any other model, agents that can
 run code, or the phrase "says done" for the worker (the done signal is the boss's checks). The runs of

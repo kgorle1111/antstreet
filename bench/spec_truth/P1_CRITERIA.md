@@ -51,7 +51,7 @@ which are not independent: one draft per task, products of one task share it).
 
 ## Reported, not gated
 
-Mutants killed by hand and harvested mutants (the earlier drafts killed 66%); the coverage of each
+Mutants written for the tasks and harvested mutants (the earlier drafts killed 66%); the coverage of each
 draft by `boss.spec.verify` (rules uncovered, waived, anchored, anchor-missing; the headline); rules
 cited per check; cost per draft; the mapper's unconfirmed citations against the verifier's
 `anchor_missing`; and what each invalid draft was refused for.

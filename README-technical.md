@@ -11,8 +11,9 @@ sandboxed gate, not the agents, decides what passed, and every dollar and decisi
 hash-chained ledger.
 
 Why: in our benchmark, 29 of 77 runs (38%, 95% interval 28-49%) passed every check the model had
-written and still failed a hand-written check it never saw. Every one of the 29 was a real error
-against the task text. Caveats: 17 small Python tasks, Haiku writing both checks and code, and runs
+written and still failed a hidden check it never saw (written by Claude, separately from the agents
+measured). We read all 29 against the task text and judge each a real error; one class (tokenbucket's
+int-vs-float return) is debatable. Caveats: 17 small Python tasks, Haiku writing both checks and code, and runs
 of one task are not independent (resampling tasks widens the interval to 20-57%). These were firm
 runs, and the gate passed them: it runs the checks it is given, so the stat measures weak
 model-written checks, not the gate or agents in general. Details in the
@@ -122,8 +123,9 @@ Why it is different:
   stops making progress is fired and replaced once. Hard limits stop the run.
 - **A signed ledger.** Every line carries the hash of the one before it; your approvals are signed
   with a key no worker can read. Costs are the CLI's estimates, and unknown costs are shown as unknown.
-- **Blind measurement.** The benchmark's hidden checks are written by hand and never shown to any
-  agent, and neither arm is told it is measured.
+- **Blind measurement.** The benchmark's hidden checks are written separately from the agents being
+  measured (by Claude, in a different session), validated against a reference solution and planted wrong
+  solutions, and never shown to any agent, and neither arm is told it is measured.
 - **Dispatch (optional).** `--dispatch rules` has the term sheet name, per task, the agent route,
   model and effort. You can edit it, it is hashed into your approval, and every choice is on the
   ledger. We have not shown that it saves money without losing delivery, so it is off by default
