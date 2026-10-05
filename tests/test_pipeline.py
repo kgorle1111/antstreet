@@ -493,7 +493,9 @@ def test_the_chosen_roles_are_on_the_started_event_the_config_stays_as_it_was(fx
     assert started.data["roles"] == roles
     assert recorded_setup(fx.events()) == Setup(("check_auditor",), "sonnet", 0)
     assert recorded_setup([]) is None
-    assert set(started.data["config"]) == {f.name for f in dataclasses.fields(FirmConfig)}
+    # the two dispatch keys are written only by a run that turned dispatch on
+    fields = {f.name for f in dataclasses.fields(FirmConfig)} - {"dispatch", "max_tier"}
+    assert set(started.data["config"]) == fields
 
 
 # --- each stage-1 role alone --------------------------------------------------------------------
@@ -1579,7 +1581,11 @@ def test_every_role_end_to_end_and_the_ledger_adds_up(fx):
         "worker", "consultant", "critic", "worker", "demo_writer", "judge",
     ]  # fmt: skip
     chosen = set(registry()) - set(BY_OPTION)  # the examiner comes with --held-out, not --roles
+    # the spec mapper reads the rules only --spec writes: with none it makes no call and says so
+    # (tests/test_cli_spec.py), and its note is on the sheet
+    chosen -= {"spec_mapper"}
     assert {e.actor for e in fx.role_calls()} == {f"role:{n}" for n in chosen}
+    assert "spec_mapper: not run. It reads the idea's rules, which only --spec makes." in out.text
     assert all(e.round == 0 and e.data["result"] == "ok" for e in fx.role_calls())
     events = fx.events()
     spent = {}
@@ -1783,7 +1789,7 @@ def test_with_the_default_of_one_task_a_two_task_design_is_refused_and_the_boss_
 
 
 def test_an_amended_sheet_that_does_not_validate_is_not_offered(fx, monkeypatch):
-    def refuse(sheet, checks_dir):
+    def refuse(sheet, checks_dir, policy=None):
         raise TermSheetError(["the rounds do not add up"])
 
     monkeypatch.setattr("boss.pipeline.validate", refuse)

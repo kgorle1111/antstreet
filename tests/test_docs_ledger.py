@@ -17,6 +17,7 @@ from docs_support import DOCS, ROOT, code_spans, read, run_cli, section, table
 
 from boss import budget, held_out, pipeline, state
 from boss.approval import content_hashes
+from boss.dispatch import DispatchPolicy, plan_dispatch
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
@@ -29,7 +30,7 @@ from boss.rundir import RunPaths
 from boss.runner import SliceRun
 from boss.stream import Usage
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import IsolationError
+from boss.worker import IsolationError, ModelMismatchError
 
 # The module-scoped `produced` fixture runs ~20 whole runs (over two minutes). Under xdist each
 # worker that received one of these tests would build its own copy, so the module is pinned to one
@@ -95,6 +96,24 @@ class Script:
         )
 
 
+class ModelScript(Script):
+    """A scripted worker whose init names the model it ran: the launched one unless `ran` says
+    otherwise."""
+
+    def __init__(self, *steps, ran=None):
+        super().__init__(*steps)
+        self.ran = ran
+
+    def __call__(self, spec, workspace, log_path, *, env):
+        run = super().__call__(spec, workspace, log_path, env=env)
+        return dataclasses.replace(run, model_id=self.ran or f"claude-{spec.model}-4-5-20251001")
+
+
+def dispatched(rounds=None) -> TermSheet:
+    policy = DispatchPolicy("sonnet", 100_000)
+    return plan_dispatch(sheet(rounds), tier="haiku", profile=None, policy=policy, reads={})
+
+
 def step(
     code, status="continuing", outcome=Outcome.COMPLETED, cost=10_000, disputes=(), denials=()
 ):
@@ -128,8 +147,8 @@ def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=Non
                 ask=lambda q: next(replies), say=lambda _: None, slice_runner=worker, gate=run_gate,
                 sleep=lambda _: None,
             )  # fmt: skip
-        except IsolationError:
-            assert expect is IsolationError
+        except (IsolationError, ModelMismatchError) as exc:
+            assert expect is type(exc)
     return read_events(paths.ledger)
 
 
@@ -142,6 +161,44 @@ def cli_events(tmp_path, *, binary=None, answers=("a",), extra=()):
         ["fund", "Reverse a string.", "--budget", "0.50", *extra],
         answers=answers,
         binary=binary,
+    )
+    return read_events(run_dir / "ledger.jsonl")
+
+
+def cli_spec_events(tmp_path):
+    """`boss fund --spec`: a boss that cites the idea's rules, so `boss_call` carries `prompt` and
+    `rules` and `approved` carries the coverage summary."""
+    from test_cli import DRAFT as PLAIN
+    from test_cli import FAKE_CLAUDE
+    from test_cli_spec import CITING, IDEA
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake = tmp_path / "fake-claude-spec"
+    fake.write_text(FAKE_CLAUDE.replace(repr(PLAIN), repr(CITING)))
+    fake.chmod(0o755)
+    _, run_dir, _ = run_cli(
+        tmp_path, ["fund", IDEA, "--budget", "0.50", "--spec"], binary=str(fake)
+    )
+    return read_events(run_dir / "ledger.jsonl")
+
+
+def cli_spec_mapper_events(tmp_path):
+    """`boss fund --spec --roles spec_mapper`: a fake boss that cites rules and a fake mapper that
+    agrees with it, so the mapper's `role_call` is booked."""
+    from test_cli import DRAFT as PLAIN
+    from test_cli import FAKE_CLAUDE
+    from test_cli_spec import CITING, IDEA
+
+    maps = {"maps": [{"check": "c01", "exercises": [{"rule": "R02", "line": 4}]}]}
+    pick = f"({CITING!r} if '\"maps\"' not in argv[argv.index('--json-schema') + 1] else {maps!r})"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake = tmp_path / "fake-claude-mapper"
+    fake.write_text(FAKE_CLAUDE.replace(repr(PLAIN), pick))
+    fake.chmod(0o755)
+    _, run_dir, _ = run_cli(
+        tmp_path,
+        ["fund", IDEA, "--budget", "0.50", "--spec", "--roles", "spec_mapper"],
+        binary=str(fake),
     )
     return read_events(run_dir / "ledger.jsonl")
 
@@ -194,6 +251,18 @@ def examiner_events(tmp_path):
     return read_events(paths.ledger)
 
 
+def audit_events(tmp_path):
+    """`boss audit plan` and `boss audit check` against a fake boss and a small git repository:
+    the boss's audit draft, the investor's approval and the gate's signed verdict."""
+    from audit_support import RIGHT_SLUG, Audit, branch, later
+
+    audit = Audit(tmp_path)
+    assert audit.plan()[0] == 0
+    branch(audit.repo, "good", {"slug.py": RIGHT_SLUG}, later())
+    assert audit.check(audit.run_id(), "good", "--claim", "done")[0] == 0
+    return read_events(audit.store / ".boss" / "runs" / audit.run_id() / "ledger.jsonl")
+
+
 @pytest.fixture(scope="module")
 def produced(tmp_path_factory) -> dict[str, list[Event]]:
     """Every event the code writes across a set of runs that reaches every writer, by type."""
@@ -234,12 +303,32 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
                             answers=["n"]))  # fmt: skip
     runs.append(firm_events(where("held-out"), Script(step(GOOD, "done")), held=True))
     runs.append(examiner_events(where("examiner")))
+    # dispatch: w1 stalls and w2 is hired one tier up; a thinner round steps the effort instead
+    on = FirmConfig(dispatch=True)
+    runs.append(firm_events(where("dispatch"), ModelScript(
+        step(BAD), step(BAD), step(GOOD, "done")), dispatched(), config=on))  # fmt: skip
+    thin = dispatched((Round(1, 400_000, 2),))
+    runs.append(
+        firm_events(
+            where("dispatch-refused"),
+            ModelScript(step(BAD, cost=120_000), step(BAD, cost=120_000), step(GOOD, "done")),
+            thin,
+            config=on,
+        )
+    )
+    runs.append(firm_events(where("wrong-model"), ModelScript(
+        step(HALF), ran="claude-sonnet-4-5-20250929"), dispatched(), config=on,
+        expect=ModelMismatchError))  # fmt: skip
+    runs.append(cli_events(where("cli-dispatch"), extra=("--dispatch", "rules")))
     runs.append(cli_events(where("cli-approved")))
     runs.append(cli_events(where("cli-rejected"), answers=("r",)))
     runs.append(cli_events(where("cli-no-boss"), binary="/nonexistent/claude"))
     runs.append(cli_events(where("cli-thinking"), extra=("--boss-thinking", "0")))
+    runs.append(cli_spec_events(where("cli-spec")))
+    runs.append(cli_spec_mapper_events(where("cli-spec-mapper")))
     runs.append(cli_resumed_events(where("cli-resumed")))
     runs.append(cli_topped_up_events(where("cli-topped-up")))
+    runs.append(audit_events(where("audit")))
     runs.append(roles_events(where("cli-roles")))
     runs.append(roles_events(where("cli-declined"), fix="n"))
     found: dict[str, list[Event]] = defaultdict(list)
@@ -322,7 +411,7 @@ def test_actor_forms_and_the_writer_rules_are_documented(text):
         assert f"`{actor}`" in body
 
 
-def test_only_denied_has_no_writer_and_the_document_says_so(produced, text):
+def test_only_the_reserved_types_have_no_writer_and_the_document_says_so(produced, text):
     # role_call has two: `pipeline.py` (`boss fund --roles`) and `roles/examiner.py`.
     unwritten = {e.value for e in EventType} - set(produced)
     assert unwritten == NO_WRITER, f"types with no writer changed: {sorted(unwritten)}"
@@ -366,6 +455,12 @@ def test_nested_evidence_keys_are_documented(produced, text):
     [evidence_rows] = [table(sections(text)["fired"].split("Evidence keys")[1])]
     documented = {r[0].strip("`") for r in evidence_rows}
     written = {k for e in produced["fired"] for k in e.data["evidence"]}
+    assert written == documented
+
+
+def test_the_dispatch_keys_of_a_hire_are_documented(produced, text):
+    documented = {r[0].strip("`") for r in table(sections(text)["hired"].split("Dispatch keys")[1])}
+    written = {k for e in produced["hired"] if "dispatch" in e.data for k in e.data["dispatch"]}
     assert written == documented
 
 
@@ -460,8 +555,15 @@ def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(prod
 
 
 def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(produced, text):
-    with_roles = [e for e in produced["started"] if "roles" in e.data]
-    assert with_roles  # every run with roles is a run with every role --roles all names
+    with_roles = [
+        e
+        for e in produced["started"]
+        if "roles" in e.data and e.data["roles"]["names"] != ["spec_mapper"]
+    ]
+    # every other run with roles is a run with every role --roles all names; the `--spec` run
+    # names the mapper alone, because `all` includes the staged roles --spec refuses
+    assert with_roles
+    assert any(e.data.get("roles", {}).get("names") == ["spec_mapper"] for e in produced["started"])
     chosen = sorted(set(registry()) - set(pipeline.BY_OPTION))
     for event in with_roles:
         assert sorted(event.data["roles"]) == ["model", "names", "thinking_tokens"]

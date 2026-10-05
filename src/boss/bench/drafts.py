@@ -16,20 +16,21 @@ import json
 import os
 import shutil
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
-from boss import cli
+from boss import cli, spec
 from boss.bench.results import CellResult, cell_dir, load_results
 from boss.bench.score import DraftScore, draft_checks, score_draft
-from boss.bench.table import MIXED_WARNING, wilson_interval
+from boss.bench.table import MIXED_WARNING
 from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
 from boss.boss import (
     DEFAULT_CAP_MICROS,
     DEFAULT_MODEL,
+    RULES_PROMPT,
     TERM_SHEET_PROMPT,
     BossError,
     InvalidDraftError,
@@ -41,10 +42,12 @@ from boss.report import dollars
 from boss.roles.base import RoleError, RoleOutputError, system_prompt
 from boss.roles.engineering import SYSTEM_DESIGNER, TESTER, StagedDraftError, draft_staged
 from boss.roles.product import PRODUCT_MANAGER, write_stories
+from boss.stats import md_table, pct, rate
 from boss.stream import Usage
-from boss.worker import CLI, usd, worker_env
+from boss.worker import CLI, EXECUTABLE_VAR, usd, worker_env
 
 DRAFT_FILE = "draft.json"
+CLAIMS_FILE = "claims.json"  # a draft made with rules: who cites which rule, and the waivers
 REJECTED_FILE = "rejected_output.json"
 CHECKS_DIR = "checks"
 # The term sheet needs a budget to be valid; it is never spent and the prompt does not mention it.
@@ -182,16 +185,21 @@ def run_draft(
         if settings.prompt == STAGED:
             usage = _staged_draft(task, checks_dir, environ, settings)
         else:
-            usage = draft_term_sheet(
+            rules = spec.split(task.idea) if settings.prompt == RULES_PROMPT else None
+            draft = draft_term_sheet(
                 task.idea,
                 DRAFT_BUDGET_MICROS,
                 checks_dir,
                 env=worker_env(environ),
                 model=settings.boss_model,
-                executable=environ.get(cli.EXECUTABLE_VAR, CLI),
+                executable=environ.get(EXECUTABLE_VAR, CLI),
                 thinking_tokens=settings.boss_thinking,
                 prompt_name=settings.prompt,
-            ).usage
+                rules=rules,
+            )
+            usage = draft.usage
+            if rules is not None:
+                save_claims(cell, rules, draft)
     except BossError as exc:
         # A call that completed but gave nothing usable is the draft's fault; anything else
         # (capped, timeout, login, ...) says nothing about the prompt.
@@ -206,6 +214,17 @@ def run_draft(
     return result
 
 
+def save_claims(cell: Path, rules: spec.Split, draft: Any) -> None:
+    """Keep the rule list and who cites what, beside the checks, so the coverage of a draft can be
+    read again without a model."""
+    (cell / spec.RULES_FILE).write_text(spec.dumps(rules), encoding="utf-8")
+    kept = {
+        "claims": {c.id: list(c.criteria) for c in draft.sheet.checks},
+        "untested": dict(draft.untested),
+    }
+    (cell / CLAIMS_FILE).write_text(json.dumps(kept, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def _staged_draft(
     task: BenchTask, checks_dir: Path, environ: Mapping[str, str], settings: Settings
 ) -> Usage:
@@ -215,7 +234,7 @@ def _staged_draft(
     call: dict[str, Any] = {
         "env": worker_env(environ),
         "model": settings.boss_model,
-        "executable": environ.get(cli.EXECUTABLE_VAR, CLI),
+        "executable": environ.get(EXECUTABLE_VAR, CLI),
         "thinking_tokens": settings.boss_thinking,
     }
     paid: list[Usage] = []
@@ -369,23 +388,6 @@ def summarize(cells: Sequence[DraftCell]) -> Summary:
     )
 
 
-def _pct(x: float) -> str:
-    return f"{x * 100:.0f}%"
-
-
-def _share(successes: int, n: int) -> str:
-    """A rate over n > 0 drafts with its Wilson interval."""
-    low, high = wilson_interval(successes, n)
-    return f"{successes}/{n} = {_pct(successes / n)} [{low * 100:.0f}-{high * 100:.0f}%]"
-
-
-def _md(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
-    def line(cells: Sequence[str]) -> str:
-        return "| " + " | ".join(cells) + " |"
-
-    return [line(header), line(["---"] * len(header))] + [line(r) for r in rows]
-
-
 def _values(label: str, values: Sequence[object]) -> str:
     return f"{label}: " + ", ".join(sorted({str(v) for v in values}))
 
@@ -411,7 +413,7 @@ def render_table(cells: Sequence[DraftCell]) -> str:
     s = summarize(cells)
     cost = "n/a" if s.mean_cost_micros is None else dollars(round(s.mean_cost_micros))
     out = [header] + ([MIXED_WARNING] if mixed else []) + [""]
-    out += _md(
+    out += md_table(
         ["drafts", "invalid", "failed", "checks/draft", "mean cost/draft", "unknown-cost calls"],
         [
             [
@@ -429,16 +431,15 @@ def render_table(cells: Sequence[DraftCell]) -> str:
             "",
             "Precision: a correct implementation (the reference) must pass every check.",
             f"- wrong checks: {s.wrong_checks} of {s.checks} failed on the reference "
-            f"(precision {_pct(s.precision)})",
-            f"- drafts with a wrong check: {_share(s.wrong_drafts, s.drafts)}",
+            f"(precision {pct(s.precision)})",
+            f"- drafts with a wrong check: {rate(s.wrong_drafts, s.drafts, counts='before')}",
             "",
             "Recall: an incorrect implementation (a mutant) must fail a sound check.",
-            f"- mutants killed by sound checks: {s.killed} of {s.mutants} "
-            f"(recall {_pct(s.recall)})",
+            f"- mutants killed by sound checks: {s.killed} of {s.mutants} (recall {pct(s.recall)})",
             f"- mutants failing only wrong checks, not counted: {s.killed_only_by_wrong}",
-            f"- drafts that kill every mutant: {_share(s.perfect_drafts, s.drafts)}",
+            f"- drafts that kill every mutant: {rate(s.perfect_drafts, s.drafts, counts='before')}",
         ]
-    out += ["", *_md(*_per_task(cells))]
+    out += ["", *md_table(*_per_task(cells))]
     out += ["", "Drafts that were invalid or failed are excluded from every rate above."]
     return "\n".join(out) + "\n"
 
@@ -498,6 +499,14 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         "manager, system designer and tester in place of the boss's one call",
     )
     parser.add_argument("--jobs", type=int, default=2, help="drafts to make and score at once")
+    parser.add_argument(
+        "--max-spend",
+        type=cli.usd_arg,
+        metavar="USD",
+        help="stop making drafts before the measured spend, plus one more call at its cap, would "
+        "pass this; drafts are then made one at a time. A cost the CLI did not report counts as "
+        "the cap",
+    )
     parser.add_argument("--dry-run", action="store_true", help="list the drafts and exit")
     parser.add_argument(
         "--score-existing",
@@ -566,15 +575,50 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         print(f"  {task.id:<14} rep{rep}  {_verdict(result)}")
         return result
 
-    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        results = list(pool.map(run, todo))
+    if args.max_spend is None:
+        with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+            results = list(pool.map(run, todo))
+    else:
+        results = _run_within(run, todo, args.max_spend, done.values(), per_draft)
     print()
     print(render_table([*done.values(), *results]), end="")
     return 0
 
 
+def _run_within(
+    run: Callable[[tuple[BenchTask, int]], DraftCell],
+    todo: Sequence[tuple[BenchTask, int]],
+    cap_micros: int,
+    earlier: Iterable[DraftCell] = (),
+    per_draft: int = DEFAULT_CAP_MICROS,
+) -> list[DraftCell]:
+    """Make the drafts one at a time, and stop before one that could take the measured spend past
+    `cap_micros`: a draft may cost up to `per_draft` (all its calls' caps). A cost the CLI did not
+    report is counted at that cap, never as zero. `earlier` are drafts already made, counted in
+    the spend."""
+    spent = sum(_charge(c, per_draft) for c in earlier)
+    results: list[DraftCell] = []
+    for item in todo:
+        if spent + per_draft > cap_micros:
+            left = len(todo) - len(results)
+            print(
+                f"Stopped at the spend cap: {dollars(spent)} spent of {dollars(cap_micros)}; "
+                f"{left} draft(s) not made."
+            )
+            break
+        cell = run(item)
+        spent += _charge(cell, per_draft)
+        results.append(cell)
+    print(f"Measured spend {dollars(spent)} of the {dollars(cap_micros)} cap.")
+    return results
+
+
+def _charge(cell: DraftCell, per_draft: int = DEFAULT_CAP_MICROS) -> int:
+    return per_draft if cell.cost_micros is None else cell.cost_micros
+
+
 def _verdict(cell: DraftCell) -> str:
-    cost = "cost unknown" if cell.cost_micros is None else f"${dollars(cell.cost_micros)}"
+    cost = "cost unknown" if cell.cost_micros is None else f"{dollars(cell.cost_micros)}"
     if cell.score is None:
         return f"{cell.status} ({cell.outcome})  {cost}"
     s = cell.score

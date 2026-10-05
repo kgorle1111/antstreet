@@ -85,6 +85,7 @@ STAGES = {
     "system_designer": ("_staged", "before approval"),
     "tester": ("_staged", "before approval"),
     "check_auditor": ("_audit", "before approval"),
+    "spec_mapper": ("_spec_map", "before approval, with `--spec`"),
     "judge": ("_judge", "before approval and after the build"),
     "consultant": ("advisor", "while a dispute is open"),
     "critic": ("_critic", "after the build"),
@@ -92,7 +93,7 @@ STAGES = {
     "examiner": ("examine", "before approval, with `--held-out N`"),
 }
 REACHED_BY = {  # the entry point that reaches each method
-    "plan": ("_stories", "_user_agent", "_staged", "_audit", "_judge_stories"),
+    "plan": ("_stories", "_user_agent", "_staged", "_audit", "_spec_map", "_judge_stories"),
     "after_build": ("_review", "_demo"),
 }
 
@@ -293,8 +294,9 @@ def test_what_is_not_built_is_still_not_built(text):
     body = section(text, "Not built")
     live = read(ROOT / "src" / "boss" / "firm.py")
     # A profile is chosen once for the whole run, by the investor: the loop uses it when set.
-    assert "return builder_system_prompt(self.config.profile, BUILDER_PROMPT)" in live
-    assert "if self.config.profile is None:" in live and FirmConfig().profile is None
+    assert "return builder_system_prompt(profile, BUILDER_PROMPT)" in live
+    assert "if profile is None:" in live and FirmConfig().profile is None
+    assert "profile = d.profile if d is not None else self.config.profile" in live
     assert '"profile": self.config.profile' in live  # every `hired` event names it
     # Nothing assigns a profile to a task: a task has no such field, the boss's draft has none.
     assert "profile" not in {f.name for f in dataclasses.fields(Task)}
@@ -329,7 +331,7 @@ def test_roles_are_reached_only_through_the_pipeline_and_only_when_named(text):
         "review_product", "write_demo",
     ):  # fmt: skip
         assert function in called, f"pipeline.py no longer calls {function}"
-    assert "from boss.roles.judge import judge_artifact" in read(src / "pipeline.py")
+    assert "judge_artifact" in called
     assert "No role is on unless `--roles` names it" in body
     assert "`src/boss/pipeline.py` books their spend" in body
     # Off unless named: no spec is on, the option defaults to none, and with no roles every part

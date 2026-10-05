@@ -47,3 +47,7 @@ plans/
 
 # mutmut working tree
 mutants/
+
+# CI: passed task validations and one shard's coverage data
+.task-cache/
+cov-shard-*

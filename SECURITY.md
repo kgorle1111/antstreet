@@ -1,6 +1,6 @@
 # Security policy
 
-What `boss` protects, what it does not, how to report a problem, and which versions get fixes.
+What AntStreet protects, what it does not, how to report a problem, and which versions get fixes.
 `tests/test_docs_security.py` fails when this file and the code or the threat model disagree.
 
 The full list of threats, controls and the test behind each is in

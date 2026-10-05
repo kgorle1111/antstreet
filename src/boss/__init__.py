@@ -2,4 +2,4 @@
 
 from importlib.metadata import version
 
-__version__ = version("boss")
+__version__ = version("antstreet")  # the distribution name; the import name stays boss

@@ -1,0 +1,53 @@
+{
+  "idea_sha256": "c738629e04acd6822cd65e4f694991b5d060183b646374544181ac9c3829ce29",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "errors": [
+      "R03",
+      "R06"
+    ],
+    "last_line": [
+      "R13",
+      "R14"
+    ],
+    "line_invariants": [
+      "R05",
+      "R09",
+      "R11",
+      "R15",
+      "R16"
+    ],
+    "packing": [
+      "R07",
+      "R09"
+    ],
+    "single_word_lines": [
+      "R12"
+    ],
+    "spacing": [
+      "R10",
+      "R11"
+    ],
+    "whitespace_input": [
+      "R04",
+      "R08"
+    ]
+  },
+  "rules": {
+    "R03": "`width` below 1 raises `ValueError`, whatever the text is (e",
+    "R04": "The text is split into words on whitespace (spaces, tabs and",
+    "R05": "The words keep their order and are never split or altered.",
+    "R06": "A word longer than `width` raises `ValueError`.",
+    "R07": "A word exactly `width` long is fine.",
+    "R08": "Empty or whitespace-only text gives an empty list.",
+    "R09": "Lines are packed greedily: each line takes as many of the ne",
+    "R10": "Every line except the last is then justified: the spaces bet",
+    "R11": "The extra spaces are spread as evenly as possible, and when ",
+    "R12": "A line holding a single word is left-aligned: the word follo",
+    "R13": "The last line is left-aligned: its words are separated by si",
+    "R14": "If the whole text fits on one line, that line is the last li",
+    "R15": "Every returned line is exactly `width` characters long.",
+    "R16": "Returned lines are not stripped."
+  }
+}

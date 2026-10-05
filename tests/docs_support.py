@@ -116,7 +116,9 @@ elif argv[argv.index("--tools") + 1] == "":
     say({BOSS_INIT!r})
     say(result | {{"total_cost_usd": 0.004, "structured_output": {DRAFT!r}}})
 else:
-    say({INIT!r})
+    init = {INIT!r}
+    init["model"] = "claude-" + argv[argv.index("--model") + 1] + "-4-5-20251001"
+    say(init)
     wrong = os.path.exists(os.path.join(os.environ["HOME"], "break"))
     expr = "s" if wrong else "s[::-1]"
     open("rev.py", "w").write("def reverse(s):\\n    return " + expr + "\\n")

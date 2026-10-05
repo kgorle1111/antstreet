@@ -130,3 +130,15 @@ def test_a_missing_folder_is_a_gate_error(dirs, tmp_path):
         run_tree(tmp_path / "nope", tree, "tests")
     with pytest.raises(GateError, match="does not exist"):
         run_tree(ws, tmp_path / "nope", "tests")
+
+
+def test_a_src_layout_product_is_importable_when_the_caller_names_the_folder(dirs):
+    ws, tree = dirs
+    (ws / "src" / "lib").mkdir(parents=True)
+    (ws / "src" / "lib" / "__init__.py").write_text("VALUE = 3\n")
+    (tree / "test_lib.py").write_text("import lib\n\ndef test_v():\n    assert lib.VALUE == 3\n")
+    assert run_tree(ws, tree, "tests").tests == {"tests/test_lib.py": FAILED}  # not importable
+    got = run_tree(ws, tree, "tests", pythonpath=("ws", "ws/src"))
+    assert got.tests == {"tests/test_lib.py::test_v": PASSED}
+    with pytest.raises(GateError, match="not inside the workspace copy"):
+        run_tree(ws, tree, "tests", pythonpath=("ws/../..",))

@@ -1,0 +1,74 @@
+{
+  "idea_sha256": "ee1bc0f86fe06defdcc1e7247856b945f6f89e9592052e06ef5655540dfab3ed",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "build_encoding": [
+      "R25",
+      "R26"
+    ],
+    "build_errors": [
+      "R28"
+    ],
+    "build_structure": [
+      "R20",
+      "R21",
+      "R22",
+      "R23",
+      "R24",
+      "R27"
+    ],
+    "parse_basic": [
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R10",
+      "R11",
+      "R15"
+    ],
+    "parse_decoding": [
+      "R12",
+      "R13"
+    ],
+    "parse_errors": [
+      "R14",
+      "R29"
+    ],
+    "parse_repeated": [
+      "R10",
+      "R15",
+      "R16",
+      "R17"
+    ],
+    "roundtrip": [
+      "R16",
+      "R30"
+    ]
+  },
+  "rules": {
+    "R06": "A single leading `?` is removed first (`'?a=1'` is read as `",
+    "R07": "The rest is split at `&` into segments.",
+    "R08": "An empty segment is skipped (`'a=1&&b=2'`, `'a=1&'` and `''`",
+    "R09": "A segment is split at its first `=` into a key and a value; ",
+    "R10": "A segment with no `=` has the value `\"\"` (`'flag'` gives `{\"",
+    "R11": "A segment whose key is empty before decoding (`'=x'`, `'='`)",
+    "R12": "The key and the value are each decoded in this way: `+` beco",
+    "R13": "`%2B` is a literal `+`, not a space.",
+    "R14": "A `%` that is not followed by two hexadecimal digits (`'%'`,",
+    "R15": "The result maps each decoded key to the list of its decoded ",
+    "R16": "Keys are in the order of their first appearance.",
+    "R17": "Two different spellings that decode to the same key (`'a%20b",
+    "R20": "Each value is either a `str`, which counts as a list of that",
+    "R21": "The result has one `key=value` pair for every value, joined ",
+    "R22": "A key with an empty list gives no pairs.",
+    "R23": "An empty dict gives `\"\"`.",
+    "R24": "There is no leading `?`.",
+    "R25": "Keys and values are encoded as UTF-8 bytes.",
+    "R26": "The characters `A-Z`, `a-z`, `0-9`, `-`, `.`, `_` and `~` ar",
+    "R27": "An empty value is written as `key=`.",
+    "R28": "A key that is not a `str`, an empty key, a value that is not",
+    "R29": "`parse_query` raises `ValueError` too when its argument is n",
+    "R30": "For every dict whose keys are non-empty strings and whose va"
+  }
+}

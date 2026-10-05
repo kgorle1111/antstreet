@@ -1,0 +1,71 @@
+{
+  "idea_sha256": "155b0f5998ac9958d87fe8f56207fd3891a5044a3bc78f3e1ae784e4efaafe1f",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "element_values": [
+      "R26",
+      "R27"
+    ],
+    "empty": [
+      "R16",
+      "R17"
+    ],
+    "isolation": [
+      "R20",
+      "R21",
+      "R22",
+      "R23",
+      "R24",
+      "R25"
+    ],
+    "ragged": [
+      "R18",
+      "R19"
+    ],
+    "rotate": [
+      "R07",
+      "R08",
+      "R09"
+    ],
+    "rotate_turns": [
+      "R10",
+      "R11",
+      "R12",
+      "R13"
+    ],
+    "spiral": [
+      "R05",
+      "R06"
+    ],
+    "transpose": [
+      "R14",
+      "R15"
+    ]
+  },
+  "rules": {
+    "R05": "`spiral` returns a flat list of every element in clockwise s",
+    "R06": "`spiral([[1, 2, 3], [4, 5, 6], [7, 8, 9]])` is `[1, 2, 3, 6,",
+    "R07": "`rotate` returns a new matrix turned clockwise by 90 degrees",
+    "R08": "One turn of a matrix with R rows and C columns gives a matri",
+    "R09": "`rotate([[1, 2, 3], [4, 5, 6]])` is `[[4, 1], [5, 2], [6, 3]",
+    "R10": "`turns` may be any integer.",
+    "R11": "A negative value turns counter-clockwise.",
+    "R12": "Only `turns` modulo 4 matters, so 0, 4, 8 and -4 all return ",
+    "R13": "Very large values such as 10**18 + 3 must work without loopi",
+    "R14": "`transpose` returns a new matrix in which the element at row",
+    "R15": "`transpose([[1, 2, 3], [4, 5, 6]])` is `[[1, 4], [2, 5], [3,",
+    "R16": "A matrix with no rows (`[]`) gives `[]` from all three funct",
+    "R17": "So does a matrix that has one or more rows where every row i",
+    "R18": "If the rows do not all have the same length, all three funct",
+    "R19": "This holds for every value of `turns` (including 0 and multi",
+    "R20": "Inputs are never mutated: after a call, the matrix and each ",
+    "R21": "Results never share structure with the input.",
+    "R22": "The returned list is always a new list object.",
+    "R23": "For `rotate` and `transpose` every returned row is a new lis",
+    "R24": "For `spiral`, the returned list is never one of the input ro",
+    "R25": "Mutating a result never changes the input.",
+    "R26": "Elements can be any Python objects (numbers, strings, `None`",
+    "R27": "They are only moved: the returned matrices hold the very sam"
+  }
+}

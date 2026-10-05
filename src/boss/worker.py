@@ -16,6 +16,7 @@ from boss.ledger import Billing
 from boss.redact import safe_text
 
 CLI = "claude"
+EXECUTABLE_VAR = "BOSS_CLAUDE_BIN"  # override the `claude` binary, e.g. for tests
 # From 2.1.277 a resumed session reports cumulative totals, which slice accounting depends on.
 MIN_CLI_VERSION = (2, 1, 277)
 WORKER_TOOLS = ("Read", "Write", "Edit")
@@ -168,6 +169,30 @@ def clean_status(status: object) -> dict[str, str] | None:
 
 class IsolationError(Exception):
     """The worker did not start in the configuration we launched. Never the worker's fault."""
+
+
+class ModelMismatchError(Exception):
+    """The CLI ran a model other than the one launched, so the ledger's model would be false."""
+
+
+MAX_MODEL_ID_CHARS = 100
+
+
+def model_id_of(init: Mapping[str, Any] | None) -> str | None:
+    """The model the CLI says it started with (its `system/init` event), cleaned for the ledger."""
+    raw = init.get("model") if init is not None else None
+    return safe_text(raw, limit=MAX_MODEL_ID_CHARS) if isinstance(raw, str) and raw else None
+
+
+def model_mismatch(launched: str, reported: str | None) -> str | None:
+    """Why the model the CLI reports is not the one launched (an alias like `sonnet` must appear
+    in the full id the CLI reports), or None when it is. A missing report is a mismatch: nothing
+    proves which model ran."""
+    if reported is None:
+        return f"launched {launched!r}, but the CLI reported no model"
+    if launched.lower() not in reported.lower():
+        return f"launched {launched!r}, but the CLI ran {reported!r}"
+    return None
 
 
 def isolation_violations(

@@ -1,13 +1,14 @@
-"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `roles` and `doctor`.
+"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `roles`, `doctor` and `audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
   1    nothing was built: no usable term sheet, the investor rejected it, a worker did not start
-       isolated, the approved checks changed, or the run cannot be read
+       isolated or ran the wrong model, the approved checks changed, or the run cannot be read
   2    usage error: a bad option, a blank idea, a budget too small to fund one slice, or roles
        that cannot run together
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
-       a declined round, a task set aside)
+       a declined round, a task set aside); for `boss audit check`, a refuted or inconclusive
+       verdict
   130  interrupted; continue with `boss resume`
 """
 
@@ -24,10 +25,18 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
-from boss import __version__
-from boss.approval import NotApprovedError, review_term_sheet
-from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
+from boss import __version__, audit, audit_check, audit_report, spec
+from boss import dispatch as dispatching
+from boss.approval import NotApprovedError, review_term_sheet, spec_view
+from boss.boss import (
+    DEFAULT_MODEL,
+    RULES_PROMPT,
+    BossError,
+    InvalidDraftError,
+    draft_term_sheet,
+)
 from boss.budget import (
     MIN_SLICE_MICROS,
     min_round_budget,
@@ -36,6 +45,7 @@ from boss.budget import (
     reserve_for,
     round_budget,
 )
+from boss.context import derive_reads, verify
 from boss.firm import (
     DEFAULT_SLICE_MICROS,
     DEFAULT_WORKER_MODEL,
@@ -45,6 +55,8 @@ from boss.firm import (
     run_firm,
     started_config,
 )
+from boss.gate import GateError
+from boss.gitrepo import GitError
 from boss.held_out import MAX_HELD_OUT
 from boss.ledger import (
     Event,
@@ -75,10 +87,17 @@ from boss.signing import SigningError
 from boss.state import run_state
 from boss.stream import Usage
 from boss.termsheet import TermSheet, TermSheetError
-from boss.worker import CLI, IsolationError, billing_mode, usd, worker_env
+from boss.worker import (
+    CLI,
+    EXECUTABLE_VAR,
+    IsolationError,
+    ModelMismatchError,
+    billing_mode,
+    usd,
+    worker_env,
+)
 
 RUNS_DIR = Path(".boss") / "runs"
-EXECUTABLE_VAR = "BOSS_CLAUDE_BIN"  # override the `claude` binary, e.g. for tests
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_INCOMPLETE, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
 
 Ask = Callable[[str], str]
@@ -94,6 +113,8 @@ def main(
 ) -> int:
     args = _parser().parse_args(argv)
     environ = os.environ if environ is None else environ
+    if args.command == "audit":
+        return _audit(args, environ, ask, say)
     project = Path(args.dir).resolve()
     try:
         if args.command == "fund":
@@ -163,6 +184,26 @@ def _parser() -> argparse.ArgumentParser:
         help=f"checks an examiner writes that the workers never see, run on the finished product "
         f"(0 to {MAX_HELD_OUT}; default 0, off)",
     )
+    fund.add_argument(
+        "--dispatch",
+        choices=("off", "rules"),
+        default="off",
+        help="per-task dispatch: 'rules' puts each task's model, effort and route in the term "
+        "sheet for you to read and edit, steps a worker up one tier only when the gate fired its "
+        "predecessor, and records the model that ran (default: off, every worker on --model)",
+    )
+    fund.add_argument(
+        "--max-tier",
+        choices=dispatching.TIERS,
+        help="the dearest model dispatch may use; needs --dispatch rules "
+        f"(default with it: {dispatching.DEFAULT_MAX_TIER})",
+    )
+    fund.add_argument(
+        "--spec",
+        action="store_true",
+        help="the boss's checks must cite the rules of your idea (its own sentences, numbered by "
+        "code) and you see which rules no check covers before you approve; one task (default: off)",
+    )
     fund.add_argument("--max-slices", type=_count_arg, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=_count_arg, default=FiringPolicy().stall_slices)
     fund.add_argument(
@@ -207,7 +248,51 @@ def _parser() -> argparse.ArgumentParser:
     )
     doctor = sub.add_parser("doctor", parents=[common], help="check that this machine can run boss")
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
+    _audit_parser(sub)
     return parser
+
+
+def _audit_parser(sub: Any) -> None:
+    audit_cmd = sub.add_parser(
+        "audit",
+        help="check someone else's change against checks sealed before it, from a repo's git",
+        description="Seal checks for a change request, then run them on a commit an agent made.",
+    )
+    steps = audit_cmd.add_subparsers(dest="audit_command", required=True)
+    plan = steps.add_parser(
+        "plan", help="write and seal checks for a request, from a base commit alone"
+    )
+    plan.add_argument("--repo", required=True, help="the git checkout to audit (not modified)")
+    plan.add_argument("--request", required=True, help="a text file holding the change request")
+    plan.add_argument("--base", required=True, help="the branch, tag or commit before the change")
+    plan.add_argument(
+        "--held-out",
+        type=_held_out_arg,
+        default=0,
+        help=f"checks an examiner writes as well, from the request alone (0 to {MAX_HELD_OUT}; "
+        "default 0, off)",
+    )
+    plan.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
+    check = steps.add_parser(
+        "check", help="run a run's sealed checks on a commit and record the gate's verdict"
+    )
+    check.add_argument("run", help="the audit run id that `boss audit plan` printed")
+    check.add_argument("--head", required=True, help="the branch, tag or commit to audit")
+    check.add_argument("--repo", default=".", help="the git checkout holding the head (default: .)")
+    check.add_argument(
+        "--claim",
+        choices=audit_check.CLAIMS,
+        default="none",
+        help="what the agent said of its own work: done, or none (default: none)",
+    )
+    check.add_argument(
+        "--claim-text", help="a file with the agent's own words; kept as a hash only"
+    )
+    check.add_argument("--agent", type=_agent_arg, help="a label for the agent, to report by")
+    report = steps.add_parser("report", help="verdicts per run, and the false-pass rate")
+    report.add_argument("run", nargs="?", help="audit run id (default: the latest)")
+    report.add_argument("--all", action="store_true", help="every run in the store")
+    report.add_argument("--agent", type=_agent_arg, help="only this agent's verdicts")
 
 
 def _review_options(parser: argparse.ArgumentParser) -> None:
@@ -236,6 +321,13 @@ def usd_arg(text: str) -> int:
             f"{text!r} is not a positive dollar amount with at most 6 decimal places"
         )
     return int(micros)
+
+
+def _agent_arg(text: str) -> str:
+    try:
+        return audit_check.agent_label(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _held_out_arg(text: str) -> int:
@@ -282,6 +374,10 @@ def _fund(
     if args.slice < MIN_SLICE_MICROS:
         say(f"--slice must be at least ${usd(MIN_SLICE_MICROS)}: a smaller slice is never funded.")
         return EXIT_USAGE
+    refusal = _dispatch_refusal(args)
+    if refusal is not None:
+        say(refusal)
+        return EXIT_USAGE
     reserve = args.reserve if args.reserve is not None else reserve_for(args.model)
     needed = min_round_budget(reserve)
     # Rounds are capped at the number of checks, which the boss has not drafted yet: only the best
@@ -301,9 +397,28 @@ def _fund(
     if args.fix_budget is not None and args.fix_budget < needed:
         say(_fix_budget_refusal(needed, reserve))
         return EXIT_USAGE
+    rules: spec.Split | None = None
+    if args.spec:
+        refusal = _spec_refusal(args, roles)
+        if refusal:
+            say(refusal)
+            return EXIT_USAGE
+        try:
+            rules = spec.split(args.idea.strip())
+        except spec.SpecError as exc:
+            say(f"--spec cannot cover this idea rule by rule: {exc}")
+            return EXIT_USAGE
+        if not rules.scorable:
+            say(
+                "--spec found no rule in the idea to cover: it has no sentence stating a behaviour."
+            )
+            return EXIT_USAGE
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
     paths = RunPaths(project / RUNS_DIR / run_id)
     paths.root.mkdir(parents=True)
+    if rules is not None:
+        paths.rules.write_text(spec.dumps(rules), encoding="utf-8")
+    waivers: dict[str, str] = {}  # rules the boss left untested, with its reasons
     say(f"Run {run_id}: drafting the term sheet...")
     with paths.writer() as ledger:
         record = Recorder(ledger, run_id, round=0)
@@ -322,6 +437,7 @@ def _fund(
                     "model": args.boss_model,
                     "thinking_tokens": args.boss_thinking,
                     "outcome": outcome,
+                    **({"prompt": RULES_PROMPT, "rules": len(rules.scorable)} if rules else {}),
                 },
             )
 
@@ -336,6 +452,7 @@ def _fund(
                     executable=executable,
                     max_tasks=args.max_tasks,
                     thinking_tokens=args.boss_thinking,
+                    rules=rules,
                 )
             except BossError as exc:
                 boss_spend(exc.usage, str(exc.outcome))
@@ -345,6 +462,7 @@ def _fund(
                     say("\n".join(f"  - {p}" for p in exc.problems))
                 return None
             boss_spend(draft.usage, "completed")
+            waivers.update(draft.untested)
             if args.rounds > 1:
                 rounds = plan_rounds(
                     args.budget, len(draft.sheet.checks), args.rounds, min_round_micros=needed
@@ -352,9 +470,10 @@ def _fund(
                 return dataclasses.replace(draft.sheet, rounds=rounds)
             return draft.sheet
 
+        policy = _dispatch_policy(args)
         pipe = Pipeline(
             Setup(roles, args.boss_model, args.boss_thinking),
-            project, paths, ledger, run_id, env, executable, ask, say,
+            project, paths, ledger, run_id, env, executable, ask, say, policy,
         )  # fmt: skip
         try:
             plan = pipe.plan(
@@ -384,6 +503,28 @@ def _fund(
             record("boss", EventType.STOPPED, data={"reason": reason})
             say(f"Stopped before approval: {reason}. Raise --budget, lower --rounds or --reserve.")
             return EXIT_FAILED
+        view = None
+        if policy is not None:
+            planned = dispatching.plan_dispatch(
+                plan.sheet,
+                tier=dispatching.tier_of(args.model) or args.model,
+                profile=args.profile,
+                policy=policy,
+                reads=derive_reads(plan.sheet, paths.checks),
+            )
+            if refused := dispatching.dispatch_problems(planned, policy):
+                reason = "the dispatch cannot run: " + "; ".join(refused)
+                record("boss", EventType.STOPPED, data={"reason": reason})
+                say(f"Stopped before approval: {reason}. Raise --budget or lower --model.")
+                return EXIT_FAILED
+            plan = dataclasses.replace(plan, sheet=planned)
+            level = dispatching.RunLevel(
+                args.boss_model,
+                "critic" if "critic" in roles else "off",
+                args.held_out,
+                args.parallel,
+            )
+            view = dispatching.DispatchView(policy, level, args.stall_slices, {})
         held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, reserve)
         try:
             sheet = review_term_sheet(
@@ -396,6 +537,9 @@ def _fund(
                 say=say,
                 notes=plan.notes,
                 held_out_dir=paths.held_out if held else None,
+                view=view,
+                spec_shown=spec_view(paths.rules, paths.checks, waivers) if rules else None,
+                rules_path=paths.rules if rules else None,
             )
         except SigningError as exc:
             say(f"The approval could not be signed, so nothing was funded: {exc}")
@@ -414,11 +558,46 @@ def _fund(
             limits=RunLimits(max_seconds=args.max_minutes * 60 if args.max_minutes else None),
             held_out=args.held_out,
             thinking_tokens=args.worker_thinking,
+            dispatch=policy is not None,
+            max_tier=policy.max_tier if policy is not None else dispatching.DEFAULT_MAX_TIER,
         )
         pipe.record_start(config)
         fix = args.fix_budget or default_fix_budget(config)
         outcome = _build(pipe, sheet, config, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _dispatch_refusal(args: argparse.Namespace) -> str | None:
+    """Why the dispatch flags cannot be used together, before anything is spent."""
+    if args.dispatch == "off":
+        return "--max-tier needs --dispatch rules." if args.max_tier else None
+    tier = dispatching.tier_of(args.model)
+    if tier is None:
+        return f"--dispatch rules needs --model to be one of {', '.join(dispatching.TIERS)}."
+    top = args.max_tier or dispatching.DEFAULT_MAX_TIER
+    if dispatching.rank(tier) > dispatching.rank(top):
+        return f"--model {tier} is above --max-tier {top}; raise --max-tier."
+    if args.reserve is not None:
+        return "--reserve cannot be used with --dispatch rules: the reserve is per model."
+    return None
+
+
+def _dispatch_policy(args: argparse.Namespace) -> dispatching.DispatchPolicy | None:
+    if args.dispatch == "off":
+        return None
+    return dispatching.DispatchPolicy(args.max_tier or dispatching.DEFAULT_MAX_TIER, args.slice)
+
+
+def _spec_refusal(args: argparse.Namespace, roles: Sequence[str]) -> str | None:
+    """Why `--spec` cannot be used with these options, or None. Checked before anything is spent."""
+    if args.max_tasks != 1:
+        return "--spec needs --max-tasks 1: the rules are covered by one builder's checks."
+    if "system_designer" in roles and "tester" in roles:
+        return (
+            "--spec cannot be combined with the staged draft (--roles with system_designer and "
+            "tester): its checks cite story criteria, not the idea's rules."
+        )
+    return None
 
 
 def _fix_budget_refusal(needed: int, reserve: int) -> str:
@@ -488,6 +667,8 @@ def _run(
         )
     except IsolationError as exc:
         say(f"Stopped: the worker did not start isolated ({exc}). Run `boss doctor`.")
+    except ModelMismatchError as exc:
+        say(f"Stopped: the wrong model ran ({exc}). The slice was booked; nothing more was spent.")
     except NotApprovedError as exc:
         say(f"Stopped: {exc}. Nothing was spent.")
     except KeyboardInterrupt:
@@ -499,7 +680,8 @@ def _run(
 def _finish(paths: RunPaths, outcome: FirmReport | int, say: Say) -> int:
     if isinstance(outcome, int):
         return outcome
-    text = render_report(build_report(paths.events()))
+    events = paths.events()
+    text, unverified = _report_text(paths, events)
     (paths.root / "report.md").write_text(text, encoding="utf-8")
     say(text)
     if outcome.stopped:
@@ -507,7 +689,20 @@ def _finish(paths: RunPaths, outcome: FirmReport | int, say: Say) -> int:
         if not outcome.all_passed:
             say(f"To continue this run: `boss resume {paths.root.name}`")
     say(f"Run folder: {paths.root}  (built files: {paths.product})")
+    if unverified:
+        return EXIT_FAILED
     return EXIT_OK if outcome.all_passed else EXIT_INCOMPLETE
+
+
+def _report_text(paths: RunPaths, events: Sequence[Event]) -> tuple[str, list[str]]:
+    """The board report, with a failure line for each saved prompt that no longer matches the
+    hash its slice recorded (only a run with dispatch on has any to check)."""
+    text = render_report(build_report(events))
+    problems = verify(paths, events)
+    if problems:
+        text += "\nCONTEXT CHECK FAILED: what a worker was given is not what was recorded\n"
+        text += "".join(f"  {p}\n" for p in problems)
+    return text, problems
 
 
 def _resume(
@@ -568,7 +763,8 @@ def _resume_run(
     # The roles a run was started with are on its ledger; a run without any resumes without any.
     setup = recorded_setup(events) or Setup((), DEFAULT_MODEL, None)
     with paths.writer() as ledger:
-        pipe = Pipeline(setup, project, paths, ledger, run, env, executable, ask, say)
+        policy = config.dispatch_policy()
+        pipe = Pipeline(setup, project, paths, ledger, run, env, executable, ask, say, policy)
         stops = [e for e in events if e.event is EventType.STOPPED]
         if run_state(events, [t.id for t in sheet.tasks]).stopped:
             say(f"Run {run} was stopped: {stops[-1].data.get('reason', 'no reason recorded')}")
@@ -664,8 +860,9 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
         return EXIT_FAILED
     report = build_report(events)
     if args.command == "report":
-        say(render_report(report))
-        return EXIT_OK
+        text, unverified = _report_text(RunPaths(project / RUNS_DIR / run), events)
+        say(text)
+        return EXIT_FAILED if unverified else EXIT_OK
     last = events[-1]
     passed = sum(c.status == "passed" for c in report.checks)
     unknown = report.total.unknown_cost_events
@@ -674,6 +871,82 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
         f"{run}: last event {last.actor} {last.event}; "
         f"{passed}/{len(report.checks)} checks passing; spend {spend} estimated"
     )
+    return EXIT_OK
+
+
+def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: Say) -> int:
+    """`boss audit plan | check | report`. Every refusal (a dirty tree, a ledger or approval that
+    does not verify, a head off the base, a hostile repository) is exit 1 with the reason."""
+    store = audit.store_root(environ)
+    try:
+        if args.audit_command == "plan":
+            return _audit_plan(args, environ, store, ask, say)
+        if args.audit_command == "check":
+            return _audit_check(args, store, say)
+        return _audit_report(args, store, say)
+    except KeyboardInterrupt:
+        say("Interrupted.")
+        return EXIT_INTERRUPTED
+    except LedgerLockedError:
+        say("Stopped: this audit run is being written by another `boss` process; try again.")
+        return EXIT_FAILED
+    except (
+        audit.AuditError,
+        NotApprovedError,
+        LedgerCorruptError,
+        SigningError,
+        GitError,
+        GateError,
+        TermSheetError,
+    ) as exc:
+        say(f"Stopped: {exc}")
+        return EXIT_FAILED
+
+
+def _audit_plan(
+    args: argparse.Namespace, environ: Mapping[str, str], store: Path, ask: Ask, say: Say
+) -> int:
+    done = audit.plan(
+        Path(args.repo),
+        Path(args.request),
+        args.base,
+        store=store,
+        held_out_n=args.held_out,
+        env=worker_env(environ),
+        executable=environ.get(EXECUTABLE_VAR, CLI),
+        boss_model=args.boss_model,
+        ask=ask,
+        say=say,
+    )
+    if done is None:
+        say("Rejected. No checks were sealed.")
+        return EXIT_FAILED
+    say(
+        f"Sealed audit run {done.run_id}: {done.counted} of {done.total} checks fail on the base "
+        f"and will be counted.\nSeal: {done.seal}\nStore: {store}\n"
+        "Record the seal where the agent cannot change it, and keep the store out of the agent's "
+        f"reach. Then: boss audit check {done.run_id} --head REF --claim done"
+    )
+    return EXIT_OK
+
+
+def _audit_check(args: argparse.Namespace, store: Path, say: Say) -> int:
+    verdict = audit_check.check(
+        args.run,
+        args.head,
+        repo=Path(args.repo),
+        store=store,
+        claim=args.claim,
+        claim_text=Path(args.claim_text) if args.claim_text else None,
+        agent=args.agent,
+    )
+    say(audit_check.render_check(verdict))
+    return EXIT_INCOMPLETE if verdict.verdict in ("refuted", "inconclusive") else EXIT_OK
+
+
+def _audit_report(args: argparse.Namespace, store: Path, say: Say) -> int:
+    chosen = audit_report.run_ids(store, args.run, every=args.all)
+    say(audit_report.render(audit_report.collect(store, chosen, args.agent)))
     return EXIT_OK
 
 

@@ -30,13 +30,11 @@ from boss.bench.drafts import (
     DRAFT_FILE,
     SCORED,
     DraftCell,
-    _md,
-    _pct,
     save_rejected,
 )
 from boss.bench.results import cell_dir, load_results
 from boss.bench.score import _wrong_ids, draft_checks
-from boss.bench.table import MIXED_WARNING, wilson_interval
+from boss.bench.table import MIXED_WARNING
 from boss.bench.tasks import BenchTask, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL
 from boss.errors import Outcome
@@ -53,9 +51,10 @@ from boss.roles.advisory import (
     audit_checks,
 )
 from boss.roles.base import RoleError, RoleOutputError, system_prompt
+from boss.stats import md_table, pct, rate, wilson_interval
 from boss.stream import Usage
 from boss.termsheet import CheckSpec, TermSheet, TermSheetError
-from boss.worker import CLI, usd, worker_env
+from boss.worker import CLI, EXECUTABLE_VAR, usd, worker_env
 
 AUDIT_FILE = "audit.json"
 AUDITED, REJECTED, FAILED = "audited", "rejected", "failed"
@@ -295,7 +294,7 @@ def run_audit(
             target.checks_dir,
             env=worker_env(environ),
             model=settings.model,
-            executable=environ.get(cli.EXECUTABLE_VAR, CLI),
+            executable=environ.get(EXECUTABLE_VAR, CLI),
             thinking_tokens=settings.thinking,
         )
     except RoleError as exc:
@@ -442,12 +441,8 @@ def summarize(cells: Sequence[AuditCell]) -> Summary:
     )
 
 
-def _rate(successes: int, n: int) -> str:
-    """A rate with its Wilson interval, or n/a over nothing."""
-    if n == 0:
-        return "n/a (no cases)"
-    low, high = wilson_interval(successes, n)
-    return f"{successes}/{n} = {_pct(successes / n)} [{low * 100:.0f}-{high * 100:.0f}%]"
+def _share(successes: int, n: int) -> str:
+    return rate(successes, n, counts="before", empty="n/a (no cases)")
 
 
 def support(s: Summary) -> list[str]:
@@ -475,7 +470,7 @@ def support(s: Summary) -> list[str]:
     base = s.wrong / s.checks if s.checks else 0.0
     per_draft = s.flagged / s.audits if s.audits else 0.0
     lines.append(
-        f"Base rate: {_pct(base)} of checks are wrong, which is the precision of flagging at "
+        f"Base rate: {pct(base)} of checks are wrong, which is the precision of flagging at "
         f"random. The investor reads every check anyway, so an opinion earns its cost only if "
         f"its flags are far likelier to be wrong than that base rate, at a number of flags per "
         f"draft (now {per_draft:.1f}) the investor will read."
@@ -517,7 +512,7 @@ def render_report(cells: Sequence[AuditCell]) -> str:
     mixed = len({c.settings for c in cells}) > 1
     cost = "n/a" if s.mean_cost_micros is None else dollars(round(s.mean_cost_micros))
     out = [header] + ([MIXED_WARNING] if mixed else []) + [""]
-    out += _md(
+    out += md_table(
         [
             "calls",
             "audited",
@@ -545,28 +540,28 @@ def render_report(cells: Sequence[AuditCell]) -> str:
             "",
             "Truth: a check is wrong when the task's reference solution fails it. "
             "A flag is a verdict of contradicts or unsupported.",
-            f"- checks: {s.checks}, wrong (truth): {s.wrong} ({_pct(s.wrong / s.checks)})",
+            f"- checks: {s.checks}, wrong (truth): {s.wrong} ({pct(s.wrong / s.checks)})",
             f"- flagged: {s.flagged} ({s.flagged / s.audits:.1f} per audit)",
             f"- true positives {s.true_positives}, false positives {s.false_positives}, "
             f"false negatives {s.false_negatives}",
-            f"- precision (flag is a wrong check): {_rate(s.true_positives, s.flagged)}",
-            f"- recall (wrong check is flagged): {_rate(s.true_positives, s.wrong)}",
+            "- precision (flag is a wrong check): " + _share(s.true_positives, s.flagged),
+            "- recall (wrong check is flagged): " + _share(s.true_positives, s.wrong),
             "",
-            *_md(
+            *md_table(
                 ["verdict", "checks", "of which wrong", "share wrong", "share of all wrong"],
                 [
                     [
                         kind,
                         str(n),
                         str(w),
-                        _pct(w / n) if n else "n/a",
-                        _pct(w / s.wrong) if s.wrong else "n/a",
+                        pct(w / n) if n else "n/a",
+                        pct(w / s.wrong) if s.wrong else "n/a",
                     ]
                     for kind, (n, w) in by_kind.items()
                 ],
             ),
         ]
-    out += ["", *_md(*_per_source(cells))]
+    out += ["", *md_table(*_per_source(cells))]
     out += ["", "What these numbers can support:", *(f"- {line}" for line in support(s))]
     return "\n".join(out) + "\n"
 

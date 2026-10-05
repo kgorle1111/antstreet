@@ -14,16 +14,17 @@ You need Python 3.12 and [uv](https://docs.astral.sh/uv/). You do not need the `
 account to run the tests.
 
 ```bash
-git clone https://github.com/kgorle1111/boss-agent.git
-cd boss-agent
+git clone https://github.com/kgorle1111/antstreet.git
+cd antstreet
 uv sync
 ```
 
 ## Run the tests
 
 ```bash
-uv run pytest                      # the whole suite, no model calls; takes ten minutes or more
-uv run pytest -n auto --dist loadgroup   # the same, one worker per core (pytest-xdist)
+uv run pytest                      # the quick run: no model calls, one worker per core, no `slow` tests
+uv run pytest -m "slow or not slow"   # everything except the serial `sigint` tests (what CI runs)
+uv run pytest -n 0 -m sigint       # the Ctrl-C tests, one process
 uv run pytest tests/test_rule.py   # one file
 uv run pytest --cov --cov-report=term-missing   # with line and branch coverage of src/boss
 uv run ruff check .
@@ -35,9 +36,12 @@ uv run mypy
   runs end to end without credentials.
 - One test makes a real model call and costs a few cents. It is skipped unless you set
   `BOSS_LIVE=1`: `BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py`.
-- Run the suite in parallel with `-n auto`; add `--dist loadgroup`, which keeps the tests marked
-  `xdist_group` on one worker (the ledger document's tests share a fixture that takes minutes to
-  build). Coverage works the same way: pytest-cov merges the workers' data. A test must not rely
+- A plain `uv run pytest` runs in parallel (`-n auto --dist loadgroup` is in `addopts`) and leaves
+  out the tests marked `slow` and `sigint`: about 1.5 minutes on a 16-core Mac, against 4 minutes
+  for the whole suite there. `loadgroup` keeps the tests marked `xdist_group` on one worker (the
+  ledger document's tests share a fixture that takes minutes to build). A `-m` on the command
+  line replaces the one in `addopts`, which is how CI selects everything. Coverage works the same
+  way: pytest-cov merges the workers' data. A test must not rely
   on running first, on a fixed path or port, or on another test's leftovers: CI runs the suite in
   parallel, so a test that only fails in parallel is a bug in the test.
 - Benchmark task validation is the slowest part of the suite (many short pytest runs per task).
@@ -52,12 +56,30 @@ uv run mypy
   busy machine with coverage on, that has hung a parallel worker, so CI runs them last, serially,
   with `-m sigint`; the parallel run leaves them out with `-m "not sigint"`. Mark a new test that
   does this the same way.
-- CI runs, on Linux and macOS: `uv sync --locked`, `uv run ruff check .`,
+- Tests marked `slow` spend minutes in subprocesses: gates inside the sandbox, benchmark task
+  validation, simulated firms. `tests/conftest.py` lists them (`SLOW`, whole files or single node
+  ids, from `--durations`); add a test there when it takes over about 8 seconds, and run all of
+  them with `-m "slow or not slow"`. CI never relies on the default: it passes its own `-m`.
+- The benchmark validation tests skip a task that already passed under the same files and the same
+  validator and gate code, when `BOSS_TASK_CACHE=<folder>` names a cache folder (CI keeps it with
+  `actions/cache`; the nightly run leaves it unset). Only a pass is stored.
+- `BOSS_SHARD=i/N` (for example `BOSS_SHARD=0/3`) runs only the test files whose path hashes to
+  shard `i`, so a file's fixtures stay together and the shards add up to the whole suite
+  (`tests/test_ci_selection.py` proves it). `BOSS_TEST_TIMEOUT_S=N` ends the process, with every
+  thread's stack on stderr, when a single test runs longer than N seconds.
+- CI runs `uv sync --locked`, `uv run ruff check .`,
   `uv run ruff format --check .`, `uv run mypy` (strict, over `src/boss`) and two pytest runs:
   `uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30`, then
-  `uv run pytest -m sigint --cov --cov-append --cov-report=term-missing --cov-fail-under=96`,
-  which adds to the first run's coverage data and enforces the floor over the whole suite.
-  The coverage floor is 96; it only ever goes up. On Linux it first installs `bubblewrap` and runs the tests with
+  `uv run pytest -n 0 -m sigint --cov --cov-append --cov-report= || [ $? -eq 5 ]` (5 is "nothing collected", normal for a shard with no such test), which adds to the first run's
+  coverage data. Both pass their own `-m`, so the `slow` tests run. On Linux the suite is split
+  into three jobs by test file (`BOSS_SHARD`) because every gate runs inside `bwrap` there; each
+  uploads its coverage data and a final job runs `coverage combine` and
+  `uv run coverage report --show-missing --fail-under=96` over all three. macOS runs the whole
+  suite in one job and enforces the same floor itself, but only on a push to main and the nightly
+  run, not on a pull request (the Linux shards and the combined coverage floor still do). The coverage floor is 96; it only ever goes
+  up. A pull request validates only the benchmark tasks it changes; a push to main and the
+  nightly run (03:17 UTC) validate every task, the nightly one without the cache. On Linux CI first
+  installs `bubblewrap` and runs the tests with
   `BOSS_GATE_SANDBOX=require`, so the sandbox tests fail instead of skipping when `bwrap` cannot
   start (docs/SANDBOX.md).
 

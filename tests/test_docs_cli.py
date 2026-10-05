@@ -16,6 +16,7 @@ from docs_support import (
     table,
 )
 
+from boss import audit as audit_run
 from boss import cli, gate, worker
 from boss.bench import audit, drafts, paired, replay
 from boss.bench import kpi as bench_kpi
@@ -37,7 +38,12 @@ def parsers() -> dict[str, argparse.ArgumentParser]:
     """Every documented command, by the name used in the document's headings."""
     top = cli._parser()
     found = {"boss": top}
-    found |= {f"boss {name}": p for name, p in top._subparsers._group_actions[0].choices.items()}
+    for name, parser in top._subparsers._group_actions[0].choices.items():
+        steps = getattr(parser, "_subparsers", None)  # a command with steps of its own: `audit`
+        if steps is None:
+            found[f"boss {name}"] = parser
+        else:
+            found |= {f"boss {name} {s}": p for s, p in steps._group_actions[0].choices.items()}
     return found
 
 
@@ -105,7 +111,7 @@ def test_every_option_of_every_command_is_documented_with_its_default(text, pars
 
 
 def test_every_subcommand_is_documented_and_no_other_is(text, parsers):
-    documented = set(re.findall(r"^## `(boss \w+)`\s*$", text, re.M))
+    documented = set(re.findall(r"^## `(boss \w+(?: \w+)?)`\s*$", text, re.M))
     assert documented == {n for n in parsers if n != "boss"}
 
 
@@ -149,6 +155,7 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
     rows = {r[0].strip("`"): r for r in table(section(text, "Environment variables"))}
     expected = {
         cli.EXECUTABLE_VAR,
+        audit_run.HOME_VAR,
         worker._API_KEY_VAR,
         worker._THINKING_VAR,
         *worker._ENV_ALLOWLIST,
@@ -166,6 +173,7 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
         "bench/audit.py",
         "roles/judge.py",
         "gate.py",
+        "gitrepo.py",
         "sandbox.py",
     }
     for module in ("gate", "sandbox", "bench.drafts", "bench.audit", "roles.judge"):
@@ -187,11 +195,24 @@ def test_a_run_folder_holds_what_the_document_lists(text, happy):
     listed = {r[0].strip("`").replace("<worker>", "w1").strip("/") for r in rows}
     # a run without roles writes the rest; the paths below appear only when a role ran
     listed -= set(ROLE_PATHS)
+    listed -= {DISPATCH_PROMPT}  # only a run with --dispatch rules saves the text of each slice
     for path in listed:
         assert (run_dir / path).exists(), f"documented but not written: {path}"
     assert {p.name for p in run_dir.iterdir()} == {p.split("/")[0] for p in listed}
     assert (run_dir / "checks" / "test_c01.py").is_file()
     assert (run_dir / "product" / "rev.py").is_file()
+
+
+DISPATCH_PROMPT = "logs/w1-s<N>.prompt.txt"
+
+
+def test_a_dispatch_run_saves_the_text_of_each_slice_where_the_document_says(text, tmp_path):
+    argv = ["fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules"]
+    code, run_dir, _ = run_cli(tmp_path, argv)
+    assert code == cli.EXIT_OK
+    rows = {r[0].strip("`").replace("<worker>", "w1") for r in table(section(text, "Run folder"))}
+    assert DISPATCH_PROMPT in rows
+    assert (run_dir / "logs" / "w1-s1.prompt.txt").is_file()
 
 
 # Path in the document's table -> the path in a run folder, for what only a run with roles writes.

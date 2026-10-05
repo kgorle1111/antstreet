@@ -1,0 +1,70 @@
+{
+  "idea_sha256": "fda152b67bb2097666978ec0be3dbaaa4e17ed0b99293c6af4141ea09231586e",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "format_rounding": [
+      "R21",
+      "R22"
+    ],
+    "format_whole": [
+      "R20",
+      "R23",
+      "R24",
+      "R25",
+      "R26"
+    ],
+    "parse_decimals": [
+      "R12",
+      "R13"
+    ],
+    "parse_invalid": [
+      "R06",
+      "R17",
+      "R18"
+    ],
+    "parse_negative": [
+      "R14",
+      "R15",
+      "R16"
+    ],
+    "parse_order": [
+      "R10",
+      "R11"
+    ],
+    "parse_valid": [
+      "R05",
+      "R07",
+      "R08",
+      "R09",
+      "R14"
+    ],
+    "roundtrip": [
+      "R27"
+    ]
+  },
+  "rules": {
+    "R05": "The units are `w` (week, 7 days), `d` (day), `h` (hour), `m`",
+    "R06": "Units are lowercase only; `1H` is invalid.",
+    "R07": "`5m` is five minutes and `5ms` is five milliseconds.",
+    "R08": "The result is a `float`.",
+    "R09": "A duration is one or more components, each a number immediat",
+    "R10": "Components must appear in strictly descending unit order (w,",
+    "R11": "Units may be skipped: `1w5s` is valid, `30s1m` and `1h1h` ar",
+    "R12": "A number is one or more ASCII digits 0-9, optionally followe",
+    "R13": "Any component may be decimal, not only the last: `1.5h30m` i",
+    "R14": "Whitespace may appear between components (`2d 4h`, `2d 4h`, ",
+    "R15": "A single leading `-` negates the whole duration: `-1h30m` is",
+    "R16": "`-0s` is 0.",
+    "R17": "`parse_duration` raises `ValueError` for anything that does ",
+    "R18": "Input that is not a `str` (an int, a float, None, bytes) als",
+    "R20": "`format_duration` accepts an int or a float, negative values",
+    "R21": "It first rounds the absolute value to the nearest whole mill",
+    "R22": "Rounding happens before splitting, so 59.9996 seconds is `1m",
+    "R23": "The output lists the components largest unit first, with no ",
+    "R24": "All components are whole numbers.",
+    "R25": "If the rounded value is zero the result is `0s`, with no sig",
+    "R26": "Otherwise a negative input gets a leading `-` (-90 is `-1m30",
+    "R27": "For any x, `parse_duration(format_duration(x))` equals x to "
+  }
+}

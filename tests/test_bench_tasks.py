@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from changed_tasks import select
+from changed_tasks import select, validate_cached
 
 from boss.bench.tasks import TaskError, load_task, load_tasks, task_set_hash, validate_task
 
@@ -38,7 +38,7 @@ def test_every_shipped_task_is_valid():
     # All tasks are loaded and counted above; BOSS_VALIDATE_TASKS_SINCE (pull-request CI) narrows
     # only which of them are run through the gate.
     with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(validate_task, select(tasks)))
+        list(pool.map(lambda t: validate_cached(t, validate_task), select(tasks)))
 
 
 def test_the_shipped_task_set_hash_is_pinned():
@@ -62,7 +62,7 @@ def test_every_multi_file_task_is_valid_and_needs_more_than_one_module():
     tasks = load_tasks(MULTI)
     assert len(tasks) == 8 and task_set_hash(tasks) == MULTI_SET_HASH
     with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(validate_task, select(tasks)))
+        list(pool.map(lambda t: validate_cached(t, validate_task), select(tasks)))
     for task in tasks:
         modules = sorted(p.name for p in task.reference_dir.glob("*.py"))
         assert len(modules) >= 2, f"{task.id} is meant to need several modules: {modules}"

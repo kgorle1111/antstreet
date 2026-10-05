@@ -34,7 +34,7 @@ class Recorder:
     def __init__(self) -> None:
         self.calls: list[tuple[list[str], Path, list[Path]]] = []
 
-    def wrap(self, argv, *, writable, readable):
+    def wrap(self, argv, *, writable, readable, hidden=()):
         self.calls.append((list(argv), writable, list(readable)))
         return list(argv)
 

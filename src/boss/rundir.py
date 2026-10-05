@@ -54,6 +54,11 @@ class RunPaths:
         return self.root / "held_out"
 
     @property
+    def rules(self) -> Path:
+        """The rule list of a run started with `--spec` (`boss.spec`); absent otherwise."""
+        return self.root / "rules.json"
+
+    @property
     def examiner_refused(self) -> Path:
         return self.root / "examiner_refused.json"
 
@@ -66,6 +71,10 @@ class RunPaths:
 
     def log(self, worker: str) -> Path:
         return self.root / "logs" / f"{worker}.jsonl"
+
+    def prompt(self, worker: str, number: int) -> Path:
+        """The exact text a worker's slice was given (`context.write_prompt`)."""
+        return self.root / "logs" / f"{worker}-s{number}.prompt.txt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +186,8 @@ def slice_end_fields(
     task: str,
     previous_total: int,
     previous_tokens: tuple[int, int, int],
+    *,
+    with_model_id: bool = False,
 ) -> dict[str, Any]:
     """Ledger fields for a finished slice. The CLI reports the session's cumulative cost and
     tokens, so the slice's own are the difference from the totals after the previous slice. A
@@ -189,22 +200,25 @@ def slice_end_fields(
         )
     else:
         tokens_in, tokens_out, tokens_cached = tokens
+    data = {
+        "slice": number,
+        "task": task,
+        "outcome": str(run.outcome),
+        "status": clean_status(run.status),
+        "session_total_micros": total,
+        "session_total_tokens": list(tokens) if usage.cumulative else None,
+        "exit_code": run.exit_code,
+        "denials": len(run.denials),
+        "denied_tools": sorted({safe_text(str(d.get("tool")), limit=40) for d in run.denials}),
+        "denial_reasons": denial_reasons(run.denials),
+        "log": str(run.log_path),
+    }
+    if with_model_id:
+        data["model_id"] = run.model_id
     return {
         "cost_micros": None if total is None else max(0, total - previous_total),
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         "tokens_cached": tokens_cached,
-        "data": {
-            "slice": number,
-            "task": task,
-            "outcome": str(run.outcome),
-            "status": clean_status(run.status),
-            "session_total_micros": total,
-            "session_total_tokens": list(tokens) if usage.cumulative else None,
-            "exit_code": run.exit_code,
-            "denials": len(run.denials),
-            "denied_tools": sorted({safe_text(str(d.get("tool")), limit=40) for d in run.denials}),
-            "denial_reasons": denial_reasons(run.denials),
-            "log": str(run.log_path),
-        },
+        "data": data,
     }

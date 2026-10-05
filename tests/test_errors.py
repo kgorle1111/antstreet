@@ -54,6 +54,8 @@ def test_failed_login_is_not_trusted_as_success_despite_its_subtype():
         ({"is_error": True, "api_error_status": 401}, {}, Outcome.LOGIN),
         ({"subtype": "model_refusal", "is_error": False}, {}, Outcome.REFUSAL),
         ({"stop_reason": "refusal"}, {}, Outcome.REFUSAL),
+        # 403 is a revoked or forbidden key: a login fix, never an ordinary retry
+        ({"is_error": True, "api_error_status": 403}, {}, Outcome.LOGIN),
         ({"is_error": True, "api_error_status": 429}, {}, Outcome.RATE_LIMITED),
         ({"is_error": True, "api_error_status": 529}, {}, Outcome.API_ERROR),
         (
