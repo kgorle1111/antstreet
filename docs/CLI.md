@@ -464,13 +464,14 @@ Arguments: `dir_a` and `dir_b`, results folders written by `run` (they may be th
 |---|---|---|
 | `--arm-a` | `firm` | The arm taken from `DIR_A`: `single`, `firm` or `single-review`. |
 | `--arm-b` | `single` | The arm taken from `DIR_B`. The difference is A minus B. |
-| `--kpi` | `delivery` | `delivery`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`. |
+| `--kpi` | `delivery` | `delivery`, `pass_all`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`, and `pass_all` the same number of counted runs of every task on both sides. |
 | `--resamples` | `10000` | Task resamples for the interval. |
 | `--seed` | `0` | Seed of the resampling; the same seed gives the same interval. |
 
 Exit codes: `0`; `1` when a folder holds no results for its arm, the two sides ran different task
-sets, no task is on both sides, or a result file is invalid; `2` for a usage error. A different
-model or budget between the sides prints a warning and still runs.
+sets, no task is on both sides, `pass_all` finds tasks with different numbers of counted runs, or a
+result file is invalid; `2` for a usage error. A different model or budget between the sides prints
+a warning and still runs.
 
 ## `python -m boss.bench.kpi`
 
