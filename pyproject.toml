@@ -1,13 +1,28 @@
 [project]
 name = "antstreet"
 version = "0.0.1"
-description = "AntStreet: fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
+description = "Make AI coding agents prove their work: pytest checks you approve first, a sandboxed gate outside the agent, a signed ledger and budget caps."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+keywords = ["llm", "agents", "ai-agents", "budget", "pytest", "evaluation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+]
 requires-python = ">=3.12"
 # The gate runs term-sheet checks with pytest, so it is needed at runtime, not only in development.
 dependencies = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/kgorle1111/antstreet"
+Repository = "https://github.com/kgorle1111/antstreet"
+Issues = "https://github.com/kgorle1111/antstreet/issues"
+Changelog = "https://github.com/kgorle1111/antstreet/blob/main/CHANGELOG.md"
 
 [project.scripts]
 antstreet = "boss.cli:main"

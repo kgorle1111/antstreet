@@ -75,3 +75,13 @@ Haiku. See `2026-09-30-drafts-and-audit/README.md` for the method, the refusal r
 - The staged draft is not usable today: 4 of 17 tasks get a draft.
 - The auditor stays advisory. 7 of its 34 cells ended at the plan's usage limit and were not retried.
 - Measured spend of every saved cell: $10.62 (119 cells, 1 of unknown cost).
+
+## E3, parallel waves (2026-10-05-e3-parallel)
+
+E3 from `bench/PREREG.md`, scored from saved cells; no model call. 8 multi-file tasks x 3 runs, Haiku,
+$0.80 a cell. See `2026-10-05-e3-parallel/README.md` for the method, the split counts and the failure classes.
+
+- **E3 is not shown.** On delivered cells the median time to delivery with `--max-tasks 3 --parallel 3`
+  was 5m22s against 4m19s for the default firm: 0.80x, against a bar of 1.3x.
+- Delivery: firm-par 7/24, firm 8/24, single 6/24. Paired, firm-par minus firm: -0.042 [-0.167, +0.083].
+- The boss split the work in 4 of 24 cells, so the flag mostly had nothing to run at once.
