@@ -1,0 +1,78 @@
+{
+  "idea_sha256": "4d15e60f00e81516a2dd63c09e2a29a79a1ab928815b4fb619cca63c1f51209d",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "basic": [
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R10",
+      "R14",
+      "R16",
+      "R21"
+    ],
+    "indexing": [
+      "R18",
+      "R19",
+      "R20"
+    ],
+    "no_overwrite": [
+      "R13",
+      "R15",
+      "R17"
+    ],
+    "overwrite": [
+      "R12",
+      "R14",
+      "R21",
+      "R24"
+    ],
+    "popleft_and_clear": [
+      "R13",
+      "R16",
+      "R20",
+      "R22",
+      "R23"
+    ],
+    "random_ops": [
+      "R10",
+      "R12",
+      "R13",
+      "R14",
+      "R15",
+      "R16",
+      "R18",
+      "R19",
+      "R21",
+      "R22"
+    ],
+    "validation": [
+      "R05",
+      "R06",
+      "R21"
+    ]
+  },
+  "rules": {
+    "R05": "`capacity` must be an `int` that is at least 1: an int below",
+    "R06": "`buf.capacity` returns it.",
+    "R07": "`len(buf)` is the number of items held, never more than `cap",
+    "R08": "Iterating a buffer yields its items from the oldest to the n",
+    "R09": "An item is any object, including `None`.",
+    "R10": "`append(item)` adds `item` as the newest item.",
+    "R12": "With `overwrite=True` the oldest item is dropped and `item` ",
+    "R13": "With `overwrite=False` `append` raises `BufferFull` and the ",
+    "R14": "`extend(items)` appends each item in order, exactly as repea",
+    "R15": "With `overwrite=False`, if the buffer fills up part way, the",
+    "R16": "`popleft()` removes and returns the oldest item, and raises ",
+    "R17": "Afterwards there is room again, even with `overwrite=False`.",
+    "R18": "`buf[i]` returns an item by position: `buf[0]` is the oldest",
+    "R19": "A negative index counts from the newest: `buf[-1]` is the ne",
+    "R20": "An index outside `-len(buf)` to `len(buf) - 1` raises `Index",
+    "R21": "`buf.full` is `True` exactly when `len(buf) == capacity`.",
+    "R22": "`clear()` removes every item and keeps the capacity and the ",
+    "R23": "The buffer then behaves like a new one.",
+    "R24": "All of this holds however many times the buffer has wrapped "
+  }
+}

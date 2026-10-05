@@ -2582,10 +2582,12 @@ def test_the_generator_reaches_every_outcome_and_decision():
             EventType.BOSS_CALL,
             EventType.ROLE_CALL,
             EventType.DENIED,
+            EventType.AUDITED,
             EventType.TOPPED_UP,
             EventType.RESUMED,
         )
-    ]  # `resumed` is the investor's own act: test_a_lifted_stop_lets_the_run_go_on
+    ]  # `audited`: `boss audit check` writes it, not the loop. `resumed` is the investor's own
+    # act: test_a_lifted_stop_lets_the_run_go_on
     wanted += [f"outcome:{o.value}" for o in Outcome] + ["cost:unknown", "cost:known"]
     wanted += ["status:done", "status:continuing", "status:blocked", "status:none"]
     wanted += ["exc:IsolationError", "rounds:1", "rounds:2", "rounds:3"]

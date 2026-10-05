@@ -1,0 +1,81 @@
+{
+  "idea_sha256": "dc3149f372d153fa636c7f5f3755c6af55f08a39fe77043519c01e2e4af9752c",
+  "splitter": "v1",
+  "coarse": false,
+  "hidden": {
+    "basic": [
+      "R03",
+      "R04",
+      "R05",
+      "R06",
+      "R07",
+      "R09",
+      "R19"
+    ],
+    "groups": [
+      "R19",
+      "R20",
+      "R21"
+    ],
+    "random_ops": [
+      "R05",
+      "R08",
+      "R11",
+      "R12",
+      "R13",
+      "R14",
+      "R16",
+      "R19",
+      "R20"
+    ],
+    "representative": [
+      "R08",
+      "R10",
+      "R11",
+      "R12",
+      "R13"
+    ],
+    "scale": [
+      "R05",
+      "R11",
+      "R16",
+      "R19",
+      "R22"
+    ],
+    "union": [
+      "R05",
+      "R08",
+      "R11",
+      "R14",
+      "R15",
+      "R16"
+    ],
+    "unknown_elements": [
+      "R06",
+      "R17",
+      "R18"
+    ]
+  },
+  "rules": {
+    "R03": "`UnionFind(elements)` adds each element in order, ignoring r",
+    "R04": "Every element starts out in a set of its own.",
+    "R05": "`len(uf)` is the number of elements, `x in uf` is `True` for",
+    "R06": "`add(x)` makes a new element `x` that is alone in its own se",
+    "R07": "When `x` is already known it returns `False` and changes not",
+    "R08": "`find(x)` returns the representative of `x`'s set: one of th",
+    "R09": "An element alone in its set is its own representative.",
+    "R10": "Calling `find` never changes a representative; only `union` ",
+    "R11": "`union(a, b)` merges the set of `a` with the set of `b` and ",
+    "R12": "The merged set's representative is the representative of the",
+    "R13": "When both sets have the same number of elements it is the re",
+    "R14": "`connected(a, b)` is `True` exactly when `a` and `b` are in ",
+    "R15": "`connected(a, a)` is `True`.",
+    "R16": "`size(x)` is the number of elements in `x`'s set.",
+    "R17": "`find`, `connected`, `size` and `union` raise `KeyError` for",
+    "R18": "`union` checks both elements first: when either is unknown i",
+    "R19": "`groups()` returns a new list holding one new list per set, ",
+    "R20": "The sets are ordered by the position at which each set's ear",
+    "R21": "So after `UnionFind([3, 1, 2])` and `union(1, 3)`, `groups()",
+    "R22": "It must stay fast: 100,000 elements joined one after another"
+  }
+}

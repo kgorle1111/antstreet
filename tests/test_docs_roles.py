@@ -85,6 +85,7 @@ STAGES = {
     "system_designer": ("_staged", "before approval"),
     "tester": ("_staged", "before approval"),
     "check_auditor": ("_audit", "before approval"),
+    "spec_mapper": ("_spec_map", "before approval, with `--spec`"),
     "judge": ("_judge", "before approval and after the build"),
     "consultant": ("advisor", "while a dispute is open"),
     "critic": ("_critic", "after the build"),
@@ -92,7 +93,7 @@ STAGES = {
     "examiner": ("examine", "before approval, with `--held-out N`"),
 }
 REACHED_BY = {  # the entry point that reaches each method
-    "plan": ("_stories", "_user_agent", "_staged", "_audit", "_judge_stories"),
+    "plan": ("_stories", "_user_agent", "_staged", "_audit", "_spec_map", "_judge_stories"),
     "after_build": ("_review", "_demo"),
 }
 
