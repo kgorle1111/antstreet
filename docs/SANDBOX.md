@@ -126,9 +126,9 @@ Same one-test check through `run_gate`, 10 runs each, alternating, two rounds:
 
 About +9 ms (4%) per check. `detect()` adds one probe (about 0.2 s) per process, cached.
 
-## Linux (`bwrap`): built, first run is CI
+## Linux (`bwrap`): runs and is required in CI
 
-Written without a Linux host: none of this had been executed when it was written. The argv
+Written without a Linux host; CI now runs it, with `BOSS_GATE_SANDBOX=require`, on every Linux test job. The argv
 `sandbox.bwrap_argv` builds, in order:
 
 ```
@@ -201,7 +201,10 @@ the interpreter can be listed; a detached child does not survive the timeout.
   the AppArmor profile), `--unshare-cgroup` (the host's cgroup path is visible, nothing more) and
   an allowlist root (B50).
 
-### Not verified until the first Linux CI run
+### What the Linux CI run exercises
+
+These were unverified when the argv was written. The Linux jobs run with `BOSS_GATE_SANDBOX=require`,
+so a bwrap that cannot start fails the build:
 
 - That the AppArmor profile loads and lets bwrap start on the current `ubuntu-latest`.
 - That the probe command (`python -I -B -c "import pytest"`) starts under the full argv: the order
