@@ -9,6 +9,7 @@ import pytest
 from audit_support import (
     EXAMINED,
     GUARD_SLUG,
+    HANGS_SLUG,
     LONG_AGO,
     NEEDS_LIB_SLUG,
     RIGHT_SLUG,
@@ -18,6 +19,7 @@ from audit_support import (
     branch,
     git,
     later,
+    short_timeout_for_hangs,
 )
 
 from boss.audit_check import base_tests_on_head, claim_mode, decide, leak_scan
@@ -152,6 +154,19 @@ def test_a_head_that_needs_a_module_nobody_has_is_inconclusive_not_refuted(seale
     assert code == 3 and "Verdict: INCONCLUSIVE" in said
     assert "Could not run on the head: c01, c02" in said
     [event] = verdicts(sealed, store)
+    assert event.data["blocked"] == ["c01", "c02"] and event.data["failed"] == []
+
+
+def test_a_head_that_times_out_is_inconclusive_not_refuted(tmp_path, monkeypatch):
+    audit = Audit(tmp_path)
+    assert audit.plan()[0] == 0
+    branch(audit.repo, "hangs", {"slug.py": HANGS_SLUG}, later())
+    short_timeout_for_hangs(monkeypatch)
+    code, said = audit.check(audit.run_id(), "hangs", "--claim", "done")
+    assert code == 3 and "Verdict: INCONCLUSIVE" in said
+    assert "Could not run on the head: c01, c02" in said
+    paths = RunPaths(audit.store / ".boss" / "runs" / audit.run_id())
+    [event] = audited(paths.events())
     assert event.data["blocked"] == ["c01", "c02"] and event.data["failed"] == []
 
 
