@@ -698,7 +698,7 @@ with a JSON schema.
   list item in 11 of 39 (28%, the base rate) and a literal in 1 of 22 (5%). Flagging as many rules at
   random would have hit 11.0 of the 15 cells, the verifier 12. Scoring the two noisy types would
   count a rule as uncovered on evidence no better than chance. Pre-registered O1 and O4 failed (94.9%
-  against 95%; a 4.5-point kill-rate gap against 25 on hand-written mutants that are killed 88% of the time
+  against 95%; a 4.5-point kill-rate gap against 25 on mutants written for the tasks that are killed 88% of the time
   whatever the draft holds), so this is a reduction, not a pass.
 - Rejected: Counting every anchor, as pre-registered: the evaluation's own numbers say two types are
   noise. Dropping literals and list items altogether: they are cheap to show and a person can judge

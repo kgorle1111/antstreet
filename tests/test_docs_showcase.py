@@ -63,7 +63,7 @@ def test_the_false_pass_figures_are_the_audits(text):
         "17 small Python tasks, Haiku writing both the checks and the code",
         "13 of the 29 failed only on non-ASCII input or a returned type",
         "16 of 77 (21%)",
-        "Every one of the 29 was a real error against the task text",
+        "We read all 29 against the task text and judge each a real error",
     ):
         assert phrase in text, f"README lost: {phrase}"
 

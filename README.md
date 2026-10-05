@@ -48,7 +48,9 @@ strings are the real ones. Try it yourself in [the quickstart](#-quickstart).
 Agents say "done" and mean "I stopped". We measured a narrower thing: how often a run can satisfy the checks the model drafted and still be wrong.
 
 > **29 of 77 runs (38%, 95% interval 28-49%)** passed every check the model had written and still
-> failed a hand-written check it never saw. Every one of the 29 was a real error against the task text.
+> failed a hidden check it never saw (written by Claude, separately from the agents measured).
+> We read all 29 against the task text and judge each a real error; one class (tokenbucket's int-vs-float
+> return) is debatable.
 > These were firm runs (the boss drafting checks, workers building), not a general agent failure rate.
 
 Caveats, kept on purpose: 17 small Python tasks, Haiku writing both the checks and the code, and
@@ -61,8 +63,9 @@ the checks first, and why the stat measures weak checks, not the gate.
 
 ## 🧪 We measure, and we publish the "no"
 
-A fair, blinded benchmark: 35 tasks, three runs each, $0.40 a task, hidden checks written by hand
-and never shown to any agent.
+A fair, blinded benchmark: 35 tasks, three runs each, $0.40 a task, hidden checks written separately
+from the agents being measured (by Claude, in a different session), validated against a reference
+solution and planted wrong solutions, and never shown to any agent.
 
 | | passed | cost per task |
 |---|---|---|
