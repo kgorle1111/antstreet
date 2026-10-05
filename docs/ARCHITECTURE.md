@@ -43,7 +43,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `budget.py` | Round budgets, top-ups, remaining money, slice caps, the reserve, unlock test, round plan. Charges a slice that did work with no cost, or that never ended, at its cap, until a later slice resumes its session and reports the total that covers it. | Use floats; read a clock. |
 | `cli.py` | The `boss` command: parsing, validating counts, amounts and role lists, wiring, exit codes, `resume`, `topup`, `roles`; the `--profile`, `--parallel`, `--roles`, `--review-cycles` and `--fix-budget` options. | Decide pass, fire or money itself; call a role (it hands the pipeline to the loop). |
 | `context.py` | The context bundle of one worker slice: arranges what `briefs.py` produces plus an optional section of interface names, keeps it under `MAX_BUNDLE_CHARS` by leaving optional parts out whole in a fixed order, refuses before spend if the mandatory parts alone are over, hashes the exact text (system prompt, a NUL, user prompt), saves it, and re-verifies the saved files. | Open any file but the task's own check files; read the held-out folder, another task's check code, a hidden check or `.boss/`; cut a mandatory part. |
-| `dispatch.py` | Per-task dispatch as pure functions: the route rule (one agent when everything is one file), the whitelist of tiers, efforts, workers and reads (`dispatch_problems`), the plan from the run's flags, the one-step escalation, the worst case in dollars, the investor's table, and reading a worker's recorded model from the ledger. | Call a model; let the boss, a role or a worker choose a tier or an effort; step a worker up for any firing but the gate's `no progress` and `slice limit`; allow a tier above `--max-tier`. |
+| `dispatch.py` | Per-task dispatch (and the cascade's ladder, rung hire and worst case) as pure functions: the route rule (one agent when everything is one file), the whitelist of tiers, efforts, workers and reads (`dispatch_problems`), the plan from the run's flags, the one-step escalation, the worst case in dollars, the investor's table, and reading a worker's recorded model from the ledger. | Call a model; let the boss, a role or a worker choose a tier or an effort; step a worker up for any firing but the gate's `no progress` and `slice limit`; allow a tier above `--max-tier`. |
 | `doctor.py` | Preflight checks, each with a one-line fix: the gate sandbox, and with `--live` one real worker slice that tries to write outside its folder. | Raise on an expected failure; print an environment value. |
 | `errors.py` | Names the outcome of one CLI run from its stream signals and its stderr. | Trust `subtype` alone. |
 | `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`, with the held-out checks when the run has any. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own; let a held-out result reach a per-worker decision. |
@@ -57,6 +57,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `redact.py` | Masking secrets and control characters in text that is stored or shown (`safe_text`), in linear time. | Return text that still contains a matched secret. |
 | `kpi.py` | The investor-question count and the run facts the KPIs use (product verdict, held-out grades, the single arm's last status word, the ledger's time span), all from events. | Read model text or anything but events; count a figure the ledger does not hold as 0. |
 | `report.py` | The board report, computed from events, including one line per `role_call`; the held-out results (or why there are none) apart from the visible checks. | Read anything but events; fold an unknown cost into a total as 0; let a held-out result replace a visible one. |
+| `routing.py` | The cascade's start tier: the task kind from the term sheet, the attempts recorded in this project's verified past runs (`read_runs`), the expected-cost chooser (`choose_start`) with its priors, and the `boss routing` view. | Call a model; read a ledger the investor key does not vouch for; write anything; pick a tier above `--max-tier`. |
 | `retry.py` | Pure decisions on infrastructure failures: wait, pause, give up. | Sleep; read a clock; touch a process. |
 | `roles/__init__.py` | `registry()`: every role, collected from the `SPECS` of the modules in the package. | List a role by hand; accept two roles with one name. |
 | `roles/advisory.py` | The check auditor (an opinion on each check against the idea) and the consultant (an opinion on one disputed check). | Change a check or a ruling; accept an opinion whose quote is not a fragment of the idea. |
@@ -204,6 +205,24 @@ no `route` or `dispatch`, every worker runs on `--model`, the ledger has none of
    it as `model_id`, and a launched tier that is not in it stops the run after the slice is booked.
 7. **Report.** `boss report` prints one line per worker (tier, effort, why hired, cost, outcome,
    model that ran) and rehashes each saved prompt.
+
+### The cascade (`--dispatch cascade`)
+
+Everything above holds; the differences are these. Off, none of it runs, and `rules` is unchanged.
+
+1. **Choose.** `cli.py` reads this project's earlier runs with `routing.read_runs` (only runs whose
+   ledger, term sheet and checks the investor key vouches for), labels each task by `task_kind`,
+   and `routing.choose_start` picks the tier with the least expected cost (D50). `plan_cascade`
+   puts it in the sheet as the task's `tier`, with effort `off`, `escalate_to` the run's top tier
+   and one worker per rung. The table prints the kind and `prior` or `measured, n=...`.
+2. **Climb.** `dispatch.cascade_hire` hires the next rung of `dispatch.ladder` only for a firing the
+   gate decided (`no progress`, `slice limit`) and only if the round can fund that tier. The next
+   worker gets the predecessor's findings through the same reassignment brief as before. After the
+   last rung, or when a rung is refused, the task is abandoned with a reason that says the
+   investor decides.
+3. **Bound.** The whitelist allows up to four workers per task only under the cascade; every slice
+   cap, the run ceiling and the round budgets apply as before, and the table's worst case prices
+   each rung at its stalled slices.
 
 ## Control flow of `firm.py`
 
