@@ -1,5 +1,5 @@
-"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `routing`, `roles`, `doctor` and
-`audit`.
+"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `routing`, `roles`,
+`doctor` and `audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
