@@ -12,6 +12,8 @@ what changed for someone using the tool, not which commit did it.
 
 - A Claude Code plugin in the repository (`/antstreet:fund`, `/antstreet:report`,
   `/antstreet:status`), installable once the repository is public and `antstreet` is on PyPI.
+- `/antstreet:fund` drafts the term sheet and stops; you approve it yourself with
+  `! uvx antstreet approve ...`, and a plugin hook denies the agent any `approve`.
 - Licensed under the Apache License 2.0 (`LICENSE`, and `license` in the package metadata).
 - `boss audit plan --repo R --request FILE --base REF [--held-out N]`: seals checks for a change request from the base commit's names alone, kept in `~/.boss-audit` and never in the repo; you approve them, signed; it prints a run id and a seal.
 - `boss audit check RUN --head REF`: runs the sealed checks on a commit and signs a verdict: `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`. It refuses a head off the base, an edited check and a forged approval.
