@@ -93,6 +93,16 @@ Added 2026-10-04, before any E6 run.
   sonnet"`). The single Haiku arm of the blind 35-task run is a reference row only. Sets:
   `bench/tasks` (35 tasks, 3 runs) and `bench/tasks-multi` (8 tasks, 3 runs, `--max-tasks 3
   --parallel 3`, which the dispatch arm adds `--dispatch rules` to).
+- **Fourth arm, `cascade`** (added 2026-10-04, before any E6 run). The same code, prompts, sets and
+  per-cell budget, with `--firm-args "--dispatch cascade --max-tier opus"`: Haiku first, then Sonnet,
+  then Opus, then Opus at one effort step higher, one rung per task per verified failure (D46). It is
+  compared on the primary KPI below (cost per assigned cell) against `fixed-haiku`, `fixed-sonnet` and `dispatch` (v1) at
+  $0.80 a cell, by the same paired bootstrap. Adopt only if it wins at equal delivery: its interval
+  below zero against all three, and the delivery guard below met against each. Each benchmark cell
+  is its own project, so no cell has a history and every start is the prior (Haiku); this arm
+  tests the ladder, not the data-driven start (B105). At $0.80 an Opus rung is funded only if the
+  earlier rungs left $0.55 free in the round; rungs refused for money are reported apart (`hired`
+  with no worker after a `fired`, `abandoned` reason `cascade: ...`) and count as a failure of the arm.
 - **Primary KPI.** Cost per assigned cell (each cell's total cost, boss call included, delivered
   or not), paired by task (a task's mean over its runs) with a 10,000-resample bootstrap of tasks:
   `python -m boss.bench.paired --kpi cost_per_delivery`. With the delivery guard met, a lower cost
@@ -129,7 +139,10 @@ equal compute in the literature. They stay off by default and are not claimed to
   same instruction (`solo_v2`, `builder_v4`); `bench/results/2026-10-03-blind35/` is the baseline
   every experiment here compares against.
 - 2026-10-04: added E6 (per-task dispatch), before any run of it.
+- 2026-10-04: added E6's fourth arm, `cascade`, before any run of it.
 - 2026-10-05: E6's decision rule uses the paired cost per assigned cell, the interval the code computes; the pooled cost per delivered task is reported beside it. No E6 run had happened.
+- 2026-10-05: the `cascade` arm is compared on the primary KPI (cost per assigned cell), as every arm
+  is since that day's rule change. No E6 run had happened.
 - 2026-10-05, before any E4 run: E4 runs blind35's 35 tasks x 3 reps, Haiku boss and workers, all
   three arms fresh, each in its own `--out`. Firm arms: `--budget 0.40 --firm-args "--slice 0.20"`,
   the critic arm adding `--roles critic --fix-budget 0.30`. Self-review: `--arms single-review

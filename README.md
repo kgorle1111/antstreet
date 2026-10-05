@@ -102,13 +102,13 @@ Built like something you would be happy to inherit.
 - **5,000+ tests**, no model calls needed (recorded CLI output and fake `claude` executables).
 - **Coverage floor 96%** (line and branch) enforced in CI; about 98% measured when the floor was set.
 - **`mypy --strict`** over `src/`, plus ruff.
-- **A threat model with 69 rows**, each bound to a test that proves its control
+- **A threat model with 71 rows**, each bound to a test that proves its control
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
 - **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
 - **A blinded, pre-registered benchmark**: six experiments fixed before any run
   ([bench/PREREG.md](bench/PREREG.md)).
-- **45 recorded design decisions**, including what was rejected and why
+- **46 recorded design decisions**, including what was rejected and why
   ([DECISIONS.md](docs/DECISIONS.md)).
 - **Docs that cannot drift**: tests fail when this README, the CLI docs or the ledger docs disagree
   with the code.
@@ -128,7 +128,8 @@ uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces 
 
 After the PyPI release (not yet published), `uvx antstreet fund "..." --budget 0.40` will work
 without a clone. `antstreet fund` shows the term sheet and waits for your yes. Then `uv run antstreet report` reprints the
-board report, and `uv run antstreet resume` continues an interrupted run. Every command and option:
+board report, `uv run antstreet resume` continues an interrupted run, and `uv run antstreet routing` shows the model
+`--dispatch cascade` would start each kind of task on, from your past runs. Every command and option:
 [docs/CLI.md](docs/CLI.md). It also audits someone else's agent: `antstreet audit` seals checks before the
 agent starts and tests its commit afterwards.
 
