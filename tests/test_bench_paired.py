@@ -134,6 +134,27 @@ def test_false_pass_is_refused_for_an_arm_without_visible_checks():
         run(a, b, "false_pass")
 
 
+def test_pass_all_is_one_only_when_every_run_delivered_and_higher_is_a_win():
+    a = [cell(t, rep=r) for t in ("t0", "t1") for r in range(1, 6)]
+    b = [cell("t0", "single", ok=r != 3, rep=r) for r in range(1, 6)]
+    b += [cell("t1", "single", rep=r) for r in range(1, 6)]
+    assert task_values(b, "single", "pass_all") == {"t0": 0.0, "t1": 1.0}
+    assert task_values(b, "single", "delivery")["t0"] == 0.8  # 4 of 5 is not reliable
+    p = run(a, b, "pass_all")
+    assert (p.tasks, p.mean) == (2, 0.5) and "pass_all (share)" in render(p)
+    a10, b10 = sides([True] * 10, [False] * 10)
+    assert run(a10, b10, "pass_all").shown and not run(b10, a10, "pass_all", "single", "firm").shown
+
+
+def test_pass_all_refuses_tasks_with_different_numbers_of_counted_runs():
+    a = [cell("t0", rep=r) for r in (1, 2, 3)] + [cell("t1", rep=r) for r in (1, 2, 3)]
+    b = [cell("t0", "single", rep=r) for r in (1, 2, 3)]
+    b += [cell("t1", "single", rep=r, ok=r != 3, infra=True) for r in (1, 2, 3)]
+    with pytest.raises(ValueError, match=r"same number of counted runs.*\[2, 3\]"):
+        run(a, b, "pass_all")
+    assert run(a, b).tasks == 2  # delivery is a share, so it still compares
+
+
 def test_infrastructure_cells_are_excluded_and_counted():
     a = [cell("t0"), cell("t1", ok=False, infra=True), cell("t2")]
     b = [cell("t0", "single", ok=False), cell("t1", "single"), cell("t2", "single", ok=False)]

@@ -11,7 +11,7 @@ Every command also accepts `-h` and `--help`.
 ## `boss`
 
 `boss [--version] <command> ...` where the command is `fund`, `resume`, `topup`, `report`,
-`status`, `verify`, `roles`, `doctor` or `audit` (which has three steps of its own: `audit plan`, `audit check`
+`status`, `verify`, `roles`, `doctor`, `mcp` or `audit` (which has three steps of its own: `audit plan`, `audit check`
 and `audit report`).
 
 | Option | Default | Meaning |
@@ -281,6 +281,23 @@ the file appears, when the worker did not start isolated, or when the call could
 worker did not try the write, it passes with a warning (`inconclusive`) and the exit code stays 0:
 run `--live` again. The other checks make no paid call. The two costs are the CLI's estimates.
 
+## `boss mcp`
+
+`boss mcp [--dir DIR]`. Serves the project's runs read-only to an MCP client: one JSON-RPC 2.0
+message per line on stdin and stdout, until stdin closes (exit 0). It answers the `initialize`
+handshake (protocol 2025-11-25 and earlier) and `server/discover` (2026-07-28).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder whose `.boss/runs/` the tools read. No tool takes a path. |
+
+Tools: `list_runs`, `status`, `report`, `verify_ledger` and `doctor`. `status` and `report` run the
+commands above; `verify_ledger` checks the hash chain, the investor signatures, the anchor and the
+saved prompts; `doctor` never runs `--live`. None of them funds, resumes, tops up or approves, and
+none makes a model call. A `run` argument must be one word of letters, digits, `.`, `_` or `-`
+starting with a letter or digit, and one of the project's runs. A tool result is cut at 60,000
+characters, and a request line over 1,048,576 characters is refused.
+
 ## `boss audit plan`
 
 `boss audit plan --repo REPO --request FILE --base REF [--held-out N] [--boss-model MODEL]`. Seals
@@ -403,7 +420,7 @@ Argument: `run`, an audit run id. Default: the latest.
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
+| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
 | `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `verify`: no runs, or a run id that does not exist. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
 | `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
@@ -492,13 +509,14 @@ Arguments: `dir_a` and `dir_b`, results folders written by `run` (they may be th
 |---|---|---|
 | `--arm-a` | `firm` | The arm taken from `DIR_A`: `single`, `firm` or `single-review`. |
 | `--arm-b` | `single` | The arm taken from `DIR_B`. The difference is A minus B. |
-| `--kpi` | `delivery` | `delivery`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`. |
+| `--kpi` | `delivery` | `delivery`, `pass_all`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`, and `pass_all` the same number of counted runs of every task on both sides. |
 | `--resamples` | `10000` | Task resamples for the interval. |
 | `--seed` | `0` | Seed of the resampling; the same seed gives the same interval. |
 
 Exit codes: `0`; `1` when a folder holds no results for its arm, the two sides ran different task
-sets, no task is on both sides, or a result file is invalid; `2` for a usage error. A different
-model or budget between the sides prints a warning and still runs.
+sets, no task is on both sides, `pass_all` finds tasks with different numbers of counted runs, or a
+result file is invalid; `2` for a usage error. A different model or budget between the sides prints
+a warning and still runs.
 
 ## `python -m boss.bench.kpi`
 
