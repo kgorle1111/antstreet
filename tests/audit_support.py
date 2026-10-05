@@ -46,6 +46,8 @@ GUARD_SLUG = RIGHT_SLUG.replace(
 )
 # Needs a library this machine has not got.
 NEEDS_LIB_SLUG = "import quuxlib_zq\n\n" + RIGHT_SLUG
+# Hangs past a shortened gate timeout (see `short_timeout_for_hangs`).
+HANGS_SLUG = "import time\n\ntime.sleep(60)\n" + RIGHT_SLUG
 MARKER = "zq-marker-8d41f2"  # a literal inside a sealed check; it must never appear in the repo
 C01 = (
     "from slug import slugify\n\n\n"
@@ -220,3 +222,17 @@ class Audit:
     def prompts(self) -> list[list[str]]:
         files = sorted(self.home.glob("argv_*.json"))
         return [json.loads(f.read_text()) for f in files]
+
+
+def short_timeout_for_hangs(monkeypatch) -> None:
+    """Gate runs of a tree whose slug.py sleeps time out after 3s; every other run is unchanged."""
+    import boss.audit as audit_module
+
+    real = audit_module.run_gate
+
+    def gate(tree, checks_dir, checks, **kw):
+        if "time.sleep" in (Path(tree) / "slug.py").read_text():
+            kw["timeout_s"] = 3.0
+        return real(tree, checks_dir, checks, **kw)
+
+    monkeypatch.setattr(audit_module, "run_gate", gate)

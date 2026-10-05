@@ -4,7 +4,9 @@ runs them, a ref that looks like an option never reaches git, and an export touc
 import io
 import os
 import subprocess
+import sys
 import tarfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -279,6 +281,130 @@ def test_is_clean_does_not_write_the_index(two):
 def test_a_repo_with_no_commit_cannot_be_called_clean(repo):
     with pytest.raises(GitError, match="names no commit"):
         is_clean(repo)
+
+
+def global_config(monkeypatch, tmp_path, text: str) -> Path:
+    cfg = tmp_path / "global.gitconfig"
+    cfg.write_text(text)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    return cfg
+
+
+def test_a_file_ignored_by_the_global_excludes_file_is_clean(two, monkeypatch, tmp_path):
+    root, _, _ = two
+    ignore = tmp_path / "global_ignore"
+    ignore.write_text("*.scratch\n")
+    (root / "x.scratch").write_text("noise")
+    assert not is_clean(root)
+    global_config(monkeypatch, tmp_path, f"[core]\n\texcludesFile = {ignore}\n")
+    assert is_clean(root)
+
+
+def test_the_repo_excludes_file_setting_wins_over_the_global_one(two, monkeypatch, tmp_path):
+    root, _, _ = two
+    mine, theirs = tmp_path / "mine", tmp_path / "theirs"
+    mine.write_text("*.scratch\n")
+    theirs.write_text("*.other\n")
+    global_config(monkeypatch, tmp_path, f"[core]\n\texcludesFile = {theirs}\n")
+    git(root, "config", "core.excludesFile", str(mine))
+    (root / "x.scratch").write_text("noise")
+    assert is_clean(root)
+
+
+def test_file_mode_false_makes_a_mode_only_change_clean(two):
+    root, _, _ = two
+    (root / "a.txt").chmod(0o755)
+    git(root, "config", "core.fileMode", "true")
+    assert not is_clean(root)
+    git(root, "config", "core.fileMode", "false")
+    assert is_clean(root)
+
+
+@pytest.mark.parametrize("value", ["maybe", "$(touch pwned)", "2", "x y"])
+def test_a_non_boolean_setting_is_ignored_not_executed(two, tmp_path, monkeypatch, value):
+    root, _, _ = two
+    global_config(
+        monkeypatch,
+        tmp_path,
+        f'[core]\n\tfileMode = "{value}"\n\tautocrlf = "{value}"\n\tignoreCase = "{value}"\n',
+    )
+    assert is_clean(root)
+    assert not (root / "pwned").exists() and not (tmp_path / "pwned").exists()
+
+
+def test_an_unreadable_or_missing_excludes_file_is_ignored(two, tmp_path):
+    root, _, _ = two
+    for target in ("/nonexistent/ignore", "/etc/shadow", str(tmp_path), "relative/path"):
+        git(root, "config", "core.excludesFile", target)
+        assert is_clean(root)
+        (root / "y.txt").write_text("untracked")
+        assert not is_clean(root)
+        (root / "y.txt").unlink()
+
+
+def test_a_program_naming_setting_is_never_copied_into_the_view(two, tmp_path, monkeypatch):
+    root, _, _ = two
+    marker = tmp_path / "ran"
+    git(root, "config", "core.fsmonitor", f"touch {marker}")
+    git(root, "config", "core.autocrlf", "input")
+    seen: list[list[str]] = []
+    real = gitrepo._popen
+
+    def spy(cmd, cwd, **kw):
+        seen.append(cmd)
+        return real(cmd, cwd, **kw)
+
+    monkeypatch.setattr(gitrepo, "_popen", spy)
+    assert is_clean(root)
+    flat = " ".join(" ".join(c) for c in seen)
+    assert "core.autocrlf=input" in flat and "fsmonitor=touch" not in flat
+    assert not marker.exists()
+
+
+# --- bounded output ---------------------------------------------------------------------------
+
+
+def test_output_over_the_cap_kills_the_process_early(tmp_path, monkeypatch):
+    marker = tmp_path / "finished"
+    script = tmp_path / "flood.py"
+    script.write_text(
+        "import sys, time, pathlib\n"
+        "sys.stdout.buffer.write(b'x' * 200000); sys.stdout.buffer.flush()\n"
+        "time.sleep(20)\n"
+        f"pathlib.Path({str(marker)!r}).write_text('done')\n"
+    )
+    monkeypatch.setattr(gitrepo, "MAX_OUTPUT_BYTES", 1000)
+    monkeypatch.setattr(gitrepo, "_command", lambda *a, **k: [sys.executable, str(script)])
+    started = time.monotonic()
+    with pytest.raises(GitError, match="its output is over the size cap"):
+        gitrepo._run(["flood"], gitdir=None, cwd=tmp_path)
+    assert time.monotonic() - started < 10
+    assert not marker.exists()
+
+
+def test_output_under_the_cap_comes_back_whole_and_stderr_names_a_failure(tmp_path, monkeypatch):
+    script = tmp_path / "quiet.py"
+    script.write_text(
+        "import sys\nsys.stdout.write('a' * 5000)\nsys.stderr.write('boom ' * 100000)\n"
+        "sys.exit(int(sys.argv[1]))\n"
+    )
+    monkeypatch.setattr(
+        gitrepo, "_command", lambda args, *a, **k: [sys.executable, str(script), *args]
+    )
+    code, out = gitrepo._run(["0"], gitdir=None, cwd=tmp_path)
+    assert (code, out) == (0, b"a" * 5000)
+    with pytest.raises(GitError, match="boom"):
+        gitrepo._run(["3"], gitdir=None, cwd=tmp_path)
+
+
+def test_a_command_that_runs_too_long_is_killed(tmp_path, monkeypatch):
+    script = tmp_path / "slow.py"
+    script.write_text("import time\ntime.sleep(30)\n")
+    monkeypatch.setattr(gitrepo, "_command", lambda *a, **k: [sys.executable, str(script)])
+    started = time.monotonic()
+    with pytest.raises(GitError, match="ran longer than"):
+        gitrepo._run(["slow"], gitdir=None, cwd=tmp_path, timeout_s=1)
+    assert time.monotonic() - started < 10
 
 
 # --- history --------------------------------------------------------------------------------

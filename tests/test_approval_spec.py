@@ -172,6 +172,8 @@ def test_a_rule_list_that_is_not_the_ideas_cannot_be_approved_only_rejected(proj
     assert result is None
     text = "\n".join(said)
     assert "The rule list cannot be used" in text and "Not approved: the rule list is not" in text
+    reason = text.split("cannot be used: ", 1)[1].splitlines()[0]
+    assert f"the rule list is not the idea's ({reason})" in text
     assert [e.event for e in read_events(project.ledger)] == [EventType.STOPPED]
 
 
