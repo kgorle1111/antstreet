@@ -93,6 +93,16 @@ Added 2026-10-04, before any E6 run.
   sonnet"`). The single Haiku arm of the blind 35-task run is a reference row only. Sets:
   `bench/tasks` (35 tasks, 3 runs) and `bench/tasks-multi` (8 tasks, 3 runs, `--max-tasks 3
   --parallel 3`, which the dispatch arm adds `--dispatch rules` to).
+- **Fourth arm, `cascade`** (added 2026-10-04, before any E6 run). The same code, prompts, sets and
+  per-cell budget, with `--firm-args "--dispatch cascade --max-tier opus"`: Haiku first, then Sonnet,
+  then Opus, then Opus at one effort step higher, one rung per task per verified failure (D50). It is
+  compared on cost per delivered task against `fixed-haiku`, `fixed-sonnet` and `dispatch` (v1) at
+  $0.80 a cell, by the same paired bootstrap. Adopt only if it wins at equal delivery: its interval
+  below zero against all three, and the delivery guard below met against each. Each benchmark cell
+  is its own project, so no cell has a history and every start is the prior (Haiku); this arm
+  tests the ladder, not the data-driven start (B104). At $0.80 an Opus rung is funded only if the
+  earlier rungs left $0.55 free in the round; rungs refused for money are reported apart (`hired`
+  with no worker after a `fired`, `abandoned` reason `cascade: ...`) and count as a failure of the arm.
 - **Primary KPI.** Cost per delivered task (the sum of cell cost over delivered cells, a cell
   counting its boss call), paired by task with a 10,000-resample bootstrap of tasks.
 - **Delivery guard.** Dispatch minus each fixed arm, 95% interval with a lower bound at or above
@@ -118,3 +128,4 @@ equal compute in the literature. They stay off by default and are not claimed to
 ## Changes to this plan
 
 - 2026-10-04: added E6 (per-task dispatch), before any run of it.
+- 2026-10-04: added E6's fourth arm, `cascade`, before any run of it.
