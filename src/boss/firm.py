@@ -116,6 +116,8 @@ class FirmConfig:
     # Off, a run is what it has always been.
     dispatch: bool = False
     max_tier: str = dispatch_module.DEFAULT_MAX_TIER  # the dearest tier dispatch may use
+    # `--dispatch cascade`: with dispatch on, the ladder of dispatch.ladder, not one step up
+    cascade: bool = False
 
     def __post_init__(self) -> None:
         check_thinking(self.thinking_tokens)
@@ -124,6 +126,8 @@ class FirmConfig:
                 f"dispatch must be a bool and max_tier one of {dispatch_module.TIERS}, "
                 f"got {self.dispatch!r} and {self.max_tier!r}"
             )
+        if type(self.cascade) is not bool or (self.cascade and not self.dispatch):
+            raise ValueError(f"cascade must be a bool and needs dispatch, got {self.cascade!r}")
         if self.reserve_micros == budget.MODEL_RESERVE:
             object.__setattr__(self, "reserve_micros", budget.reserve_for(self.model))
         if type(self.held_out) is not int or not 0 <= self.held_out <= held_out_store.MAX_HELD_OUT:
@@ -136,7 +140,7 @@ class FirmConfig:
         """What dispatch allows in this run; None when `--dispatch` is off."""
         if not self.dispatch:
             return None
-        return dispatch_module.DispatchPolicy(self.max_tier, self.slice_micros)
+        return dispatch_module.DispatchPolicy(self.max_tier, self.slice_micros, self.cascade)
 
 
 def config_data(config: FirmConfig) -> dict[str, Any]:
@@ -145,6 +149,8 @@ def config_data(config: FirmConfig) -> dict[str, Any]:
     data = dataclasses.asdict(config)
     if not config.dispatch:
         del data["dispatch"], data["max_tier"]
+    if not config.cascade:
+        del data["cascade"]
     return data
 
 
@@ -523,6 +529,7 @@ class _Firm:
             remaining_micros=free_micros,
             slice_micros=self._slice_micros(task),
             one_agent=self.sheet.route == dispatch_module.ROUTE_ONE_AGENT,
+            cascade=self.config.cascade,
         )
 
     def _reserve_of(self, task: Task, state: RunState, hire: dispatch_module.Hire | None) -> int:
@@ -701,11 +708,22 @@ class _Firm:
             hired |= {"model": hire.tier, "profile": task.dispatch.profile}
             hired["dispatch"] = hire.data()
             if current is not None:
-                self.say(_stepped_up(current, name, hire))
+                self.say(_stepped_up(current, name, hire, self.config.cascade))
         record("boss", EventType.HIRED, data=hired)
         return name
 
     def _why_none(self, task: Task, limit: int, workers: Sequence[str]) -> str:
+        if self.config.cascade:
+            if len(workers) >= limit:
+                return (
+                    f"cascade: all {limit} rungs failed their checks; the investor decides "
+                    "(raise the budget or edit the term sheet, then `boss resume`)"
+                )
+            return (
+                "cascade: the last worker was not fired on the gate's evidence, or the next rung "
+                "is not funded in the round; the investor decides (top up the round, then "
+                "`boss resume`)"
+            )
         if len(workers) < limit:
             return "one agent: no stronger worker to hire"
         if limit == MAX_WORKERS_PER_TASK:
@@ -1034,10 +1052,10 @@ def _unblocks(event: Event, task: str) -> bool:
     )
 
 
-def _stepped_up(old: str, new: str, hire: dispatch_module.Hire) -> str:
+def _stepped_up(old: str, new: str, hire: dispatch_module.Hire, cascade: bool = False) -> str:
     """The one plain line the investor reads when a fired worker is replaced under dispatch."""
     reason = hire.why.removeprefix("predecessor fired: ").split(",")[0]
-    if hire.tier == hire.from_tier and hire.effort == "default":
+    if hire.tier == hire.from_tier and hire.effort == "default" and not cascade:
         why = f": {hire.refused}" if hire.refused else ""
         return f"{old} fired ({reason}); {new} starts on {hire.tier} (not stepped up{why})"
     how = f"{hire.tier}/{hire.effort}" if hire.tier == hire.from_tier else hire.tier
