@@ -140,3 +140,19 @@ A task is a folder `bench/tasks/<id>/`. The rules are enforced by `boss.bench.ta
 Real runs are described in [bench/METHOD.md](bench/METHOD.md) and cost money:
 `uv run python -m boss.bench.run --dry-run --out /tmp/bench --budget 0.40` lists the cells without
 running any.
+
+## Release
+
+Owner only; nothing here runs in CI.
+
+1. Bump `version` in `pyproject.toml` and move the `CHANGELOG.md` entries under it.
+2. `uv build` writes the sdist and wheel to `dist/`. The wheel must hold `boss/prompts/*.md`
+   (`tests/test_packaging.py` checks this) and the sdist only `src/boss`, `README.md`, `LICENSE`
+   and `pyproject.toml`.
+3. Check the wheel in a clean place: `uv venv` and `uv pip install dist/*.whl` in a temp folder,
+   then `antstreet --version`, or `uvx --from dist/*.whl antstreet --help`.
+4. `uv publish` (a PyPI token in `UV_PUBLISH_TOKEN`; never commit it). A published version cannot
+   be replaced, so try `uv publish --publish-url https://test.pypi.org/legacy/` first if the metadata changed.
+
+PyPI shows `README.md` as the project page, and its relative image links (`docs/assets/...`) do
+not resolve there; the project page links to GitHub instead.
