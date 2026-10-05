@@ -124,5 +124,9 @@ equal compute in the literature. They stay off by default and are not claimed to
 
 ## Changes to this plan
 
+- 2026-10-03: the baseline runs before this plan (final3, new18) gave the single arm a sentence
+  saying hidden checks would judge it, which the firm's builder did not get. Both arms now get the
+  same instruction (`solo_v2`, `builder_v4`); `bench/results/2026-10-03-blind35/` is the baseline
+  every experiment here compares against.
 - 2026-10-04: added E6 (per-task dispatch), before any run of it.
 - 2026-10-05: E6's decision rule uses the paired cost per assigned cell, the interval the code computes; the pooled cost per delivered task is reported beside it. No E6 run had happened.

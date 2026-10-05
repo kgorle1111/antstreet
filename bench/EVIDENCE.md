@@ -9,8 +9,9 @@ result of this project: our own figures are in `bench/results/`, and what we wil
 
 Measured multi-agent gains are narrow: breadth-parallel, read-heavy work; a clean-context reviewer
 or checker; and a cheap executor with a strong advisor, on cost. Debate, personas, swarms and
-parallel writers mostly vanish once a single agent gets the same compute. Our own result (firm 69%
-against single 63% at 2.4x cost, 17 small tasks) fits that literature.
+parallel writers mostly vanish once a single agent gets the same compute. Our own result (firm 61%
+against single 59% at 2.4x cost per delivered task, 35 small tasks, the same instruction to both
+arms; not shown to differ) fits that literature.
 
 ## Evidence for
 
