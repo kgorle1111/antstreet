@@ -54,6 +54,6 @@ exclude_also = ['if __name__ == "__main__":', "raise NotImplementedError"]
 
 # Mutation testing, run per module (see CONTRIBUTING.md): `uv run mutmut run "boss.errors.*"`.
 [tool.mutmut]
-paths_to_mutate = ["src/boss/"]
+source_paths = ["src/boss/"]
 also_copy = ["bench/", "docs/", "README.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md", "pyproject.toml"]
 pytest_add_cli_args = ["-m", "not sigint", "-p", "no:cacheprovider"]
