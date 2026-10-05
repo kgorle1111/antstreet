@@ -142,6 +142,23 @@ The verdict is `refuted`, `unrefuted`, `inconclusive` or `no_claim`. `unrefuted`
 sealed checks catch only what they test. The agent never sees the checks, and the verdict is
 signed. Full rules: [docs/CLI.md](docs/CLI.md).
 
+## Use it from any MCP client
+
+`boss mcp` is a read-only MCP server on stdio: `list_runs`, `status`, `report`, `verify_ledger`
+and `doctor` (never `--live`). No tool funds, resumes, tops up or approves; those stay yours, at a
+terminal. Put this in a project's `.mcp.json`. It works once the package is on PyPI; until then
+use `"args": ["--from", "/path/to/your/antstreet/checkout", "antstreet", "mcp"]`.
+
+```json
+{
+  "mcpServers": {
+    "antstreet": { "command": "uvx", "args": ["antstreet", "mcp"] }
+  }
+}
+```
+
+Details: [docs/CLI.md](docs/CLI.md#boss-mcp).
+
 ## Requirements
 
 - macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/)
