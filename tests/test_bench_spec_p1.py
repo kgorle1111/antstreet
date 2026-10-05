@@ -286,6 +286,30 @@ def test_the_mapper_pass_makes_no_call_that_could_pass_the_cap(tmp_path, fake):
     )
 
 
+def test_a_resumed_mapper_pass_counts_the_saved_calls_against_the_cap(tmp_path, fake):
+    cli, env, calls = fake
+    cap = p1.SPEC_MAPPER.cap_micros
+    made_draft(tmp_path / "out", {"c01": PLAIN}, {"c01": ["R04"]})
+    made_draft(tmp_path / "out", {"c01": PLAIN}, {"c01": ["R04"]}, task="calc")
+    good = {"maps": [{"check": "c01", "exercises": [{"rule": "R04", "line": 4}]}]}
+    # one call is saved at 50_000; a cap of 50_000 + cap - 1 leaves no room for another call
+    saved = tmp_path / "out/slugify/rep1" / p1.MAPPER_FILE
+    saved.write_text(json.dumps({"status": "ok", "exercises": {}, "cost_micros": 50_000}))
+    assert p1.run_mapper(
+        tmp_path / "out", TASKS, 50_000 + cap - 1, environ=env(good), executable=cli
+    ) == (0, 0)
+    assert calls() == 0, "no call starts past the cap"
+    # a saved call with no recorded cost is charged at the call's cap, never as zero
+    saved.write_text(json.dumps({"status": "failed", "cost_micros": None}))
+    assert p1.run_mapper(
+        tmp_path / "out", TASKS, 2 * cap - 1, environ=env(good), executable=cli
+    ) == (0, 0)
+    assert calls() == 0
+    assert (
+        p1.run_mapper(tmp_path / "out", TASKS, 2 * cap, environ=env(good), executable=cli)[0] == 1
+    )
+
+
 def test_a_map_the_gate_refuses_is_saved_as_failed_with_its_spend(tmp_path, fake):
     cli, env, _ = fake
     out = tmp_path / "out"

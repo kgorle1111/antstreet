@@ -172,6 +172,11 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- The benchmark's spend cap now reserves a staged draft's full cost (its three role calls) before
+  starting one; it reserved one call's cost and could start a draft that passed the allowance.
+- The mapper pass's spend cap now counts mapper calls saved by an earlier pass, so a resumed pass
+  cannot pass the allowance; a saved call with no recorded cost counts at its cap.
+- A wording fix in the DECISIONS note on the offline evaluation ("hand-written mutants").
 - On macOS, stopping a worker that exits at that same moment no longer fails the slice with
   "Operation not permitted".
 - A benchmark cell whose run ended on an infrastructure stop (usage limit, login, isolation) is

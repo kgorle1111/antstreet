@@ -579,7 +579,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
             results = list(pool.map(run, todo))
     else:
-        results = _run_within(run, todo, args.max_spend, done.values())
+        results = _run_within(run, todo, args.max_spend, done.values(), per_draft)
     print()
     print(render_table([*done.values(), *results]), end="")
     return 0
@@ -590,14 +590,16 @@ def _run_within(
     todo: Sequence[tuple[BenchTask, int]],
     cap_micros: int,
     earlier: Iterable[DraftCell] = (),
+    per_draft: int = DEFAULT_CAP_MICROS,
 ) -> list[DraftCell]:
     """Make the drafts one at a time, and stop before one that could take the measured spend past
-    `cap_micros`: the next call may cost up to its own cap. A cost the CLI did not report is
-    counted at that cap, never as zero. `earlier` are drafts already made, counted in the spend."""
-    spent = sum(_charge(c) for c in earlier)
+    `cap_micros`: a draft may cost up to `per_draft` (all its calls' caps). A cost the CLI did not
+    report is counted at that cap, never as zero. `earlier` are drafts already made, counted in
+    the spend."""
+    spent = sum(_charge(c, per_draft) for c in earlier)
     results: list[DraftCell] = []
     for item in todo:
-        if spent + DEFAULT_CAP_MICROS > cap_micros:
+        if spent + per_draft > cap_micros:
             left = len(todo) - len(results)
             print(
                 f"Stopped at the spend cap: {dollars(spent)} spent of {dollars(cap_micros)}; "
@@ -605,14 +607,14 @@ def _run_within(
             )
             break
         cell = run(item)
-        spent += _charge(cell)
+        spent += _charge(cell, per_draft)
         results.append(cell)
     print(f"Measured spend {dollars(spent)} of the {dollars(cap_micros)} cap.")
     return results
 
 
-def _charge(cell: DraftCell) -> int:
-    return DEFAULT_CAP_MICROS if cell.cost_micros is None else cell.cost_micros
+def _charge(cell: DraftCell, per_draft: int = DEFAULT_CAP_MICROS) -> int:
+    return per_draft if cell.cost_micros is None else cell.cost_micros
 
 
 def _verdict(cell: DraftCell) -> str:
