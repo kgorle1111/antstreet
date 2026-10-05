@@ -38,6 +38,13 @@ from boss.roles.critic import Finding, Review, findings_as_checks, review_produc
 from boss.roles.delivery import USAGE_FILE, install_demo, write_demo
 from boss.roles.engineering import StagedDraftError, draft_staged, render_coverage, stories_text
 from boss.roles.examiner import EXAMINER, run_examiner
+from boss.roles.judge import (
+    Calibration,
+    CalibrationError,
+    judge_artifact,
+    load_rubric,
+    render_judgement,
+)
 from boss.roles.product import StoryReview, review_stories, uncovered_fragments, write_stories
 from boss.roles.stories import Stories
 from boss.rulings import DECLINED
@@ -376,8 +383,6 @@ class Pipeline:
             notes.append("Check auditor's opinion of each check:\n" + render_audit(audit))
 
     def _calibration(self, rubric_id: str) -> Any:
-        from boss.roles.judge import Calibration, CalibrationError
-
         path = self.project / ".boss" / "calibration" / f"{rubric_id}.json"
         if not path.is_file():
             return None
@@ -391,10 +396,6 @@ class Pipeline:
         self, rubric_id: str, artifact: str, idea: str, notes: list[str] | None
     ) -> str | None:
         """The rendered judgement of `artifact`, or None. It gates nothing, calibrated or not."""
-        # judge.py imports boss.cli for its calibration command, so importing it at the top of
-        # this module (which cli imports) would be circular.
-        from boss.roles.judge import judge_artifact, load_rubric, render_judgement
-
         rubric = load_rubric(rubric_id)
         judgement = self._call(
             _spec("judge"),

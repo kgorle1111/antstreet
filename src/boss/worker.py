@@ -16,6 +16,7 @@ from boss.ledger import Billing
 from boss.redact import safe_text
 
 CLI = "claude"
+EXECUTABLE_VAR = "BOSS_CLAUDE_BIN"  # override the `claude` binary, e.g. for tests
 # From 2.1.277 a resumed session reports cumulative totals, which slice accounting depends on.
 MIN_CLI_VERSION = (2, 1, 277)
 WORKER_TOOLS = ("Read", "Write", "Edit")

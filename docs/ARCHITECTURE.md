@@ -77,6 +77,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `signing.py` | The investor's per-project key file (`.boss/investor.key`), the HMAC on every investor event, and the anchor file (`.boss/anchors/<run>`: the HMAC of the ledger's line count and last line hash). | Print, log or put the key in an error; create it readable by anyone but the owner; sign an event that is not yet chained. |
 | `skills/__init__.py` | Loading and parsing skill files: a header of `name`, `version` and `description`, then a body. | Accept another header; load a body over 4,000 characters. |
 | `state.py` | Rebuilding run state (workers, tasks, rounds, stops, sessions, dropped checks) from events. | Read anything but events. |
+| `stats.py` | The Wilson interval, the rate and percentage formatters and the Markdown table helper that roles and benchmarks share. | Import anything else from `boss`; let a role or a core module import `boss.cli` or `boss.bench`. |
 | `stream.py` | Reading the CLI's `stream-json` output; usage and cost. | Raise on malformed input; turn a missing cost into 0. |
 | `termsheet.py` | Term sheet types, JSON round trip, validation. | Accept a wrong JSON type; skip the empty-workspace run of every check. |
 | `worker.py` | The exact worker command, the environment allowlist, status cleaning, the isolation test. | Offer a shell tool; pass a variable that is not on the allowlist. |
