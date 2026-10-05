@@ -13,7 +13,9 @@ hash-chained ledger.
 Why: in our benchmark, 29 of 77 runs (38%, 95% interval 28-49%) passed every check the model had
 written and still failed a hand-written check it never saw. Every one of the 29 was a real error
 against the task text. Caveats: 17 small Python tasks, Haiku writing both checks and code, and runs
-of one task are not independent (resampling tasks widens the interval to 20-57%). Details in the
+of one task are not independent (resampling tasks widens the interval to 20-57%). These were firm
+runs, and the gate passed them: it runs the checks it is given, so the stat measures weak
+model-written checks, not the gate or agents in general. Details in the
 [false-pass audit](bench/results/2026-10-03-false-pass-audit/README.md).
 
 ## Quickstart
@@ -301,7 +303,7 @@ Limits you should know:
 
 - **The tool whitelist is not a sandbox, and the gate's sandbox is partial.** The gate executes the
   code a worker wrote, on your machine, with a filtered environment and a timeout. On macOS that
-  runs under a deny-by-default profile; on Linux the `bwrap` version is set up to run in CI but not yet confirmed by a passing run; with no
+  runs under a deny-by-default profile; on Linux the `bwrap` version runs, and is required (`BOSS_GATE_SANDBOX=require`), in CI; with no
   working tool, checks run with your full access (`boss doctor` warns; `BOSS_GATE_SANDBOX=require`
   refuses). Do not run ideas from sources you do not trust. Container isolation is not built.
 - Code written to target the gate's own process can still fake a pass (T12 in the threat model).
