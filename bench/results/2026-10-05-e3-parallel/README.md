@@ -17,11 +17,11 @@ Model: Haiku for the boss and every worker, $0.80 a cell, firm `--slice 0.20`.
 2. **Delivery did not drop by the paired test, and did not rise.** Firm-par 7/24, firm 8/24, single
    6/24. Paired by task, firm-par minus firm: -0.042 [-0.167, +0.083]. Zero is inside the interval.
 3. **For firm-par against firm no interval lies wholly on the unfavourable side.** Time +26 s
-   [-68, +111], cost per delivery +$0.020 [-0.025, +0.058]. The data cannot tell "no change" from a
+   [-68, +111], cost per assigned cell +$0.020 [-0.025, +0.058]. The data cannot tell "no change" from a
    modest gain or loss.
 4. **Against the single agent, both firms are wholly on the unfavourable side for time and cost.**
-   Firm-par minus single: time +280 s [+198, +375], cost per delivery +$0.208 [+0.145, +0.301].
-   Firm minus single: time +254 s [+155, +406], cost per delivery +$0.188 [+0.110, +0.318]. The
+   Firm-par minus single: time +280 s [+198, +375], cost per assigned cell +$0.208 [+0.145, +0.301].
+   Firm minus single: time +254 s [+155, +406], cost per assigned cell +$0.188 [+0.110, +0.318]. The
    delivery interval for both starts at 0.000, and the tool says "not shown".
 5. **The feature ran in 4 of 24 cells.** `--max-tasks 3` is a ceiling. The boss asked for one task in
    17 cells, two tasks at once in 4, one task twice (a fired worker replaced) in 2, and in 1 cell the
@@ -77,7 +77,7 @@ Does not show:
 | --- | --- | --- | --- |
 | 1 Delivery rate | 33% [18-53%] (8/24) | 25% [12-45%] (6/24) | 29% [15-49%] (7/24) |
 | 2 False-pass rate | 65% [43-82%] (13/20) | 75% [55-88%] (18/24) | 73% [48-89%] (11/15) |
-| 3 Cost per delivered task | $0.9886 | $0.5646 | $1.1973 |
+| 3 Cost per delivered task (pooled: total spend / delivered cells) | $0.9886 | $0.5646 | $1.1973 |
 |   events of unknown cost | 0 | 0 | 1 |
 | 4 Time to delivery (median) | delivered 4m19s; all counted 5m58s | delivered 2m08s; all counted 2m08s | delivered 5m22s; all counted 5m35s |
 | 5 Reliability (pass^k) | 2/8 (k=3) | 1/8 (k=3) | 1/8 (k=3) |
@@ -212,6 +212,10 @@ mean difference (firm - single): +0.1884
 95% interval: [+0.1098, +0.3175] (10000 task resamples, seed 0)
 verdict: not shown
 ```
+
+The `cost_per_delivery` KPI name is the tool's; what it computes is the cost per assigned cell: each
+task's mean cost over all its runs, delivered or not (`src/boss/bench/paired.py`; PREREG E6). It is
+not the pooled cost per delivered task in the KPI table above.
 
 The tool prints "not shown" for time and cost when the interval is above 0, because its rule asks for
 the interval to be below 0 (a benefit). For firm against single those intervals lie wholly above 0:
