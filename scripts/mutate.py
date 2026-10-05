@@ -30,7 +30,7 @@ TARGETS: dict[str, tuple[str, list[str]]] = {
             "test_ledger_anchor",
         ],
     ),
-    "signing": ("boss.signing.*", ["test_signing"]),
+    "signing": ("boss.signing.*", ["test_signing", "test_ledger_anchor"]),
     "firm": ("boss.firm.*", ["test_firm", "test_firm_held_out", "test_firm_simulation"]),
     "judge": ("boss.roles.judge.*", ["test_roles_judge", "test_calibration_set"]),
     "table": ("boss.bench.table.*", ["test_bench_table", "test_bench_table_edges"]),
