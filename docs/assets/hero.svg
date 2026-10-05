@@ -1,11 +1,142 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420" role="img" aria-label="boss: coding agents say done, make it verifiable"><style>
-text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
-.m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace}
-@keyframes tick{0%,var(--s){opacity:0}100%{opacity:1}}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620" role="img" aria-label="AntStreet: a pig investor in a three-piece suit directs a bull boss with a clipboard of ticked checks, who directs hard-hat ants building a tower of code blocks toward a VERIFIED gate"><style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+.m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-weight:700}
+.o{stroke:#0f1b2d;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.l{fill:none;stroke:#0f1b2d;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+@keyframes bob{50%{transform:translateY(-6px)}}
+.bob{animation:bob 1.6s ease-in-out infinite}.b2{animation-delay:-.5s}.b3{animation-delay:-1s}
+@keyframes glint{0%,70%,100%{opacity:0}78%,88%{opacity:1}}
+.glint{animation:glint 4s ease-in-out infinite}
 @keyframes drain{0%{width:300px}85%,100%{width:96px}}
-@keyframes stamp{0%,80%{opacity:0;transform:scale(2.2) rotate(-14deg)}90%{opacity:1;transform:scale(1) rotate(-14deg)}100%{opacity:1;transform:scale(1) rotate(-14deg)}}
-@keyframes pulse{50%{opacity:.45}}
+@keyframes stamp{0%,80%{opacity:0;transform:scale(2.2) rotate(-14deg)}90%,100%{opacity:1;transform:scale(1) rotate(-14deg)}}
 .bar{animation:drain 8s ease-in-out infinite alternate}
 .seal{transform-box:fill-box;transform-origin:center;animation:stamp 8s ease-out infinite}
-.ph{animation:pulse 3s ease-in-out infinite}
-@keyframes t0{0%,10%{opacity:0}16%,100%{opacity:1}}.t0{animation:t0 8s infinite}@keyframes t1{0%,28%{opacity:0}34%,100%{opacity:1}}.t1{animation:t1 8s infinite}@keyframes t2{0%,46%{opacity:0}52%,100%{opacity:1}}.t2{animation:t2 8s infinite}@keyframes t3{0%,64%{opacity:0}70%,100%{opacity:1}}.t3{animation:t3 8s infinite}</style><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0d1117"/><stop offset="1" stop-color="#1b2a3a"/></linearGradient></defs><rect width="1200" height="420" rx="16" fill="url(#g)"/><text x="60" y="170" font-size="120" font-weight="800" fill="#f0f6fc" letter-spacing="-4">boss</text><text x="64" y="225" font-size="30" font-weight="600" fill="#e6edf3">Coding agents say "done". Make it verifiable.</text><text x="64" y="268" font-size="19" fill="#8b949e">Checks you approve first. A gate, not the agent, decides what passed.</text><text x="64" y="296" font-size="19" fill="#8b949e">Every dollar and decision on a signed ledger.</text><text class="m" x="64" y="345" font-size="14" fill="#8b949e">budget</text><rect x="130" y="332" width="300" height="14" rx="7" fill="#21262d"/><rect class="bar" x="130" y="332" width="300" height="14" rx="7" fill="#f0883e"/><g class="t0"><rect x="700" y="74" width="330" height="42" rx="8" fill="#161b22" stroke="#30363d"/><circle cx="728" cy="95" r="12" fill="#238636"/><path d="M721 95 l5 5 l9 -10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="752" y="100" font-size="18" fill="#e6edf3">checks you approved</text></g><g class="t1"><rect x="700" y="126" width="330" height="42" rx="8" fill="#161b22" stroke="#30363d"/><circle cx="728" cy="147" r="12" fill="#238636"/><path d="M721 147 l5 5 l9 -10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="752" y="152" font-size="18" fill="#e6edf3">agents inside a budget</text></g><g class="t2"><rect x="700" y="178" width="330" height="42" rx="8" fill="#161b22" stroke="#30363d"/><circle cx="728" cy="199" r="12" fill="#238636"/><path d="M721 199 l5 5 l9 -10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="752" y="204" font-size="18" fill="#e6edf3">gate in a sandbox</text></g><g class="t3"><rect x="700" y="230" width="330" height="42" rx="8" fill="#161b22" stroke="#30363d"/><circle cx="728" cy="251" r="12" fill="#238636"/><path d="M721 251 l5 5 l9 -10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text x="752" y="256" font-size="18" fill="#e6edf3">ledger, signed</text></g><g class="seal"><circle cx="1000" cy="340" r="52" fill="none" stroke="#3fb950" stroke-width="5"/><circle cx="1000" cy="340" r="44" fill="none" stroke="#3fb950" stroke-width="2"/><text x="1000" y="334" text-anchor="middle" font-size="16" font-weight="800" fill="#3fb950">VERIFIED</text><text x="1000" y="356" text-anchor="middle" font-size="12" fill="#3fb950">by the gate</text></g><g class="ph"><circle cx="1130" cy="110" r="46" fill="none" stroke="#8b949e" stroke-width="2" stroke-dasharray="6 6"/><text x="1130" y="106" text-anchor="middle" font-size="12" fill="#8b949e">MASCOT</text><text x="1130" y="122" text-anchor="middle" font-size="12" fill="#8b949e">goes here</text></g></svg>
+@keyframes t0{0%,10%{opacity:0}16%,100%{opacity:1}}.t0{animation:t0 8s infinite}
+@keyframes t1{0%,28%{opacity:0}34%,100%{opacity:1}}.t1{animation:t1 8s infinite}
+@keyframes t2{0%,46%{opacity:0}52%,100%{opacity:1}}.t2{animation:t2 8s infinite}
+@keyframes t3{0%,64%{opacity:0}70%,100%{opacity:1}}.t3{animation:t3 8s infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>
+<defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfe3f7"/><stop offset="1" stop-color="#f1f6fc"/></linearGradient></defs>
+<rect width="1200" height="620" rx="16" fill="url(#sk)"/><rect x="540" y="320" width="70" height="260" fill="#bccde2"/><rect x="615" y="390" width="56" height="190" fill="#bccde2"/><rect x="676" y="260" width="90" height="320" fill="#bccde2"/><rect x="770" y="370" width="60" height="210" fill="#bccde2"/><rect x="1090" y="280" width="110" height="300" fill="#bccde2"/><rect x="1150" y="340" width="50" height="240" fill="#bccde2"/><rect x="450" y="430" width="60" height="150" fill="#bccde2"/><rect x="700" y="280" width="8" height="10" fill="#dce8f6"/><rect x="700" y="310" width="8" height="10" fill="#dce8f6"/><rect x="700" y="340" width="8" height="10" fill="#dce8f6"/><rect x="700" y="370" width="8" height="10" fill="#dce8f6"/><rect x="720" y="280" width="8" height="10" fill="#dce8f6"/><rect x="720" y="310" width="8" height="10" fill="#dce8f6"/><rect x="720" y="340" width="8" height="10" fill="#dce8f6"/><rect x="720" y="370" width="8" height="10" fill="#dce8f6"/><rect x="740" y="280" width="8" height="10" fill="#dce8f6"/><rect x="740" y="310" width="8" height="10" fill="#dce8f6"/><rect x="740" y="340" width="8" height="10" fill="#dce8f6"/><rect x="740" y="370" width="8" height="10" fill="#dce8f6"/><rect x="760" y="280" width="8" height="10" fill="#dce8f6"/><rect x="760" y="310" width="8" height="10" fill="#dce8f6"/><rect x="760" y="340" width="8" height="10" fill="#dce8f6"/><rect x="760" y="370" width="8" height="10" fill="#dce8f6"/><rect x="1110" y="300" width="8" height="10" fill="#dce8f6"/><rect x="1110" y="330" width="8" height="10" fill="#dce8f6"/><rect x="1110" y="360" width="8" height="10" fill="#dce8f6"/><rect x="1110" y="390" width="8" height="10" fill="#dce8f6"/><rect x="1130" y="300" width="8" height="10" fill="#dce8f6"/><rect x="1130" y="330" width="8" height="10" fill="#dce8f6"/><rect x="1130" y="360" width="8" height="10" fill="#dce8f6"/><rect x="1130" y="390" width="8" height="10" fill="#dce8f6"/><rect x="1160" y="300" width="8" height="10" fill="#dce8f6"/><rect x="1160" y="330" width="8" height="10" fill="#dce8f6"/><rect x="1160" y="360" width="8" height="10" fill="#dce8f6"/><rect x="1160" y="390" width="8" height="10" fill="#dce8f6"/><path d="M880,260 V440 M880,270 H1010 M880,270 L960,240 V270 M1000,270 V310" stroke="#9fb4cf" stroke-width="5" fill="none"/><rect x="990" y="310" width="20" height="10" fill="#9fb4cf"/>
+<rect x="0" y="580" width="1200" height="40" fill="#4a5a73"/><path d="M0,602 H1200" stroke="#cdd8e8" stroke-width="3" stroke-dasharray="26 22"/>
+<text x="50" y="112" font-size="92" font-weight="800" fill="#14233d" letter-spacing="-3">AntStreet</text>
+<text x="54" y="156" font-size="27" font-weight="600" fill="#14233d">Your AI agents get paid when the checks pass.</text>
+<text x="54" y="188" font-size="18" fill="#3d5170">You approve the checks first. A sandboxed gate decides what passed.</text>
+<text x="54" y="214" font-size="18" fill="#3d5170">Every dollar and decision goes on a signed ledger.</text>
+<rect x="50" y="228" width="380" height="36" rx="10" fill="#fff" stroke="#b9c9de" stroke-width="2"/><text class="m" x="64" y="251" font-size="14" fill="#3d5170">budget</text><rect x="126" y="238" width="300" height="16" rx="8" fill="#dbe5f1"/><rect class="bar" x="126" y="238" width="300" height="16" rx="8" fill="#f0883e"/>
+<rect class="o" x="790" y="540" width="56" height="40" rx="5" fill="#fff6e0" style="stroke-width:2.500"/><text class="m" x="818.0" y="567.0" font-size="19" text-anchor="middle" fill="#0f1b2d">{ }</text><rect class="o" x="846" y="540" width="56" height="40" rx="5" fill="#ffe08a" style="stroke-width:2.500"/><text class="m" x="874.0" y="567.0" font-size="19" text-anchor="middle" fill="#0f1b2d">{ }</text><rect class="o" x="902" y="540" width="56" height="40" rx="5" fill="#fff6e0" style="stroke-width:2.500"/><text class="m" x="930.0" y="567.0" font-size="19" text-anchor="middle" fill="#0f1b2d">{ }</text><rect class="o" x="818" y="500" width="56" height="40" rx="5" fill="#ffe08a" style="stroke-width:2.500"/><text class="m" x="846.0" y="527.0" font-size="19" text-anchor="middle" fill="#0f1b2d">{ }</text><rect class="o" x="874" y="500" width="56" height="40" rx="5" fill="#fff6e0" style="stroke-width:2.500"/><text class="m" x="902.0" y="527.0" font-size="19" text-anchor="middle" fill="#0f1b2d">{ }</text><rect class="o" x="846" y="460" width="56" height="40" rx="5" fill="#ffe08a" style="stroke-width:2.500"/><text class="m" x="874.0" y="487.0" font-size="19" text-anchor="middle" fill="#0f1b2d">{ }</text><rect class="o" x="1070" y="470" width="84" height="110" fill="#f1f5fa"/><path class="o" d="M1062,470 H1162 L1148,448 H1076 Z" fill="#c8372d"/><rect class="o" x="1084" y="490" width="30" height="30" fill="#bfe0ff" style="stroke-width:2.500"/><rect class="o" x="1120" y="510" width="22" height="70" fill="#8d99ab" style="stroke-width:2.500"/>
+<path class="l" d="M1070,546 L1034,508" style="stroke-width:12;stroke:#0f1b2d"/><path d="M1070,546 L1034,508" stroke="#fff" stroke-width="7" stroke-linecap="round"/><path d="M1060,538 L1054,532 M1048,526 L1042,520" stroke="#c8372d" stroke-width="7"/>
+<g class="seal"><circle cx="1108" cy="385" r="52" fill="#fff" fill-opacity=".85" stroke="#1f9d4a" stroke-width="5"/><circle cx="1108" cy="385" r="44" fill="none" stroke="#1f9d4a" stroke-width="2"/><text x="1108" y="389" text-anchor="middle" font-size="16" font-weight="800" fill="#1f9d4a">VERIFIED</text><text x="1108" y="407" text-anchor="middle" font-size="12" fill="#1f9d4a">by the gate</text></g>
+<g transform="translate(170,580) scale(0.92)"><g>
+<path class="l" d="M-54,-112 q-34,-6 -26,-32 q6,-16 -10,-20" style="stroke-width:13;stroke:#0f1b2d"/><path class="l" d="M-54,-112 q-34,-6 -26,-32 q6,-16 -10,-20" style="stroke-width:7;stroke:#e5809c"/>
+<rect class="o" x="-38" y="-62" width="28" height="54" fill="#24406e"/><rect class="o" x="8" y="-62" width="28" height="54" fill="#24406e"/>
+<ellipse class="o" cx="-22" cy="-6" rx="24" ry="9" fill="#141c2e"/><ellipse class="o" cx="26" cy="-6" rx="24" ry="9" fill="#141c2e"/>
+<path class="l" d="M-52,-140 L-62,-96" style="stroke-width:30;stroke:#0f1b2d"/><path class="l" d="M-52,-140 L-62,-96" style="stroke-width:24;stroke:#24406e"/>
+<rect class="o" x="-64" y="-182" width="128" height="132" rx="40" fill="#24406e"/>
+<rect class="o" x="-36" y="-170" width="72" height="112" rx="26" fill="#8e2f45"/>
+<path class="o" d="M-15,-170 L0,-134 L15,-170 Z" fill="#fff"/>
+<path class="o" d="M-40,-172 L-14,-170 L-26,-122 L-48,-140 Z" fill="#2f5290"/><path class="o" d="M40,-172 L14,-170 L26,-122 L48,-140 Z" fill="#2f5290"/>
+<path class="o" d="M-17,-176 L0,-168 L-17,-160 Z M17,-176 L0,-168 L17,-160 Z" fill="#e3a82e"/>
+<circle cx="0" cy="-112" r="4" fill="#e3a82e"/><circle cx="0" cy="-92" r="4" fill="#e3a82e"/><circle cx="0" cy="-72" r="4" fill="#e3a82e"/>
+<path class="l" d="M-30,-104 Q-6,-78 22,-98" style="stroke-width:3;stroke:#e3a82e"/><circle class="o" cx="24" cy="-96" r="7" fill="#e3a82e" style="stroke-width:2"/>
+<path class="o" d="M-56,-150 L-40,-152 L-38,-136 L-54,-134 Z" fill="#fff" style="stroke-width:2"/><path d="M-54,-150 L-47,-143 L-40,-152 Z" fill="#c8372d"/>
+<circle class="o" cx="-72" cy="-70" r="12" fill="#f6a9bb"/>
+<path class="o" d="M-96,-62 a24,24 0 1 0 48,0 q-12,-14 -24,-14 q-12,0 -24,14 Z" fill="#d8b45a"/>
+<path class="o" d="M-84,-84 l8,12 l8,-12 Z" fill="#b5822f" style="stroke-width:2"/><text class="m" x="-72" y="-44" font-size="22" text-anchor="middle" fill="#0f1b2d">$</text>
+<circle class="o" cx="-72" cy="-70" r="11" fill="#f6a9bb"/>
+<path class="l" d="M52,-142 L108,-170" style="stroke-width:30;stroke:#0f1b2d"/><path class="l" d="M52,-142 L108,-170" style="stroke-width:24;stroke:#24406e"/>
+<path class="l" d="M90,-132 L206,-186" style="stroke-width:10;stroke:#0f1b2d"/><path class="l" d="M90,-132 L206,-186" style="stroke-width:11;stroke:#0f1b2d"/><path class="l" d="M90,-132 L206,-186" style="stroke-width:5;stroke:#e3a82e"/>
+<circle class="o" cx="206" cy="-186" r="6" fill="#e3a82e"/><circle class="o" cx="112" cy="-168" r="12" fill="#f6a9bb"/>
+<path class="o" d="M-34,-252 Q-60,-300 -6,-280 Z" fill="#e5809c"/><path class="o" d="M40,-266 Q74,-296 66,-240 Z" fill="#e5809c"/>
+<circle class="o" cx="10" cy="-222" r="52" fill="#f6a9bb"/>
+<g transform="rotate(-10 10 -266)"><rect class="o" x="-14" y="-312" width="48" height="46" fill="#1a2540"/><rect x="-13" y="-284" width="46" height="9" fill="#e3a82e"/><ellipse class="o" cx="10" cy="-266" rx="32" ry="8" fill="#1a2540"/></g>
+<ellipse class="o" cx="54" cy="-210" rx="27" ry="19" fill="#e5809c"/><ellipse cx="46" cy="-210" rx="3.5" ry="6" fill="#0f1b2d"/><ellipse cx="62" cy="-210" rx="3.5" ry="6" fill="#0f1b2d"/>
+<circle class="o" cx="-6" cy="-232" r="9" fill="#fff" style="stroke-width:2.5"/><circle cx="-3" cy="-231" r="4.5" fill="#0f1b2d"/>
+<circle class="o" cx="30" cy="-236" r="12" fill="#fff" style="stroke-width:2.5"/><circle cx="33" cy="-235" r="5.5" fill="#0f1b2d"/>
+<circle cx="30" cy="-236" r="19" fill="#fff" fill-opacity=".25" stroke="#e3a82e" stroke-width="5"/>
+<g class="glint"><path d="M20,-247 L28,-255 M17,-240 L21,-244" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/></g>
+<path class="l" d="M-18,-250 L2,-244" style="stroke-width:4"/><path class="l" d="M22,-266 Q34,-276 46,-262" style="stroke-width:4"/>
+<path class="l" d="M47,-217 Q58,-192 40,-176 L34,-166" style="stroke-width:2.5;stroke:#e3a82e"/>
+<path class="l" d="M30,-186 Q46,-176 64,-190" style="stroke-width:3.5"/><circle cx="-14" cy="-206" r="8" fill="#ef8aa6" opacity=".7"/>
+</g></g><g transform="translate(450,580) scale(0.98)"><g>
+<rect class="o" x="-38" y="-62" width="30" height="54" fill="#3e4a5e"/><rect class="o" x="8" y="-62" width="30" height="54" fill="#3e4a5e"/>
+<ellipse class="o" cx="-18" cy="-6" rx="25" ry="9" fill="#141c2e"/><ellipse class="o" cx="28" cy="-6" rx="25" ry="9" fill="#141c2e"/>
+<rect class="o" x="-66" y="-196" width="132" height="146" rx="34" fill="#56657a"/>
+<path class="o" d="M-18,-190 L0,-150 L18,-190 Z" fill="#fff"/><path class="o" d="M-6,-176 L6,-176 L9,-110 L0,-98 L-9,-110 Z" fill="#c8372d"/>
+<path class="l" d="M-30,-190 L-4,-130 L-30,-70 M30,-190 L4,-130 L30,-70" style="stroke-width:2.500"/>
+<circle cx="-8" cy="-78" r="3" fill="#e3a82e"/><circle cx="8" cy="-78" r="3" fill="#e3a82e"/>
+<path class="l" d="M-56,-152 L-76,-100" style="stroke-width:32;stroke:#0f1b2d"/><path class="l" d="M-56,-152 L-76,-100" style="stroke-width:26;stroke:#56657a"/>
+<g transform="translate(-120,-206)"><g transform="rotate(-6)"><rect class="o" x="0" y="0" width="84" height="118" rx="8" fill="#b07a45"/><rect x="7" y="14" width="70" height="98" rx="3" fill="#fff"/><rect class="o" x="26" y="3" width="32" height="14" rx="4" fill="#8d99ab" style="stroke-width:2.500"/><g class="t0"><circle class="o" cx="20" cy="34" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 34 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="31" width="36" height="6" rx="3" fill="#9fb0c6"/><g class="t1"><circle class="o" cx="20" cy="56" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 56 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="53" width="30" height="6" rx="3" fill="#9fb0c6"/><g class="t2"><circle class="o" cx="20" cy="78" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 78 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="75" width="38" height="6" rx="3" fill="#9fb0c6"/><g class="t3"><circle class="o" cx="20" cy="100" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 100 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="97" width="26" height="6" rx="3" fill="#9fb0c6"/></g></g>
+<circle class="o" cx="-78" cy="-96" r="12" fill="#9a6a46"/>
+<path class="l" d="M54,-150 L116,-176" style="stroke-width:32;stroke:#0f1b2d"/><path class="l" d="M54,-150 L116,-176" style="stroke-width:26;stroke:#56657a"/>
+<circle class="o" cx="120" cy="-178" r="12" fill="#9a6a46"/><path class="l" d="M128,-182 L156,-190" style="stroke-width:7"/><path class="l" d="M128,-182 L156,-190" style="stroke-width:3;stroke:#9a6a46"/>
+<path class="o" d="M-24,-262 Q-70,-262 -64,-312 Q-46,-280 -12,-272 Z" fill="#fff1d0"/><path class="o" d="M34,-266 Q78,-272 72,-320 Q54,-288 18,-276 Z" fill="#fff1d0"/>
+<ellipse class="o" cx="-36" cy="-236" rx="20" ry="10" transform="rotate(25 -36 -236)" fill="#8a5a3a"/>
+<ellipse class="o" cx="10" cy="-232" rx="48" ry="46" fill="#9a6a46"/>
+<path class="o" d="M-8,-276 Q4,-296 20,-280 Q10,-284 4,-272 Z" fill="#6b4328" style="stroke-width:2.500"/>
+<ellipse class="o" cx="42" cy="-214" rx="30" ry="23" fill="#e0b88c"/><ellipse cx="34" cy="-220" rx="3.500" ry="5.500" fill="#0f1b2d"/><ellipse cx="54" cy="-220" rx="3.500" ry="5.500" fill="#0f1b2d"/>
+<path class="l" d="M44,-204 a8,8 0 1 0 12,6" style="stroke-width:4;stroke:#e3a82e"/>
+<circle class="o" cx="20" cy="-248" r="10" fill="#fff" style="stroke-width:2.500"/><circle cx="23" cy="-247" r="5" fill="#0f1b2d"/>
+<path class="l" d="M6,-266 L32,-262" style="stroke-width:4"/>
+<path class="l" d="M30,-198 Q44,-192 56,-198" style="stroke-width:3"/>
+<path class="o" d="M72,-262 q-8,12 0,16 q8,-4 0,-16 Z" fill="#7cc4ff" style="stroke-width:2"/>
+</g></g>
+<g transform="translate(655,580) scale(0.9)"><g class="bob"><g>
+<path class="l" d="M-8,-118 Q-30,-134 -40,-122 M8,-118 Q30,-134 40,-122" style="stroke-width:3.500"/><circle class="o" cx="-40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/>
+<path class="l" d="M-10,-14 L-14,0 M10,-14 L14,0" style="stroke-width:8;stroke:#c4572f"/>
+<ellipse class="o" cx="-14" cy="-3" rx="13" ry="6" fill="#141c2e"/><ellipse class="o" cx="14" cy="-3" rx="13" ry="6" fill="#141c2e"/>
+<path class="l" d="M-12,-64 L-30,-52 M12,-64 L30,-52" style="stroke-width:5;stroke:#c4572f"/>
+<ellipse class="o" cx="0" cy="-36" rx="25" ry="28" fill="#c4572f"/><ellipse cx="0" cy="-30" rx="14" ry="17" fill="#d97a45"/>
+<ellipse class="o" cx="0" cy="-74" rx="15" ry="14" fill="#c4572f"/>
+<path class="o" d="M-16,-86 L16,-86 L18,-60 L-18,-60 Z" fill="#ff7a1a" style="stroke-width:2.500"/><path d="M-17,-80 H17 M-17,-68 H17" stroke="#eef2f7" stroke-width="4"/>
+<circle class="o" cx="0" cy="-102" r="19" fill="#c4572f"/>
+<circle cx="-7" cy="-100" r="5.500" fill="#fff"/><circle cx="7" cy="-100" r="5.500" fill="#fff"/><circle cx="-6" cy="-99" r="2.800" fill="#0f1b2d"/><circle cx="8" cy="-99" r="2.800" fill="#0f1b2d"/>
+<path class="l" d="M-6,-92 Q0,-87 6,-92" style="stroke-width:2.500"/>
+<path class="o" d="M-23,-108 Q-23,-138 0,-138 Q23,-138 23,-108 Z" fill="#ffc61a"/><rect class="o" x="-4" y="-138" width="8" height="18" fill="#f2a900" style="stroke-width:2.500"/><rect class="o" x="-28" y="-111" width="56" height="8" rx="4" fill="#ffc61a"/>
+</g><path class="l" d="M-14,-74 Q-34,-96 -22,-142 M14,-74 Q34,-96 22,-142" style="stroke-width:6;stroke:#c4572f"/>
+<rect class="o" x="-26" y="-182" width="52" height="42" rx="6" fill="#fff6e0"/><text class="m" x="0" y="-155" font-size="22" text-anchor="middle" fill="#0f1b2d">{ }</text>
+<circle class="o" cx="-22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/></g></g><g transform="translate(735,580) scale(0.9)"><g class="bob b2"><g>
+<path class="l" d="M-8,-118 Q-30,-134 -40,-122 M8,-118 Q30,-134 40,-122" style="stroke-width:3.500"/><circle class="o" cx="-40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/>
+<path class="l" d="M-10,-14 L-14,0 M10,-14 L14,0" style="stroke-width:8;stroke:#c4572f"/>
+<ellipse class="o" cx="-14" cy="-3" rx="13" ry="6" fill="#141c2e"/><ellipse class="o" cx="14" cy="-3" rx="13" ry="6" fill="#141c2e"/>
+<path class="l" d="M-12,-64 L-30,-52 M12,-64 L30,-52" style="stroke-width:5;stroke:#c4572f"/>
+<ellipse class="o" cx="0" cy="-36" rx="25" ry="28" fill="#c4572f"/><ellipse cx="0" cy="-30" rx="14" ry="17" fill="#d97a45"/>
+<ellipse class="o" cx="0" cy="-74" rx="15" ry="14" fill="#c4572f"/>
+<path class="o" d="M-16,-86 L16,-86 L18,-60 L-18,-60 Z" fill="#ff7a1a" style="stroke-width:2.500"/><path d="M-17,-80 H17 M-17,-68 H17" stroke="#eef2f7" stroke-width="4"/>
+<circle class="o" cx="0" cy="-102" r="19" fill="#c4572f"/>
+<circle cx="-7" cy="-100" r="5.500" fill="#fff"/><circle cx="7" cy="-100" r="5.500" fill="#fff"/><circle cx="-6" cy="-99" r="2.800" fill="#0f1b2d"/><circle cx="8" cy="-99" r="2.800" fill="#0f1b2d"/>
+<path class="l" d="M-6,-92 Q0,-87 6,-92" style="stroke-width:2.500"/>
+<path class="o" d="M-23,-108 Q-23,-138 0,-138 Q23,-138 23,-108 Z" fill="#ffc61a"/><rect class="o" x="-4" y="-138" width="8" height="18" fill="#f2a900" style="stroke-width:2.500"/><rect class="o" x="-28" y="-111" width="56" height="8" rx="4" fill="#ffc61a"/>
+</g><path class="l" d="M-14,-72 Q-34,-60 -26,-46 M14,-72 Q34,-60 26,-46" style="stroke-width:6;stroke:#c4572f"/>
+<rect class="o" x="-30" y="-74" width="60" height="38" rx="4" fill="#1d2b45"/><rect x="-25" y="-69" width="50" height="28" rx="2" fill="#0e1a2e"/>
+<path class="l" d="M-6,-55 l5,6 l12,-13" style="stroke-width:4;stroke:#3fd070"/><path d="M-21,-63 h8 M-21,-57 h6" stroke="#6b7f9e" stroke-width="2.500" stroke-linecap="round"/>
+<path class="o" d="M-36,-36 H36 L32,-30 H-32 Z" fill="#8d99ab" style="stroke-width:2.500"/>
+<circle class="o" cx="-26" cy="-46" r="6" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="26" cy="-46" r="6" fill="#c4572f" style="stroke-width:2.500"/></g></g><g transform="translate(874,460) scale(0.78)"><g class="bob b3"><g>
+<path class="l" d="M-8,-118 Q-30,-134 -40,-122 M8,-118 Q30,-134 40,-122" style="stroke-width:3.500"/><circle class="o" cx="-40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/>
+<path class="l" d="M-10,-14 L-14,0 M10,-14 L14,0" style="stroke-width:8;stroke:#c4572f"/>
+<ellipse class="o" cx="-14" cy="-3" rx="13" ry="6" fill="#141c2e"/><ellipse class="o" cx="14" cy="-3" rx="13" ry="6" fill="#141c2e"/>
+<path class="l" d="M-12,-64 L-30,-52 M12,-64 L30,-52" style="stroke-width:5;stroke:#c4572f"/>
+<ellipse class="o" cx="0" cy="-36" rx="25" ry="28" fill="#c4572f"/><ellipse cx="0" cy="-30" rx="14" ry="17" fill="#d97a45"/>
+<ellipse class="o" cx="0" cy="-74" rx="15" ry="14" fill="#c4572f"/>
+<path class="o" d="M-16,-86 L16,-86 L18,-60 L-18,-60 Z" fill="#ff7a1a" style="stroke-width:2.500"/><path d="M-17,-80 H17 M-17,-68 H17" stroke="#eef2f7" stroke-width="4"/>
+<circle class="o" cx="0" cy="-102" r="19" fill="#c4572f"/>
+<circle cx="-7" cy="-100" r="5.500" fill="#fff"/><circle cx="7" cy="-100" r="5.500" fill="#fff"/><circle cx="-6" cy="-99" r="2.800" fill="#0f1b2d"/><circle cx="8" cy="-99" r="2.800" fill="#0f1b2d"/>
+<path class="l" d="M-6,-92 Q0,-87 6,-92" style="stroke-width:2.500"/>
+<path class="o" d="M-23,-108 Q-23,-138 0,-138 Q23,-138 23,-108 Z" fill="#ffc61a"/><rect class="o" x="-4" y="-138" width="8" height="18" fill="#f2a900" style="stroke-width:2.500"/><rect class="o" x="-28" y="-111" width="56" height="8" rx="4" fill="#ffc61a"/>
+</g><path class="l" d="M-14,-74 Q-34,-96 -22,-142 M14,-74 Q34,-96 22,-142" style="stroke-width:6;stroke:#c4572f"/>
+<rect class="o" x="-26" y="-182" width="52" height="42" rx="6" fill="#fff6e0"/><text class="m" x="0" y="-155" font-size="22" text-anchor="middle" fill="#0f1b2d">{ }</text>
+<circle class="o" cx="-22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/></g></g><g transform="translate(992,580) scale(0.8)"><g class="bob b2"><g>
+<path class="l" d="M-8,-118 Q-30,-134 -40,-122 M8,-118 Q30,-134 40,-122" style="stroke-width:3.500"/><circle class="o" cx="-40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/>
+<path class="l" d="M-10,-14 L-14,0 M10,-14 L14,0" style="stroke-width:8;stroke:#c4572f"/>
+<ellipse class="o" cx="-14" cy="-3" rx="13" ry="6" fill="#141c2e"/><ellipse class="o" cx="14" cy="-3" rx="13" ry="6" fill="#141c2e"/>
+<path class="l" d="M-12,-64 L-30,-52 M12,-64 L30,-52" style="stroke-width:5;stroke:#c4572f"/>
+<ellipse class="o" cx="0" cy="-36" rx="25" ry="28" fill="#c4572f"/><ellipse cx="0" cy="-30" rx="14" ry="17" fill="#d97a45"/>
+<ellipse class="o" cx="0" cy="-74" rx="15" ry="14" fill="#c4572f"/>
+<path class="o" d="M-16,-86 L16,-86 L18,-60 L-18,-60 Z" fill="#ff7a1a" style="stroke-width:2.500"/><path d="M-17,-80 H17 M-17,-68 H17" stroke="#eef2f7" stroke-width="4"/>
+<circle class="o" cx="0" cy="-102" r="19" fill="#c4572f"/>
+<circle cx="-7" cy="-100" r="5.500" fill="#fff"/><circle cx="7" cy="-100" r="5.500" fill="#fff"/><circle cx="-6" cy="-99" r="2.800" fill="#0f1b2d"/><circle cx="8" cy="-99" r="2.800" fill="#0f1b2d"/>
+<path class="l" d="M-6,-92 Q0,-87 6,-92" style="stroke-width:2.500"/>
+<path class="o" d="M-23,-108 Q-23,-138 0,-138 Q23,-138 23,-108 Z" fill="#ffc61a"/><rect class="o" x="-4" y="-138" width="8" height="18" fill="#f2a900" style="stroke-width:2.500"/><rect class="o" x="-28" y="-111" width="56" height="8" rx="4" fill="#ffc61a"/>
+</g><path class="l" d="M-14,-74 Q-34,-96 -22,-142 M14,-74 Q34,-96 22,-142" style="stroke-width:6;stroke:#c4572f"/>
+<rect class="o" x="-26" y="-182" width="52" height="42" rx="6" fill="#fff6e0"/><text class="m" x="0" y="-155" font-size="22" text-anchor="middle" fill="#0f1b2d">{ }</text>
+<circle class="o" cx="-22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/></g></g>
+</svg>

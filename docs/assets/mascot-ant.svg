@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-160 -350 360 360" width="360" height="360" role="img" aria-label="A worker ant: yellow hard hat, three body segments, carrying a code block"><style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+.m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-weight:700}
+.o{stroke:#0f1b2d;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.l{fill:none;stroke:#0f1b2d;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+@keyframes bob{50%{transform:translateY(-6px)}}
+.bob{animation:bob 1.6s ease-in-out infinite}.b2{animation-delay:-.5s}.b3{animation-delay:-1s}
+@keyframes glint{0%,70%,100%{opacity:0}78%,88%{opacity:1}}
+.glint{animation:glint 4s ease-in-out infinite}
+@keyframes drain{0%{width:300px}85%,100%{width:96px}}
+@keyframes stamp{0%,80%{opacity:0;transform:scale(2.2) rotate(-14deg)}90%,100%{opacity:1;transform:scale(1) rotate(-14deg)}}
+.bar{animation:drain 8s ease-in-out infinite alternate}
+.seal{transform-box:fill-box;transform-origin:center;animation:stamp 8s ease-out infinite}
+@keyframes t0{0%,10%{opacity:0}16%,100%{opacity:1}}.t0{animation:t0 8s infinite}
+@keyframes t1{0%,28%{opacity:0}34%,100%{opacity:1}}.t1{animation:t1 8s infinite}
+@keyframes t2{0%,46%{opacity:0}52%,100%{opacity:1}}.t2{animation:t2 8s infinite}
+@keyframes t3{0%,64%{opacity:0}70%,100%{opacity:1}}.t3{animation:t3 8s infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style><circle cx="20" cy="-170" r="176" fill="#fff" stroke="#cfdcec" stroke-width="6"/><circle cx="20" cy="-170" r="164" fill="#e6f0fb"/><g transform="translate(20,-30) scale(1.45)"><g class="bob"><g>
+<path class="l" d="M-8,-118 Q-30,-134 -40,-122 M8,-118 Q30,-134 40,-122" style="stroke-width:3.500"/><circle class="o" cx="-40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="40" cy="-122" r="5" fill="#c4572f" style="stroke-width:2.500"/>
+<path class="l" d="M-10,-14 L-14,0 M10,-14 L14,0" style="stroke-width:8;stroke:#c4572f"/>
+<ellipse class="o" cx="-14" cy="-3" rx="13" ry="6" fill="#141c2e"/><ellipse class="o" cx="14" cy="-3" rx="13" ry="6" fill="#141c2e"/>
+<path class="l" d="M-12,-64 L-30,-52 M12,-64 L30,-52" style="stroke-width:5;stroke:#c4572f"/>
+<ellipse class="o" cx="0" cy="-36" rx="25" ry="28" fill="#c4572f"/><ellipse cx="0" cy="-30" rx="14" ry="17" fill="#d97a45"/>
+<ellipse class="o" cx="0" cy="-74" rx="15" ry="14" fill="#c4572f"/>
+<path class="o" d="M-16,-86 L16,-86 L18,-60 L-18,-60 Z" fill="#ff7a1a" style="stroke-width:2.500"/><path d="M-17,-80 H17 M-17,-68 H17" stroke="#eef2f7" stroke-width="4"/>
+<circle class="o" cx="0" cy="-102" r="19" fill="#c4572f"/>
+<circle cx="-7" cy="-100" r="5.500" fill="#fff"/><circle cx="7" cy="-100" r="5.500" fill="#fff"/><circle cx="-6" cy="-99" r="2.800" fill="#0f1b2d"/><circle cx="8" cy="-99" r="2.800" fill="#0f1b2d"/>
+<path class="l" d="M-6,-92 Q0,-87 6,-92" style="stroke-width:2.500"/>
+<path class="o" d="M-23,-108 Q-23,-138 0,-138 Q23,-138 23,-108 Z" fill="#ffc61a"/><rect class="o" x="-4" y="-138" width="8" height="18" fill="#f2a900" style="stroke-width:2.500"/><rect class="o" x="-28" y="-111" width="56" height="8" rx="4" fill="#ffc61a"/>
+</g><path class="l" d="M-14,-74 Q-34,-96 -22,-142 M14,-74 Q34,-96 22,-142" style="stroke-width:6;stroke:#c4572f"/>
+<rect class="o" x="-26" y="-182" width="52" height="42" rx="6" fill="#fff6e0"/><text class="m" x="0" y="-155" font-size="22" text-anchor="middle" fill="#0f1b2d">{ }</text>
+<circle class="o" cx="-22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/><circle class="o" cx="22" cy="-142" r="6" fill="#c4572f" style="stroke-width:2.500"/></g></g></svg>

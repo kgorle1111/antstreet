@@ -143,7 +143,9 @@ def test_the_showcase_has_its_sections():
     assert "```mermaid" in read(README)
 
 
-@pytest.mark.parametrize("name", ["hero.svg", "demo.svg"])
+@pytest.mark.parametrize(
+    "name", ["hero.svg", "demo.svg", "mascot-pig.svg", "mascot-bull.svg", "mascot-ant.svg"]
+)
 def test_each_svg_is_well_formed_small_and_scriptless(name):
     path = ASSETS / name
     assert path.stat().st_size < 60_000
@@ -158,7 +160,8 @@ def test_each_svg_is_well_formed_small_and_scriptless(name):
 
 def test_the_name_is_one_plain_text_element_in_the_hero():
     hero = read(ASSETS / "hero.svg")
-    assert len(re.findall(r">boss</text>", hero)) == 1
+    assert len(re.findall(r">AntStreet</text>", hero)) == 1
+    assert "Your AI agents get paid when the checks pass." in hero
 
 
 def test_the_demo_shows_only_strings_a_real_run_prints(tmp_path):
