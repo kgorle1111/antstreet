@@ -104,7 +104,9 @@ def test_figures_the_changelog_states_match_the_code_and_the_repository(text):
     assert f"slices ({run_limits.max_slices})" in text
     assert f"workers ({run_limits.max_workers})" in text
     assert "coverage floor of 96%" in text
-    assert "--cov-fail-under=96" in read(ROOT / ".github" / "workflows" / "ci.yml")
+    assert "coverage report --show-missing --fail-under=96" in read(
+        ROOT / ".github" / "workflows" / "ci.yml"
+    )
     tasks = load_tasks(ROOT / "bench" / "tasks")
     assert f"{len(tasks)} tasks" in text
     assert "`c130282a6eec5fe8`" in text and task_set_hash(original_tasks()) == "c130282a6eec5fe8"

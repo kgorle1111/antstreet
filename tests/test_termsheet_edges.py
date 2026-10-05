@@ -331,20 +331,24 @@ def test_a_check_symlinked_outside_the_checks_dir_is_a_problem_not_a_gate_crash(
 
 
 def test_a_check_that_hangs_on_an_empty_workspace_is_reported_as_a_timeout(checks_dir, monkeypatch):
-    (checks_dir / "test_c02.py").write_text("import time\n\ndef test_hang():\n    time.sleep(30)\n")
+    (checks_dir / "test_c02.py").write_text(
+        "import time\n\ndef test_hang():\n    time.sleep(120)\n"
+    )
     real = termsheet.run_gate
     monkeypatch.setattr(
-        termsheet, "run_gate", lambda ws, cd, checks, timeout_s: real(ws, cd, checks, timeout_s=1)
+        termsheet, "run_gate", lambda ws, cd, checks, timeout_s: real(ws, cd, checks, timeout_s=10)
     )
     assert problems(sheet(), checks_dir) == ["check c02 times out on an empty workspace"]
 
 
 def test_passing_and_hanging_checks_are_both_reported_in_sheet_order(checks_dir, monkeypatch):
-    (checks_dir / "test_c01.py").write_text("import time\n\ndef test_hang():\n    time.sleep(30)\n")
+    (checks_dir / "test_c01.py").write_text(
+        "import time\n\ndef test_hang():\n    time.sleep(120)\n"
+    )
     (checks_dir / "test_c02.py").write_text("def test_ok():\n    assert True\n")
     real = termsheet.run_gate
     monkeypatch.setattr(
-        termsheet, "run_gate", lambda ws, cd, checks, timeout_s: real(ws, cd, checks, timeout_s=1)
+        termsheet, "run_gate", lambda ws, cd, checks, timeout_s: real(ws, cd, checks, timeout_s=10)
     )
     assert problems(sheet(), checks_dir) == [
         "check c01 times out on an empty workspace",

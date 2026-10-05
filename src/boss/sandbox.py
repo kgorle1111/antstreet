@@ -87,16 +87,40 @@ def seatbelt_argv(
 # leak the caller's environment. --unshare-ipc hides the host's SysV shared memory, semaphores and
 # message queues (the seatbelt profile denies them by default); /dev/shm is not covered by it but
 # `--dev /dev` replaces it. No --new-session: the gate already starts the check in its own
-# session, and bwrap's setsid() fails for a process that already leads one. Upgrade path: an
-# allowlist root (--ro-bind /usr, /lib*, /bin) once it can be verified on a Linux host.
+# session, and bwrap's setsid() fails for a process that already leads one. Everything else on the
+# host stays readable, so a project under /srv, /opt or /work would expose `<project>/.boss`
+# (investor key, ledger): `hidden` paths are masked after the four roots and before the binds
+# (bwrap applies mounts in argv order), so a bind that lies under a hidden path re-exposes only
+# itself. Upgrade path: an allowlist root (--ro-bind /usr, /lib*, /bin) once it can be verified on
+# a Linux host.
+_BWRAP_HIDDEN_ROOTS = ("/home", "/root", "/tmp", "/run")
+
+
+def _mask(path: Path) -> list[str]:
+    """A directory becomes an empty tmpfs, a file an empty file; a missing path hides nothing."""
+    text = _absolute(path)
+    if path.is_dir():
+        return ["--tmpfs", text]
+    return ["--ro-bind", "/dev/null", text] if path.exists() else []
+
+
 def bwrap_argv(
-    executable: str, argv: Sequence[str], *, writable: Path, readable: Sequence[Path]
+    executable: str,
+    argv: Sequence[str],
+    *,
+    writable: Path,
+    readable: Sequence[Path],
+    hidden: Sequence[Path] = (),
 ) -> list[str]:
     out = [
         executable, "--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc",
         "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
         "--tmpfs", "/home", "--tmpfs", "/root", "--tmpfs", "/tmp", "--tmpfs", "/run",
     ]  # fmt: skip
+    for path in hidden:
+        # Under a root above it is already gone, and a mount point there no longer exists.
+        if not any(_absolute(path).startswith(f"{root}/") for root in _BWRAP_HIDDEN_ROOTS):
+            out += _mask(path)
     for path in readable:
         out += ["--ro-bind", _absolute(path), _absolute(path)]
     out += ["--bind", _absolute(writable), _absolute(writable)]
@@ -108,12 +132,26 @@ class Sandbox:
     name: str  # "sandbox-exec" or "bwrap"
     executable: str  # absolute path found by detect(), so a later PATH change cannot swap it
 
-    def wrap(self, argv: Sequence[str], *, writable: Path, readable: Sequence[Path]) -> list[str]:
-        """`argv` run inside the sandbox. Both path arguments must be absolute and resolved."""
+    def wrap(
+        self,
+        argv: Sequence[str],
+        *,
+        writable: Path,
+        readable: Sequence[Path],
+        hidden: Sequence[Path] = (),
+    ) -> list[str]:
+        """`argv` run inside the sandbox. Path arguments must be absolute and resolved.
+
+        `hidden` are secret folders or files to mask on Linux, where the root is readable. macOS
+        needs nothing: its profile denies every read that is not listed.
+        """
         if not argv or argv[0].startswith("-"):
             raise ValueError(f"cannot sandbox a command that starts with {argv[:1]!r}")
-        build = seatbelt_argv if self.name == "sandbox-exec" else bwrap_argv
-        return build(self.executable, argv, writable=writable, readable=readable)
+        if self.name == "sandbox-exec":
+            return seatbelt_argv(self.executable, argv, writable=writable, readable=readable)
+        return bwrap_argv(
+            self.executable, argv, writable=writable, readable=readable, hidden=hidden
+        )
 
 
 def python_readable() -> tuple[Path, ...]:

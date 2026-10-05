@@ -43,7 +43,8 @@ def slug(heading: str) -> str:
 
 def anchors(path) -> set[str]:
     body = FENCE.sub("", read(path))
-    return {slug(m.group(1)) for m in re.finditer(r"^#{1,6} (.+)$", body, re.M)}
+    found = {slug(m.group(1)) for m in re.finditer(r"^#{1,6} (.+)$", body, re.M)}
+    return found | set(re.findall(r'<a id="([\w-]+)"></a>', body))  # a table row's anchor
 
 
 def broken_links(path, root=ROOT) -> list[str]:
@@ -71,6 +72,19 @@ def test_the_link_checker_can_fail(tmp_path):
     doc.write_text("[ok](there.md#a-heading) [gone](gone.md) [no anchor](there.md#nope)\n")
     found = broken_links(doc, tmp_path)
     assert len(found) == 2 and "gone.md" in found[0] and "#nope" in found[1]
+
+
+def test_the_limits_section_links_the_threat_rows_it_is_about(text):
+    body = section(text, "Limits")
+    linked = set(re.findall(r"THREAT_MODEL\.md#(t\d+)", body))
+    assert linked == {"t12", "t13", "t14", "t29", "t39", "t44"}  # broken ones fail the link check
+
+
+def test_a_threat_row_anchor_counts_as_a_heading(tmp_path):
+    (tmp_path / "there.md").write_text('| T9 | <a id="t9"></a>A row |\n')
+    doc = tmp_path / "doc.md"
+    doc.write_text("[ok](there.md#t9) [no](there.md#t8)\n")
+    assert len(broken_links(doc, tmp_path)) == 1
 
 
 def test_the_documentation_section_links_every_document(text):

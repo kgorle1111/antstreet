@@ -2,9 +2,12 @@
 
 The key lives in `<project>/.boss/investor.key` (hex, mode 0600, created on first use). It is read
 only to sign and to verify: it is never logged, printed, put in an error message or passed to a
-child process. A worker's tool rules confine it to its own workspace and the gate's sandbox reads
-nothing outside its own folder, so a worker can edit the ledger and recompute its hash chain but
-cannot produce a signature (docs/THREAT_MODEL.md, T46).
+child process. A worker's tool rules confine it to its own workspace. The gate's sandbox keeps a
+check from reading it, differently per OS: on macOS the profile denies every read outside the
+check's folder, the Python installation and system data; on Linux `bwrap` leaves the whole root
+readable and masks the project's `.boss/` (and `BOSS_AUDIT_HOME`) by name, so a key kept anywhere
+else on the machine is not hidden. With no sandbox (T39) a check can read it. A worker can edit
+the ledger and recompute its hash chain but cannot produce a signature (docs/THREAT_MODEL.md, T46).
 
 An investor event's signature covers every field of its line, `prev` included, so it cannot be
 edited, moved, replayed at another place in the ledger, or survive an edit of any line before it.

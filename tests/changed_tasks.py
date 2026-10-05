@@ -5,8 +5,12 @@ the first 17 in CI), so a pull request that touches one task should not pay for 
 main leave the variable unset and validate everything.
 """
 
+import hashlib
 import os
+import platform
 import subprocess
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 ENV_VAR = "BOSS_VALIDATE_TASKS_SINCE"
@@ -44,3 +48,47 @@ def select(tasks: list, root: Path = ROOT) -> list:
     """The tasks to validate: all of them unless the env var names a base ref."""
     changed = changed_task_ids(root)
     return tasks if changed is None else [t for t in tasks if t.id in changed]
+
+
+CACHE_ENV = "BOSS_TASK_CACHE"  # a folder of one empty file per task validation that passed
+# What a validation's verdict depends on besides the task's own files: the validator and the gate
+# (with its sandbox and plugin) that runs every check, and the locked environment they run in.
+VALIDATOR_FILES = (
+    "uv.lock",
+    "pyproject.toml",
+    "src/boss/bench/tasks.py",
+    "src/boss/gate.py",
+    "src/boss/sandbox.py",
+    "src/boss/_gate_plugin.py",
+)
+
+
+def validation_key(task, root: Path = ROOT) -> str:
+    """Names one task, every byte of its folder, the validator code, and the interpreter."""
+    digest = hashlib.sha256()
+    digest.update(f"{platform.system()} {sys.version}".encode())
+    for name in VALIDATOR_FILES:
+        digest.update(name.encode() + b"\0" + (root / name).read_bytes() + b"\0")
+    for path in sorted(task.root.rglob("*")):
+        if path.is_file() and "__pycache__" not in path.parts:
+            digest.update(path.relative_to(task.root).as_posix().encode() + b"\0")
+            digest.update(path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def validate_cached(task, validate: Callable, root: Path = ROOT) -> None:
+    """`validate(task)`, skipped when this exact task passed under this exact validator before.
+
+    Only a pass is remembered, so a task that fails is validated again every run. With no cache
+    folder named in the env var every task is validated.
+    """
+    folder = os.environ.get(CACHE_ENV, "").strip()
+    if not folder:
+        validate(task)
+        return
+    entry = Path(folder) / validation_key(task, root)
+    if entry.exists():
+        return
+    validate(task)
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.touch()
