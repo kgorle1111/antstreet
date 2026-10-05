@@ -28,6 +28,7 @@ TARGETS: dict[str, tuple[str, list[str]]] = {
             "test_ledger_edges",
             "test_ledger_repair",
             "test_ledger_anchor",
+            "test_signing",
         ],
     ),
     "signing": ("boss.signing.*", ["test_signing", "test_ledger_anchor"]),
