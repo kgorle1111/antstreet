@@ -13,7 +13,6 @@ With no roles chosen every method is a no-op, and the run is the run `boss fund`
 
 from __future__ import annotations
 
-import ast
 import dataclasses
 import functools
 import json
@@ -27,6 +26,8 @@ from typing import Any
 from boss import spec as rulespec
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
 from boss.budget import RESERVE_MICROS
+from boss.context import imported_modules
+from boss.dispatch import DispatchPolicy
 from boss.errors import Outcome
 from boss.firm import Advise, FirmConfig, FirmReport, config_data
 from boss.gate import Check, CheckStatus, GateError, run_gate
@@ -165,6 +166,7 @@ class Pipeline:
     executable: str
     ask: Ask
     say: Say
+    policy: DispatchPolicy | None = None  # `--dispatch rules`: what an amended sheet is held to
 
     def _on(self, name: str) -> bool:
         return name in self.setup.roles
@@ -600,7 +602,7 @@ class Pipeline:
             budget_micros=sheet.budget_micros + fix_micros,
         )
         try:
-            validate(amended, self.paths.checks)
+            validate(amended, self.paths.checks, self.policy)
         except TermSheetError as exc:
             problems = _one_line("; ".join(exc.problems), 250)
             self.say(f"The amended term sheet does not validate: {problems}")
@@ -807,7 +809,7 @@ def _owner(sheet: TermSheet, finding: Finding) -> str | None:
     just one. None when no task does."""
     if len(sheet.tasks) == 1:
         return sheet.tasks[0].id
-    modules = _imported(finding.test_code)
+    modules = imported_modules(finding.test_code)
     for task in sheet.tasks:
         for path in map(PurePosixPath, task.paths):
             if path == PurePosixPath(".") or any(
@@ -815,20 +817,6 @@ def _owner(sheet: TermSheet, finding: Finding) -> str | None:
             ):
                 return task.id
     return None
-
-
-def _imported(code: str) -> set[str]:
-    try:
-        tree = ast.parse(code.removeprefix("﻿"))
-    except SyntaxError:
-        return set()
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names |= {a.name.split(".")[0] for a in node.names}
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names.add(node.module.split(".")[0])
-    return names
 
 
 def _render_review(review: StoryReview) -> str:

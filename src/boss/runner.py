@@ -22,6 +22,7 @@ from boss.worker import (
     CLI,
     SliceSpec,
     build_command,
+    model_id_of,
     require_isolation,
     uses_api_key,
     with_thinking,
@@ -53,6 +54,7 @@ class SliceRun:
     denials: list[dict[str, Any]] = field(default_factory=list)
     rate_limit: dict[str, Any] | None = None
     stderr_tail: str = ""
+    model_id: str | None = None  # the model the CLI's init event says it ran
 
 
 def run_slice(
@@ -127,6 +129,7 @@ def run_slice(
         denials=reader.denials,
         rate_limit=reader.rate_limit,
         stderr_tail=stderr_text,
+        model_id=model_id_of(reader.init),
     )
 
 

@@ -219,6 +219,8 @@ Config keys:
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
 | `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. Set by `boss fund --held-out N`. A run started before the key existed loads with 0. |
 | `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. Set by `boss fund --worker-thinking N`. A run started before the key existed loads with `null`. |
+| `dispatch` | bool | `true` when the run uses `--dispatch rules`. Written only then; a run without it has neither this key nor `max_tier`. |
+| `max_tier` | str | The dearest tier dispatch may use (`--max-tier`, default `sonnet`). Written only with `dispatch`. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
@@ -267,14 +269,31 @@ Example:
 |---|---|---|
 | `worker` | str | The worker's name: `w1`, `w2`, ... in hiring order across the run. |
 | `task` | str | The task id. |
-| `model` | str | The worker model. |
+| `model` | str | The worker model: the run's `--model`, or, under `--dispatch rules`, the tier the term sheet gave this worker (a step up included). A resume runs the worker on this one, not on the config's. |
 | `prompt` | str | The builder prompt file the worker runs under. |
-| `profile` | str or null | The worker profile in force (`started`'s `config.profile`); `null` for none. |
+| `profile` | str or null | The worker profile in force (`started`'s `config.profile`, or the task's `dispatch.profile`); `null` for none. |
+| `dispatch` | object | Why this worker is on this model. Only under `--dispatch rules`. Keys below. |
+
+Dispatch keys:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `tier` | str | `haiku`, `sonnet` or `opus`; the same as `model`. |
+| `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). |
+| `why` | str | `term sheet` for a task's first worker; for a replacement, `predecessor fired: ` and the gate's reason (`no progress` or `slice limit`) and its stalled slices. |
+| `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier. |
+| `refused` | str | Why the step the task allowed was not taken (the round could not fund the next tier, or stepping up is off for the task). Only on a replacement. |
 
 Example:
 
 ```json
 {"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"model": "haiku", "profile": null, "prompt": "builder_v3.md", "task": "t1", "worker": "w1"}, "event": "hired", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T17:20:48.680759+00:00", "v": 1}
+```
+
+A replacement, stepped up one tier by `--dispatch rules`:
+
+```json
+{"actor": "boss", "billing": "unknown", "cost_micros": 0, "data": {"dispatch": {"effort": "default", "from_tier": "haiku", "tier": "sonnet", "why": "predecessor fired: no progress, 2 stalled slices"}, "model": "sonnet", "profile": null, "prompt": "builder_v4.md", "task": "t1", "worker": "w2"}, "event": "hired", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-04T11:10:11.003149+00:00", "v": 1}
 ```
 
 ### `slice_start`
@@ -293,11 +312,20 @@ Example:
 | `task` | str | The task id. |
 | `cap_micros` | int | The slice's spend cap in micro-dollars. A target: one response can run past it. |
 | `session` | str | The UUID of the CLI session this attempt uses. A new one for every attempt that is not a proven resume (a session is resumed only after a slice in it got past infrastructure); the CLI refuses an id that is already in use. |
+| `context_sha256` | str | SHA-256 (hex) of the worker's system prompt, a NUL byte, then its user prompt: the bytes of `logs/<worker>-s<slice>.prompt.txt`, which `boss report` rehashes. Only under `--dispatch rules`. |
+| `context_chars` | int | Characters in the user prompt, at most `context.MAX_BUNDLE_CHARS` (30,000). Only under `--dispatch rules`. |
+| `context_parts` | object | Characters of each part of the user prompt that is in it: `task`, `interfaces`, `handoff`, `notes` for a first slice; `gate` for a resumed one. Only under `--dispatch rules`. |
 
 Example:
 
 ```json
 {"actor": "worker:w1", "billing": "unknown", "cost_micros": 0, "data": {"cap_micros": 100000, "session": "9a5c8b55-eb42-490d-a75b-9d9fad2c7eba", "slice": 1, "task": "t1"}, "event": "slice_start", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:25.685789+00:00", "v": 1}
+```
+
+The same under `--dispatch rules`, the first slice of a replacement:
+
+```json
+{"actor": "worker:w2", "billing": "unknown", "cost_micros": 0, "data": {"cap_micros": 100000, "context_chars": 2867, "context_parts": {"handoff": 2292, "task": 573}, "context_sha256": "994021c28d0cf77cdf645ff4953c476e0ea488d914dc8ee3b8b48b944e1d8856", "session": "0a2f333c-1e08-4941-8d2d-d61c512fbcd5", "slice": 1, "task": "t1"}, "event": "slice_start", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-04T11:10:12.335965+00:00", "v": 1}
 ```
 
 ### `slice_end`
@@ -326,11 +354,18 @@ Example:
 | `denied_tools` | list | The distinct names of the refused tools, sorted. |
 | `denial_reasons` | list | One `{tool, reason}` object per distinct refused call the CLI gave a message for, at most 5: `reason` is the first sentence of that message, secrets masked and at most 160 characters. The next brief quotes them. Empty when the CLI gave no message. |
 | `log` | str | Path of the worker's raw stream log. |
+| `model_id` | str or null | The model the CLI's `system/init` event says it started with (for example `claude-haiku-4-5-20251001`); `null` when no init arrived. Only under `--dispatch rules`, where a launched tier that does not appear in it stops the run (T69). |
 
 Example:
 
 ```json
 {"actor": "worker:w1", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 1, "denied_tools": ["Write"], "exit_code": 0, "log": ".boss/runs/r1/logs/w1.jsonl", "outcome": "completed", "session_total_micros": 10000, "session_total_tokens": [10, 5, 0], "slice": 1, "status": {"reason": "scripted continuing", "status": "continuing"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:25.686130+00:00", "v": 1}
+```
+
+The same under `--dispatch rules`:
+
+```json
+{"actor": "worker:w2", "billing": "subscription", "cost_micros": 10000, "data": {"denial_reasons": [], "denials": 0, "denied_tools": [], "exit_code": 0, "log": ".boss/runs/r1/logs/w2.jsonl", "model_id": "claude-sonnet-4-5-20251001", "outcome": "completed", "session_total_micros": 10000, "session_total_tokens": null, "slice": 1, "status": {"reason": "scripted done", "status": "done"}, "task": "t1"}, "event": "slice_end", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-10-04T11:10:12.336468+00:00", "v": 1}
 ```
 
 ### `check_result`
@@ -566,10 +601,11 @@ Example:
 
 - Actor: `investor`
 - Three forms, all by the investor:
-  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`, and
-    `held_out_hashes` when the run has held-out checks, `rules.json` among its `hashes` and a
-    `spec` coverage summary (rule and anchor counts, the uncovered and waived rule ids, the digest
-    of the rule list) when the run was started with `--spec`. The summary is inside the signed data.
+  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`,
+    `held_out_hashes` when the run has held-out checks, `route` when the run uses
+    `--dispatch rules`, `rules.json` among its `hashes` and a `spec` coverage summary (rule and
+    anchor counts, the uncovered and waived rule ids, the digest of the rule list) when the run
+    was started with `--spec`. The summary is inside the signed data.
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
   - An amendment: the investor approves more checks and a round added to an approved term sheet.
     It carries `hashes` of the amended term sheet and its check files, `round` (the round the
@@ -601,6 +637,7 @@ Example:
 |---|---|---|
 | `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file, and `rules.json` for a run started with `--spec`. Present in the first form, and in an amendment. |
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
+| `route` | str | `one_agent` or `firm`: the route the investor approved (`dispatch.route_of` chose it from the sheet, or the investor edited it). Only in the first form, and only when the run uses `--dispatch rules`. The term sheet carries it too, and `hashes` covers that. |
 | `spec` | object | Only with `--spec`, in the first form: `rules_sha256` (digest of the rule list), `rules` (scored rules), `anchored`, `unanchored`, `anchor_missing`, `unscored_missing` (counts), `uncovered` and `waived` (rule ids) and `waived_reasons` (id to the boss's one-line reason). Inside the signed data. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
 | `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
@@ -629,6 +666,12 @@ An amendment (signed like the first form, in round 2):
 
 ```json
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added_checks": ["c03"], "hashes": {"term_sheet": "3358c4b8c732606c083e7f794881519b229ba89c5d388c2be6f7e79448cae768", "test_c01.py": "1d8375400c8f62ba12608933211da7dade2459fb89df181c1f23150d29b89b56", "test_c02.py": "8be209cefbc72a3ceb2b34f55206827c0a0efd55aa9e6d45b66b1fe3fba83f63", "test_c03.py": "65ba46c76ea3d12622b3ae82f9715b4baf58c84be286d8cb03645894e00ca6a1"}, "round": 2, "sig": "v2:adcb9a85d6fe9daf6134391aca9dc6e8c6c5c5388807e66f6120d1cbb073d7d2"}, "event": "approved", "prev": "0da687d01ba1bbfb554ea25d742c468035b9909c9471e81e6dfa307197b812e6", "round": 2, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T18:41:41.920211+00:00", "v": 1}
+```
+
+The first form of an approval under `--dispatch rules`:
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"hashes": {"term_sheet": "af46755ef33933fbd23a67c7c103ae22c005f6003649687a474b55bc00a4a0ff", "test_c01.py": "46dcc9df463d18fec190640e9731fb76fd54990602d51e6f562260ee40137215"}, "route": "one_agent", "sig": "v2:200390a2b3a67984b41409a39d86e414c986d067adb01bf11437798b74e0e6ef"}, "event": "approved", "round": 0, "run": "20261004T111014Z-298163", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-04T11:10:16.704558+00:00", "v": 1}
 ```
 
 ### `topped_up`
@@ -733,12 +776,19 @@ Example, built with the `Event` class:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `isolation` | str | The problems found, joined by `; `. |
+| `isolation` | str | The problems found, joined by `; `. Written for an isolation failure. |
+| `model` | str | The launched tier and the model the CLI reported, when they differ (T69), or that it reported none. Written under `--dispatch rules` instead of `isolation`, after the slice's `slice_end`; `stopped` follows. |
 
 Example:
 
 ```json
 {"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"isolation": "tools differ"}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-09-30T11:01:34.025877+00:00", "v": 1}
+```
+
+A model that is not the one launched, under `--dispatch rules`:
+
+```json
+{"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"model": "launched 'haiku', but the CLI ran 'claude-sonnet-4-5-20250929'"}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-04T11:10:14.869643+00:00", "v": 1}
 ```
 
 ### `audited`

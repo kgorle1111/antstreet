@@ -741,3 +741,82 @@ with a JSON schema.
   the inversion instead of fixing it.
 - Rejected: Keeping the lazy import: it works until the next import moves to module level.
 - Evidence: `tests/test_layering.py`.
+
+### D43: Dispatch is decided by rules and bound by the signed term sheet; no model chooses a model
+
+- Status: `under evaluation`
+- Decision: With `--dispatch rules`, `dispatch.plan_dispatch` fills the term sheet's route and each
+  task's tier, effort, step-up target, worker cap, slice and reads from the run's flags. The boss's
+  draft schema is unchanged and has no field for any of it. The values sit in `term_sheet.json`, so
+  the approval hash covers them; `dispatch.dispatch_problems` refuses anything outside a whitelist
+  (tiers up to `--max-tier`, three efforts, one or two workers, reads of other tasks) in
+  `termsheet.structural_problems`, so an edited sheet cannot be approved, and again before any
+  worker is hired. With the flag off a sheet that carries dispatch is refused, and a sheet without
+  it hashes exactly as before.
+- Why: The one measured saving in the benchmark was not a smarter route but the firm costing 2.4
+  times a single agent for no more delivery, and the builder-side levers that exist (a stronger
+  model, more thinking) reach only the 18 of 51 failed cells that failed a visible check. A route
+  chosen by a model's guess about difficulty is a signal nobody can check (B53: all 17 tasks were
+  one module, so a split signal never fired), and a model that can name the model it runs on is a
+  model that can spend. Rules in code, shown to the investor and covered by the approval, can be
+  read, edited and audited. Whether the rules pay is decided by E6, not here.
+- Rejected: A `dispatch_hint` from the boss's draft, clamped by code: still a model's guess, so it
+  waits until the rules arm shows dispatch pays. Dispatch decided at run time from a complexity
+  estimate: not checkable. Default on: no measurement yet.
+- Evidence: `tests/test_dispatch.py::test_a_value_outside_the_whitelist_is_refused`,
+  `tests/test_dispatch.py::test_a_sheet_without_dispatch_hashes_exactly_as_it_always_did`,
+  `tests/test_termsheet_dispatch.py::test_changing_any_byte_of_the_dispatch_after_approval_voids_it`,
+  `tests/test_firm_dispatch.py::test_a_dispatch_outside_the_whitelist_is_refused_at_hire_even_with_a_matching_approval`.
+
+### D44: One file is one agent: the route is a rule shown to the investor
+
+- Status: `under evaluation`
+- Decision: After the draft, `dispatch.route_of` sets the route: `one_agent` when everything the
+  sheet builds is one file (one task, or tasks that all write the same single file), `firm`
+  otherwise. The term sheet says `Route: one agent (one file, N checks)` or `Route: firm (K tasks,
+  files ...)`; the investor may set `"route": "firm"` in the edit loop, and `"one_agent"` on a
+  sheet of several files is refused. The route is on the sheet (so hashed) and on the `approved`
+  event. A one-agent run is gated, booked and ledgered like any other; its worker is not replaced
+  by one that is not stronger, so the only second worker it can have is the one-step escalation.
+- Why: On small one-file ideas the blind 35-task run measured the firm delivering no more than a
+  single agent at about 2.4 times the cost ($0.35 against $0.15 per delivered task). The boss's
+  draft is paid before the route is known, so the saving open after it is the later slices and
+  the same-model second worker (in the 2026-10-02 analysis of the first 17 tasks, later slices were
+  33% of the firm's extra cost and 17 of 26 were funded while every failing check was one the
+  reference also fails), not the draft (69% of it). Two tasks may
+  not own the same path (structural validation), so in a valid sheet "tasks that all write one
+  file" is one task on one file; the rule still says it, so the day validation allows it the
+  route is already decided.
+- Rejected: Skipping the boss's call for one-file ideas: the route cannot be known before the
+  term sheet exists, and a draft is what gives the investor checks to read; that would be a
+  different product (B96). Forcing `one_agent` on a multi-file sheet: it would need the tasks
+  merged, which is the investor's edit, not a flag.
+- Evidence: `tests/test_dispatch.py::test_one_task_on_one_file_is_one_agent_and_two_files_are_the_firm`,
+  `tests/test_dispatch.py::test_tasks_that_all_write_the_same_single_file_are_one_agent`,
+  `tests/test_firm_dispatch.py::test_on_the_one_agent_route_a_replacement_that_is_not_stronger_is_not_hired`,
+  `tests/test_termsheet_dispatch.py::test_the_investor_may_force_the_firm_route_and_the_table_shows_it`.
+
+### D45: A worker is stepped up only on the gate's evidence, and the model that ran is recorded
+
+- Status: `under evaluation`
+- Decision: A fired worker's replacement is hired one tier up (`escalate_to`, never above
+  `--max-tier`, once per task) only when the gate fired it for `no progress` or a `slice limit`;
+  if the next tier cannot be funded (`next_slice_cap` for that model's own reserve is under half a
+  slice) the effort goes from `default` to `high` instead, and the refusal is recorded on the
+  `hired` event. A blocked or disputing worker goes to the investor, and an infrastructure failure
+  retries on the same model; neither steps anything up. Every slice's `slice_end` records the
+  model the CLI's `system/init` named; a launched tier that is not in it stops the run after the
+  slice is booked. The slice cap leaves room for the launched model's own reserve, and the spend
+  ceiling for the dearest model any task can reach.
+- Why: The gate is the only checkable signal there is (the firing rule): a worker that
+  stalls on a visible check is the one case a stronger model can be shown to have been needed.
+  Per-model reserves are not optional: at Haiku's $0.10 a Sonnet response overshoots a cap by up to
+  $0.30. And nothing but the CLI's own report proves the ledger's model is the one that ran; a
+  fake tier name would otherwise price a Haiku run as Sonnet.
+- Rejected: Stepping up on a model's own report of difficulty or on a blocked worker: the first is
+  unchecked, the second belongs to the investor. Trusting `--model` as the record: it is what was
+  asked, not what ran. Several steps per task: the cost has no bound the investor read.
+- Evidence: `tests/test_firm_dispatch.py::test_a_worker_fired_for_no_progress_is_replaced_one_tier_up_and_it_is_recorded`,
+  `tests/test_firm_dispatch.py::test_blocked_and_disputed_workers_and_infrastructure_never_step_anyone_up`,
+  `tests/test_firm_dispatch.py::test_a_model_the_cli_did_not_launch_stops_the_run_and_the_slice_is_still_booked`,
+  `tests/test_firm_dispatch.py::test_the_ceiling_uses_the_reachable_reserve_so_a_stepped_up_overshoot_is_not_a_breach`.

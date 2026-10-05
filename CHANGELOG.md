@@ -16,6 +16,18 @@ what changed for someone using the tool, not which commit did it.
 - `boss audit report [RUN | --all] [--agent L]`: verdicts, and the false-pass rate with a Wilson interval per agent and claim mode. Pre-registered and post-hoc results are never added together; the rate is a floor.
 - Ledger: the `audited` event, signed with the project's key like an investor's event, and `purpose` `audit_checks` on `boss_call`.
 - Security: threats T51 to T54 (the audit store read by the agent, checks fitted to the change, a leak in the diff, a forged seal).
+- `boss fund --dispatch rules [--max-tier T]` (off by default): the term sheet shows a route (one
+  agent for a one-file idea, else the firm) and a table of each task's model, effort and step-up.
+- Under dispatch you can edit the route and each task's model before approving; the approval
+  covers them, and a value outside the whitelist is refused before approval and again at hire.
+- Under dispatch a worker the gate fired for no progress or a slice limit is replaced one tier up,
+  once per task. Nothing else changes a model. The worst case is printed in dollars first.
+- Under dispatch each slice records a hash of the exact text the worker was given, saved as
+  `logs/<worker>-s<N>.prompt.txt`, and the model the CLI says it ran; a wrong model stops the run.
+- `boss report` prints who did what on which model at what cost, and re-verifies the saved
+  prompts (D43 to D45, T63 to T69).
+- A pre-registered experiment E6 in `bench/PREREG.md`: fixed Haiku, fixed Sonnet and dispatch at the
+  same per-cell budget.
 - The single arm's `result.json` records `final_status`, the status word of its last slice, and the
   KPI scorecard reads it before the ledger (B70).
 - `boss fund --spec` (off by default): the boss's checks cite the rules of your idea, and you see

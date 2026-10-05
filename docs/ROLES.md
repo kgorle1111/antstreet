@@ -269,8 +269,10 @@ the `started` event, so `boss resume` calls roles the same way.
   `--held-out N`, not with `--roles` (`--roles examiner` is refused and names the option).
   `src/boss/firm.py` and `src/boss/cli.py` import only `registry`, `PROFILES`, `org_chart`,
   `render_org` and `builder_system_prompt` from the roles package.
-- Nothing assigns a profile to a task. The investor picks one for the run; the boss does not pick
-  one, and a task has no profile field.
+- Nothing assigns a profile to a task but the investor's own choice. The investor picks one for the
+  run; the boss does not pick one, and a task has no profile field of its own. Under
+  `--dispatch rules` the run's profile is copied into each task's `dispatch`, where the investor
+  can change it before approving.
 - No role has been measured to pay for its call, so none is on unless you name it. No judge
   calibration file is in the repository.
 - The fix round takes the place of the first round that never opened, so a sheet whose later

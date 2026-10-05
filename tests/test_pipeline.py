@@ -493,7 +493,9 @@ def test_the_chosen_roles_are_on_the_started_event_the_config_stays_as_it_was(fx
     assert started.data["roles"] == roles
     assert recorded_setup(fx.events()) == Setup(("check_auditor",), "sonnet", 0)
     assert recorded_setup([]) is None
-    assert set(started.data["config"]) == {f.name for f in dataclasses.fields(FirmConfig)}
+    # the two dispatch keys are written only by a run that turned dispatch on
+    fields = {f.name for f in dataclasses.fields(FirmConfig)} - {"dispatch", "max_tier"}
+    assert set(started.data["config"]) == fields
 
 
 # --- each stage-1 role alone --------------------------------------------------------------------
@@ -1787,7 +1789,7 @@ def test_with_the_default_of_one_task_a_two_task_design_is_refused_and_the_boss_
 
 
 def test_an_amended_sheet_that_does_not_validate_is_not_offered(fx, monkeypatch):
-    def refuse(sheet, checks_dir):
+    def refuse(sheet, checks_dir, policy=None):
         raise TermSheetError(["the rounds do not add up"])
 
     monkeypatch.setattr("boss.pipeline.validate", refuse)
