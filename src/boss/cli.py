@@ -85,10 +85,9 @@ from boss.signing import SigningError
 from boss.state import run_state
 from boss.stream import Usage
 from boss.termsheet import TermSheet, TermSheetError
-from boss.worker import CLI, IsolationError, billing_mode, usd, worker_env
+from boss.worker import CLI, EXECUTABLE_VAR, IsolationError, billing_mode, usd, worker_env
 
 RUNS_DIR = Path(".boss") / "runs"
-EXECUTABLE_VAR = "BOSS_CLAUDE_BIN"  # override the `claude` binary, e.g. for tests
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_INCOMPLETE, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
 
 Ask = Callable[[str], str]

@@ -18,10 +18,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 from boss.bench.results import CellResult, cell_dir, load_results
-from boss.bench.table import _counted, _duration, _md, _pct, _visible_pass, wilson_interval
+from boss.bench.table import _counted, _duration, _visible_pass
 from boss.kpi import investor_questions, single_said_done
 from boss.ledger import Event, LedgerError, read_events
 from boss.report import dollars
+from boss.stats import md_table, pct, rate
 
 CellKey = tuple[str, str, int]  # (task, arm, rep)
 NOTE = "Intervals are Wilson 95%. Overlapping intervals mean no demonstrated difference."
@@ -113,22 +114,15 @@ def kpi_card(
     )
 
 
-def _rate(successes: int, n: int, what: str = "cells") -> str:
-    if n == 0:
-        return f"n/a (0 {what})"
-    low, high = wilson_interval(successes, n)
-    return f"{_pct(successes / n)} [{low * 100:.0f}-{high * 100:.0f}%] ({successes}/{n})"
-
-
 def _delivery(c: KpiCard) -> str:
-    out = _rate(c.delivered, c.counted)
+    out = rate(c.delivered, c.counted, counts="after", empty="n/a (0 cells)")
     return out + (f"; {c.infrastructure} infrastructure excluded" if c.infrastructure else "")
 
 
 def _false_pass(c: KpiCard) -> str:
     if c.said_done is None or c.false_passes is None:
         return "n/a (the arm's claim is not recorded)"
-    return _rate(c.false_passes, c.said_done, "cells that said done")
+    return rate(c.false_passes, c.said_done, counts="after", empty="n/a (0 cells that said done)")
 
 
 def _cost(c: KpiCard) -> str:
@@ -166,7 +160,7 @@ def _check_quality(c: KpiCard) -> str:
         return "n/a (no boss checks)"
     if c.wrong_checks is None or not c.boss_checks:
         return "not measured"
-    return f"{c.wrong_checks}/{c.boss_checks} wrong ({_pct(c.wrong_checks / c.boss_checks)})"
+    return f"{c.wrong_checks}/{c.boss_checks} wrong ({pct(c.wrong_checks / c.boss_checks)})"
 
 
 def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
@@ -188,7 +182,7 @@ def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
     ]
     mixed = len({c.task_sets for _, c in columns}) > 1
     out = [SETS_WARNING, ""] if mixed else []
-    out += _md(["KPI", *labels], [[name, *cells] for name, cells in rows])
+    out += md_table(["KPI", *labels], [[name, *cells] for name, cells in rows])
     out += ["", "Sample sizes (counted cells over tasks; infrastructure failures excluded):"]
     out += [
         f"  {label}: {c.counted} cells over {c.tasks} tasks ({c.infrastructure} excluded)"

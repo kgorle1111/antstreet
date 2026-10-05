@@ -20,12 +20,12 @@ from pathlib import Path
 from boss import spec
 from boss.bench.drafts import CLAIMS_FILE, DRAFT_FILE, SCORED, DraftCell, draft_cell_dir
 from boss.bench.spec_eval import Product, kills_products, read_sources
-from boss.bench.table import wilson_interval
 from boss.bench.tasks import BenchTask, load_tasks
 from boss.errors import INFRASTRUCTURE
 from boss.report import dollars
 from boss.roles.base import RoleError
 from boss.roles.spec_mapper import SPEC_MAPPER, RuleMap, compare, map_rules
+from boss.stats import wilson_interval
 from boss.termsheet import CheckSpec
 from boss.worker import CLI, worker_env
 

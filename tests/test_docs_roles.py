@@ -330,7 +330,7 @@ def test_roles_are_reached_only_through_the_pipeline_and_only_when_named(text):
         "review_product", "write_demo",
     ):  # fmt: skip
         assert function in called, f"pipeline.py no longer calls {function}"
-    assert "from boss.roles.judge import judge_artifact" in read(src / "pipeline.py")
+    assert "judge_artifact" in called
     assert "No role is on unless `--roles` names it" in body
     assert "`src/boss/pipeline.py` books their spend" in body
     # Off unless named: no spec is on, the option defaults to none, and with no roles every part

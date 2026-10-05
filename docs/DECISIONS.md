@@ -730,3 +730,14 @@ with a JSON schema.
   `tests/test_boss_spec.py::test_the_v3_prompt_names_no_benchmark_task_and_no_special_character_class`.
   Reopen with a repair call, or when the held-out 18 are measured.
 
+### D42: Roles and the core never import the CLI or the benchmark
+
+- Status: `in force`
+- Decision: Nothing under `src/boss/roles/` and none of `rule`, `gate`, `ledger`, `signing`,
+  `sandbox`, `runner`, `worker`, `budget`, `firm`, `pipeline` imports `boss.cli` or `boss.bench`.
+  Shared pieces sit below both: `worker.EXECUTABLE_VAR` and `stats` (interval, rate, Markdown table).
+- Why: `roles.judge` imported `boss.cli` and `boss.bench.table`, so `pipeline` had to import the
+  judge inside a method to avoid the cycle `pipeline -> cli -> roles.judge`. The lazy import hid
+  the inversion instead of fixing it.
+- Rejected: Keeping the lazy import: it works until the next import moves to module level.
+- Evidence: `tests/test_layering.py`.
