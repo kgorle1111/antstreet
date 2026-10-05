@@ -141,6 +141,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Changed
 
+- README and EVIDENCE give the blinded 35-task result: firm 64 of 105, single 62 of 105, not shown
+  to differ, at 2.4 times the cost per delivered task; the old 69% against 63% is not comparable.
 - The test suite runs in parallel with the `pytest-xdist` dev dependency (see CONTRIBUTING.md), and
   pull-request CI fully validates only the benchmark tasks the pull request changes.
 - A slice cap now leaves a fixed reserve (default $0.10) of the round unspent, instead of a 25%
