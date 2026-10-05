@@ -78,7 +78,16 @@ def run_cell(
         firm_args = [*firm_args, "--held-out", str(held_out)]
     out = cell_dir(results_dir, task.id, arm, rep)
     if (out / "result.json").is_file():
-        return CellResult.load(out / "result.json")
+        saved = CellResult.load(out / "result.json")
+        # Two experiments' arms share one name (E4's firm with and without the critic): a saved
+        # cell run with other options would be counted as this one's.
+        asked = (set_hash, model, budget_micros, " ".join(firm_args) if arm == "firm" else "")
+        if (saved.set_hash, saved.model, saved.budget_micros, saved.firm_args) != asked:
+            raise RuntimeError(
+                f"{out} was run with other options (task set, model, budget or --firm-args); "
+                "give this run its own --out"
+            )
+        return saved
     if out.is_dir() and any(out.iterdir()):  # a cut-off run's ledger would be read as this cell's
         raise RuntimeError(
             f"{out} holds a run cut off before its result; move the folder aside and run again"

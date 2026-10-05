@@ -493,3 +493,68 @@ def test_the_full_chain_of_a_real_run_reads_back_clean_and_in_order(tmp_path):
     _, run_dir, _ = run_cli(tmp_path, ["fund", "Reverse a string.", "--budget", "0.50"])
     events = read_events(run_dir / "ledger.jsonl")
     assert len(events) >= 5 and events[0].prev == "0" * 64
+
+
+# --- wire format: ledgers already on disk must keep verifying --------------------------------
+
+
+def _fixed_event():
+    return Event(
+        run="r1",
+        round=2,
+        actor="investor",
+        event=EventType.APPROVED,
+        data={"b": 1, "a": {"y": 2, "x": 3}},
+        ts="2026-01-01T00:00:00Z",
+    )
+
+
+def test_the_first_form_of_signature_is_a_fixed_function_of_key_run_round_and_data():
+    mac = signing._digest_v1(b"\x01" * 32, _fixed_event())
+    assert mac == "e94b3590f8d3124e50d3ae9bd28fcc2466efd34828b9d14c27f5c3488b7213d3"
+
+
+def test_the_whole_line_signature_is_a_fixed_function_of_the_key_and_every_field():
+    event = dataclasses.replace(_fixed_event(), prev=GENESIS)
+    mac = signing._digest_v2(b"\x01" * 32, event)
+    assert mac == "dfb137b7aefdf928510684405027075427fc2d64dd4df682c334b814716a5c24"
+
+
+def test_the_anchor_mac_is_a_fixed_function_of_the_key_run_line_count_and_last_hash():
+    mac = signing._anchor_mac(b"\x01" * 32, "r1", 3, "ab" * 32)
+    assert mac == "b596fd0c42ad339a97a88d4854918d8bd756817b4c0a864bf71087378cf7ecdb"
+
+
+def test_a_key_that_is_not_private_says_how_to_fix_it(tmp_path):
+    path = tmp_path / "investor.key"
+    load_or_create_key(path)
+    path.chmod(0o644)
+    with pytest.raises(SigningError, match="chmod 600"):
+        load_key(path)
+
+
+def test_signing_an_event_without_prev_says_to_set_prev_first():
+    event = Event(run="r", round=0, actor="investor", event=EventType.RESUMED)
+    with pytest.raises(ValueError, match="signed after its `prev` is set"):
+        sign(b"\x01" * 32, event)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "not json",
+        "{}",
+        '{"lines": "3", "last": "ab", "mac": "00"}',
+        '{"lines": 3, "last": 7, "mac": "00"}',
+        '{"lines": 3, "last": "ab", "mac": 7}',
+        '{"lines": 3, "last": "ab", "mac": "00"}',
+    ],
+)
+def test_an_anchor_that_is_malformed_or_does_not_match_the_key_is_refused(tmp_path, body):
+    key_file = tmp_path / ".boss" / "investor.key"
+    key = load_or_create_key(key_file)
+    target = signing.anchor_path(key_file, "r1")
+    target.parent.mkdir(parents=True)
+    target.write_text(body)
+    with pytest.raises(SigningError, match="does not verify against the investor key"):
+        signing.read_anchor(key_file, key, "r1")
