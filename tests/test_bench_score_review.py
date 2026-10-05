@@ -46,7 +46,10 @@ def test_precision_is_the_share_of_verified_findings_whose_test_the_reference_pa
         (),
         (),
     )
-    score = score_review(task, review, timeout_s=2.0)
+    # ponytail: timeout must exceed normal test execution under parallel load,
+    # but stay well below SLEEPS (f05 sleeps 30s). Empirically, f01/f03 need ~5s headroom
+    # under heavy pytest -n auto load; set to 10.0 for safety margin.
+    score = score_review(task, review, timeout_s=10.0)
     assert score.verified == ("f01", "f02", "f03", "f04", "f05")
     assert score.wrong == ("f02", "f04", "f05") and score.right == ("f01", "f03")
     assert score.precision == 2 / 5

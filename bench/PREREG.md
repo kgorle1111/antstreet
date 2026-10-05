@@ -143,3 +143,13 @@ equal compute in the literature. They stay off by default and are not claimed to
 - 2026-10-05: E6's decision rule uses the paired cost per assigned cell, the interval the code computes; the pooled cost per delivered task is reported beside it. No E6 run had happened.
 - 2026-10-05: the `cascade` arm is compared on the primary KPI (cost per assigned cell), as every arm
   is since that day's rule change. No E6 run had happened.
+- 2026-10-05, before any E4 run: E4 runs blind35's 35 tasks x 3 reps, Haiku boss and workers, all
+  three arms fresh, each in its own `--out`. Firm arms: `--budget 0.40 --firm-args "--slice 0.20"`,
+  the critic arm adding `--roles critic --fix-budget 0.30`. Self-review: `--arms single-review
+  --budget 0.40` (slice caps $0.24 + $0.08). Worst-case spend per cell: self-review $0.32, firm $0.65
+  (rounds $0.40 + the boss draft cap $0.25), firm with critic $1.10 (plus the critic cap $0.15 and the
+  fix round $0.30). The same budget for every arm cannot be set: the boss and critic caps alone are
+  $0.40, and every round keeps a $0.10 reserve, so a $0.40 firm-with-critic cell would leave its
+  workers about $0.06. Cost per cell is reported beside delivery under the fair-baselines rule, so a
+  win bought by spending more counts as a cost. The decision rule (firm with critic against
+  self-review, paired delivery) is unchanged; firm with critic against firm is reported beside it.

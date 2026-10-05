@@ -13,7 +13,9 @@ hash-chained ledger.
 Why: in our benchmark, 29 of 77 runs (38%, 95% interval 28-49%) passed every check the model had
 written and still failed a hand-written check it never saw. Every one of the 29 was a real error
 against the task text. Caveats: 17 small Python tasks, Haiku writing both checks and code, and runs
-of one task are not independent (resampling tasks widens the interval to 20-57%). Details in the
+of one task are not independent (resampling tasks widens the interval to 20-57%). These were firm
+runs, and the gate passed them: it runs the checks it is given, so the stat measures weak
+model-written checks, not the gate or agents in general. Details in the
 [false-pass audit](bench/results/2026-10-03-false-pass-audit/README.md).
 
 ## Quickstart
@@ -202,6 +204,7 @@ uv run boss topup --round 1 --amount 0.20   # add money to a round; reopens a lo
 uv run boss report    # the latest run's board report
 uv run boss status    # one line: last event, checks passing, spend
 uv run boss routing   # the start tier `--dispatch cascade` would pick per task kind, from past runs
+uv run boss verify    # offline integrity check: ledger chain, signatures, saved prompts
 uv run boss roles     # the organisation: roles, worker profiles and their skills
 uv run boss doctor    # check this machine; --live adds the two paid calls above
 uv run boss audit plan --repo . --request req.txt --base main   # seal checks for someone else's change
@@ -218,6 +221,37 @@ Exit codes: `0` every check passed; `1` the boss produced no usable term sheet, 
 a worker did not start isolated; `2` usage error (including a blank idea and a budget too small to fund one slice);
 `3` the run ended with checks not passing, including a run stopped early by a limit, a declined
 round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss resume`).
+
+## Use it from Claude Code
+
+This repository is also a Claude Code plugin marketplace. In a Claude Code session:
+
+```text
+/plugin marketplace add kgorle1111/antstreet
+/plugin install antstreet@antstreet
+```
+
+| Command | What it does |
+|---|---|
+| `/antstreet:fund <idea> [--budget 0.40]` | Runs `antstreet doctor` (no model call), then gives you the `uvx antstreet fund ...` line to paste into your own terminal. |
+| `/antstreet:report [run]` | Prints the board report from the run's ledger. |
+| `/antstreet:status [run]` | One line: last event, checks passing, spend. |
+
+The plugin is a thin front door; the engine runs outside the agent it checks. `fund` is never run
+from inside the session: approval reads your answer from a terminal, and from Claude Code it would
+read end of input, which is a reject after the draft is paid for. The plugin's commands may run
+only `status`, `report` and `doctor` (without `--live`) without asking you.
+
+Two hooks run as you. At session start, if `uvx` is missing, one prints the one command that
+installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. When the
+agent stops, in a project with runs under `.boss/runs/`, the other runs `uvx antstreet status`,
+which checks the latest ledger's hash chain and signatures offline. A failure is shown to you; it
+never blocks the agent. In any other project both are silent.
+
+Until `antstreet` is on PyPI and this repository is public, `uvx antstreet` does not resolve, so
+the plugin cannot run yet. To try the CLI the same way before then, with access to the repository:
+`uvx --from git+https://github.com/kgorle1111/antstreet antstreet doctor`. The plugin files are
+not in the wheel or the sdist.
 
 ## Limits
 
@@ -270,7 +304,7 @@ Limits you should know:
 
 - **The tool whitelist is not a sandbox, and the gate's sandbox is partial.** The gate executes the
   code a worker wrote, on your machine, with a filtered environment and a timeout. On macOS that
-  runs under a deny-by-default profile; on Linux the `bwrap` version is set up to run in CI but not yet confirmed by a passing run; with no
+  runs under a deny-by-default profile; on Linux the `bwrap` version runs, and is required (`BOSS_GATE_SANDBOX=require`), in CI; with no
   working tool, checks run with your full access (`boss doctor` warns; `BOSS_GATE_SANDBOX=require`
   refuses). Do not run ideas from sources you do not trust. Container isolation is not built.
 - Code written to target the gate's own process can still fake a pass (T12 in the threat model).
@@ -293,7 +327,9 @@ Early. It works end to end and the tests are deep, but it is pre-release.
 - Python with pytest only; workers are Claude Code sessions.
 - The macOS sandbox is stronger than the Linux one (see Limits).
 - Single machine, single user.
-- Planned, not built: a Claude Code plugin, a PyPI release (the name is `antstreet`; nothing is published yet), and a
+- Built, not yet installable: a Claude Code plugin (it needs the repository public and the PyPI
+  release, see [Use it from Claude Code](#use-it-from-claude-code)).
+- Planned, not built: a PyPI release (the name is `antstreet`; nothing is published yet), and a
   GitHub Action that runs `boss audit check` on a pull request
   (see [docs/BACKLOG.md](docs/BACKLOG.md)).
 

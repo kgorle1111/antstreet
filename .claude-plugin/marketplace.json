@@ -1,0 +1,12 @@
+{
+  "name": "antstreet",
+  "description": "AntStreet: you approve the checks, a gate outside the agent decides what passed.",
+  "owner": { "name": "Kannishk Naidu Gorle" },
+  "plugins": [
+    {
+      "name": "antstreet",
+      "source": "./",
+      "description": "Fund an idea, read the board report and check the ledger of a run, from Claude Code."
+    }
+  ]
+}
