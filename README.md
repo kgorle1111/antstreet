@@ -207,3 +207,7 @@ BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py   # one real run, a few cents
 
 Tests use recorded CLI output in `tests/fixtures/` and fake `claude` executables, so the whole
 flow, including `boss fund` end to end, runs without credentials.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
