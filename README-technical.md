@@ -220,6 +220,37 @@ a worker did not start isolated; `2` usage error (including a blank idea and a b
 `3` the run ended with checks not passing, including a run stopped early by a limit, a declined
 round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss resume`).
 
+## Use it from Claude Code
+
+This repository is also a Claude Code plugin marketplace. In a Claude Code session:
+
+```text
+/plugin marketplace add kgorle1111/antstreet
+/plugin install antstreet@antstreet
+```
+
+| Command | What it does |
+|---|---|
+| `/antstreet:fund <idea> [--budget 0.40]` | Runs `antstreet doctor` (no model call), then gives you the `uvx antstreet fund ...` line to paste into your own terminal. |
+| `/antstreet:report [run]` | Prints the board report from the run's ledger. |
+| `/antstreet:status [run]` | One line: last event, checks passing, spend. |
+
+The plugin is a thin front door; the engine runs outside the agent it checks. `fund` is never run
+from inside the session: approval reads your answer from a terminal, and from Claude Code it would
+read end of input, which is a reject after the draft is paid for. The plugin's commands may run
+only `status`, `report` and `doctor` (without `--live`) without asking you.
+
+Two hooks run as you. At session start, if `uvx` is missing, one prints the one command that
+installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. When the
+agent stops, in a project with runs under `.boss/runs/`, the other runs `uvx antstreet status`,
+which checks the latest ledger's hash chain and signatures offline. A failure is shown to you; it
+never blocks the agent. In any other project both are silent.
+
+Until `antstreet` is on PyPI and this repository is public, `uvx antstreet` does not resolve, so
+the plugin cannot run yet. To try the CLI the same way before then, with access to the repository:
+`uvx --from git+https://github.com/kgorle1111/antstreet antstreet doctor`. The plugin files are
+not in the wheel or the sdist.
+
 ## Limits
 
 What AntStreet does not do, in plain words. Each links to its row in the [threat model](docs/THREAT_MODEL.md).
@@ -294,7 +325,9 @@ Early. It works end to end and the tests are deep, but it is pre-release.
 - Python with pytest only; workers are Claude Code sessions.
 - The macOS sandbox is stronger than the Linux one (see Limits).
 - Single machine, single user.
-- Planned, not built: a Claude Code plugin, a PyPI release (the name is `antstreet`; nothing is published yet), and a
+- Built, not yet installable: a Claude Code plugin (it needs the repository public and the PyPI
+  release, see [Use it from Claude Code](#use-it-from-claude-code)).
+- Planned, not built: a PyPI release (the name is `antstreet`; nothing is published yet), and a
   GitHub Action that runs `boss audit check` on a pull request
   (see [docs/BACKLOG.md](docs/BACKLOG.md)).
 

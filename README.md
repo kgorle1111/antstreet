@@ -147,7 +147,9 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 
 ## 🗺️ Roadmap (planned, not built)
 
-- A Claude Code plugin
+- Installing the Claude Code plugin: it is built and waits on the next two items
+  ([how it works](README-technical.md#use-it-from-claude-code))
+- Making the repository public
 - A PyPI release, so `uvx antstreet` works (the name is chosen; nothing is published yet)
 - A GitHub Action that runs `boss audit check` on a pull request
 

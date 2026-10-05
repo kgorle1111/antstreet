@@ -10,6 +10,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- A Claude Code plugin in the repository (`/antstreet:fund`, `/antstreet:report`,
+  `/antstreet:status`), installable once the repository is public and `antstreet` is on PyPI.
 - Licensed under the Apache License 2.0 (`LICENSE`, and `license` in the package metadata).
 - `boss audit plan --repo R --request FILE --base REF [--held-out N]`: seals checks for a change request from the base commit's names alone, kept in `~/.boss-audit` and never in the repo; you approve them, signed; it prints a run id and a seal.
 - `boss audit check RUN --head REF`: runs the sealed checks on a commit and signs a verdict: `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`. It refuses a head off the base, an edited check and a forged approval.
@@ -188,6 +190,9 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- `python -m boss.bench.run` refuses a saved cell that ran with another task set, model, budget
+  or firm options, instead of counting it as this run's. Two arms of one name (the firm with and
+  without `--roles critic`) each need their own results folder.
 - The benchmark's spend cap now reserves a staged draft's full cost (its three role calls) before
   starting one; it reserved one call's cost and could start a draft that passed the allowance.
 - The mapper pass's spend cap now counts mapper calls saved by an earlier pass, so a resumed pass

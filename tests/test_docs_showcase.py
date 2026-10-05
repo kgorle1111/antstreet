@@ -120,7 +120,7 @@ def test_the_engineering_figures_are_the_repos(text):
     assert "Python 3.12+" in text and "python-3.12%2B" in text
     assert "license-Apache--2.0" in text
     assert "Apache License, Version 2.0" in read(ROOT / "LICENSE")
-    assert "Planned, not built: a Claude Code plugin" in read(ROOT / "README-technical.md")
+    assert "Built, not yet installable: a Claude Code plugin" in read(ROOT / "README-technical.md")
     assert "(planned, not built)" in text
 
 
