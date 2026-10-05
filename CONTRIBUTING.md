@@ -149,8 +149,9 @@ Owner only; nothing here runs in CI.
 2. `uv build` writes the sdist and wheel to `dist/`. The wheel must hold `boss/prompts/*.md`
    (`tests/test_packaging.py` checks this) and the sdist only `src/boss`, `README.md`, `LICENSE`
    and `pyproject.toml`.
-3. Check the wheel in a clean place: `uv venv` and `uv pip install dist/*.whl` in a temp folder,
-   then `antstreet --version`, or `uvx --from dist/*.whl antstreet --help`.
+3. Check the wheel in a clean place, from the repository root:
+   `wheel="$PWD/$(ls dist/*.whl)"; cd "$(mktemp -d)" && uv venv && uv pip install "$wheel" &&
+   .venv/bin/antstreet --version`, or `uvx --from dist/*.whl antstreet --help`.
 4. `uv publish` (a PyPI token in `UV_PUBLISH_TOKEN`; never commit it). A published version cannot
    be replaced, so try `uv publish --publish-url https://test.pypi.org/legacy/` first if the metadata changed.
 
