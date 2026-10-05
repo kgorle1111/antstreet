@@ -49,6 +49,9 @@ def test_failed_login_is_not_trusted_as_success_despite_its_subtype():
     ("overrides", "extra", "expected"),
     [
         ({"subtype": "error_max_turns", "is_error": True}, {}, Outcome.MAX_TURNS),
+        ({"subtype": "error_max_budget_usd", "terminal_reason": "completed"}, {}, Outcome.CAPPED),
+        ({"subtype": "success", "terminal_reason": "budget_exhausted"}, {}, Outcome.CAPPED),
+        ({"is_error": True, "api_error_status": 401}, {}, Outcome.LOGIN),
         ({"subtype": "model_refusal", "is_error": False}, {}, Outcome.REFUSAL),
         ({"stop_reason": "refusal"}, {}, Outcome.REFUSAL),
         ({"is_error": True, "api_error_status": 429}, {}, Outcome.RATE_LIMITED),
