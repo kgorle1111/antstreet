@@ -137,7 +137,8 @@ jobs:
           BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
           BOSS_SHARD: ${{ matrix.shard }}
           BOSS_TEST_TIMEOUT_S: "900"
-        run: uv run pytest -n 0 -m sigint --cov --cov-append --cov-report=
+        # Exit code 5 is "no tests collected": a shard whose files hold no sigint test is fine.
+        run: uv run pytest -n 0 -m sigint --cov --cov-append --cov-report= || [ $? -eq 5 ]
 
       # macOS runs the whole suite in this one job, so the floor is enforced here. A Linux shard
       # holds only part of the suite: it hands its coverage data to the `coverage` job below.
@@ -177,6 +178,6 @@ jobs:
           path: cov
           merge-multiple: true
       - name: Combine
-        run: uv run coverage combine cov/
+        run: uv run coverage combine cov/cov-shard-*
       - name: Report
         run: uv run coverage report --show-missing --fail-under=96

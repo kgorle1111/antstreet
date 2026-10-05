@@ -40,7 +40,7 @@ def test_the_commands_ci_runs_are_the_ones_stated(text):
         "uv run ruff format --check .",
         "uv run mypy",
         'uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30',
-        "uv run pytest -n 0 -m sigint --cov --cov-append --cov-report=",
+        "uv run pytest -n 0 -m sigint --cov --cov-append --cov-report= || [ $? -eq 5 ]",
         "uv run coverage report --show-missing --fail-under=96",
     ]
     for command in stated:

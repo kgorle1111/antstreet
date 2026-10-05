@@ -70,7 +70,7 @@ uv run mypy
 - CI runs `uv sync --locked`, `uv run ruff check .`,
   `uv run ruff format --check .`, `uv run mypy` (strict, over `src/boss`) and two pytest runs:
   `uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30`, then
-  `uv run pytest -n 0 -m sigint --cov --cov-append --cov-report=`, which adds to the first run's
+  `uv run pytest -n 0 -m sigint --cov --cov-append --cov-report= || [ $? -eq 5 ]` (5 is "nothing collected", normal for a shard with no such test), which adds to the first run's
   coverage data. Both pass their own `-m`, so the `slow` tests run. On Linux the suite is split
   into three jobs by test file (`BOSS_SHARD`) because every gate runs inside `bwrap` there; each
   uploads its coverage data and a final job runs `coverage combine` and
