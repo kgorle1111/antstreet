@@ -23,8 +23,9 @@ jobs:
     # Linux is split into three shards by test file (BOSS_SHARD, tests/conftest.py; a file's
     # fixtures and xdist groups stay on one shard) and each job must end in 20 minutes. macOS runs
     # the whole suite in one job, off pull requests. --durations below names the slow tests so the next slowdown can
-    # be read, not guessed.
-    timeout-minutes: 20
+    # be read, not guessed. That one macOS job (3-core runner) reached 57% of the suite in 20 minutes,
+    # so it gets 45; BOSS_TEST_TIMEOUT_S still ends a single hung test after 15.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 45 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -160,6 +161,9 @@ jobs:
   coverage:
     name: combined coverage (ubuntu-latest)
     needs: test
+    # The floor is over the Linux shards only, so a slow or failed macOS job must not skip it; a
+    # missing shard's data still fails the combine step below.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
