@@ -54,6 +54,13 @@ class WorkerLine:
     status: str
     reason: str
     slices: int
+    # Under `--dispatch`: how it was hired, what it cost, how it ended, which model the CLI ran.
+    dispatch: dict[str, str] | None = None
+    cost_micros: int | None = None  # None: no slice reported a cost
+    unknown_slices: int = 0
+    fired_for: str | None = None
+    delivered: bool = False
+    model_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +274,10 @@ def _workers(events: Sequence[Event]) -> list[WorkerLine]:
         ends = [e for e in events if e.event is EventType.SLICE_END and e.actor == f"worker:{name}"]
         last = ends[-1].data if ends else {}
         status = last.get("status") or {}
+        raw = hired.data.get("dispatch")
+        fired = next(
+            (e for e in events if e.event is EventType.FIRED and e.data.get("worker") == name), None
+        )
         lines.append(
             WorkerLine(
                 worker=name,
@@ -276,9 +287,42 @@ def _workers(events: Sequence[Event]) -> list[WorkerLine]:
                 status=status.get("status", "none"),
                 reason=status.get("reason", ""),
                 slices=len(ends),
+                dispatch={str(k): str(v) for k, v in raw.items()}
+                if isinstance(raw, dict)
+                else None,
+                cost_micros=_known_cost(ends),
+                unknown_slices=sum(e.cost_micros is None for e in ends),
+                fired_for=None if fired is None else str(fired.data.get("reason", "")),
+                delivered=_delivered(events, name, len(ends)),
+                model_ids=tuple(
+                    dict.fromkeys(
+                        str(e.data["model_id"])
+                        for e in ends
+                        if isinstance(e.data.get("model_id"), str)
+                    )
+                ),
             )
         )
     return lines
+
+
+def _known_cost(ends: Sequence[Event]) -> int | None:
+    costs = [e.cost_micros for e in ends if e.cost_micros is not None]
+    return sum(costs) if costs else None
+
+
+def _delivered(events: Sequence[Event], worker: str, slices: int) -> bool:
+    """Every check the gate ran on the worker's last slice passed."""
+    if not slices:
+        return False
+    results = [
+        e.data.get("status")
+        for e in events
+        if e.event is EventType.CHECK_RESULT
+        and e.data.get("worker") == worker
+        and e.data.get("slice") == slices
+    ]
+    return bool(results) and all(r == "passed" for r in results)
 
 
 def _note(event: Event) -> str:
@@ -330,6 +374,9 @@ def render_report(report: Report) -> str:
 
     out += ["", "Workers"]
     for w in report.workers:
+        if w.dispatch is not None:
+            out.append(f"  {_dispatch_line(w)}")
+            continue
         reason = f': "{w.reason}"' if w.reason else ""
         out.append(
             f"  {w.worker} on {w.task} ({w.model}): {w.outcome}, status {w.status}{reason}, "
@@ -350,6 +397,30 @@ def render_report(report: Report) -> str:
     if report.notes:
         out += ["", "Notes"] + [f"  {n}" for n in report.notes]
     return "\n".join(out) + "\n"
+
+
+def _dispatch_line(w: WorkerLine) -> str:
+    """One worker under `--dispatch`: who, on which model and effort, hired why, at what cost."""
+    d = w.dispatch or {}
+    how = f"{_detail(d.get('tier', w.model))}/{_detail(d.get('effort', '?'))}"
+    if d.get("from_tier"):
+        reason = _detail(d.get("why", "").removeprefix("predecessor fired: ").split(",")[0])
+        if d["from_tier"] != d.get("tier"):
+            how += f", escalated from {_detail(d['from_tier'])} (fired: {reason})"
+        else:
+            how += f", replaced a fired worker ({reason})"
+    cost = "unknown cost" if w.cost_micros is None else dollars(w.cost_micros)
+    if w.cost_micros is not None and w.unknown_slices:
+        cost += f" + {w.unknown_slices} slice(s) of unknown cost"
+    if w.fired_for is not None:
+        end = f"fired ({_detail(w.fired_for)})"
+    elif w.delivered:
+        end = "delivered"
+    else:
+        end = f"{_detail(w.outcome)}, status {_detail(w.status)}"
+    ran = f"; ran as {', '.join(_detail(m) for m in w.model_ids)}" if w.model_ids else ""
+    plural = "slice" if w.slices == 1 else "slices"
+    return f"{w.worker} on {w.task}: {how}, {cost}, {w.slices} {plural}, {end}{ran}"
 
 
 def _kpi_lines(report: Report) -> list[str]:

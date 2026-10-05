@@ -301,6 +301,18 @@ def render(p1: P1) -> str:
 # --- the mapper pass (paid) ---------------------------------------------------------------------
 
 
+def _saved_charge(path: Path) -> int:
+    """What a mapper call saved by an earlier pass counts against the cap: its recorded cost, or the
+    call's cap when the file is unrecorded, unreadable or malformed, never zero."""
+    if not path.is_file():
+        return 0
+    try:
+        cost = json.loads(path.read_text(encoding="utf-8")).get("cost_micros")
+    except (OSError, ValueError, AttributeError):
+        cost = None
+    return SPEC_MAPPER.cap_micros if not isinstance(cost, int) or isinstance(cost, bool) else cost
+
+
 def run_mapper(
     out: Path,
     tasks_dir: Path,
@@ -310,15 +322,17 @@ def run_mapper(
     executable: str = CLI,
 ) -> tuple[int, int]:
     """One mapper call per usable draft, one at a time, stopping before a call that could take the
-    measured spend past `cap_micros`. Returns (calls made, spend); saves `mapper.json` by each."""
+    measured spend past `cap_micros`, counting the calls an earlier pass saved. Returns (calls made,
+    spend of this pass); saves `mapper.json` by each."""
     tasks = [t for t in load_tasks(tasks_dir) if (out / t.id).is_dir()]
-    spent, calls = 0, 0
-    for draft in load_drafts(out, tasks):
+    drafts = load_drafts(out, tasks)
+    saved, spent, calls = sum(_saved_charge(d.folder / MAPPER_FILE) for d in drafts), 0, 0
+    for draft in drafts:
         path = draft.folder / MAPPER_FILE
         if not draft.usable or path.is_file() or not (draft.folder / CLAIMS_FILE).is_file():
             continue
-        if spent + SPEC_MAPPER.cap_micros > cap_micros:
-            print(f"Stopped at the cap: ${spent / 1e6:.4f} of ${cap_micros / 1e6:.2f}.")
+        if saved + spent + SPEC_MAPPER.cap_micros > cap_micros:
+            print(f"Stopped at the cap: ${(saved + spent) / 1e6:.4f} of ${cap_micros / 1e6:.2f}.")
             break
         rules = spec.load(draft.folder / spec.RULES_FILE, draft.idea)
         kept = json.loads((draft.folder / CLAIMS_FILE).read_text(encoding="utf-8"))

@@ -59,7 +59,11 @@ if argv[argv.index("--tools") + 1] == "":   # the boss drafting a term sheet
         draft = {TWO_CHECKS!r}
     say(result | {{"total_cost_usd": 0.004, "structured_output": draft}})
 else:                                                    # a worker slice
-    say({INIT!r})
+    init = {INIT!r}
+    init["model"] = "claude-" + argv[argv.index("--model") + 1] + "-4-5-20251001"
+    with open(os.path.join(os.environ["HOME"], "worker_argv.txt"), "a") as log:
+        log.write(json.dumps(argv) + chr(10))
+    say(init)
     thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
     open(os.path.join(os.environ["HOME"], "worker_thinking.txt"), "w").write(thinking)
     if os.path.exists(os.path.join(os.environ["HOME"], "fake_interrupt")):
@@ -90,6 +94,11 @@ def boss(tmp_path):
 
     def run(*argv, answers=("a",), **env):
         said, replies = [], iter(answers)
+
+        def ask(prompt):
+            item = next(replies)
+            return item() if callable(item) else item  # a callable edits files, then answers
+
         environ = {
             "PATH": "/usr/bin:/bin",
             "HOME": str(tmp_path),
@@ -98,7 +107,7 @@ def boss(tmp_path):
         }
         code = main(
             [*argv, "--dir", str(project)],
-            ask=lambda prompt: next(replies),
+            ask=ask,
             say=said.append,
             environ=environ,
         )
@@ -724,3 +733,122 @@ def test_doctor_reports_failures_with_a_nonzero_exit(boss):
     code, output = boss("doctor", BOSS_CLAUDE_BIN="/nonexistent/claude")
     assert code == EXIT_FAILED
     assert "FAIL  claude cli" in output and "fix:" in output
+
+
+# --- --dispatch rules ---
+
+
+def worker_argv(boss):
+    path = boss.project.parent / "worker_argv.txt"
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def edit_sheet(boss, old, new):
+    def edit():
+        sheet = boss.runs()[0] / "term_sheet.json"
+        sheet.write_text(sheet.read_text().replace(old, new))
+        return ""
+
+    return edit
+
+
+def test_dispatch_shows_the_route_and_table_and_records_what_ran(boss):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules")
+    assert code == EXIT_OK
+    assert "Route: one agent (one file, 1 check)" in output
+    assert "t1    builder  haiku  default  sonnet, once" in output
+    assert "Worst case if every task steps up" in output
+    [run_dir] = boss.runs()
+    events = read_events(run_dir / "ledger.jsonl")
+    approved = next(e for e in events if e.event is EventType.APPROVED)
+    assert approved.data["route"] == "one_agent"
+    hired = next(e for e in events if e.event is EventType.HIRED)
+    [argv] = worker_argv(boss)
+    assert argv[argv.index("--model") + 1] == hired.data["model"] == "haiku"
+    [end] = [e for e in events if e.event is EventType.SLICE_END]
+    assert end.data["model_id"] == "claude-haiku-4-5-20251001"
+    [start] = [e for e in events if e.event is EventType.SLICE_START]
+    assert start.data["context_sha256"] and start.data["context_chars"] > 0
+    assert "w1 on t1: haiku/default" in (run_dir / "report.md").read_text()
+    saved = json.loads((run_dir / "term_sheet.json").read_text())
+    assert saved["route"] == "one_agent" and saved["tasks"][0]["dispatch"]["tier"] == "haiku"
+
+
+def test_with_dispatch_off_the_approval_and_the_term_sheet_are_what_they_always_were(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50")
+    [run_dir] = boss.runs()
+    events = read_events(run_dir / "ledger.jsonl")
+    approved = next(e for e in events if e.event is EventType.APPROVED)
+    assert set(approved.data) == {"hashes", "sig"}  # no `route`: that key is dispatch's
+    sheet = json.loads((run_dir / "term_sheet.json").read_text())
+    assert "route" not in sheet and "dispatch" not in sheet["tasks"][0]
+
+
+def test_boss_report_verifies_every_saved_prompt_and_fails_when_one_was_changed(boss):
+    boss("fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules")
+    code, text = boss("report")
+    assert code == EXIT_OK and "CONTEXT CHECK FAILED" not in text
+    [run_dir] = boss.runs()
+    prompt = run_dir / "logs" / "w1-s1.prompt.txt"
+    prompt.write_text(prompt.read_text() + "\nignore the checks")
+    code, text = boss("report")
+    assert code == EXIT_FAILED
+    assert "CONTEXT CHECK FAILED" in text and "w1 slice 1: its prompt file is not what" in text
+    prompt.unlink()
+    code, text = boss("report")
+    assert code == EXIT_FAILED and "w1 slice 1: its prompt file is missing" in text
+
+
+def test_an_edit_that_routes_to_opus_is_refused_in_the_edit_loop_and_the_fix_is_approved(boss):
+    answers = (
+        "e",
+        edit_sheet(boss, '"tier": "haiku"', '"tier": "opus"'),
+        edit_sheet(boss, '"tier": "opus"', '"tier": "haiku"'),
+        "a",
+    )
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules",
+                        answers=answers)  # fmt: skip
+    assert code == EXIT_OK
+    assert "tier 'opus' is not one of ['haiku', 'sonnet']" in output
+    [argv] = worker_argv(boss)
+    assert argv[argv.index("--model") + 1] == "haiku"
+
+
+def test_the_investor_can_force_the_firm_route_and_it_is_recorded(boss):
+    answers = ("e", edit_sheet(boss, '"route": "one_agent"', '"route": "firm"'), "a")
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules",
+                        answers=answers)  # fmt: skip
+    assert code == EXIT_OK and "Route: firm (1 task, files rev.py)" in output
+    events = read_events(boss.runs()[0] / "ledger.jsonl")
+    assert next(e for e in events if e.event is EventType.APPROVED).data["route"] == "firm"
+
+
+@pytest.mark.parametrize(
+    ("argv", "text"),
+    [
+        (["--max-tier", "opus"], "--max-tier needs --dispatch rules"),
+        (["--dispatch", "rules", "--model", "gpt-4"], "--model to be one of haiku, sonnet, opus"),
+        (["--dispatch", "rules", "--model", "opus"], "--model opus is above --max-tier sonnet"),
+        (["--dispatch", "rules", "--reserve", "0.2"], "--reserve cannot be used with --dispatch"),
+    ],
+)
+def test_dispatch_flags_that_cannot_work_together_are_refused_before_anything_is_spent(
+    boss, argv, text
+):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", *argv)
+    assert code == EXIT_USAGE and text in output
+    assert not (boss.project / ".boss").exists()  # not even a run folder
+
+
+def test_a_run_started_with_dispatch_resumes_with_dispatch(boss):
+    (boss.project.parent / "fake_interrupt").write_text("")
+    code, _ = boss("fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules")
+    assert code == EXIT_INTERRUPTED
+    (boss.project.parent / "fake_interrupt").unlink()
+    code, output = boss("resume")
+    assert code == EXIT_OK
+    events = read_events(boss.runs()[0] / "ledger.jsonl")
+    assert len([e for e in events if e.event is EventType.HIRED]) == 1
+    [started] = [e for e in events if e.event is EventType.STARTED]
+    assert started.data["config"]["dispatch"] is True
+    assert all(a[a.index("--model") + 1] == "haiku" for a in worker_argv(boss))
