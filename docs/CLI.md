@@ -86,8 +86,8 @@ Argument: `idea`, what to build, in plain words.
 What it asks you:
 
 - `[a]pprove, [r]eject, or [e]dit files and re-check?` after showing the term sheet. `edit` lets
-  you change `term_sheet.json` and the check files, then re-validates them. End of input counts as
-  reject.
+  you change `term_sheet.json` and the check files, then re-validates them. `y` or `yes` also
+  approves and `n` or `no` also rejects, as at every other question. End of input counts as reject.
 - `Round N: X/Y checks pass. Fund $Z more? [y]es / [n]o` before each round after the first. End
   of input counts as no.
 - With the critic on, after the build: `Add these N checks and fund a fix round of $X? [y]es / [n]o`,

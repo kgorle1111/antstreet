@@ -151,3 +151,17 @@ def test_the_value_fund_prints_approves_a_dispatch_run(boss):
     assert code == EXIT_AWAITING
     code, _ = boss("approve", boss.runs()[0].name, "--sheet", digest(output))
     assert code == EXIT_OK and "route" in events(boss)[-1].data
+
+
+@pytest.mark.parametrize(
+    ("answer", "code"),
+    [(" Y ", EXIT_OK), ("yes", EXIT_OK), ("N", EXIT_FAILED), ("no", EXIT_FAILED)],
+)
+def test_the_question_takes_y_and_n_as_every_other_question_does(boss, answer, code):
+    replies = iter([answer])
+    status, output = boss(
+        "fund", "Reverse a string.", "--budget", "0.50", ask=lambda _: next(replies)
+    )
+    assert status == code and "Unrecognised answer" not in output
+    kinds = [e.event for e in events(boss)]
+    assert (EventType.APPROVED in kinds) is (code == EXIT_OK)

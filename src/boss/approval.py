@@ -24,6 +24,8 @@ from boss.worker import usd
 TERM_SHEET_FILE = "term_sheet.json"
 MAX_BRIEF_CHARS = 2_000  # shown cut (marked) beyond this; the hashed term sheet keeps all of it
 MAX_DESCRIPTION_CHARS = 300
+YES = ("y", "yes", "a", "approve")  # every investor question takes these as yes
+NO = ("n", "no", "r", "reject")
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
 
@@ -201,7 +203,7 @@ def review_term_sheet(
             answer = ask("[a]pprove, [r]eject, or [e]dit files and re-check? ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             answer = "r"
-        if answer in ("a", "approve"):
+        if answer in YES:
             if spec_problem:
                 say(
                     f"Not approved: the rule list is not the idea's ({spec_problem}). "
@@ -224,7 +226,7 @@ def review_term_sheet(
             return _approve(
                 current, path, checks_dir, ledger, run_id, now, held_out_dir, policy, rules_path
             )
-        if answer in ("r", "reject"):
+        if answer in NO:
             ledger.append(
                 Event(
                     run=run_id,
