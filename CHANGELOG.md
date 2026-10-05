@@ -188,6 +188,9 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- `python -m boss.bench.run` refuses a saved cell that ran with another task set, model, budget
+  or firm options, instead of counting it as this run's. Two arms of one name (the firm with and
+  without `--roles critic`) each need their own results folder.
 - The benchmark's spend cap now reserves a staged draft's full cost (its three role calls) before
   starting one; it reserved one call's cost and could start a draft that passed the allowance.
 - The mapper pass's spend cap now counts mapper calls saved by an earlier pass, so a resumed pass
