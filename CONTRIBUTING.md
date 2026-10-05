@@ -75,7 +75,8 @@ uv run mypy
   into three jobs by test file (`BOSS_SHARD`) because every gate runs inside `bwrap` there; each
   uploads its coverage data and a final job runs `coverage combine` and
   `uv run coverage report --show-missing --fail-under=96` over all three. macOS runs the whole
-  suite in one job and enforces the same floor itself. The coverage floor is 96; it only ever goes
+  suite in one job and enforces the same floor itself, but only on a push to main and the nightly
+  run, not on a pull request (the Linux shards and the combined coverage floor still do). The coverage floor is 96; it only ever goes
   up. A pull request validates only the benchmark tasks it changes; a push to main and the
   nightly run (03:17 UTC) validate every task, the nightly one without the cache. On Linux CI first
   installs `bubblewrap` and runs the tests with
