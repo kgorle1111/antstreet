@@ -213,6 +213,24 @@ def test_a_finished_cell_is_not_run_again(bench):
     assert len(bench.calls()) == calls
 
 
+@pytest.mark.parametrize(
+    ("arm", "change"),
+    [
+        ("firm", {"firm_args": ["--roles", "critic"]}),
+        ("firm", {"budget_micros": 300_000}),
+        ("single", {"model": "sonnet"}),
+        ("single-review", {"set_hash": "def456"}),
+    ],
+)
+def test_a_saved_cell_run_with_other_options_is_refused_not_reused(bench, arm, change):
+    bench(arm)
+    calls = len(bench.calls())
+    options = {"set_hash": "abc123", "budget_micros": 400_000, **change}
+    with pytest.raises(RuntimeError, match="run with other options.*its own --out"):
+        run_cell(TASK, arm, 1, bench.results, environ=bench.environ, **options)
+    assert len(bench.calls()) == calls
+
+
 @pytest.mark.parametrize("arm", ["single", "firm"])
 def test_a_cell_cut_off_before_its_result_is_refused_not_run_on_top_of(bench, arm):
     out = cell_dir(bench.results, "slugify", arm, 1)

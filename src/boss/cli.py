@@ -1,11 +1,11 @@
-"""Command line: `boss fund`, `resume`, `topup`, `report`, `status`, `roles`, `doctor` and `audit`.
+"""Commands: `fund`, `resume`, `topup`, `report`, `status`, `verify`, `roles`, `doctor`, `audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
   1    nothing was built: no usable term sheet, the investor rejected it, a worker did not start
        isolated or ran the wrong model, the approved checks changed, or the run cannot be read
-  2    usage error: a bad option, a blank idea, a budget too small to fund one slice, or roles
-       that cannot run together
+  2    usage error: a bad option, a blank idea, a budget too small to fund one slice, roles that
+       cannot run together, or (for `verify`) no such run
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
        a declined round, a task set aside); for `boss audit check`, a refuted or inconclusive
        verdict
@@ -132,6 +132,8 @@ def main(
         return EXIT_OK
     if args.command == "doctor":
         return _doctor(args, project, environ, say)
+    if args.command == "verify":
+        return _verify(args, project, say)
     return _show(args, project, say)
 
 
@@ -233,6 +235,7 @@ def _parser() -> argparse.ArgumentParser:
         ("resume", "continue an interrupted, paused or stopped run from its ledger"),
         ("report", "print the board report for a run"),
         ("status", "one-line state of a run"),
+        ("verify", "check a run's ledger, signatures and saved prompts; no model call"),
     ):
         shown = sub.add_parser(name, parents=[common], help=text)
         shown.add_argument("run", nargs="?", help="run id (default: the latest)")
@@ -878,6 +881,29 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
         f"{passed}/{len(report.checks)} checks passing; spend {spend} estimated"
     )
     return EXIT_OK
+
+
+def _verify(args: argparse.Namespace, project: Path, say: Say) -> int:
+    """Integrity only: the hash chain and signatures (`events()` raises unless they hold) and the
+    saved prompts against their hashes. One line per problem; no model is ever called."""
+    run = _find_run(args, project, say)
+    if run is None:
+        return EXIT_USAGE
+    paths = RunPaths(project / RUNS_DIR / run)
+    try:
+        events = paths.events()
+    except (LedgerCorruptError, SigningError) as exc:
+        say(f"Run {run} does not verify: {exc}. Do not trust it; restore the run folder.")
+        return EXIT_FAILED
+    if not events:
+        say(f"Run {run} has an empty ledger.")
+        return EXIT_FAILED
+    problems = verify(paths, events)
+    for problem in problems:
+        say(f"Run {run}: {problem}. Do not trust this run's report; restore {paths.root / 'logs'}.")
+    if not problems:
+        say(f"Run {run} verifies: {len(events)} events, chain and signatures intact.")
+    return EXIT_FAILED if problems else EXIT_OK
 
 
 def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: Say) -> int:
