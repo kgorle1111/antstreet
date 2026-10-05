@@ -25,9 +25,11 @@ def shortcuts() -> list[tuple[str, str]]:
     return found
 
 
-def test_ids_are_unique_and_consecutive():
+def test_ids_are_unique_and_increasing():
+    # Not consecutive: a branch may take a block of ids (B92) that another branch reserved the
+    # numbers before it in.
     ids = [rid for rid, _ in rows()]
-    assert ids == [f"B{n:02d}" for n in range(1, len(ids) + 1)]
+    assert ids == sorted(set(ids)) and ids[0] == "B01"
 
 
 def test_every_entry_says_what_it_is_and_has_a_known_status():
