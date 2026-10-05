@@ -137,6 +137,7 @@ def test_exit_codes_in_the_document_are_the_constants_in_the_code(text):
             cli.EXIT_FAILED,
             cli.EXIT_USAGE,
             cli.EXIT_INCOMPLETE,
+            cli.EXIT_AWAITING,
             cli.EXIT_INTERRUPTED,
         )
     }
