@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 from audit_support import (
+    HANGS_SLUG,
     LONG_AGO,
     NEEDS_LIB_SLUG,
     RIGHT_SLUG,
@@ -11,6 +12,7 @@ from audit_support import (
     Audit,
     branch,
     later,
+    short_timeout_for_hangs,
 )
 
 from boss.audit_report import Observation, collect, render, wilson
@@ -153,3 +155,14 @@ def test_a_forged_audited_line_makes_the_report_refuse(audited, tmp_path):
     assert len(gate_verdicts(read_events(paths.ledger))) == before + 1
     code, said = audited.run("report", "--all", BOSS_AUDIT_HOME=str(copy))
     assert code == 1 and "`audited` event by gate whose signature does not verify" in said
+
+
+def test_a_head_timeout_is_listed_as_inconclusive_and_left_out_of_the_rate(tmp_path, monkeypatch):
+    audit = Audit(tmp_path)
+    assert audit.plan()[0] == 0
+    branch(audit.repo, "hangs", {"slug.py": HANGS_SLUG}, later())
+    short_timeout_for_hangs(monkeypatch)
+    assert audit.check(audit.run_id(), "hangs", "--claim", "done", "--agent", "agent-a")[0] == 3
+    code, said = audit.run("report")
+    assert code == 0 and "[agent-a] pre-registered: inconclusive, 2 counted" in said
+    assert "refuted" not in said.split("False-pass")[0].replace("false-pass", "")
