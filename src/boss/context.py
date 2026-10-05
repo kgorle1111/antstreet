@@ -303,9 +303,10 @@ def verify(paths: RunPaths, events: Sequence[Event]) -> list[str]:
     its file. A run without dispatch records no hash and has nothing to check."""
     latest: dict[tuple[str, int], str] = {}
     for e in events:
-        want = e.data.get("context_sha256")
-        if e.event is EventType.SLICE_START and isinstance(want, str):
-            latest[(e.actor.removeprefix("worker:"), int(e.data.get("slice", 0)))] = want
+        want, number = e.data.get("context_sha256"), e.data.get("slice")
+        # Ledger data is not trusted to be well formed: a bad `slice` skips the line, never raises.
+        if e.event is EventType.SLICE_START and isinstance(want, str) and type(number) is int:
+            latest[(e.actor.removeprefix("worker:"), number)] = want
     problems = []
     for (worker, number), want in sorted(latest.items()):
         try:
