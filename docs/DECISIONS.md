@@ -618,3 +618,15 @@ with a JSON schema.
   `tests/test_stream_messages.py::test_summed_messages_equal_the_recorded_final_totals`. Reopen when
   the CLI streams a per-message cost or the final output count of each response (check
   `--include-partial-messages` first: it was not probed).
+
+### D42: Roles and the core never import the CLI or the benchmark
+
+- Status: `in force`
+- Decision: Nothing under `src/boss/roles/` and none of `rule`, `gate`, `ledger`, `signing`,
+  `sandbox`, `runner`, `worker`, `budget`, `firm`, `pipeline` imports `boss.cli` or `boss.bench`.
+  Shared pieces sit below both: `worker.EXECUTABLE_VAR` and `stats` (interval, rate, Markdown table).
+- Why: `roles.judge` imported `boss.cli` and `boss.bench.table`, so `pipeline` had to import the
+  judge inside a method to avoid the cycle `pipeline -> cli -> roles.judge`. The lazy import hid
+  the inversion instead of fixing it.
+- Rejected: Keeping the lazy import: it works until the next import moves to module level.
+- Evidence: `tests/test_layering.py`.
