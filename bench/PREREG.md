@@ -96,7 +96,7 @@ Added 2026-10-04, before any E6 run.
 - **Fourth arm, `cascade`** (added 2026-10-04, before any E6 run). The same code, prompts, sets and
   per-cell budget, with `--firm-args "--dispatch cascade --max-tier opus"`: Haiku first, then Sonnet,
   then Opus, then Opus at one effort step higher, one rung per task per verified failure (D46). It is
-  compared on cost per delivered task against `fixed-haiku`, `fixed-sonnet` and `dispatch` (v1) at
+  compared on the primary KPI below (cost per assigned cell) against `fixed-haiku`, `fixed-sonnet` and `dispatch` (v1) at
   $0.80 a cell, by the same paired bootstrap. Adopt only if it wins at equal delivery: its interval
   below zero against all three, and the delivery guard below met against each. Each benchmark cell
   is its own project, so no cell has a history and every start is the prior (Haiku); this arm
@@ -141,3 +141,5 @@ equal compute in the literature. They stay off by default and are not claimed to
 - 2026-10-04: added E6 (per-task dispatch), before any run of it.
 - 2026-10-04: added E6's fourth arm, `cascade`, before any run of it.
 - 2026-10-05: E6's decision rule uses the paired cost per assigned cell, the interval the code computes; the pooled cost per delivered task is reported beside it. No E6 run had happened.
+- 2026-10-05: the `cascade` arm is compared on the primary KPI (cost per assigned cell), as every arm
+  is since that day's rule change. No E6 run had happened.
