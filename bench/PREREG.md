@@ -95,12 +95,12 @@ Added 2026-10-04, before any E6 run.
   --parallel 3`, which the dispatch arm adds `--dispatch rules` to).
 - **Fourth arm, `cascade`** (added 2026-10-04, before any E6 run). The same code, prompts, sets and
   per-cell budget, with `--firm-args "--dispatch cascade --max-tier opus"`: Haiku first, then Sonnet,
-  then Opus, then Opus at one effort step higher, one rung per task per verified failure (D50). It is
+  then Opus, then Opus at one effort step higher, one rung per task per verified failure (D46). It is
   compared on cost per delivered task against `fixed-haiku`, `fixed-sonnet` and `dispatch` (v1) at
   $0.80 a cell, by the same paired bootstrap. Adopt only if it wins at equal delivery: its interval
   below zero against all three, and the delivery guard below met against each. Each benchmark cell
   is its own project, so no cell has a history and every start is the prior (Haiku); this arm
-  tests the ladder, not the data-driven start (B104). At $0.80 an Opus rung is funded only if the
+  tests the ladder, not the data-driven start (B105). At $0.80 an Opus rung is funded only if the
   earlier rungs left $0.55 free in the round; rungs refused for money are reported apart (`hired`
   with no worker after a `fired`, `abandoned` reason `cascade: ...`) and count as a failure of the arm.
 - **Primary KPI.** Cost per assigned cell (each cell's total cost, boss call included, delivered

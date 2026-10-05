@@ -22,7 +22,7 @@ what changed for someone using the tool, not which commit did it.
 - The cascade starts each task on the tier with the lowest expected cost for its kind, from this
   project's own past runs, or a stated prior below 5 attempts; the table prints it and a worst case.
 - `boss routing` prints the attempts, fail rate and mean cost behind that choice and names any run
-  the investor key does not vouch for, which is left out (D50, T70, T71).
+  the investor key does not vouch for, which is left out (D46, T70, T71).
 - E6 in `bench/PREREG.md` gains a fourth arm, `cascade`.
 - `boss fund --dispatch rules [--max-tier T]` (off by default): the term sheet shows a route (one
   agent for a one-file idea, else the firm) and a table of each task's model, effort and step-up.

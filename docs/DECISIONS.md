@@ -821,7 +821,7 @@ with a JSON schema.
   `tests/test_firm_dispatch.py::test_a_model_the_cli_did_not_launch_stops_the_run_and_the_slice_is_still_booked`,
   `tests/test_firm_dispatch.py::test_the_ceiling_uses_the_reachable_reserve_so_a_stepped_up_overshoot_is_not_a_breach`.
 
-### D50: The cascade starts each task where its own past runs say the ladder is cheapest
+### D46: The cascade starts each task where its own past runs say the ladder is cheapest
 
 - Status: `under evaluation`
 - Decision: `--dispatch cascade` gives each task a ladder: `haiku`, `sonnet`, `opus` (each at effort
@@ -852,7 +852,7 @@ with a JSON schema.
   signed approval's hash makes the saved sheet trustworthy instead). A model's own estimate of
   difficulty (B53). Pooling all projects (a project's checks, not the world's, decide failure).
   An independent reviewer to verify tasks that have no check (no existing role fits without a
-  second model call per attempt; left out and listed as B102).
+  second model call per attempt; left out and listed as B103).
 - Evidence: `tests/test_cascade.py::test_the_start_tier_is_haiku_when_its_measured_fail_rate_is_low`,
   `tests/test_cascade.py::test_the_start_tier_is_sonnet_when_haikus_measured_fail_rate_is_high`,
   `tests/test_cascade.py::test_the_chooser_uses_the_priors_below_the_sample_minimum_and_says_so`,

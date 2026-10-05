@@ -223,7 +223,7 @@ Everything above holds; the differences are these. Off, none of it runs, and `ru
 
 1. **Choose.** `cli.py` reads this project's earlier runs with `routing.read_runs` (only runs whose
    ledger, term sheet and checks the investor key vouches for), labels each task by `task_kind`,
-   and `routing.choose_start` picks the tier with the least expected cost (D50). `plan_cascade`
+   and `routing.choose_start` picks the tier with the least expected cost (D46). `plan_cascade`
    puts it in the sheet as the task's `tier`, with effort `off`, `escalate_to` the run's top tier
    and one worker per rung. The table prints the kind and `prior` or `measured, n=...`.
 2. **Climb.** `dispatch.cascade_hire` hires the next rung of `dispatch.ladder` only for a firing the
