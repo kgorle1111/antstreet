@@ -89,10 +89,11 @@ def seatbelt_argv(
 # `--dev /dev` replaces it. No --new-session: the gate already starts the check in its own
 # session, and bwrap's setsid() fails for a process that already leads one. Everything else on the
 # host stays readable, so a project under /srv, /opt or /work would expose `<project>/.boss`
-# (investor key, ledger): `hidden` paths are masked after the four roots and before the binds
-# (bwrap applies mounts in argv order), so a bind that lies under a hidden path re-exposes only
-# itself. Upgrade path: an allowlist root (--ro-bind /usr, /lib*, /bin) once it can be verified on
-# a Linux host.
+# (investor key, ledger): `hidden` paths are masked after the four roots and after every bind
+# that is not inside one, but before the binds that are (bwrap applies mounts in argv order): an
+# ancestor bind after a mask would re-expose the secret; one inside a mask re-exposes only itself.
+# Upgrade path: an allowlist root (--ro-bind /usr, /lib*, /bin) once it can be verified on a Linux
+# host.
 _BWRAP_HIDDEN_ROOTS = ("/home", "/root", "/tmp", "/run")
 
 
@@ -117,12 +118,27 @@ def bwrap_argv(
         "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
         "--tmpfs", "/home", "--tmpfs", "/root", "--tmpfs", "/tmp", "--tmpfs", "/run",
     ]  # fmt: skip
-    for path in hidden:
+    masks = {
+        _absolute(path): _mask(path)
+        for path in hidden
         # Under a root above it is already gone, and a mount point there no longer exists.
-        if not any(_absolute(path).startswith(f"{root}/") for root in _BWRAP_HIDDEN_ROOTS):
-            out += _mask(path)
-    for path in readable:
-        out += ["--ro-bind", _absolute(path), _absolute(path)]
+        if not any(_absolute(path).startswith(f"{root}/") for root in _BWRAP_HIDDEN_ROOTS)
+    }
+    masks = {path: part for path, part in masks.items() if part}
+
+    def under_mask(path: Path) -> bool:
+        text = _absolute(path)
+        return any(text == m or text.startswith(f"{m}/") for m in masks)
+
+    # A bind of an ancestor of a mask would re-expose the secret, so it goes first; a bind inside
+    # a mask goes after it, re-exposing only itself.
+    for inside in (False, True):
+        if inside:
+            for part in masks.values():
+                out += part
+        for path in readable:
+            if under_mask(path) == inside:
+                out += ["--ro-bind", _absolute(path), _absolute(path)]
     out += ["--bind", _absolute(writable), _absolute(writable)]
     return [*out, "--", *argv]
 
