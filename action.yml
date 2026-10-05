@@ -1,0 +1,129 @@
+name: "AntStreet audit check"
+description: >-
+  Fail a pull request whose "done" does not hold: run the checks you sealed before the change
+  against the PR's commit with `antstreet audit check`. Offline and free: no model call, no spend.
+author: "AntStreet"
+
+inputs:
+  store:
+    description: >-
+      Path to the audit store that `antstreet audit plan` wrote (the folder that holds `.boss/`),
+      restored by an earlier step from a secret or a private location. It holds the sealed checks and
+      the signing key, so it must never be in the repository the pull request can change.
+    required: true
+  run:
+    description: "The audit run id that `antstreet audit plan` printed."
+    required: true
+  head:
+    description: "The commit to audit. Default: the pull request's head commit, else the pushed one."
+    required: false
+    default: ${{ github.event.pull_request.head.sha || github.sha }}
+  repo:
+    description: "The git checkout that holds the head and the sealed base (full history)."
+    required: false
+    default: ${{ github.workspace }}
+  python-version:
+    description: "Python the checks run under (AntStreet needs 3.12 or newer)."
+    required: false
+    default: "3.12"
+  antstreet-version:
+    description: >-
+      A PyPI version of antstreet to run, such as `0.1.0`. Empty (the default) runs the copy of
+      antstreet that ships with this action, so it works before the PyPI release.
+    required: false
+    default: ""
+
+outputs:
+  verdict:
+    description: "refuted, unrefuted, inconclusive or refused (the check could not be made)."
+    value: ${{ steps.check.outputs.verdict }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      # astral-sh/setup-uv v5.4.2, pinned by commit: a tag can be moved, a commit cannot.
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # The gate sandboxes every check with bwrap on Linux, and the sandbox is required below: a
+    # runner that cannot start it fails the job instead of running checks unsandboxed. Ubuntu 24.04
+    # blocks unprivileged user namespaces unless an AppArmor profile allows them for bwrap alone;
+    # the profile is applied only when that restriction is on. Same step as this project's CI.
+    - name: Install bubblewrap and allow it to create user namespaces
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bubblewrap
+        if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+          sudo tee /etc/apparmor.d/bwrap >/dev/null <<'PROFILE'
+        abi <abi/4.0>,
+        include <tunables/global>
+        profile bwrap /usr/bin/bwrap flags=(unconfined) {
+          userns,
+        }
+        PROFILE
+          sudo apparmor_parser -r /etc/apparmor.d/bwrap
+        fi
+        bwrap --version
+        bwrap --unshare-net --unshare-pid --ro-bind / / --dev /dev --proc /proc true
+
+    - name: Check the sealed checks against the head
+      id: check
+      shell: bash
+      env:
+        # Inputs reach the script as environment variables, never spliced into it.
+        STORE: ${{ inputs.store }}
+        RUN_ID: ${{ inputs.run }}
+        HEAD_REF: ${{ inputs.head }}
+        REPO: ${{ inputs.repo }}
+        ANTSTREET_VERSION: ${{ inputs.antstreet-version }}
+        PY: ${{ inputs.python-version }}
+        ACTION_PATH: ${{ github.action_path }}
+        BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
+      run: |
+        set -u
+        out="$RUNNER_TEMP/antstreet-audit.txt"
+        summary() { printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; }
+        refuse() {
+          echo "verdict=refused" >> "$GITHUB_OUTPUT"
+          echo "::error title=AntStreet audit::$1"
+          summary "### AntStreet audit: REFUSED"
+          summary "$1"
+          exit 1
+        }
+        [ -d "$STORE/.boss/runs" ] || refuse "No audit store at '$STORE' (expected a .boss/runs folder). Restore it from your secret in an earlier step; see README-technical.md, Use it in GitHub Actions."
+        [[ "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || refuse "'run' is not an audit run id."
+        [ -n "$HEAD_REF" ] || refuse "No commit to audit: 'head' is empty."
+        if [ -n "$(git -C "$REPO" ls-files -- "$(cd "$STORE" && pwd)" 2>/dev/null | head -n 1)" ]; then
+          refuse "The audit store is tracked by the repository: the pull request's author could read the sealed checks and the key."
+        fi
+        if [ -n "$ANTSTREET_VERSION" ]; then src="antstreet==$ANTSTREET_VERSION"; else src="$ACTION_PATH"; fi
+        export BOSS_AUDIT_HOME="$STORE"
+        set +e
+        uvx --python "$PY" --from "$src" antstreet audit check "$RUN_ID" --head="$HEAD_REF" --repo="$REPO" --claim=done 2>&1 | tee "$out"
+        code=${PIPESTATUS[0]}
+        set -e
+        verdict=$(sed -n 's/^Verdict: \([A-Z_]*\).*/\1/p' "$out" | head -n 1 | tr 'A-Z' 'a-z')
+        counted=$(sed -n 's/^Counted checks (failing on the base): \([0-9]*\); failing on the head: \([0-9]*\).*/\1 \2/p' "$out" | head -n 1)
+        [ -n "$verdict" ] || verdict=refused
+        echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+        summary "### AntStreet audit: $(echo "$verdict" | tr a-z A-Z)"
+        summary ""
+        summary "| Run | Head | Verdict | Counted checks | Failing on the head |"
+        summary "|---|---|---|---|---|"
+        summary "| \`$RUN_ID\` | \`${HEAD_REF:0:12}\` | $verdict | ${counted%% *} | ${counted##* } |"
+        summary ""
+        summary '```text'
+        cat "$out" >> "$GITHUB_STEP_SUMMARY"
+        summary '```'
+        case "$code:$verdict" in
+          0:unrefuted) echo "::notice title=AntStreet audit::Unrefuted: no sealed check fails on the head. That is not proof." ;;
+          0:*) ;;
+          *:refuted) echo "::error title=AntStreet audit::Refuted: a sealed check that fails on the base still fails on the head, so this change is not done." ;;
+          *:inconclusive) echo "::error title=AntStreet audit::Inconclusive: the sealed checks could not speak for this change (see the summary)." ;;
+          *) echo "::error title=AntStreet audit::The audit could not be made (see the summary)." ;;
+        esac
+        exit "$code"

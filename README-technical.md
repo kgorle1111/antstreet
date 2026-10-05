@@ -144,6 +144,78 @@ The verdict is `refuted`, `unrefuted`, `inconclusive` or `no_claim`. `unrefuted`
 sealed checks catch only what they test. The agent never sees the checks, and the verdict is
 signed. Full rules: [docs/CLI.md](docs/CLI.md).
 
+## Use it in GitHub Actions
+
+The repository root holds a composite action, `action.yml`. It runs `antstreet audit check
+--claim done` on a pull request's head commit and fails the job on `refuted` or `inconclusive`
+(exit 3) or on any refusal (exit 1). It runs nothing else: no `plan`, no `fund`, no model call, no
+spend. It writes the verdict table and the check's own output to the job summary.
+
+What it cannot do alone: `audit check` needs the **audit store** that `audit plan` wrote on your
+machine (`~/.boss-audit`, see [docs/CLI.md](docs/CLI.md)): the sealed checks, the signed ledger and
+`.boss/investor.key`. The store must not be in the repository, or the pull request's author can read
+the checks and forge the verdict. So you seal on your machine, pack the one run you want, store it as
+an encrypted repository secret, and a step before the action unpacks it. The action refuses a store
+that the repository tracks.
+
+```bash
+# on your machine, once per sealed run (RUN is the id `plan` printed)
+tar -C ~/.boss-audit -czf - .boss/runs/RUN .boss/investor.key .boss/anchors | base64 | gh secret set ANTSTREET_STORE
+# a secret holds up to 48 KB: a few small checks fit; the store has one run's files, nothing else
+```
+
+```yaml
+# .github/workflows/antstreet.yml
+name: AntStreet audit
+on: pull_request
+permissions:
+  contents: read          # all the action needs; it never writes to the repository
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the sealed base commit must be in the history
+      - name: Restore the audit store
+        env:
+          STORE_B64: ${{ secrets.ANTSTREET_STORE }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/audit-store"
+          printf '%s' "$STORE_B64" | base64 -d | tar -xzf - -C "$RUNNER_TEMP/audit-store"
+      - uses: kgorle1111/antstreet@main   # pin a commit in real use
+        with:
+          store: ${{ runner.temp }}/audit-store
+          run: 20261005T154252Z-b68e86     # the id `antstreet audit plan` printed
+```
+
+| Input | Default | Meaning |
+|---|---|---|
+| `store` | required | The restored audit store (the folder that holds `.boss/`). |
+| `run` | required | The audit run id. |
+| `head` | the PR head, else the pushed commit | The commit to audit. |
+| `repo` | the workspace | The checkout that holds the head and the base. |
+| `python-version` | `3.12` | Python the checks run under. |
+| `antstreet-version` | empty | A PyPI version. Empty runs the copy that ships with the action (`uvx --from <action path> antstreet`), so it works before the PyPI release. |
+
+The output `verdict` is `refuted`, `unrefuted`, `inconclusive` or `refused`.
+
+- **Sandbox required.** On Linux the step installs `bubblewrap` and sets `BOSS_GATE_SANDBOX=require`,
+  so a runner that cannot start it fails the job instead of running checks unsandboxed.
+  `setup-uv` is pinned by commit.
+- **Secrets.** A pull request from a fork gets no secrets, so the audit refuses with "No audit
+  store" there. A pull request from the same repository can edit the workflow and print the secret:
+  keep the secret in an [environment](https://docs.github.com/en/actions/deployment/targeting-different-environments)
+  with required reviewers, or run the audit from a ruleset-required workflow the author cannot edit.
+  This is the same single-key trust as [T29](docs/THREAT_MODEL.md#t29); the verdict is as strong as
+  who can read that secret.
+- **One run per pull request.** The run id names one request's sealed checks. A repository that
+  audits several requests needs one workflow per run id (or a matrix over them).
+- **`unrefuted` is not proof**, and `inconclusive` (no check failed on the base, a check could not
+  run, or the change quotes the sealed checks) fails the job on purpose: a "done" the checks could
+  not test is not a pass. See [docs/CLI.md](docs/CLI.md) for the verdict rules.
+
 ## Requirements
 
 - macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/)
@@ -203,6 +275,7 @@ uv run boss resume    # continue the latest run: interrupted, paused or stopped
 uv run boss topup --round 1 --amount 0.20   # add money to a round; reopens a locked one
 uv run boss report    # the latest run's board report
 uv run boss status    # one line: last event, checks passing, spend
+uv run boss routing   # the start tier `--dispatch cascade` would pick per task kind, from past runs
 uv run boss verify    # offline integrity check: ledger chain, signatures, saved prompts
 uv run boss roles     # the organisation: roles, worker profiles and their skills
 uv run boss doctor    # check this machine; --live adds the two paid calls above
@@ -338,9 +411,10 @@ Early. It works end to end and the tests are deep, but it is pre-release.
 - Single machine, single user.
 - Built, not yet installable: a Claude Code plugin (it needs the repository public and the PyPI
   release, see [Use it from Claude Code](#use-it-from-claude-code)).
-- Planned, not built: a PyPI release (the name is `antstreet`; nothing is published yet), and a
-  GitHub Action that runs `boss audit check` on a pull request
-  (see [docs/BACKLOG.md](docs/BACKLOG.md)).
+- Planned, not built: a PyPI release (the name is `antstreet`; nothing is published yet).
+- Built, with a manual step: a GitHub Action that runs `boss audit check` on a pull request
+  ([Use it in GitHub Actions](#use-it-in-github-actions)); you carry the sealed store to the
+  runner yourself (see [docs/BACKLOG.md](docs/BACKLOG.md), B78).
 
 ## Documentation
 

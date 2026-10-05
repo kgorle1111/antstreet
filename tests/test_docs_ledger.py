@@ -17,7 +17,7 @@ from docs_support import DOCS, ROOT, code_spans, fake_claude, read, run_cli, sec
 
 from boss import budget, held_out, pipeline, state
 from boss.approval import content_hashes
-from boss.dispatch import DispatchPolicy, plan_dispatch
+from boss.dispatch import DispatchPolicy, plan_cascade, plan_dispatch
 from boss.errors import Outcome
 from boss.firm import FirmConfig, run_firm
 from boss.gate import run_gate
@@ -341,6 +341,16 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
             config=on,
         )
     )
+    ladder = FirmConfig(dispatch=True, cascade=True, max_tier="opus")
+    cascaded = plan_cascade(
+        sheet((Round(1, 5_000_000, 2),)),
+        starts={"t1": "haiku"},
+        profile=None,
+        policy=DispatchPolicy("opus", 100_000, cascade=True),
+        reads={},
+    )
+    runs.append(firm_events(where("cascade"), ModelScript(
+        step(BAD), step(BAD), step(GOOD, "done")), cascaded, config=ladder))  # fmt: skip
     runs.append(firm_events(where("wrong-model"), ModelScript(
         step(HALF), ran="claude-sonnet-4-5-20250929"), dispatched(), config=on,
         expect=ModelMismatchError))  # fmt: skip

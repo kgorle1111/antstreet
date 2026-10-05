@@ -223,6 +223,7 @@ Config keys:
 | `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. Set by `boss fund --worker-thinking N`. A run started before the key existed loads with `null`. |
 | `dispatch` | bool | `true` when the run uses `--dispatch rules`. Written only then; a run without it has neither this key nor `max_tier`. |
 | `max_tier` | str | The dearest tier dispatch may use (`--max-tier`, default `sonnet`). Written only with `dispatch`. |
+| `cascade` | bool | `true` when the run uses `--dispatch cascade` (then `dispatch` is `true` too). Written only then; a run without it has no such key. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
@@ -274,16 +275,16 @@ Example:
 | `model` | str | The worker model: the run's `--model`, or, under `--dispatch rules`, the tier the term sheet gave this worker (a step up included). A resume runs the worker on this one, not on the config's. |
 | `prompt` | str | The builder prompt file the worker runs under. |
 | `profile` | str or null | The worker profile in force (`started`'s `config.profile`, or the task's `dispatch.profile`); `null` for none. |
-| `dispatch` | object | Why this worker is on this model. Only under `--dispatch rules`. Keys below. |
+| `dispatch` | object | Why this worker is on this model. Only under `--dispatch rules` or `cascade`. Keys below. |
 
 Dispatch keys:
 
 | Key | Type | Meaning |
 |---|---|---|
 | `tier` | str | `haiku`, `sonnet` or `opus`; the same as `model`. |
-| `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). |
+| `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). Under the cascade, `off` on every rung but the last, which is `default`. |
 | `why` | str | `term sheet` for a task's first worker; for a replacement, `predecessor fired: ` and the gate's reason (`no progress` or `slice limit`) and its stalled slices. |
-| `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier. |
+| `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier (under the cascade: the last rung, one effort step higher). |
 | `refused` | str | Why the step the task allowed was not taken (the round could not fund the next tier, or stepping up is off for the task). Only on a replacement. |
 
 Example:
