@@ -29,12 +29,18 @@ SLOW = (
 )
 SHARD_ENV = "BOSS_SHARD"
 TIMEOUT_ENV = "BOSS_TEST_TIMEOUT_S"
+_REAL_STDERR = None
 
 
 def pytest_configure(config):
     # A shell starts a backgrounded command (`pytest &`) with SIGINT ignored, and Python keeps it
     # ignored, so the fakes' simulated Ctrl-C would be dropped and every interrupt test would fail.
     signal.signal(signal.SIGINT, signal.default_int_handler)
+    # pytest captures fd 2 during a test, so a dump written to sys.stderr then went to the capture
+    # file and was lost with the process: CI showed a silent 15 minute hang ending in exit 1. This
+    # is a copy of the real stderr, taken while capture is off.
+    global _REAL_STDERR
+    _REAL_STDERR = os.fdopen(os.dup(2), "w")
 
 
 def parse_shard(raw: str) -> tuple[int, int]:
@@ -81,10 +87,12 @@ def pytest_runtest_protocol(item, nextitem):
     """`BOSS_TEST_TIMEOUT_S=N` ends the process, with every thread's stack on stderr, when one test
     takes longer than N seconds. A hung test then fails its CI job in minutes instead of holding it
     to the job's timeout (under xdist the worker dies and the run reports the test it was on).
-    Not a pytest-timeout: no per-test failure that lets the rest of that worker continue."""
+    Not a pytest-timeout: no per-test failure that lets the rest of that worker continue. Not
+    pytest's faulthandler_timeout either: faulthandler keeps one pending dump, so the two would
+    cancel each other."""
     limit = float(os.environ.get(TIMEOUT_ENV, "0") or 0)
     if limit > 0:
-        faulthandler.dump_traceback_later(limit, exit=True)
+        faulthandler.dump_traceback_later(limit, exit=True, file=_REAL_STDERR)
     try:
         yield
     finally:
