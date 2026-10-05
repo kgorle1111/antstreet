@@ -111,9 +111,9 @@ def test_the_engineering_figures_are_the_repos(text):
     assert re.search(r"^strict = true", read(ROOT / "pyproject.toml"), re.M)
     assert "`mypy --strict`" in text and "typed-mypy%20strict" in text
     threats = re.findall(r"^\| T(\d+) ", read(DOCS / "THREAT_MODEL.md"), re.M)
-    assert len(threats) == 69 and "A threat model with 69 rows" in text
+    assert len(threats) == 71 and "A threat model with 71 rows" in text
     decisions = re.findall(r"^### D\d+:", read(DOCS / "DECISIONS.md"), re.M)
-    assert len(decisions) == 45 and "**45 recorded design decisions**" in text
+    assert len(decisions) == 46 and "**46 recorded design decisions**" in text
     experiments = re.findall(r"^## E\d+\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
     assert len(experiments) == 6 and "six experiments fixed before any run" in text
     assert "macOS seatbelt; Linux `bwrap`, run and required in CI" in text

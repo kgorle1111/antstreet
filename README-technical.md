@@ -275,6 +275,7 @@ uv run boss resume    # continue the latest run: interrupted, paused or stopped
 uv run boss topup --round 1 --amount 0.20   # add money to a round; reopens a locked one
 uv run boss report    # the latest run's board report
 uv run boss status    # one line: last event, checks passing, spend
+uv run boss routing   # the start tier `--dispatch cascade` would pick per task kind, from past runs
 uv run boss verify    # offline integrity check: ledger chain, signatures, saved prompts
 uv run boss roles     # the organisation: roles, worker profiles and their skills
 uv run boss doctor    # check this machine; --live adds the two paid calls above
