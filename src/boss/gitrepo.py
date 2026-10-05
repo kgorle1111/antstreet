@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ MAX_EXPORT_BYTES = 512 * 1024 * 1024  # file bytes in one exported tree
 MAX_REF_CHARS = 255
 _HEX = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 _ERROR_CHARS = 300
+_ERROR_BYTES = 4096  # stderr kept for a failure message; the rest is read and dropped
 _HARDEN = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=")
 _REF_HINT = "a branch, tag or full commit hash"
 
@@ -81,8 +83,15 @@ def _env() -> dict[str, str]:
     }
 
 
-def _command(args: Sequence[str], gitdir: Path | None, worktree: Path | None) -> list[str]:
+def _command(
+    args: Sequence[str],
+    gitdir: Path | None,
+    worktree: Path | None,
+    config: Sequence[str] = (),
+) -> list[str]:
     cmd = [_git_binary(), *_HARDEN]
+    for setting in config:
+        cmd += ["-c", setting]
     if gitdir is not None:
         cmd.append(f"--git-dir={gitdir}")
     if worktree is not None:
@@ -90,9 +99,19 @@ def _command(args: Sequence[str], gitdir: Path | None, worktree: Path | None) ->
     return [*cmd, *args]
 
 
-def _popen(cmd: list[str], cwd: Path, **kwargs: Any) -> subprocess.Popen[bytes]:
+def _popen(
+    cmd: list[str], cwd: Path, *, env: dict[str, str] | None = None, **kwargs: Any
+) -> subprocess.Popen[bytes]:
     """The one place a process is started."""
-    return subprocess.Popen(cmd, cwd=cwd, env=_env(), stdin=subprocess.DEVNULL, **kwargs)
+    env = _env() if env is None else env
+    return subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, **kwargs)
+
+
+def _drain(stream: Any, keep: list[bytes]) -> None:
+    """Keep the first `_ERROR_BYTES` of a stream; read the rest away so the child never blocks."""
+    keep.append(stream.read(_ERROR_BYTES))
+    while stream.read(65536):
+        pass
 
 
 def _run(
@@ -103,25 +122,55 @@ def _run(
     worktree: Path | None = None,
     ok: tuple[int, ...] = (0,),
     timeout_s: float = TIMEOUT_S,
+    config: Sequence[str] = (),
+    env: dict[str, str] | None = None,
 ) -> tuple[int, bytes]:
     proc = _popen(
-        _command(args, gitdir, worktree), cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        _command(args, gitdir, worktree, config),
+        cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
-    try:
-        # kn: a command's output is held in memory under a cap; stream it if histories grow
-        out, err = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
+    assert proc.stdout is not None and proc.stderr is not None
+    timed_out = threading.Event()
+
+    def expire() -> None:
+        timed_out.set()
         proc.kill()
-        proc.communicate()
+
+    timer = threading.Timer(timeout_s, expire)
+    err: list[bytes] = []
+    drain = threading.Thread(target=_drain, args=(proc.stderr, err), daemon=True)
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        timer.start()
+        drain.start()
+        while chunk := proc.stdout.read1(65536):  # type: ignore[attr-defined]
+            size += len(chunk)
+            if size > MAX_OUTPUT_BYTES:
+                break
+            chunks.append(chunk)
+    finally:
+        timer.cancel()
+        if size > MAX_OUTPUT_BYTES:
+            proc.kill()
+        proc.wait()
+        drain.join()
+        proc.stdout.close()
+        proc.stderr.close()
+    if timed_out.is_set():
         raise _fail(
             f"git {args[0]}", f"it ran longer than {timeout_s:.0f}s", "a smaller range"
         ) from None
-    if proc.returncode not in ok:
-        why = safe_text(err.decode("utf-8", "replace").strip(), limit=_ERROR_CHARS)
-        raise _fail(f"git {args[0]}", why or f"it exited {proc.returncode}", "checking the repo")
-    if len(out) > MAX_OUTPUT_BYTES:
+    if size > MAX_OUTPUT_BYTES:
         raise _fail(f"git {args[0]}", "its output is over the size cap", "a smaller range")
-    return proc.returncode, out
+    if proc.returncode not in ok:
+        text = (err[0] if err else b"").decode("utf-8", "replace").strip()
+        why = safe_text(text, limit=_ERROR_CHARS)
+        raise _fail(f"git {args[0]}", why or f"it exited {proc.returncode}", "checking the repo")
+    return proc.returncode, b"".join(chunks)
 
 
 def _gitdir(repo: Path) -> Path:
@@ -182,27 +231,80 @@ def resolve(repo: Path, ref: str) -> str:
     return sha
 
 
+_CONFIG_VALUES = {
+    "core.fileMode": ("bool", ("true", "false")),
+    "core.ignoreCase": ("bool", ("true", "false")),
+    "core.autocrlf": (None, ("true", "false", "input")),
+}
+
+
+def _config_env() -> dict[str, str]:
+    """The scrubbed environment plus where the caller's own global config lives, for reading
+    values only: `git config --get` runs no program."""
+    env = _env()
+    del env["GIT_CONFIG_GLOBAL"]
+    for name in ("HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"):
+        if name in os.environ:
+            env[name] = os.environ[name]
+    return env
+
+
+def _config_get(root: Path, gitdir: Path, key: str, kind: str | None) -> str | None:
+    """A value from the repository's own config file (which wins) or else the caller's global one.
+    A value git cannot read, or an include, is simply absent."""
+    flag = [f"--type={kind}"] if kind else []
+    for where in (["--file", str(gitdir / "config")], ["--global"]):
+        code, out = _run(
+            ["config", *where, *flag, "--get", key],
+            gitdir=None, cwd=root, ok=(0, 1, 128), env=_config_env(),
+        )  # fmt: skip
+        if code == 0:
+            return out.decode("utf-8", "replace").strip()
+    return None
+
+
+def _view_settings(root: Path, gitdir: Path) -> tuple[list[str], list[str]]:
+    """(`-c` overrides, ls-files arguments) carrying over how the real repository ignores files and
+    reads file modes. Only whitelisted values of three settings are copied, and the ignore file as
+    a path git reads patterns from. Nothing that names a program (filters, fsmonitor, hooks,
+    textconv, external diff) is read."""
+    config: list[str] = []
+    for key, (kind, allowed) in _CONFIG_VALUES.items():
+        value = _config_get(root, gitdir, key, kind)
+        if value is not None and value.lower() in allowed:
+            config.append(f"{key}={value.lower()}")
+    excludes = _config_get(root, gitdir, "core.excludesFile", "path")
+    if excludes and "\n" not in excludes:
+        path = Path(excludes)
+        if path.is_absolute() and path.is_file() and os.access(path, os.R_OK):
+            return config, [f"--exclude-from={path}"]
+    return config, []
+
+
 def is_clean(repo: Path) -> bool:
     """No staged change, modified or deleted tracked file, or untracked file that is not ignored.
 
     Plumbing only and read-only. It runs in an object view holding a copy of the index, not in the
     repository: comparing a file with the index runs its `clean` filter when the timestamp moved,
     and the repository's config is what defines filters. With no config in the view a filter named
-    by `.gitattributes` is skipped. `ls-files` compares content, so `touch` is not a change.
-    Submodule contents are not looked into; a split index is refused with git's message.
+    by `.gitattributes` is skipped. The settings that decide what counts as a change or as ignored
+    (`core.excludesFile`, `fileMode`, `autocrlf`, `ignoreCase`) are read and passed in as
+    whitelisted values. `ls-files` compares content, so `touch` is not a change. Submodule contents
+    are not looked into; a split index is refused with git's message.
     """
     root = Path(repo).resolve()
     head = resolve(root, "HEAD")
+    config, excludes = _view_settings(root, _gitdir(root))
     with _object_view(root, with_index=True) as (view, cwd):
         code, _ = _run(
             ["diff-index", "--cached", "--quiet", head, "--"],
-            gitdir=view, worktree=root, cwd=root, ok=(0, 1),
+            gitdir=view, worktree=root, cwd=root, ok=(0, 1), config=config,
         )  # fmt: skip
         if code != 0:
             return False
         _, out = _run(
-            ["ls-files", "-z", "--modified", "--others", "--exclude-standard"],
-            gitdir=view, worktree=root, cwd=root,
+            ["ls-files", "-z", "--modified", "--others", "--exclude-standard", *excludes],
+            gitdir=view, worktree=root, cwd=root, config=config,
         )  # fmt: skip
     return not out
 
