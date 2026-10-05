@@ -198,6 +198,7 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- Docs no longer call the benchmark's hidden checks, mutants and labels "hand-written": Claude wrote them, apart from the agents measured. The 29 false passes are now "read and judged real errors", one class debatable.
 - `python -m boss.bench.run` refuses a saved cell that ran with another task set, model, budget
   or firm options, instead of counting it as this run's. Two arms of one name (the firm with and
   without `--roles critic`) each need their own results folder.
