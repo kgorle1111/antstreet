@@ -173,6 +173,7 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
         "bench/audit.py",
         "roles/judge.py",
         "gate.py",
+        "gitrepo.py",
         "sandbox.py",
     }
     for module in ("gate", "sandbox", "bench.drafts", "bench.audit", "roles.judge"):
