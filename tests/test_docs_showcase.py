@@ -116,7 +116,7 @@ def test_the_engineering_figures_are_the_repos(text):
     assert len(decisions) == 45 and "**45 recorded design decisions**" in text
     experiments = re.findall(r"^## E\d+\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
     assert len(experiments) == 6 and "six experiments fixed before any run" in text
-    assert "macOS seatbelt; Linux `bwrap` is set up for CI but not yet confirmed there" in text
+    assert "macOS seatbelt; Linux `bwrap`, run and required in CI" in text
     assert "Python 3.12+" in text and "python-3.12%2B" in text
     assert "license-Apache--2.0" in text
     assert "Apache License, Version 2.0" in read(ROOT / "LICENSE")

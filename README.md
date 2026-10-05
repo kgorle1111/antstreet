@@ -105,7 +105,7 @@ Built like something you would be happy to inherit.
 - **A threat model with 69 rows**, each bound to a test that proves its control
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
-- **A sandboxed gate**: macOS seatbelt; Linux `bwrap` is set up for CI but not yet confirmed there.
+- **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
 - **A blinded, pre-registered benchmark**: six experiments fixed before any run
   ([bench/PREREG.md](bench/PREREG.md)).
 - **45 recorded design decisions**, including what was rejected and why

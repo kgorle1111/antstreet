@@ -271,7 +271,7 @@ Limits you should know:
 
 - **The tool whitelist is not a sandbox, and the gate's sandbox is partial.** The gate executes the
   code a worker wrote, on your machine, with a filtered environment and a timeout. On macOS that
-  runs under a deny-by-default profile; on Linux the `bwrap` version is set up to run in CI but not yet confirmed by a passing run; with no
+  runs under a deny-by-default profile; on Linux the `bwrap` version runs, and is required (`BOSS_GATE_SANDBOX=require`), in CI; with no
   working tool, checks run with your full access (`boss doctor` warns; `BOSS_GATE_SANDBOX=require`
   refuses). Do not run ideas from sources you do not trust. Container isolation is not built.
 - Code written to target the gate's own process can still fake a pass (T12 in the threat model).
