@@ -20,8 +20,9 @@ from typing import NamedTuple
 from boss.bench.results import CellResult, cell_dir, load_results
 from boss.bench.table import _counted, _duration, _visible_pass
 from boss.kpi import investor_questions, single_said_done
-from boss.ledger import Event, LedgerError, read_events
+from boss.ledger import Event, LedgerError
 from boss.report import dollars
+from boss.rundir import RunPaths
 from boss.stats import md_table, pct, rate
 
 CellKey = tuple[str, str, int]  # (task, arm, rep)
@@ -198,7 +199,7 @@ def load_ledger(cell: Path) -> list[Event] | None:
     if len(found) != 1:
         return None
     try:
-        return read_events(found[0])
+        return RunPaths(found[0].parent).events()
     except (OSError, LedgerError):
         return None
 

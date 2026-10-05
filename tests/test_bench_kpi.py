@@ -545,3 +545,25 @@ def test_the_command_says_no_results_found_and_prints_the_table_without_extra_ne
     c.save(cell_dir(tmp_path / "run", c.task, c.arm, c.rep))
     assert main([str(tmp_path / "run")]) == 0
     assert capsys.readouterr().out.endswith(kpi.NOTE + "\n")
+
+
+def _forged_firm_cell(root: Path) -> Path:
+    """A firm cell whose run was signed, with a `check_result passed` appended without the key."""
+    from boss.rundir import RunPaths
+
+    run = RunPaths(root / ".boss" / "runs" / "r1")
+    with run.writer() as ledger:
+        ledger.append(Event(run="r1", round=1, actor="gate", event=EventType.CHECK_RESULT,
+                            data={"check": "c01", "status": "failed"}))  # fmt: skip
+    with LedgerWriter(run.ledger) as ledger:
+        ledger.append(Event(run="r1", round=1, actor="gate", event=EventType.CHECK_RESULT,
+                            data={"check": "c01", "status": "passed"}))  # fmt: skip
+    return root
+
+
+def test_a_firm_ledger_is_read_with_its_project_key_so_a_keyless_append_is_not_counted(tmp_path):
+    assert kpi.load_ledger(_forged_firm_cell(tmp_path / "cell")) is None
+    plain = tmp_path / "single"  # the single arm's ledger has no project and no key to check
+    with LedgerWriter(plain / "ledger.jsonl") as ledger:
+        ledger.append(Event(run="r1", round=1, actor="worker:solo", event=EventType.SLICE_START))
+    assert kpi.load_ledger(plain) is not None
