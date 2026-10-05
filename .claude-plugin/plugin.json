@@ -1,0 +1,10 @@
+{
+  "name": "antstreet",
+  "displayName": "AntStreet",
+  "version": "0.0.1",
+  "description": "Fund an idea from Claude Code: you approve the checks first, a sandboxed gate outside the agent decides what passed, and a signed ledger records it.",
+  "author": { "name": "Kannishk Naidu Gorle" },
+  "repository": "https://github.com/kgorle1111/antstreet",
+  "license": "Apache-2.0",
+  "keywords": ["verification", "agents", "pytest", "ledger", "budget"]
+}

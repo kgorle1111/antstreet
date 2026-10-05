@@ -25,12 +25,12 @@ def run(*history: SliceRecord, policy: FiringPolicy = POLICY) -> Verdict:
 
 
 def test_empty_history_raises() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="non-empty history and a non-empty task_checks"):
         decide(CHECKS, [], POLICY)
 
 
 def test_empty_task_checks_raises() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="non-empty history and a non-empty task_checks"):
         decide(frozenset(), [rec(1, {"a"})], POLICY)
 
 
@@ -352,3 +352,9 @@ def test_firing_policy_counts_must_be_whole_numbers(bad) -> None:
         FiringPolicy(stall_slices=bad)
     with pytest.raises(ValueError, match="whole number"):
         FiringPolicy(max_slices=bad)
+
+
+def test_every_slice_with_unknown_cost_is_counted() -> None:
+    v = run(rec(1, cost=None), rec(2, cost=None), rec(3, {"a"}, cost=50))
+    assert v.evidence["unknown_cost_slices"] == 2
+    assert v.evidence["spent_micros"] == 50
