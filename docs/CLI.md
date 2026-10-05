@@ -11,7 +11,7 @@ Every command also accepts `-h` and `--help`.
 ## `boss`
 
 `boss [--version] <command> ...` where the command is `fund`, `resume`, `topup`, `report`,
-`status`, `roles`, `doctor`, `mcp` or `audit` (which has three steps of its own: `audit plan`, `audit check`
+`status`, `verify`, `roles`, `doctor`, `mcp` or `audit` (which has three steps of its own: `audit plan`, `audit check`
 and `audit report`).
 
 | Option | Default | Meaning |
@@ -216,6 +216,18 @@ Argument: `run`, as for `report`.
 |---|---|---|
 | `--dir` | `.` | Project folder. |
 
+## `boss verify`
+
+`boss verify [--dir DIR] [RUN]`. Checks a run's integrity and nothing else: the ledger's hash chain,
+the investor's signatures, and every saved worker prompt against the hash its `slice_start`
+recorded. Offline, no model call. Prints one line when everything holds, otherwise one line per
+problem. Argument: `run`, as for `report`; a run id that is not a folder under `.boss/runs/` is a
+usage error.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder. |
+
 ## `boss roles`
 
 `boss roles [--dir DIR]`. Prints the organisation as a tree: the investor, the boss, then the
@@ -392,9 +404,9 @@ Argument: `run`, an audit run id. Default: the latest.
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. `mcp`: stdin closed. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
-| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
+| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `verify`: no runs, or a run id that does not exist. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
 | `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
 | `130` | `fund`, `resume`, `audit plan`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 

@@ -10,6 +10,7 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss verify [RUN]`: an offline check of a run's hash chain, signatures and saved prompts, with no model call. Exit 0 when it all verifies, 1 with one line per problem, 2 for no such run.
 - `boss mcp`: a read-only MCP server on stdio for any MCP client (`list_runs`, `status`, `report`, `verify_ledger`, `doctor` without `--live`); no tool can spend or approve.
 - A Claude Code plugin in the repository (`/antstreet:fund`, `/antstreet:report`,
   `/antstreet:status`), installable once the repository is public and `antstreet` is on PyPI.
