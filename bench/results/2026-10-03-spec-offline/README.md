@@ -1,7 +1,7 @@
 # 2026-10-03-spec-offline
 
 Does the rule layer in `src/boss/spec.py` find what the boss's checks leave out? Measured on saved
-drafts, hand labels and hand-written mutants. No model call and no spend. The full report, as
+drafts, labels and mutants written by Claude. No model call and no spend. The full report, as
 `python -m boss.bench.spec_eval all o4b --raw bench/results/raw` printed it, is `report.md`.
 
 Criteria were committed before the first run (`bench/spec_truth/CRITERIA.md`, commit `c53720d`); the
