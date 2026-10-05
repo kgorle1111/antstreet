@@ -1,7 +1,7 @@
 [project]
 name = "antstreet"
 version = "0.0.1"
-description = "AntStreet: fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
+description = "Make AI coding agents prove their work: pytest checks you approve first, a sandboxed gate outside the agent, a signed ledger and budget caps."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

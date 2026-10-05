@@ -1,5 +1,7 @@
 <div align="center">
 
+# AntStreet: make AI coding agents prove their work
+
 <img src="docs/assets/hero.svg" alt="AntStreet: your AI agents get paid when the checks pass." width="100%">
 
 ![license Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -43,15 +45,19 @@ strings are the real ones. Try it yourself in [the quickstart](#-quickstart).
 
 ## 🧨 The problem
 
-Agents say "done" and mean "I stopped". We measured how often that is wrong.
+Agents say "done" and mean "I stopped". We measured a narrower thing: how often a run can satisfy the checks the model drafted and still be wrong.
 
 > **29 of 77 runs (38%, 95% interval 28-49%)** passed every check the model had written and still
 > failed a hand-written check it never saw. Every one of the 29 was a real error against the task text.
+> These were firm runs (the boss drafting checks, workers building), not a general agent failure rate.
 
 Caveats, kept on purpose: 17 small Python tasks, Haiku writing both the checks and the code, and
 runs of one task are not independent (resampling tasks widens the interval to 20-57%). 13 of the 29
 failed only on non-ASCII input or a returned type; without those, 16 of 77 (21%). Read the
 [false-pass audit](bench/results/2026-10-03-false-pass-audit/README.md).
+
+The gate passed those runs: it only runs the checks it is given. That is why you read and approve
+the checks first, and why the stat measures weak checks, not the gate.
 
 ## 🧪 We measure, and we publish the "no"
 
@@ -60,7 +66,7 @@ and never shown to any agent.
 
 | | passed | cost per task |
 |---|---|---|
-| firm (`boss`) | 64 of 105 (61%) | $0.2149 |
+| AntStreet (boss + ants) | 64 of 105 (61%) | $0.2149 |
 | one agent | 62 of 105 (59%) | $0.0883 |
 
 **Paired by task, the difference is not shown, and the firm cost about 2.4 times as much.** So we
@@ -116,14 +122,14 @@ You need macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/) and
 git clone https://github.com/kgorle1111/antstreet.git
 cd antstreet
 uv sync
-uv run boss doctor --live        # checks this machine; two paid calls of at most $0.05 each
-uv run boss fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
+uv run antstreet doctor --live      # checks this machine; two paid calls of at most $0.05 each
+uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
 ```
 
 After the PyPI release (not yet published), `uvx antstreet fund "..." --budget 0.40` will work
-without a clone. `boss fund` shows the term sheet and waits for your yes. Then `uv run boss report` reprints the
-board report, and `uv run boss resume` continues an interrupted run. Every command and option:
-[docs/CLI.md](docs/CLI.md). It also audits someone else's agent: `boss audit` seals checks before the
+without a clone. `antstreet fund` shows the term sheet and waits for your yes. Then `uv run antstreet report` reprints the
+board report, and `uv run antstreet resume` continues an interrupted run. Every command and option:
+[docs/CLI.md](docs/CLI.md). It also audits someone else's agent: `antstreet audit` seals checks before the
 agent starts and tests its commit afterwards.
 
 ## 🧭 Status and honest limits

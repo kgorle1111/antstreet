@@ -78,7 +78,7 @@ def test_the_blinded_benchmark_figures_are_the_runs_table(text):
     assert (firm[1], firm[3], firm[4], firm[6]) == ("105", "64", "61% [51-70%]", "$0.2149")
     assert (single[1], single[3], single[4], single[6]) == ("105", "62", "59% [49-68%]", "$0.0883")
     assert round(0.2149 / 0.0883, 1) == 2.4
-    assert "| firm (`boss`) | 64 of 105 (61%) | $0.2149 |" in text
+    assert "| AntStreet (boss + ants) | 64 of 105 (61%) | $0.2149 |" in text
     assert "| one agent | 62 of 105 (59%) | $0.0883 |" in text
     for phrase in (
         "35 tasks, three runs each, $0.40 a task",
