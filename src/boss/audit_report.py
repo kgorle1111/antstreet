@@ -10,7 +10,6 @@ was seen.
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +17,7 @@ from pathlib import Path
 from boss.audit import AuditError, run_paths, runs_in
 from boss.audit_check import MODES, VERDICTS
 from boss.ledger import audited
+from boss.stats import wilson_interval
 
 Z95 = 1.959964  # the normal quantile for a two-sided 95% interval
 NO_AGENT = "(no label)"
@@ -47,10 +47,7 @@ def wilson(refuted: int, n: int, z: float = Z95) -> tuple[float, float] | None:
     """The Wilson score interval for `refuted` of `n`; None when there is nothing to divide."""
     if n <= 0 or not 0 <= refuted <= n:
         return None
-    p = refuted / n
-    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return max(0.0, centre - half), min(1.0, centre + half)
+    return wilson_interval(refuted, n, z)
 
 
 def collect(store: Path, run_ids: list[str], agent: str | None = None) -> list[Observation]:

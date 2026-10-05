@@ -40,7 +40,8 @@ def test_the_commands_ci_runs_are_the_ones_stated(text):
         "uv run ruff format --check .",
         "uv run mypy",
         'uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30',
-        "uv run pytest -m sigint --cov --cov-append --cov-report=term-missing --cov-fail-under=96",
+        "uv run pytest -n 0 -m sigint --cov --cov-append --cov-report= || [ $? -eq 5 ]",
+        "uv run coverage report --show-missing --fail-under=96",
     ]
     for command in stated:
         assert command in text, f"CONTRIBUTING.md does not state: {command}"
@@ -77,10 +78,22 @@ def test_ci_installs_bubblewrap_and_requires_the_sandbox_on_linux_only(text):
 
 def test_the_tests_that_signal_their_own_process_run_serially_and_the_document_says_so(text):
     markers = pyproject()["tool"]["pytest"]["ini_options"]["markers"]
-    assert [m.split(":")[0] for m in markers] == ["sigint"]
+    assert [m.split(":")[0] for m in markers] == ["slow", "sigint"]
+    assert "`slow`" in text and '`-m "slow or not slow"`' in text
     marked = sum(read(p).count("@pytest.mark.sigint") for p in ROOT.glob("tests/test_*.py"))
     assert marked >= 1, "the marker exists so that some test carries it"
     assert "`sigint`" in text and "`-m sigint`" in text and '`-m "not sigint"`' in text
+
+
+def test_ci_shards_linux_caches_task_validations_and_runs_every_task_nightly(text):
+    workflow = read(ROOT / ".github" / "workflows" / "ci.yml")
+    assert workflow.count('shard: "') == 4 and 'shard: "2/3"' in workflow
+    assert "BOSS_SHARD: ${{ matrix.shard }}" in workflow and "`BOSS_SHARD`" in text
+    assert "actions/cache@v4" in workflow and "BOSS_TASK_CACHE" in workflow
+    assert "schedule:" in workflow and "github.event_name != 'schedule'" in workflow
+    assert "needs: test" in workflow and "coverage combine" in workflow
+    assert "BOSS_TEST_TIMEOUT_S" in workflow and "BOSS_TEST_TIMEOUT_S" in text
+    assert "timeout-minutes: 20" in workflow
 
 
 def test_the_only_runtime_dependency_is_the_one_stated(text):

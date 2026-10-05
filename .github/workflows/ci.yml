@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 3 * * *"  # nightly: every benchmark task is validated for real, no cache
 
 permissions:
   contents: read
@@ -14,16 +16,23 @@ concurrency:
 
 jobs:
   test:
-    name: lint and test (${{ matrix.os }})
+    name: lint and test (${{ matrix.os }}${{ matrix.shard && format(' shard {0}', matrix.shard) || '' }})
     runs-on: ${{ matrix.os }}
-    # The suite runs hundreds of real pytest and worker subprocesses; the runners took over 10
-    # minutes once parallel waves and the known-wrong implementations landed. --durations below
-    # names the slow tests in the log so the next slowdown can be read, not guessed.
-    timeout-minutes: 30
+    # The suite runs thousands of real pytest and worker subprocesses, and on Linux every gate runs
+    # inside bwrap on a 4-core runner: one job over the whole suite hit the 30 minute limit. So
+    # Linux is split into three shards by test file (BOSS_SHARD, tests/conftest.py; a file's
+    # fixtures and xdist groups stay on one shard) and each job must end in 20 minutes. macOS runs
+    # the whole suite in one job. --durations below names the slow tests so the next slowdown can
+    # be read, not guessed.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - {os: ubuntu-latest, shard: "0/3"}
+          - {os: ubuntu-latest, shard: "1/3"}
+          - {os: ubuntu-latest, shard: "2/3"}
+          - {os: macos-latest, shard: ""}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,6 +75,18 @@ jobs:
           bwrap --version
           bwrap --unshare-net --unshare-pid --ro-bind / / --dev /dev --proc /proc true
 
+      # A benchmark task that passed under the same files, validator and gate code is not run
+      # through the gate again (tests/changed_tasks.py, BOSS_TASK_CACHE). The key changes with any
+      # of those, restore-keys brings back the older entries, and only a pass is ever stored. The
+      # nightly run skips the cache so every task is validated for real at least once a day.
+      - name: Restore passed task validations
+        if: github.event_name != 'schedule'
+        uses: actions/cache@v4
+        with:
+          path: .task-cache
+          key: task-validation-${{ runner.os }}-${{ hashFiles('bench/tasks/**', 'bench/tasks-multi/**', 'src/boss/bench/tasks.py', 'src/boss/gate.py', 'src/boss/sandbox.py', 'src/boss/_gate_plugin.py', 'uv.lock', 'pyproject.toml') }}
+          restore-keys: task-validation-${{ runner.os }}-
+
       # --locked fails if uv.lock is out of date, so CI installs exactly what was tested locally.
       - name: Install from a clean clone
         run: uv sync --locked
@@ -95,18 +116,68 @@ jobs:
       #
       # The tests marked sigint make a fake worker send a real SIGINT to the pytest process. On a
       # busy machine with coverage on, that hung a parallel worker, so they run afterwards in a
-      # second, serial invocation. It appends to the first one's coverage data and reports and
-      # enforces the floor over the whole suite.
+      # second, serial invocation (-n 0) that appends to the first one's coverage data.
       #
       # A pull request fully validates only the benchmark tasks it changes (the task set hash and
-      # count are still checked for all of them); a push to main validates every task.
+      # count are still checked for all of them); a push to main and the nightly run validate
+      # every task. BOSS_SHARD keeps this job's share of the test files; empty means all of them.
+      # BOSS_TEST_TIMEOUT_S ends the process when one test hangs, with its stacks, so a hang costs
+      # 15 minutes of one job instead of the whole job timeout.
       - name: Test
         env:
           BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
           BOSS_VALIDATE_TASKS_SINCE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+          BOSS_SHARD: ${{ matrix.shard }}
+          BOSS_TASK_CACHE: ${{ github.event_name != 'schedule' && format('{0}/.task-cache', github.workspace) || '' }}
+          BOSS_TEST_TIMEOUT_S: "900"
         run: uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30
 
       - name: Test (Ctrl-C tests, serial)
         env:
           BOSS_GATE_SANDBOX: ${{ runner.os == 'Linux' && 'require' || 'auto' }}
-        run: uv run pytest -m sigint --cov --cov-append --cov-report=term-missing --cov-fail-under=96
+          BOSS_SHARD: ${{ matrix.shard }}
+          BOSS_TEST_TIMEOUT_S: "900"
+        # Exit code 5 is "no tests collected": a shard whose files hold no sigint test is fine.
+        run: uv run pytest -n 0 -m sigint --cov --cov-append --cov-report= || [ $? -eq 5 ]
+
+      # macOS runs the whole suite in this one job, so the floor is enforced here. A Linux shard
+      # holds only part of the suite: it hands its coverage data to the `coverage` job below.
+      - name: Coverage floor (whole suite)
+        if: matrix.shard == ''
+        run: uv run coverage report --show-missing --fail-under=96
+
+      - name: Keep this shard's coverage data
+        if: matrix.shard != ''
+        run: cp .coverage cov-shard-${{ strategy.job-index }}
+
+      - name: Upload this shard's coverage data
+        if: matrix.shard != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-linux-${{ strategy.job-index }}
+          path: cov-shard-${{ strategy.job-index }}
+
+  # The floor over the whole Linux suite: the three shards' data, combined.
+  coverage:
+    name: combined coverage (ubuntu-latest)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install from a clean clone
+        run: uv sync --locked
+      - name: Download the shards' coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-linux-*
+          path: cov
+          merge-multiple: true
+      - name: Combine
+        run: uv run coverage combine cov/cov-shard-*
+      - name: Report
+        run: uv run coverage report --show-missing --fail-under=96

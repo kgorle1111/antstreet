@@ -44,3 +44,7 @@ plans/
 
 # Agent tooling state (worktrees, local settings)
 .claude/
+
+# CI: passed task validations and one shard's coverage data
+.task-cache/
+cov-shard-*

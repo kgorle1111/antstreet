@@ -25,7 +25,7 @@ what changed for someone using the tool, not which commit did it.
 - Under dispatch each slice records a hash of the exact text the worker was given, saved as
   `logs/<worker>-s<N>.prompt.txt`, and the model the CLI says it ran; a wrong model stops the run.
 - `boss report` prints who did what on which model at what cost, and re-verifies the saved
-  prompts (D42 to D44, T63 to T69).
+  prompts (D43 to D45, T63 to T69).
 - A pre-registered experiment E6 in `bench/PREREG.md`: fixed Haiku, fixed Sonnet and dispatch at the
   same per-cell budget.
 - The single arm's `result.json` records `final_status`, the status word of its last slice, and the

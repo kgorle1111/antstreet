@@ -33,15 +33,14 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from boss.bench.table import wilson_interval
 from boss.boss import DEFAULT_MODEL
-from boss.cli import EXECUTABLE_VAR
 from boss.redact import safe_text
 from boss.roles.base import RoleError, RoleOutputError, RoleSpec, call_role
 from boss.roles.stories import normalise
 from boss.skills import load_skill
+from boss.stats import md_table, rate
 from boss.stream import Usage
-from boss.worker import CLI, billing_mode, usd, worker_env
+from boss.worker import CLI, EXECUTABLE_VAR, billing_mode, usd, worker_env
 
 MIN_SCORE, MAX_SCORE = 1, 5
 ANCHOR_POINTS = ("1", "3", "5")  # what a 1, a 3 and a 5 look like; 2 and 4 sit between
@@ -802,7 +801,7 @@ def render_calibration(calibration: Calibration) -> str:
         "judge - person",
         "kappa",
     ]
-    lines += _table(header, rows)
+    lines += md_table(header, rows)
     problems = bar_shortfalls(cal)
     lines += [
         "",
@@ -827,23 +826,11 @@ def _row(name: str, f: Figures) -> list[str]:
     return [
         name,
         f"{f.compared}/{f.pairs}",
-        _rate(f.exact, f.pairs),
-        _rate(f.within_one, f.pairs),
+        rate(f.exact, f.pairs),
+        rate(f.within_one, f.pairs),
         "n/a" if f.mean_diff is None else f"{f.mean_diff:+.2f}",
         "undefined" if f.kappa is None else f"{f.kappa:.2f}",
     ]
-
-
-def _rate(successes: int, n: int) -> str:
-    low, high = wilson_interval(successes, n)
-    return f"{successes / n * 100:.0f}% [{low * 100:.0f}-{high * 100:.0f}%]"
-
-
-def _table(header: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
-    def line(cells: Sequence[str]) -> str:
-        return "| " + " | ".join(cells) + " |"
-
-    return [line(header), line(["---"] * len(header))] + [line(r) for r in rows]
 
 
 def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None = None) -> int:

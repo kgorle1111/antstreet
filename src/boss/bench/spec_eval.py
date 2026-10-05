@@ -31,9 +31,9 @@ from pathlib import Path
 
 from boss import spec
 from boss.bench.score import draft_checks
-from boss.bench.table import wilson_interval
 from boss.bench.tasks import MUTANT_TIMEOUT_S, BenchTask, load_tasks
 from boss.gate import Check, CheckResult, CheckStatus, run_gate
+from boss.stats import wilson_interval
 
 # Fixed before the first run; `tests/test_bench_spec_eval.py` pins them to CRITERIA.md.
 MAX_SENTENCES = 40

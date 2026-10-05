@@ -277,9 +277,9 @@ uv run python -m boss.bench.run --out bench/results/raw/e6-multi-dispatch --task
 
 A dispatch cell's ledger holds what to count: a `hired` event whose `dispatch` has `from_tier` is
 an escalation fired, one with `refused` is a step the round could not fund, and a fired task whose
-product later passes is rescued. No command counts them yet (B92): read them from the ledgers.
+product later passes is rescued. No command counts them yet (B93): read them from the ledgers.
 A cell whose run stopped for a wrong model (T69) is reported apart, not counted as a failure of
-the arm; no command separates it yet (B92). The model each worker ran is `slice_end.model_id`.
+the arm; no command separates it yet (B93). The model each worker ran is `slice_end.model_id`.
 
 ## Reproducing
 

@@ -86,7 +86,7 @@ Added 2026-10-04, before any E6 run.
   delivers at a lower cost per delivered task than a fixed Sonnet or a fixed Haiku, with no loss
   of delivery. The step reaches only the cells that fail a visible check (18 of the 51 failed
   cells in the blind 35-task run); the other 33 failed a hidden check no builder-side step can see.
-- **Feature.** `--dispatch rules` (`docs/DECISIONS.md` D42 to D44).
+- **Feature.** `--dispatch rules` (`docs/DECISIONS.md` D43 to D45).
 - **Arms.** Same code, same blinded prompts, same per-cell budget of $0.80, through `--firm-args`:
   `fixed-haiku` (`--model haiku --boss-model haiku`), `fixed-sonnet` (`--model sonnet --boss-model
   sonnet`), `dispatch` (`--model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier
@@ -110,7 +110,7 @@ Added 2026-10-04, before any E6 run.
   above zero). Otherwise it stays opt-in and fixed Haiku stays the default.
 - **Reported apart.** Escalations fired, refused and rescued (a fired task that later delivered);
   cells whose run stopped for a wrong model (T69), counted in the guard as above (no command
-  separates them yet, B92).
+  separates them yet, B93).
 - **Cost.** Every Sonnet figure is an assumption (3 times Haiku on the same tokens, the ratio
   `budget.py` uses): no Sonnet or Opus cell has ever run. About $160 for both sets (range $110 to
   $210). Stage 1 first, about $55: 12 tasks, 3 runs, plus the 8 multi-file tasks once; stop if

@@ -730,7 +730,19 @@ with a JSON schema.
   `tests/test_boss_spec.py::test_the_v3_prompt_names_no_benchmark_task_and_no_special_character_class`.
   Reopen with a repair call, or when the held-out 18 are measured.
 
-### D42: Dispatch is decided by rules and bound by the signed term sheet; no model chooses a model
+### D42: Roles and the core never import the CLI or the benchmark
+
+- Status: `in force`
+- Decision: Nothing under `src/boss/roles/` and none of `rule`, `gate`, `ledger`, `signing`,
+  `sandbox`, `runner`, `worker`, `budget`, `firm`, `pipeline` imports `boss.cli` or `boss.bench`.
+  Shared pieces sit below both: `worker.EXECUTABLE_VAR` and `stats` (interval, rate, Markdown table).
+- Why: `roles.judge` imported `boss.cli` and `boss.bench.table`, so `pipeline` had to import the
+  judge inside a method to avoid the cycle `pipeline -> cli -> roles.judge`. The lazy import hid
+  the inversion instead of fixing it.
+- Rejected: Keeping the lazy import: it works until the next import moves to module level.
+- Evidence: `tests/test_layering.py`.
+
+### D43: Dispatch is decided by rules and bound by the signed term sheet; no model chooses a model
 
 - Status: `under evaluation`
 - Decision: With `--dispatch rules`, `dispatch.plan_dispatch` fills the term sheet's route and each
@@ -756,7 +768,7 @@ with a JSON schema.
   `tests/test_termsheet_dispatch.py::test_changing_any_byte_of_the_dispatch_after_approval_voids_it`,
   `tests/test_firm_dispatch.py::test_a_dispatch_outside_the_whitelist_is_refused_at_hire_even_with_a_matching_approval`.
 
-### D43: One file is one agent: the route is a rule shown to the investor
+### D44: One file is one agent: the route is a rule shown to the investor
 
 - Status: `under evaluation`
 - Decision: After the draft, `dispatch.route_of` sets the route: `one_agent` when everything the
@@ -777,14 +789,14 @@ with a JSON schema.
   route is already decided.
 - Rejected: Skipping the boss's call for one-file ideas: the route cannot be known before the
   term sheet exists, and a draft is what gives the investor checks to read; that would be a
-  different product (B95). Forcing `one_agent` on a multi-file sheet: it would need the tasks
+  different product (B96). Forcing `one_agent` on a multi-file sheet: it would need the tasks
   merged, which is the investor's edit, not a flag.
 - Evidence: `tests/test_dispatch.py::test_one_task_on_one_file_is_one_agent_and_two_files_are_the_firm`,
   `tests/test_dispatch.py::test_tasks_that_all_write_the_same_single_file_are_one_agent`,
   `tests/test_firm_dispatch.py::test_on_the_one_agent_route_a_replacement_that_is_not_stronger_is_not_hired`,
   `tests/test_termsheet_dispatch.py::test_the_investor_may_force_the_firm_route_and_the_table_shows_it`.
 
-### D44: A worker is stepped up only on the gate's evidence, and the model that ran is recorded
+### D45: A worker is stepped up only on the gate's evidence, and the model that ran is recorded
 
 - Status: `under evaluation`
 - Decision: A fired worker's replacement is hired one tier up (`escalate_to`, never above

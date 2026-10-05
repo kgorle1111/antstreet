@@ -34,6 +34,7 @@ from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
 from boss.worker import (
     CLI,
+    EXECUTABLE_VAR,
     IsolationError,
     SliceSpec,
     billing_mode,
@@ -203,7 +204,7 @@ def _run_slices(
                     workspace,
                     out / "logs" / "solo.jsonl",
                     env=env,
-                    executable=environ.get(cli.EXECUTABLE_VAR, CLI),
+                    executable=environ.get(EXECUTABLE_VAR, CLI),
                 )
             except IsolationError as exc:
                 record(
