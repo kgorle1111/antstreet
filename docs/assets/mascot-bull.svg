@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-160 -350 360 360" width="360" height="360" role="img" aria-label="The bull boss: business suit, nose ring, clipboard of ticked checks"><style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+.m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;font-weight:700}
+.o{stroke:#0f1b2d;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
+.l{fill:none;stroke:#0f1b2d;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+@keyframes bob{50%{transform:translateY(-6px)}}
+.bob{animation:bob 1.6s ease-in-out infinite}.b2{animation-delay:-.5s}.b3{animation-delay:-1s}
+@keyframes glint{0%,70%,100%{opacity:0}78%,88%{opacity:1}}
+.glint{animation:glint 4s ease-in-out infinite}
+@keyframes drain{0%{width:300px}85%,100%{width:96px}}
+@keyframes stamp{0%,80%{opacity:0;transform:scale(2.2) rotate(-14deg)}90%,100%{opacity:1;transform:scale(1) rotate(-14deg)}}
+.bar{animation:drain 8s ease-in-out infinite alternate}
+.seal{transform-box:fill-box;transform-origin:center;animation:stamp 8s ease-out infinite}
+@keyframes t0{0%,10%{opacity:0}16%,100%{opacity:1}}.t0{animation:t0 8s infinite}
+@keyframes t1{0%,28%{opacity:0}34%,100%{opacity:1}}.t1{animation:t1 8s infinite}
+@keyframes t2{0%,46%{opacity:0}52%,100%{opacity:1}}.t2{animation:t2 8s infinite}
+@keyframes t3{0%,64%{opacity:0}70%,100%{opacity:1}}.t3{animation:t3 8s infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style><circle cx="20" cy="-170" r="176" fill="#fff" stroke="#cfdcec" stroke-width="6"/><circle cx="20" cy="-170" r="164" fill="#e6f0fb"/><g transform="translate(40,-10)"><g>
+<rect class="o" x="-38" y="-62" width="30" height="54" fill="#3e4a5e"/><rect class="o" x="8" y="-62" width="30" height="54" fill="#3e4a5e"/>
+<ellipse class="o" cx="-18" cy="-6" rx="25" ry="9" fill="#141c2e"/><ellipse class="o" cx="28" cy="-6" rx="25" ry="9" fill="#141c2e"/>
+<rect class="o" x="-66" y="-196" width="132" height="146" rx="34" fill="#56657a"/>
+<path class="o" d="M-18,-190 L0,-150 L18,-190 Z" fill="#fff"/><path class="o" d="M-6,-176 L6,-176 L9,-110 L0,-98 L-9,-110 Z" fill="#c8372d"/>
+<path class="l" d="M-30,-190 L-4,-130 L-30,-70 M30,-190 L4,-130 L30,-70" style="stroke-width:2.500"/>
+<circle cx="-8" cy="-78" r="3" fill="#e3a82e"/><circle cx="8" cy="-78" r="3" fill="#e3a82e"/>
+<path class="l" d="M-56,-152 L-76,-100" style="stroke-width:32;stroke:#0f1b2d"/><path class="l" d="M-56,-152 L-76,-100" style="stroke-width:26;stroke:#56657a"/>
+<g transform="translate(-120,-206)"><g transform="rotate(-6)"><rect class="o" x="0" y="0" width="84" height="118" rx="8" fill="#b07a45"/><rect x="7" y="14" width="70" height="98" rx="3" fill="#fff"/><rect class="o" x="26" y="3" width="32" height="14" rx="4" fill="#8d99ab" style="stroke-width:2.500"/><g class="t0"><circle class="o" cx="20" cy="34" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 34 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="31" width="36" height="6" rx="3" fill="#9fb0c6"/><g class="t1"><circle class="o" cx="20" cy="56" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 56 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="53" width="30" height="6" rx="3" fill="#9fb0c6"/><g class="t2"><circle class="o" cx="20" cy="78" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 78 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="75" width="38" height="6" rx="3" fill="#9fb0c6"/><g class="t3"><circle class="o" cx="20" cy="100" r="8" fill="#2fb457" style="stroke-width:2"/><path d="M15.500 100 l3.500 4 l7 -8" stroke="#fff" stroke-width="2.800" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g><rect x="34" y="97" width="26" height="6" rx="3" fill="#9fb0c6"/></g></g>
+<circle class="o" cx="-78" cy="-96" r="12" fill="#9a6a46"/>
+<path class="l" d="M54,-150 L116,-176" style="stroke-width:32;stroke:#0f1b2d"/><path class="l" d="M54,-150 L116,-176" style="stroke-width:26;stroke:#56657a"/>
+<circle class="o" cx="120" cy="-178" r="12" fill="#9a6a46"/><path class="l" d="M128,-182 L156,-190" style="stroke-width:7"/><path class="l" d="M128,-182 L156,-190" style="stroke-width:3;stroke:#9a6a46"/>
+<path class="o" d="M-24,-262 Q-70,-262 -64,-312 Q-46,-280 -12,-272 Z" fill="#fff1d0"/><path class="o" d="M34,-266 Q78,-272 72,-320 Q54,-288 18,-276 Z" fill="#fff1d0"/>
+<ellipse class="o" cx="-36" cy="-236" rx="20" ry="10" transform="rotate(25 -36 -236)" fill="#8a5a3a"/>
+<ellipse class="o" cx="10" cy="-232" rx="48" ry="46" fill="#9a6a46"/>
+<path class="o" d="M-8,-276 Q4,-296 20,-280 Q10,-284 4,-272 Z" fill="#6b4328" style="stroke-width:2.500"/>
+<ellipse class="o" cx="42" cy="-214" rx="30" ry="23" fill="#e0b88c"/><ellipse cx="34" cy="-220" rx="3.500" ry="5.500" fill="#0f1b2d"/><ellipse cx="54" cy="-220" rx="3.500" ry="5.500" fill="#0f1b2d"/>
+<path class="l" d="M44,-204 a8,8 0 1 0 12,6" style="stroke-width:4;stroke:#e3a82e"/>
+<circle class="o" cx="20" cy="-248" r="10" fill="#fff" style="stroke-width:2.500"/><circle cx="23" cy="-247" r="5" fill="#0f1b2d"/>
+<path class="l" d="M6,-266 L32,-262" style="stroke-width:4"/>
+<path class="l" d="M30,-198 Q44,-192 56,-198" style="stroke-width:3"/>
+<path class="o" d="M72,-262 q-8,12 0,16 q8,-4 0,-16 Z" fill="#7cc4ff" style="stroke-width:2"/>
+</g></g></svg>
