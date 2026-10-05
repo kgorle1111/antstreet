@@ -141,7 +141,7 @@ def test_every_command_is_shown_in_the_readme(text):
 
 
 def test_the_benchmark_figures_agree_with_the_blinded_runs_table_and_the_task_count(text):
-    status = " ".join(text.split("## How it works")[0].split())
+    status = " ".join(section(text, "What we measured").split())
     table = read(ROOT / "bench" / "results" / "2026-10-03-blind35" / "table.md")
     rows = {
         line.split("|")[1].strip(): line for line in table.splitlines() if line.startswith("| ")
@@ -166,7 +166,7 @@ def test_the_benchmark_figures_agree_with_the_blinded_runs_table_and_the_task_co
 
 def test_the_unblinded_figures_are_only_stated_as_not_comparable(text):
     # The 17-task run gave the single arm an instruction about hidden checks the firm did not get.
-    status = " ".join(text.split("## How it works")[0].split())
+    status = " ".join(section(text, "What we measured").split())
     assert "(firm 35 of 51, 69%; single 32 of 51, 63%) is not comparable" in status
     assert text.count("35 of 51") == 1 and text.count("69%") == 1
 
