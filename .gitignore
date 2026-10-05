@@ -44,3 +44,6 @@ plans/
 
 # Agent tooling state (worktrees, local settings)
 .claude/
+
+# mutmut working tree
+mutants/
