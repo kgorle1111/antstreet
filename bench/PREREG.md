@@ -130,3 +130,22 @@ equal compute in the literature. They stay off by default and are not claimed to
   every experiment here compares against.
 - 2026-10-04: added E6 (per-task dispatch), before any run of it.
 - 2026-10-05: E6's decision rule uses the paired cost per assigned cell, the interval the code computes; the pooled cost per delivered task is reported beside it. No E6 run had happened.
+- 2026-10-05, before any E5 run: E5's arms, sample and test are fixed. "Single at the firm's mean
+  dollar spend" cannot be forced: the single agent stops on its own. In `blind35` its 105 cells cost
+  $0.0883 on average and $0.1879 at most, none capped, under a cap of $0.32 (`SLICE_SHARE` 0.8 of a
+  $0.40 cell). The cap equal to the firm's mean spend ($0.2149, `--budget 0.268625`) is above every
+  one of those cells too, so it would change nothing but the label. So E5 gives both arms the same
+  cell budget, $0.40 (the fair-baselines rule; the single cap of $0.32 is above the firm's mean
+  spend), and reports each arm's actual mean spend beside the result. Tasks: the 35 `blind35` tasks,
+  so each has 3 earlier runs per arm at the same settings; the 24 others have none. 5 runs per task
+  and arm, Haiku boss and workers, firm `--slice 0.20` as in `blind35`; commands in
+  [METHOD.md](METHOD.md), "Reliability arms (E5)". Infrastructure cells are moved aside and rerun
+  until every task has 5 counted runs per arm (B71); `paired --kpi pass_all` refuses a task whose
+  runs differ in number. Primary KPI: `python -m boss.bench.paired bench/results/raw/e5-firm
+  bench/results/raw/e5-single --kpi pass_all`, task resamples 10,000, seed 0. Decision: "shown"
+  only when the 95% interval of firm minus single pass^5 lies above 0; otherwise "not shown",
+  whatever the point estimate. In `blind35` only 6 of 35 tasks were delivered on every run by one
+  arm and not the other, so the smallest gain this can show is 4 tasks gained with none lost
+  (+0.11); with 1 lost it takes 7, with 2 lost 9. Reported, not decided on:
+  `python -m boss.bench.kpi` on both folders, and `paired` with `--kpi delivery` and
+  `cost_per_delivery`.

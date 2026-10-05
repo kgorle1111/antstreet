@@ -283,6 +283,28 @@ product later passes is rescued. No command counts them yet (B93): read them fro
 A cell whose run stopped for a wrong model (T69) is reported apart, not counted as a failure of
 the arm; no command separates it yet (B93). The model each worker ran is `slice_end.model_id`.
 
+## Reliability arms (E5)
+
+E5 in [PREREG.md](PREREG.md) runs the firm and the single agent on the 35 tasks of
+`2026-10-03-blind35`, 5 runs each, with the same $0.40 cell budget and the firm's `--slice 0.20`
+of that run. Each arm has its own folder:
+
+```bash
+TASKS=(bigdecimal calc csvline duration intervals jsonpointer justify linediff lrucache matrixops
+       roman semver slugify tokenbucket toposort wildcard workdays
+       bytesize cronnext dedentblock exprtokens fracmath iniparse isoweek luhn mdheadings minheap
+       moneysplit prefixtrie rangesum ringbuffer shortestpath unionfind urlquery wordwrap)
+COMMON=(--reps 5 --budget 0.40 --model haiku --boss-model haiku --only "${TASKS[@]}")
+uv run python -m boss.bench.run --out bench/results/raw/e5-firm --arms firm --firm-args "--slice 0.20" "${COMMON[@]}"
+uv run python -m boss.bench.run --out bench/results/raw/e5-single --arms single "${COMMON[@]}"
+uv run python -m boss.bench.paired bench/results/raw/e5-firm bench/results/raw/e5-single --kpi pass_all
+uv run python -m boss.bench.kpi bench/results/raw/e5-firm bench/results/raw/e5-single
+```
+
+Adding `--dry-run` to the two run commands lists 175 cells each. An infrastructure cell is moved
+aside and rerun (B71) until each task has 5 counted runs per arm: `--kpi pass_all` refuses a task
+whose two sides ran a different number of times.
+
 ## Reproducing
 
 ```bash
