@@ -10,6 +10,7 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss verify [RUN]`: an offline check of a run's hash chain, signatures and saved prompts, with no model call. Exit 0 when it all verifies, 1 with one line per problem, 2 for no such run.
 - Licensed under the Apache License 2.0 (`LICENSE`, and `license` in the package metadata).
 - `boss audit plan --repo R --request FILE --base REF [--held-out N]`: seals checks for a change request from the base commit's names alone, kept in `~/.boss-audit` and never in the repo; you approve them, signed; it prints a run id and a seal.
 - `boss audit check RUN --head REF`: runs the sealed checks on a commit and signs a verdict: `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`. It refuses a head off the base, an edited check and a forged approval.
