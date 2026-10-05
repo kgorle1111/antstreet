@@ -1,8 +1,7 @@
 [project]
-# kn: placeholder distribution name; "boss" is taken on PyPI. Final name is decided before the first release.
-name = "boss"
+name = "antstreet"
 version = "0.0.1"
-description = "Fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
+description = "AntStreet: fund an idea; an LLM boss runs the firm that builds it, releasing budget in rounds against passing checks."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -11,7 +10,8 @@ requires-python = ">=3.12"
 dependencies = ["pytest>=8"]
 
 [project.scripts]
-boss = "boss.cli:main"
+antstreet = "boss.cli:main"
+boss = "boss.cli:main"  # alias: `boss` is the bull you talk to
 
 [dependency-groups]
 dev = [
@@ -24,6 +24,10 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]
 build-backend = "uv_build"
+
+# The import name stays `boss` (backlog B100 is the optional rename).
+[tool.uv.build-backend]
+module-name = "boss"
 
 [tool.ruff]
 target-version = "py312"

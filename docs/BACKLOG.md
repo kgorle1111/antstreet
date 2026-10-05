@@ -78,7 +78,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
-| B39 | Package name and licence | The investor's decision; `boss` is taken on PyPI | open |
+| B39 | Package name and licence | The investor's decision; `boss` is taken on PyPI | done: name `antstreet` (distribution and console script; `boss` stays as an alias), licence Apache-2.0 |
 | B40 | Static type checking in CI | A new dev dependency needs the investor's yes | done: `mypy --strict` over `src/boss` passes and runs in CI after the format check (`pyproject.toml` `[tool.mypy]`, `.github/workflows/ci.yml`); `tests/` are not type-checked yet |
 | B41 | Release workflow, versioning, install from a package index | After B39 | open |
 
@@ -179,3 +179,4 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | B97 | Per-role models and effort (the critic, the tester, the examiner on a model of their own); plan item D8 | Only worth building if E4 or E6 shows a role needs a stronger model | open: trigger is an E4 or E6 result that names a role |
 | B98 | The investor forces `route: one_agent` on a sheet of several files | It needs the tasks merged into one with the checks reassigned, which is an edit to the tasks, not a flag | open: refused today with a message that says to merge the tasks or set `firm` |
 | B99 | A `dispatch_hint` from the boss's draft, clamped to one step from the rules | A model's guess about difficulty is the signal B53 distrusts | open: a fourth E6 arm, only if the rules arm shows dispatch pays |
+| B100 | Optional phase 2 of the rebrand: rename the Python module `boss` to `antstreet` (`src/boss`, every import, the console script target) | Phase 1 renamed only the distribution and added the `antstreet` command; the import name `boss` could clash with the unrelated `boss` package on PyPI if both are installed in one environment, but nobody has reported it and a rename touches every file | open |

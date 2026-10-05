@@ -154,6 +154,7 @@ what changed for someone using the tool, not which commit did it.
 
 ### Changed
 
+- The product is now AntStreet: the package is `antstreet`, with an `antstreet` command beside `boss` (the module stays `boss`), new hero art and mascots; licence settled as Apache-2.0 (B39).
 - README and EVIDENCE give the blinded 35-task result: firm 64 of 105, single 62 of 105, not shown
   to differ, at 2.4 times the cost per delivered task; the old 69% against 63% is not comparable.
 - The test suite runs in parallel with the `pytest-xdist` dev dependency (see CONTRIBUTING.md), and
