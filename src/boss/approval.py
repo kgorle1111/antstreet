@@ -195,7 +195,10 @@ def review_term_sheet(
             answer = "r"
         if answer in ("a", "approve"):
             if spec_problem:
-                say("Not approved: the rule list is not the idea's. Reject, or edit and re-check.")
+                say(
+                    f"Not approved: the rule list is not the idea's ({spec_problem}). "
+                    "Reject, or edit and re-check."
+                )
                 continue
             # Approval binds to what is on disk now, and only if the investor has seen exactly that.
             try:
