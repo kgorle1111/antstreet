@@ -124,20 +124,19 @@ def test_a_key_that_cannot_be_used_stops_the_writer_opening(run):
     assert run.ledger.read_bytes() == before
 
 
-def test_a_key_that_breaks_mid_run_signs_nothing_false_and_loses_no_other_record(run):
-    with run.writer() as ledger:
+def test_a_key_that_breaks_mid_run_signs_nothing_false_and_loses_no_record(run):
+    with run.writer() as ledger:  # the key is created and loaded when the writer opens
         ledger.append(boss_call())
-        ledger.append(investor("resumed"))  # creates the key
+        ledger.append(investor("resumed"))
         run.investor_key.chmod(0o644)
         n = len(run.ledger.read_bytes().splitlines())
-        with pytest.raises(
-            SigningError, match="chmod 600"
-        ):  # an unsignable decision is not written
+        with pytest.raises(SigningError, match="chmod 600"):  # only the anchor needs the file
             ledger.append(investor("topped_up"))
-        assert len(run.ledger.read_bytes().splitlines()) == n
-        with pytest.raises(SigningError):  # money records are durable before the anchor is tried
+        with pytest.raises(SigningError):  # every record is durable before the anchor is tried
             ledger.append(boss_call(5_000))
-        assert len(run.ledger.read_bytes().splitlines()) == n + 1
+        assert len(run.ledger.read_bytes().splitlines()) == n + 2
+    run.investor_key.chmod(0o600)
+    assert [e.event for e in run.events()][-2:] == [EventType.TOPPED_UP, EventType.BOSS_CALL]
 
 
 # --- a forgery is refused at the one place every reader gets its events from ------------------
@@ -245,7 +244,7 @@ def test_an_attacker_with_a_key_of_their_own_is_refused(run, tmp_path):
 def test_a_signed_event_is_refused_when_the_key_is_gone_or_replaced(run):
     honest(run, boss_call(), investor("topped_up"))
     run.investor_key.unlink()
-    with pytest.raises(LedgerUnverifiedError, match="does not verify"):
+    with pytest.raises(LedgerUnverifiedError, match="key is missing; restore"):
         run.events()
     signing.load_or_create_key(run.investor_key)  # a fresh key cannot vouch for the old events
     with pytest.raises(LedgerUnverifiedError, match="does not verify"):

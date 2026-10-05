@@ -66,6 +66,7 @@ from boss.ledger import (
     LedgerUnverifiedError,
     LedgerWriter,
     repair_torn_tail,
+    unsigned_lines,
 )
 from boss.limits import RunLimits
 from boss.pipeline import (
@@ -698,6 +699,11 @@ def _report_text(paths: RunPaths, events: Sequence[Event]) -> tuple[str, list[st
     """The board report, with a failure line for each saved prompt that no longer matches the
     hash its slice recorded (only a run with dispatch on has any to check)."""
     text = render_report(build_report(events))
+    if paths.investor_key is not None and (unsigned := unsigned_lines(paths.ledger)):
+        text += (
+            f"\nLedger: {unsigned} of {len(events)} lines are unsigned (written before every line "
+            "was signed); see docs/LEDGER.md.\n"
+        )
     problems = verify(paths, events)
     if problems:
         text += "\nCONTEXT CHECK FAILED: what a worker was given is not what was recorded\n"

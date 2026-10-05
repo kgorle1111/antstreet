@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import stat
 import threading
 
@@ -21,10 +22,12 @@ from boss import signing
 from boss.ledger import (
     Event,
     EventType,
+    LedgerCorruptError,
     LedgerUnverifiedError,
     LedgerWriter,
     read_events,
     repair_torn_tail,
+    unsigned_lines,
 )
 from boss.rundir import RunPaths
 from boss.signing import anchor_path, load_key, load_or_create_key, read_anchor, write_anchor
@@ -85,11 +88,9 @@ def refused(run: RunPaths, match: str):
 # --- what is written ---------------------------------------------------------------------------
 
 
-def test_the_anchor_follows_every_append_once_the_key_exists(run):
-    with run.writer() as ledger:
-        ledger.append(boss_call())  # no key yet: nothing to anchor with
-        assert not anchor_file(run).exists() and not anchor_file(run).parent.exists()
-        for n in range(2, 6):
+def test_the_anchor_follows_every_append_from_the_first_line(run):
+    with run.writer() as ledger:  # the writer creates the key when it opens
+        for n in range(1, 6):
             ledger.append(resumed() if n == 2 else boss_call(n))
             lines = lines_of(run)
             found = read_anchor(run.investor_key, load_key(run.investor_key), "r1")
@@ -301,7 +302,7 @@ def test_an_anchor_with_the_key_deleted_is_refused(run):
     load_or_create_key(run.investor_key)
     honest(run, boss_call(3))  # the first anchor
     run.investor_key.unlink()
-    refused(run, "has an anchor but the investor key is missing")
+    refused(run, "has an anchor but the investor key is missing|key is missing; restore")
 
 
 # --- the writer never appends to a ledger the key does not vouch for ---------------------------
@@ -356,19 +357,137 @@ def test_a_failing_anchor_write_loses_no_line(run, tmp_path):
     assert len(run.events()) == 3  # one line past the anchor is not vouched for, and not refused
 
 
+# --- every line is signed ------------------------------------------------------------------------
+
+MAC_TAIL = re.compile(rb', "mac": "[0-9a-f]{64}"\}\Z')
+
+
+def unsigned(line: bytes) -> bytes:
+    return MAC_TAIL.sub(b"}", line)
+
+
+def rechain(lines: list[bytes], start: int = 0, *, keep_macs: bool) -> list[bytes]:
+    """What a forger without the key can do: recompute every `prev` from `start` on, keeping each
+    line's old `mac` or dropping it."""
+    out = lines[:start]
+    for line in lines[start:]:
+        raw = json.loads(unsigned(line))
+        raw["prev"] = sha(out[-1]) if out else "0" * 64
+        body = json.dumps(raw, sort_keys=True).encode()
+        mac = MAC_TAIL.search(line)
+        out.append(body[:-1] + mac.group(0) if keep_macs and mac else body)
+    return out
+
+
+def test_every_line_a_project_writer_appends_carries_a_mac_that_verifies(run):
+    lines = ledger_of(run, 5)
+    key = load_key(run.investor_key)
+    assert key is not None
+    for line in lines:
+        mac = MAC_TAIL.search(line)
+        assert mac, line
+        assert signing.verify_line(key, "r1", sha(unsigned(line)), mac.group(0)[10:74].decode())
+        assert not signing.verify_line(key, "r2", sha(unsigned(line)), mac.group(0)[10:74].decode())
+    assert unsigned_lines(run.ledger) == 0 and len(run.events()) == 5
+
+
+def test_the_line_mac_is_a_fixed_function_of_the_key_the_run_and_the_line_hash():
+    assert signing.line_mac(b"k" * 32, "r1", "a" * 64) == (
+        "ad063cac72245602c330bb60df102acf476eabe921091dbd9c54d334eb76fa78"
+    )
+
+
+@pytest.mark.parametrize("target", range(5))
+def test_a_line_edited_with_the_chain_recomputed_and_the_macs_kept_is_refused(run, target):
+    lines = ledger_of(run, 5)
+    raw = json.loads(unsigned(lines[target]))
+    raw["cost_micros"] = (raw["cost_micros"] or 0) + 1
+    lines[target] = json.dumps(raw, sort_keys=True).encode()[:-1] + MAC_TAIL.search(
+        lines[target]
+    ).group(0)
+    put(run, rechain(lines, target + 1, keep_macs=True))
+    refused(run, "does not verify|is not the line its anchor records")
+
+
+def test_a_whole_ledger_rewritten_consistently_without_the_key_is_refused(run):
+    lines = ledger_of(run, 5)
+    raw = json.loads(unsigned(lines[2]))
+    raw["cost_micros"] = 1
+    lines[2] = json.dumps(raw, sort_keys=True).encode()
+    for keep in (True, False):
+        put(run, rechain(lines, 0, keep_macs=keep))
+        refused(run, "does not verify|unsigned line|is not the line its anchor records")
+
+
+def test_a_signed_line_from_another_run_of_the_same_project_is_refused(run, tmp_path):
+    ledger_of(run, 3)
+    other = RunPaths(run.root.parent / "r2")
+    honest(other, Event(run="r1", round=0, actor="boss", event=EventType.BOSS_CALL, ts=TS))
+    put(run, [*lines_of(run), *lines_of(other)])  # the chain breaks too; rechain to isolate the mac
+    put(run, rechain(lines_of(run), 3, keep_macs=True))
+    refused(run, r"ledger\.jsonl:4: a line whose signature does not verify")
+
+
+def test_a_mac_anywhere_but_the_end_of_the_line_makes_the_line_corrupt(run):
+    lines = ledger_of(run, 2)
+    raw = json.loads(lines[1])
+    put(run, [lines[0], json.dumps(raw, sort_keys=True).encode()])  # `mac` moved among the keys
+    with pytest.raises(LedgerCorruptError, match=r"ledger\.jsonl:2: fields differ .*\['mac'\]"):
+        run.events()
+
+
+def test_signed_lines_with_the_key_gone_say_to_restore_it(run):
+    ledger_of(run, 3)
+    run.investor_key.unlink()
+    anchor_file(run).unlink()
+    refused(run, r"lines are signed but the investor key is missing; restore .*investor\.key")
+
+
+def test_signed_lines_with_the_key_replaced_are_refused(run):
+    ledger_of(run, 3)
+    run.investor_key.unlink()
+    anchor_file(run).unlink()
+    load_or_create_key(run.investor_key)
+    refused(run, r"ledger\.jsonl:1: .*does not verify .*or the key was replaced")
+
+
+def test_an_older_unsigned_ledger_still_loads_says_so_and_is_signed_from_its_next_line(run):
+    with LedgerWriter(run.ledger) as ledger:  # written before every line was signed
+        ledger.append(boss_call())
+        ledger.append(boss_call(2))
+    assert unsigned_lines(run.ledger) == 2 and len(run.events()) == 2
+    honest(run, boss_call(3))  # resumed by this code: the new line covers the two before it
+    assert MAC_TAIL.search(lines_of(run)[-1]) and unsigned_lines(run.ledger) == 2
+    put(run, [*lines_of(run)[:2], unsigned(lines_of(run)[2])])  # and its mac cannot be stripped
+    refused(run, "is not the line its anchor records")
+
+
+def test_the_report_names_a_ledger_no_line_signature_covers(run):
+    from boss.cli import _report_text
+
+    with LedgerWriter(run.ledger) as ledger:
+        ledger.append(boss_call())
+    text, _ = _report_text(run, run.events())
+    assert "Ledger: 1 of 1 lines are unsigned" in text
+    honest(run, boss_call(2))
+    text, _ = _report_text(run, run.events())
+    assert "Ledger: 1 of 2 lines are unsigned" in text
+    fresh = RunPaths(run.root.parent / "r2")
+    honest(fresh, boss_call())
+    assert "Ledger:" not in _report_text(fresh, fresh.events())[0]
+
+
 # --- what the anchor does not protect ---------------------------------------------------------
 
 
-def test_accepted_risk_lines_appended_after_the_last_anchor_are_not_vouched_for(run):
+def test_lines_appended_after_the_last_anchor_without_the_key_are_refused(run):
     ledger_of(run, 3)
     with LedgerWriter(run.ledger) as ledger:  # a keyless writer appends a forged check result
         ledger.append(Event(run="r1", round=1, actor="gate", event=EventType.CHECK_RESULT,
                             data={"check": "c01", "status": "passed"}))  # fmt: skip
-    assert run.events()[-1].actor == "gate"  # loads: only lines up to the anchor are vouched for
-    # an investor event appended the same way is not: it is signed or it is refused
-    with LedgerWriter(run.ledger) as ledger:
-        ledger.append(resumed())
-    refused(run, r"ledger\.jsonl:5: investor")
+    refused(run, r"ledger\.jsonl:4: an unsigned line after signed ones")
+    with pytest.raises(LedgerUnverifiedError), run.writer():  # and the writer never re-anchors it
+        pytest.fail("opened")
 
 
 def test_accepted_risk_an_older_genuine_anchor_with_its_ledger_prefix_is_a_valid_rollback(run):

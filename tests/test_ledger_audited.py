@@ -87,6 +87,7 @@ def test_an_audited_verdict_edited_with_the_chain_recomputed_is_refused(run):
     line = json.loads(run.ledger.read_text())
     line["data"]["verdict"] = "unrefuted"
     line["prev"] = GENESIS
+    line.pop("mac")  # a forger has no key to sign the edited line with
     run.ledger.write_text(json.dumps(line, sort_keys=True) + "\n")
     with pytest.raises(LedgerUnverifiedError):
         run.events()

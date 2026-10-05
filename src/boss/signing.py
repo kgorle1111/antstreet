@@ -11,8 +11,10 @@ the ledger and recompute its hash chain but cannot produce a signature (docs/THR
 
 An investor event's signature covers every field of its line, `prev` included, so it cannot be
 edited, moved, replayed at another place in the ledger, or survive an edit of any line before it.
-The anchor (`<project>/.boss/anchors/<run>`) is the same key's HMAC of the ledger's line count and
-last line hash, which the chain alone cannot protect.
+Every line the writer appends also carries `mac`, the same key's HMAC of the run id and the
+SHA-256 of the line without it (`line_mac`), so no line can be edited, forged or appended without
+the key, even with the chain recomputed. The anchor (`<project>/.boss/anchors/<run>`) is the same
+key's HMAC of the ledger's line count and last line hash, which catches lines dropped from the end.
 """
 
 from __future__ import annotations
@@ -137,6 +139,18 @@ def verify(key: bytes, event: Event) -> bool:
     else:
         return False
     return hmac.compare_digest(sig.encode(), expected.encode())  # bytes: str must be ASCII
+
+
+def line_mac(key: bytes, run: str, line_hash: str) -> str:
+    """The MAC a ledger line carries: over its run and the SHA-256 of its bytes without the MAC."""
+    # Not `_mac`: this runs once per line on every read, and a JSON dump costs several times the
+    # HMAC. A run id is a folder name, so it holds no NUL.
+    message = b"boss ledger line v1\0" + run.encode() + b"\0" + line_hash.encode()
+    return hmac.digest(key, message, "sha256").hex()
+
+
+def verify_line(key: bytes, run: str, line_hash: str, mac: str) -> bool:
+    return hmac.compare_digest(mac.encode(), line_mac(key, run, line_hash).encode())
 
 
 @dataclass(frozen=True, slots=True)
