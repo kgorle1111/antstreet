@@ -189,3 +189,16 @@ def test_the_dry_run_named_in_the_document_lists_cells_and_writes_nothing(tmp_pa
     assert bench_run.main(args) == 0
     assert "118 cells" in capsys.readouterr().out and not out.exists()
     assert "uv run python -m boss.bench.run --dry-run --out /tmp/bench --budget 0.40" in text
+
+
+def test_the_mutation_modules_named_have_a_runner_entry_and_real_test_files(text):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("mutate", ROOT / "scripts" / "mutate.py")
+    mutate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mutate)
+    body = section(text, "Mutation testing")
+    for name, (_, files) in mutate.TARGETS.items():
+        assert name in body, f"CONTRIBUTING.md does not name the module {name}"
+        for file in files:
+            assert (ROOT / "tests" / f"{file}.py").exists(), f"{name}: no tests/{file}.py"
