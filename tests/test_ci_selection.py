@@ -13,11 +13,13 @@ TESTS = Path(__file__).resolve().parent
 
 @pytest.mark.parametrize("raw", ["", "3", "3/3", "-1/3", "a/b", "0/0", "1/2/3"])
 def test_a_malformed_shard_is_refused_not_ignored(raw):
+    """Reject invalid shard settings instead of silently running an unintended suite."""
     with pytest.raises(pytest.UsageError):
         parse_shard(raw)
 
 
 def test_every_test_file_belongs_to_exactly_one_shard():
+    """Ensure file hashing partitions the tests and populates all three CI shards."""
     # The hook hashes the node id's path, `tests/<name>`, so this does too.
     files = sorted(f"tests/{p.name}" for p in TESTS.glob("test_*.py"))
     for count in (1, 2, 3, 4):
@@ -27,6 +29,7 @@ def test_every_test_file_belongs_to_exactly_one_shard():
 
 
 def collected(shard: str | None) -> int:
+    """Return the full-suite collection count with an optional shard setting."""
     env = {"PATH": "/usr/bin:/bin", "HOME": str(TESTS)}
     if shard is not None:
         env[SHARD_ENV] = shard
@@ -40,12 +43,14 @@ def collected(shard: str | None) -> int:
 
 @pytest.mark.slow
 def test_the_shards_together_collect_exactly_the_whole_suite():
+    """Compare actual pytest collection counts for all shards against the full suite."""
     whole = collected(None)
     assert whole > 1000
     assert sum(collected(f"{i}/3") for i in range(3)) == whole
 
 
 def count_with(*marker: str) -> int:
+    """Return the pytest collection count using the supplied marker arguments."""
     cmd = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"]
     out = subprocess.run(
         [*cmd, "-n", "0", *marker, "tests"],
@@ -60,6 +65,7 @@ def count_with(*marker: str) -> int:
 
 @pytest.mark.slow
 def test_the_two_ci_runs_together_collect_what_the_quick_default_leaves_out_too():
+    """Verify the CI marker selections cover the full suite, including slow tests."""
     everything = count_with("-m", "slow or not slow")
     parallel, serial = count_with("-m", "not sigint"), count_with("-m", "sigint")
     assert parallel + serial == everything
@@ -68,6 +74,7 @@ def test_the_two_ci_runs_together_collect_what_the_quick_default_leaves_out_too(
 
 
 def test_a_test_that_outlives_the_timeout_ends_the_process(tmp_path):
+    """Run a hanging test in a child process and verify the timeout terminates it."""
     (tmp_path / "test_hang.py").write_text("import time\n\ndef test_hangs():\n    time.sleep(60)\n")
     (tmp_path / "conftest.py").write_text((TESTS / "conftest.py").read_text())
     start = time.monotonic()

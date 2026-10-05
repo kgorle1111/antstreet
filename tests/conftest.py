@@ -32,6 +32,7 @@ TIMEOUT_ENV = "BOSS_TEST_TIMEOUT_S"
 
 
 def pytest_configure(config):
+    """Restore SIGINT handling so simulated Ctrl-C works in background test runs."""
     # A shell starts a backgrounded command (`pytest &`) with SIGINT ignored, and Python keeps it
     # ignored, so the fakes' simulated Ctrl-C would be dropped and every interrupt test would fail.
     signal.signal(signal.SIGINT, signal.default_int_handler)
@@ -54,6 +55,7 @@ def shard_of(path: str, count: int) -> int:
 
 
 def pytest_collection_modifyitems(config, items):
+    """Mark the known slow tests, then select the configured file shard."""
     for item in items:
         if item.nodeid.startswith(SLOW):
             item.add_marker(pytest.mark.slow)

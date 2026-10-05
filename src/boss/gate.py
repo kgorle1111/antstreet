@@ -110,6 +110,7 @@ def secret_paths(*anchors: Path) -> tuple[Path, ...]:
 
 
 def _wrap(tool: Sandbox, cmd: list[str], tmp: Path, *anchors: Path) -> list[str]:
+    """Wrap a command with Python access and secret masks derived from the gate paths."""
     return tool.wrap(
         cmd, writable=tmp.resolve(), readable=python_readable(), hidden=secret_paths(*anchors)
     )
@@ -175,6 +176,7 @@ def _check_source(checks_dir: Path, check: Check) -> Path:
 def _run_one(
     workspace: Path, check: Check, src: Path, timeout_s: float, tool: Sandbox | None, ini: str
 ) -> CheckResult:
+    """Run one check on a temporary workspace copy and verify its signed result."""
     with tempfile.TemporaryDirectory(prefix="boss_gate_") as tmp_name:
         tmp = Path(tmp_name)
         shutil.copytree(workspace, tmp / "ws", symlinks=True, ignore=_COPY_IGNORE)
@@ -215,6 +217,7 @@ def _run_one(
 def _pytest_cmd(
     tmp: Path, args: list[str], report: Path, tool: Sandbox | None, *anchors: Path
 ) -> list[str]:
+    """Build the isolated pytest command for a tree, applying the sandbox when selected."""
     # Whole-tree runs (imported benchmark tasks) only: no signed proof, so a product written to
     # fake its own test results can (T12). A single check goes through `run_gate`'s plugin path.
     cmd = [

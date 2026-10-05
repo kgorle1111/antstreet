@@ -32,9 +32,11 @@ class Recorder:
     name = "recorder"
 
     def __init__(self) -> None:
+        """Initialize the record of requested commands and sandbox paths."""
         self.calls: list[tuple[list[str], Path, list[Path]]] = []
 
     def wrap(self, argv, *, writable, readable, hidden=()):
+        """Record the requested command and binds, then return the command unchanged."""
         self.calls.append((list(argv), writable, list(readable)))
         return list(argv)
 

@@ -42,12 +42,14 @@ def slug(heading: str) -> str:
 
 
 def anchors(path) -> set[str]:
+    """Collect Markdown heading slugs and explicit row anchors outside fenced code."""
     body = FENCE.sub("", read(path))
     found = {slug(m.group(1)) for m in re.finditer(r"^#{1,6} (.+)$", body, re.M)}
     return found | set(re.findall(r'<a id="([\w-]+)"></a>', body))  # a table row's anchor
 
 
 def broken_links(path, root=ROOT) -> list[str]:
+    """Report missing local link targets and Markdown anchors outside fenced code."""
     problems = []
     for link in LINK.findall(FENCE.sub("", read(path))):
         if link.startswith(("http://", "https://", "mailto:")):
@@ -67,6 +69,7 @@ def test_every_relative_link_in_the_readme_and_the_documents_points_at_a_real_ta
 
 
 def test_the_link_checker_can_fail(tmp_path):
+    """Prove the link checker detects a missing file and an absent heading."""
     (tmp_path / "there.md").write_text("# A heading\n")
     doc = tmp_path / "doc.md"
     doc.write_text("[ok](there.md#a-heading) [gone](gone.md) [no anchor](there.md#nope)\n")
@@ -75,12 +78,14 @@ def test_the_link_checker_can_fail(tmp_path):
 
 
 def test_the_limits_section_links_the_threat_rows_it_is_about(text):
+    """Pin the threat-model references explaining the README limits."""
     body = section(text, "Limits")
     linked = set(re.findall(r"THREAT_MODEL\.md#(t\d+)", body))
     assert linked == {"t12", "t13", "t14", "t29", "t39", "t44"}  # broken ones fail the link check
 
 
 def test_a_threat_row_anchor_counts_as_a_heading(tmp_path):
+    """Accept explicit table-row anchors while rejecting nonexistent row targets."""
     (tmp_path / "there.md").write_text('| T9 | <a id="t9"></a>A row |\n')
     doc = tmp_path / "doc.md"
     doc.write_text("[ok](there.md#t9) [no](there.md#t8)\n")
@@ -88,6 +93,7 @@ def test_a_threat_row_anchor_counts_as_a_heading(tmp_path):
 
 
 def test_the_documentation_section_links_every_document(text):
+    """Require the README documentation index to link all project guides."""
     body = section(text, "Documentation")
     linked = set(LINK.findall(body))
     expected = {f"docs/{p.name}" for p in DOCS.glob("*.md")}

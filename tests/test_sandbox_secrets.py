@@ -46,10 +46,12 @@ def layout(root: Path) -> tuple[Path, Path, Path, Path]:
 
 
 def index_of(argv: list[str], *seq: str) -> int:
+    """Return the first position of a consecutive argument sequence, or raise StopIteration."""
     return next(i for i in range(len(argv)) if argv[i : i + len(seq)] == list(seq))
 
 
 def test_the_mask_comes_after_the_root_and_before_every_bind(tmp_path, anywhere):
+    """Ensure secret masks follow the root mounts and precede explicit access grants."""
     boss, ws, checks, outside_key = layout(tmp_path)
     work = boss / "runs" / "r1" / "gate"  # the writable folder may itself live under `.boss`
     work.mkdir()
@@ -68,6 +70,7 @@ def test_the_mask_comes_after_the_root_and_before_every_bind(tmp_path, anywhere)
 
 
 def test_the_workspace_and_the_checks_stay_bound_after_the_mask(tmp_path, anywhere):
+    """Keep workspace and check binds available beneath a masked project directory."""
     boss, ws, checks, _ = layout(tmp_path)
     argv = bwrap_argv("bwrap", ["x"], writable=ws, readable=[checks], hidden=[boss])
     tail = argv[index_of(argv, "--tmpfs", str(boss)) :]
@@ -84,12 +87,14 @@ def test_the_workspace_and_the_checks_stay_bound_after_the_mask(tmp_path, anywhe
 
 
 def test_a_secret_under_a_hidden_root_or_missing_adds_nothing(tmp_path):
+    """Avoid redundant masks for paths already hidden or absent from the filesystem."""
     plain = bwrap_argv("bwrap", ["x"], writable=tmp_path, readable=[])
     gone = [Path("/home/u/p/.boss"), Path("/srv/does-not-exist/.boss"), tmp_path / "nope"]
     assert bwrap_argv("bwrap", ["x"], writable=tmp_path, readable=[], hidden=gone) == plain
 
 
 def test_wrap_gives_seatbelt_no_masks_because_its_profile_is_deny_by_default(tmp_path):
+    """Apply hidden-path masks only to bubblewrap, leaving seatbelt arguments unchanged."""
     kwargs = {"writable": tmp_path, "readable": [Path("/usr")]}
     mac = Sandbox("sandbox-exec", "/e")
     assert mac.wrap(["c"], **kwargs, hidden=[tmp_path]) == mac.wrap(["c"], **kwargs)
@@ -99,6 +104,7 @@ def test_wrap_gives_seatbelt_no_masks_because_its_profile_is_deny_by_default(tmp
 def test_secret_paths_finds_the_project_dot_boss_from_any_path_the_gate_is_given(
     tmp_path, monkeypatch
 ):
+    """Discover and deduplicate project secret directories from workspace and check paths."""
     monkeypatch.delenv(AUDIT_HOME_ENV, raising=False)
     boss, ws, checks, _ = layout(tmp_path)
     assert secret_paths(ws, checks) == (boss,)
@@ -107,6 +113,7 @@ def test_secret_paths_finds_the_project_dot_boss_from_any_path_the_gate_is_given
 
 
 def test_secret_paths_adds_the_audit_home_when_set_and_present(tmp_path, monkeypatch):
+    """Include an existing absolute audit home and ignore a relative setting."""
     home = tmp_path / "audit"
     home.mkdir()
     monkeypatch.setenv(AUDIT_HOME_ENV, str(home))
@@ -116,10 +123,12 @@ def test_secret_paths_adds_the_audit_home_when_set_and_present(tmp_path, monkeyp
 
 
 def test_run_gate_and_run_tree_hand_the_project_secrets_to_the_sandbox(tmp_path, monkeypatch):
+    """Verify both gate entry points pass project secret paths to the sandbox wrapper."""
     calls: list[list[Path]] = []
 
     class Recording(Sandbox):
         def wrap(self, argv, *, writable, readable, hidden=()):
+            """Record secret paths passed to the sandbox without confining the command."""
             calls.append(list(hidden))
             return list(argv)
 
@@ -138,10 +147,12 @@ def test_run_gate_and_run_tree_hand_the_project_secrets_to_the_sandbox(tmp_path,
 def test_a_dot_boss_inside_the_workspace_or_tree_is_not_copied_into_the_sandbox(
     tmp_path, monkeypatch
 ):
+    """Exclude nested .boss directories from copied workspaces and imported test trees."""
     seen: list[tuple[bool, bool, bool]] = []
 
     class Recording(Sandbox):
         def wrap(self, argv, *, writable, readable, hidden=()):
+            """Record which files survived the workspace copy without confining the command."""
             ws = writable / "ws"  # the copy the sandbox binds writable, as it is at wrap time
             seen.append(
                 ((ws / "keep.py").exists(), (ws / ".boss").exists(), any(ws.rglob(".boss")))
@@ -189,6 +200,7 @@ def outside_the_hidden_roots():
 def test_a_check_cannot_read_the_investor_key_of_a_project_outside_the_hidden_roots(
     outside_the_hidden_roots, monkeypatch
 ):
+    """Verify Linux masks project and audit secrets while allowing an honest check."""
     tool = working_sandbox()
     assert tool is not None and tool.name == "bwrap"
     monkeypatch.delenv(AUDIT_HOME_ENV, raising=False)
@@ -209,6 +221,7 @@ def test_a_check_cannot_read_the_investor_key_of_a_project_outside_the_hidden_ro
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="pins the macOS seatbelt profile")
 def test_seatbelt_denies_reading_the_investor_key_and_ledger_of_a_real_project_layout(tmp_path):
+    """Verify macOS denies project secret reads that succeed with the sandbox disabled."""
     tool = working_sandbox()
     if tool is None or tool.name != "sandbox-exec":
         pytest.skip("sandbox-exec cannot run here")

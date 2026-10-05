@@ -33,6 +33,7 @@ def pyproject() -> dict:
 
 
 def test_the_commands_ci_runs_are_the_ones_stated(text):
+    """Match the documented CI commands and coverage floor to the workflow."""
     workflow = read(ROOT / ".github" / "workflows" / "ci.yml")
     stated = [
         "uv sync --locked",
@@ -77,6 +78,7 @@ def test_ci_installs_bubblewrap_and_requires_the_sandbox_on_linux_only(text):
 
 
 def test_the_tests_that_signal_their_own_process_run_serially_and_the_document_says_so(text):
+    """Check that slow and SIGINT markers and their selection commands are documented."""
     markers = pyproject()["tool"]["pytest"]["ini_options"]["markers"]
     assert [m.split(":")[0] for m in markers] == ["slow", "sigint"]
     assert "`slow`" in text and '`-m "slow or not slow"`' in text
@@ -86,6 +88,7 @@ def test_the_tests_that_signal_their_own_process_run_serially_and_the_document_s
 
 
 def test_ci_shards_linux_caches_task_validations_and_runs_every_task_nightly(text):
+    """Check the documented sharding, caching, nightly validation, and timeout settings."""
     workflow = read(ROOT / ".github" / "workflows" / "ci.yml")
     assert workflow.count('shard: "') == 4 and 'shard: "2/3"' in workflow
     assert "BOSS_SHARD: ${{ matrix.shard }}" in workflow and "`BOSS_SHARD`" in text
@@ -97,6 +100,7 @@ def test_ci_shards_linux_caches_task_validations_and_runs_every_task_nightly(tex
 
 
 def test_the_only_runtime_dependency_is_the_one_stated(text):
+    """Keep the documented runtime dependency list aligned with project metadata."""
     names = {re.split(r"[<>=!~ ]", d)[0] for d in pyproject()["project"]["dependencies"]}
     assert names == {"pytest"}, "a dependency was added: discuss it, then update CONTRIBUTING.md"
     assert "The only runtime dependency is `pytest`," in text

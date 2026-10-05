@@ -112,6 +112,7 @@ def bwrap_argv(
     readable: Sequence[Path],
     hidden: Sequence[Path] = (),
 ) -> list[str]:
+    """Build bubblewrap arguments with secret masks before readable and writable binds."""
     out = [
         executable, "--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-ipc",
         "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",

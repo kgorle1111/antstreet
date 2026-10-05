@@ -100,6 +100,7 @@ def test_options_the_changelog_names_exist(text):
 
 
 def test_figures_the_changelog_states_match_the_code_and_the_repository(text):
+    """Check changelog limits, coverage requirements, task counts, and historical hashes."""
     run_limits = limits.RunLimits()
     assert f"slices ({run_limits.max_slices})" in text
     assert f"workers ({run_limits.max_workers})" in text

@@ -331,6 +331,7 @@ def test_a_check_symlinked_outside_the_checks_dir_is_a_problem_not_a_gate_crash(
 
 
 def test_a_check_that_hangs_on_an_empty_workspace_is_reported_as_a_timeout(checks_dir, monkeypatch):
+    """Report a hanging empty-workspace check as a timeout during termsheet validation."""
     (checks_dir / "test_c02.py").write_text(
         "import time\n\ndef test_hang():\n    time.sleep(120)\n"
     )
@@ -342,6 +343,7 @@ def test_a_check_that_hangs_on_an_empty_workspace_is_reported_as_a_timeout(check
 
 
 def test_passing_and_hanging_checks_are_both_reported_in_sheet_order(checks_dir, monkeypatch):
+    """Preserve sheet order when reporting both timed-out and vacuously passing checks."""
     (checks_dir / "test_c01.py").write_text(
         "import time\n\ndef test_hang():\n    time.sleep(120)\n"
     )

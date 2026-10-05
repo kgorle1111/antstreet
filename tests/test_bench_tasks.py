@@ -32,6 +32,7 @@ ORIGINAL_SET_HASH = "c130282a6eec5fe8"  # the first 17, which every earlier resu
 
 
 def test_every_shipped_task_is_valid():
+    """Validate selected shipped tasks, reusing cached passes when caching is enabled."""
     tasks = load_tasks(TASKS)
     assert len(tasks) == 59, "benchmark tasks are missing"
     # Each validation is many short pytest processes; running four tasks at once keeps it quick.
@@ -42,6 +43,7 @@ def test_every_shipped_task_is_valid():
 
 
 def test_the_shipped_task_set_hash_is_pinned():
+    """Keep the shipped benchmark inputs tied to their recorded task-set hash."""
     assert task_set_hash(load_tasks(TASKS)) == SHIPPED_SET_HASH
 
 
@@ -59,6 +61,7 @@ MULTI_SET_HASH = "ed1824911b464045"
 
 
 def test_every_multi_file_task_is_valid_and_needs_more_than_one_module():
+    """Validate selected multi-file tasks and require each reference to span modules."""
     tasks = load_tasks(MULTI)
     assert len(tasks) == 8 and task_set_hash(tasks) == MULTI_SET_HASH
     with ThreadPoolExecutor(max_workers=4) as pool:
