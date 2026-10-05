@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/hero.svg" alt="boss: coding agents say done. Make it verifiable." width="100%">
+<img src="docs/assets/hero.svg" alt="AntStreet: your AI agents get paid when the checks pass." width="100%">
 
 ![license Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab)
@@ -14,7 +14,7 @@
 
 ## 🚦 The one-minute pitch
 
-You give `boss` an idea and a budget.
+You give AntStreet an idea and a budget.
 
 1. 📝 It drafts pytest checks. **You approve them before any code exists.**
 2. 🤖 Headless Claude Code agents build in small, budget-capped slices.
@@ -22,6 +22,17 @@ You give `boss` an idea and a budget.
 4. 🧾 Every dollar and every decision lands on a signed, hash-chained ledger.
 
 The AI drafts. You and plain code decide.
+
+`antstreet` and `boss` are the same command: `boss` is the bull you talk to.
+
+<p align="center">
+<img src="docs/assets/mascot-pig.svg" alt="The pig: the investor, you, who funds the idea and approves the checks" width="30%">
+<img src="docs/assets/mascot-bull.svg" alt="The bull: the boss, which drafts the checks and runs the crew" width="30%">
+<img src="docs/assets/mascot-ant.svg" alt="The ant: a worker agent, building in a capped slice" width="30%">
+</p>
+
+The pig is you, the investor. The bull is the boss, the model that drafts the checks. The ants are
+the worker agents. Placeholder art, until an illustrator draws the real thing.
 
 ## 🎬 See it run
 
@@ -54,7 +65,7 @@ and never shown to any agent.
 
 **Paired by task, the difference is not shown, and the firm cost about 2.4 times as much.** So we
 do not claim a team of agents builds better than one agent on small tasks. We measured it, it did
-not, and the earlier, rosier headline did not survive a fair re-run. The value of `boss` is
+not, and the earlier, rosier headline did not survive a fair re-run. The value of AntStreet is
 **verification and control**, not "more agents".
 Details: [blind35 notes](bench/results/2026-10-03-blind35/README.md), [bench/METHOD.md](bench/METHOD.md).
 
@@ -102,14 +113,15 @@ You need macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/) and
 [Claude Code](https://code.claude.com), logged in (`claude auth login`).
 
 ```bash
-git clone https://github.com/kgorle1111/boss-agent.git
-cd boss-agent
+git clone https://github.com/kgorle1111/antstreet.git
+cd antstreet
 uv sync
 uv run boss doctor --live        # checks this machine; two paid calls of at most $0.05 each
 uv run boss fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
 ```
 
-`boss fund` shows the term sheet and waits for your yes. Then `uv run boss report` reprints the
+After the PyPI release (not yet published), `uvx antstreet fund "..." --budget 0.40` will work
+without a clone. `boss fund` shows the term sheet and waits for your yes. Then `uv run boss report` reprints the
 board report, and `uv run boss resume` continues an interrupted run. Every command and option:
 [docs/CLI.md](docs/CLI.md). It also audits someone else's agent: `boss audit` seals checks before the
 agent starts and tests its commit afterwards.
@@ -130,7 +142,7 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 ## 🗺️ Roadmap (planned, not built)
 
 - A Claude Code plugin
-- A PyPI release, so `uvx` works (the package name is undecided)
+- A PyPI release, so `uvx antstreet` works (the name is chosen; nothing is published yet)
 - A GitHub Action that runs `boss audit check` on a pull request
 
 See [docs/BACKLOG.md](docs/BACKLOG.md).

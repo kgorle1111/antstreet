@@ -14,8 +14,8 @@ You need Python 3.12 and [uv](https://docs.astral.sh/uv/). You do not need the `
 account to run the tests.
 
 ```bash
-git clone https://github.com/kgorle1111/boss-agent.git
-cd boss-agent
+git clone https://github.com/kgorle1111/antstreet.git
+cd antstreet
 uv sync
 ```
 

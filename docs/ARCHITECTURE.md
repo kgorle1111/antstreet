@@ -1,6 +1,6 @@
 # Architecture
 
-How `boss` is put together, what each part may and may not do, and the rules the design relies on.
+How AntStreet (the `boss` package) is put together, what each part may and may not do, and the rules the design relies on.
 `tests/test_docs_architecture.py` fails when this file and the code disagree about which modules
 exist, which ledger events the loop writes, or the fixed limits in the last table.
 

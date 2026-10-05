@@ -1,6 +1,9 @@
-# boss
+# AntStreet
 
-**Coding agents say "done" when it is not. `boss` makes "done" something you can verify.**
+`antstreet` and `boss` are the same command; `boss` is the bull you talk to. The Python package
+is still named `boss`.
+
+**Coding agents say "done" when it is not. AntStreet makes "done" something you can verify.**
 
 You give it an idea and a budget. An LLM boss drafts pytest acceptance checks, and you approve
 them before any code exists. Headless Claude Code agents then build in budget-capped slices. A
@@ -19,8 +22,8 @@ You need macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/) and
 [Claude Code](https://code.claude.com), logged in (`claude auth login`).
 
 ```bash
-git clone https://github.com/kgorle1111/boss-agent.git
-cd boss-agent
+git clone https://github.com/kgorle1111/antstreet.git
+cd antstreet
 uv sync
 uv run boss doctor --live        # checks this machine; two paid calls of at most $0.05 each
 uv run boss fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
@@ -66,7 +69,7 @@ not measured. An earlier run on 17 of these tasks (firm 35 of 51, 69%; single 32
 comparable: the single arm was told its work would be judged by hidden checks and the firm's workers
 were not, and the two arms ran on different commits. Raw results are not committed.
 
-What that means: the value of `boss` is verification and control, not "more agents build better".
+What that means: the value of AntStreet is verification and control, not "more agents build better".
 We do not claim a team of agents beats one agent on small tasks, because we measured it and it did
 not. We publish negative results like this one on purpose; the earlier headline did not survive a
 fair re-run, and the write-up says so
@@ -217,7 +220,7 @@ round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss re
 
 ## Limits
 
-What `boss` does not do, in plain words. Each links to its row in the [threat model](docs/THREAT_MODEL.md).
+What AntStreet does not do, in plain words. Each links to its row in the [threat model](docs/THREAT_MODEL.md).
 
 - **A determined adversary can forge a pass.** The gate checks a worker's code by running it, and
   code written specifically to attack this gate can fake the result from inside the same process
@@ -289,7 +292,7 @@ Early. It works end to end and the tests are deep, but it is pre-release.
 - Python with pytest only; workers are Claude Code sessions.
 - The macOS sandbox is stronger than the Linux one (see Limits).
 - Single machine, single user.
-- Planned, not built: a Claude Code plugin, a PyPI release (the package name is undecided), and a
+- Planned, not built: a Claude Code plugin, a PyPI release (the name is `antstreet`; nothing is published yet), and a
   GitHub Action that runs `boss audit check` on a pull request
   (see [docs/BACKLOG.md](docs/BACKLOG.md)).
 
