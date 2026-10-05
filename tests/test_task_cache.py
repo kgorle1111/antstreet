@@ -91,3 +91,8 @@ def test_the_key_of_a_real_task_is_stable_and_names_every_validator_file(tmp_pat
     task = BenchTask("slugify", "S", "easy", copy)
     assert validation_key(task, REAL) == validation_key(task, REAL)
     assert all((REAL / name).is_file() for name in VALIDATOR_FILES)
+
+
+def test_the_workflow_cache_key_hashes_every_validator_file():
+    workflow = (REAL / ".github" / "workflows" / "ci.yml").read_text()
+    assert all(f"'{name}'" in workflow for name in VALIDATOR_FILES)

@@ -20,6 +20,8 @@ SLOW = (
     "tests/test_firm_simulation.py",
     "tests/test_pipeline.py",
     "tests/test_docs_ledger.py",
+    "tests/test_audit_check.py",
+    "tests/test_audit_report.py",
     "tests/test_docs_contributing.py::test_a_task_built_by_those_steps_validates",
     "tests/test_docs_cli.py::test_a_run_with_roles_holds_the_extra_paths_the_document_lists",
     "tests/test_runner.py::test_a_slice_can_be_stopped_from_another_thread_and_its_cost_is_still_read",
@@ -65,8 +67,10 @@ def _shard(config, items):
     if not raw:
         return
     index, count = parse_shard(raw)
-    keep = [i for i in items if shard_of(i.nodeid.split("::")[0], count) == index]
-    dropped = [i for i in items if i not in keep]
+    keep, dropped = [], []
+    for item in items:
+        mine = shard_of(item.nodeid.split("::")[0], count) == index
+        (keep if mine else dropped).append(item)
     if dropped:
         config.hook.pytest_deselected(items=dropped)
     items[:] = keep

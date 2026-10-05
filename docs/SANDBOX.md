@@ -149,7 +149,8 @@ key, the ledger, the run store). `gate.secret_paths` therefore names the `.boss`
 workspace or checks it is given, plus `BOSS_AUDIT_HOME` when set, and `bwrap_argv` masks each one
 (`--tmpfs` for a folder) after the four tmpfs mounts and before the binds. bwrap applies mounts in
 argv order, so the binds re-expose only the check's own folder, even when it lies under a masked
-path. A key kept anywhere else is not hidden; the upgrade path is an allowlist root. macOS needs no
+path. A `.boss` folder inside the workspace or an exported tree is never copied into the check's
+workspace (`gate._COPY_IGNORE`), so the writable copy holds no key. A key kept anywhere else is not hidden; the upgrade path is an allowlist root. macOS needs no
 mask: its profile denies every read that is not listed. Tests: `tests/test_sandbox_secrets.py`.
 
 ### How CI runs it

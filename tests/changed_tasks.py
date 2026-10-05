@@ -52,8 +52,10 @@ def select(tasks: list, root: Path = ROOT) -> list:
 
 CACHE_ENV = "BOSS_TASK_CACHE"  # a folder of one empty file per task validation that passed
 # What a validation's verdict depends on besides the task's own files: the validator and the gate
-# (with its sandbox and plugin) that runs every check.
+# (with its sandbox and plugin) that runs every check, and the locked environment they run in.
 VALIDATOR_FILES = (
+    "uv.lock",
+    "pyproject.toml",
     "src/boss/bench/tasks.py",
     "src/boss/gate.py",
     "src/boss/sandbox.py",

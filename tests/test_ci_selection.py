@@ -18,7 +18,8 @@ def test_a_malformed_shard_is_refused_not_ignored(raw):
 
 
 def test_every_test_file_belongs_to_exactly_one_shard():
-    files = sorted(p.name for p in TESTS.glob("test_*.py"))
+    # The hook hashes the node id's path, `tests/<name>`, so this does too.
+    files = sorted(f"tests/{p.name}" for p in TESTS.glob("test_*.py"))
     for count in (1, 2, 3, 4):
         owners = [[f for f in files if shard_of(f, count) == i] for i in range(count)]
         assert sorted(sum(owners, [])) == files

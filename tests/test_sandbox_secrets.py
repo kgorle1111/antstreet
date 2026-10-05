@@ -135,6 +135,34 @@ def test_run_gate_and_run_tree_hand_the_project_secrets_to_the_sandbox(tmp_path,
     assert calls == [[boss]]
 
 
+def test_a_dot_boss_inside_the_workspace_or_tree_is_not_copied_into_the_sandbox(
+    tmp_path, monkeypatch
+):
+    seen: list[tuple[bool, bool, bool]] = []
+
+    class Recording(Sandbox):
+        def wrap(self, argv, *, writable, readable, hidden=()):
+            ws = writable / "ws"  # the copy the sandbox binds writable, as it is at wrap time
+            seen.append(
+                ((ws / "keep.py").exists(), (ws / ".boss").exists(), any(ws.rglob(".boss")))
+            )
+            return list(argv)
+
+    monkeypatch.delenv(AUDIT_HOME_ENV, raising=False)
+    monkeypatch.setattr(gate_module, "select", lambda mode: Recording("bwrap", "/e"))
+    _, ws, checks, _ = layout(tmp_path)
+    for root in (ws, ws / "tests_here"):
+        (root / "sub" / ".boss").mkdir(parents=True)
+        (root / "sub" / ".boss" / "investor.key").write_text("00" * 32)
+        (root / ".boss").mkdir(exist_ok=True)
+        (root / ".boss" / "investor.key").write_text("00" * 32)
+    (ws / "keep.py").write_text(RIGHT)
+    (checks / "test_c01.py").write_text(HONEST)
+    run_gate(ws, checks, [Check("c01", "test_c01.py")], sandbox=ON)
+    gate_module.run_tree(ws, ws / "tests_here", "tests_here", sandbox=ON)
+    assert seen == [(True, False, False)] * 2
+
+
 # --- real runs -------------------------------------------------------------------------------
 
 

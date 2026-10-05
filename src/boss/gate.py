@@ -35,7 +35,9 @@ TREE_TIMEOUT_S = 180.0  # a whole imported test suite in one pytest process
 SANDBOX_ENV = "BOSS_GATE_SANDBOX"
 AUDIT_HOME_ENV = "BOSS_AUDIT_HOME"  # a store outside the project that a check must not read
 OUTPUT_TAIL_CHARS = 4000
-_COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", ".git")
+# `.boss` is never copied: a project or exported tree inside the workspace may carry one (investor
+# key, ledger), and the copy is bound writable and readable inside the sandbox on Linux.
+_COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", ".git", ".boss")
 # kn: in-process verdicts are forgeable by deliberately adversarial code that reads the plugin's
 # nonce from the check's own process (gc, sys.modules); closing that needs the verdict read from
 # outside the process that runs worker code (a container or an out-of-process runner), parked until
