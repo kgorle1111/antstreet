@@ -78,8 +78,9 @@ def problems_in(text: str, base: Path = DOCS) -> list[str]:
     entries = parse(text)
     found = []
     ids = [e["id"] for e in entries]
-    if ids != [f"D{n:02d}" for n in range(1, len(ids) + 1)]:
-        found.append(f"ids are not unique and consecutive from D01: {ids}")
+    numbers = [int(i[1:]) for i in ids]  # gaps are allowed: parallel branches reserve ranges
+    if numbers != sorted(set(numbers)):
+        found.append(f"ids are not unique and increasing: {ids}")
     for e in entries:
         for name in FIELDS[1:]:
             if len(e.get(name, "")) < 12:
@@ -132,7 +133,7 @@ def test_the_checker_catches_each_way_an_entry_can_be_wrong():
     assert problems_in(good) == []
     cases = {
         "duplicate id": good + good,
-        "gap in ids": good.replace("D01", "D02"),
+        "ids out of order": good.replace("D01", "D02") + good,
         "missing field": good.replace("- Why: a reason that is long.\n", ""),
         "bad status": good.replace("`in force`", "`maybe`"),
         "supersedes nothing": good.replace("`in force`", "`superseded by D09`"),
