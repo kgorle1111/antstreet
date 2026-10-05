@@ -473,3 +473,75 @@ def test_columns_that_ran_different_task_sets_are_flagged_not_compared():
     other = kpi_card([cell(set_hash="s2")])
     assert kpi.SETS_WARNING in render_cards([("a", one), ("b", other)])
     assert kpi.SETS_WARNING not in render_cards([("a", one), ("b", one)])
+
+
+def test_a_card_with_no_measured_boss_checks_has_none_not_zero():
+    card = kpi_card([cell()])
+    assert card.wrong_checks is None and card.boss_checks is None
+
+
+def test_boss_checks_count_only_what_was_recorded_as_a_total():
+    card = kpi_card([cell(wrong_checks=1, visible_total=None), cell(task="t2", wrong_checks=0)])
+    assert (card.wrong_checks, card.boss_checks) == (1, 1)
+
+
+def test_the_infrastructure_note_appears_only_when_something_was_excluded():
+    clean = kpi_card([cell()])
+    assert "infrastructure" not in kpi._delivery(clean)
+    dirty = kpi_card([cell(), cell(task="t2", failure_class="infrastructure", hidden=FAIL)])
+    assert kpi._delivery(dirty).endswith("(1/1); 1 infrastructure excluded")
+
+
+def test_a_half_recorded_claim_is_n_a_not_a_crash():
+    import dataclasses
+
+    card = dataclasses.replace(kpi_card([cell()]), said_done=None, false_passes=2)
+    assert kpi._false_pass(card).startswith("n/a (the arm's claim is not recorded)")
+    card = dataclasses.replace(kpi_card([cell()]), wrong_checks=None, boss_checks=5)
+    assert kpi._check_quality(card) == "not measured"
+
+
+def test_runs_without_a_recorded_question_count_are_stated_only_when_there_are_some():
+    all_recorded = kpi_card([cell()], {("t1", "firm", 1): asked(2)})
+    assert kpi._questions(all_recorded) == "2.00 per run (2 in 1 runs)"
+    some = kpi_card([cell(), cell(task="t2")], {("t1", "firm", 1): asked(2)})
+    assert kpi._questions(some) == "2.00 per run (2 in 1 runs); 1 runs not recorded"
+
+
+def test_the_empty_and_the_zero_task_figures_say_n_a_with_their_reason():
+    dead = kpi_card([cell(failure_class="infrastructure", hidden=FAIL)])
+    assert kpi._reliability(dead) == "n/a (0 tasks)"
+    single = kpi_card([cell(arm="single")])
+    assert kpi._questions(single) == "0 (the single arm asks none)"
+    assert kpi._check_quality(single) == "n/a (no boss checks)"
+
+
+def test_the_table_is_refused_when_empty_or_when_labels_repeat_and_says_so():
+    with pytest.raises(ValueError, match="cannot render an empty scorecard"):
+        render_cards([])
+    card = kpi_card([cell()])
+    with pytest.raises(ValueError, match="same label: a, a, b, b$"):
+        render_cards([("b", card), ("a", card), ("a", card), ("b", card)])
+
+
+def test_the_table_ends_with_the_sample_sizes_a_blank_line_and_the_note():
+    card = kpi_card([cell()])
+    text = render_cards([("x", card)])
+    assert (
+        "\n\nSample sizes (counted cells over tasks; infrastructure failures excluded):\n" in text
+    )
+    assert text.endswith("\n  x: 1 cells over 1 tasks (0 excluded)\n\n" + kpi.NOTE + "\n")
+    mixed = render_cards([("x", card), ("y", kpi_card([cell(set_hash="other")]))])
+    assert mixed.startswith(kpi.SETS_WARNING + "\n\n")
+
+
+def test_the_command_says_no_results_found_and_prints_the_table_without_extra_newline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    (tmp_path / "empty").mkdir()
+    assert main([str(tmp_path / "empty")]) == 1
+    assert "no results found" in capsys.readouterr().err
+    c = cell()
+    c.save(cell_dir(tmp_path / "run", c.task, c.arm, c.rep))
+    assert main([str(tmp_path / "run")]) == 0
+    assert capsys.readouterr().out.endswith(kpi.NOTE + "\n")

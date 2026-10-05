@@ -364,3 +364,72 @@ def test_no_wrong_held_out_line_when_nothing_was_measured_or_for_the_single_arm(
     [single] = summarize(single_set())
     assert single.held_out_wrong is None
     assert "Wrong held-out checks" not in render_table(single_set())
+
+
+def test_the_table_has_the_published_columns_and_blank_lines_between_its_parts() -> None:
+    lines = render_table(single_set()).split("\n")
+    assert lines[1] == ""
+    assert lines[2] == (
+        "| arm | cells | tasks | passed | pass rate [95% CI] | hidden checks | mean cost/cell"
+        " | cost/pass | boss share | unknown-cost events | infrastructure excluded"
+        " | median time/cell | tasks passed every run |"
+    )
+    assert lines[3] == "| " + " | ".join(["---"] * 13) + " |"
+    assert lines[-4:] == ["| t2 | 0/1 |", "", CLOSING, ""]
+    assert lines[5] == "" and lines[6] == "| task | single |"
+
+
+def test_a_percentage_is_rounded_from_the_rate_not_from_a_scaled_one() -> None:
+    results = [cell(task=f"t{i}", rep=0) for i in range(40)]
+    assert "100% [91-100%]" in render_table(results)
+
+
+def test_cost_per_pass_is_the_cost_divided_by_the_cells_that_passed() -> None:
+    results = [
+        cell(task="t1", cost_micros=3_000_000),
+        cell(task="t2", cost_micros=3_000_000),
+        cell(task="t3", hidden=NONE, cost_micros=0),
+    ]
+    assert summarize(results)[0].cost_per_pass_micros == 3_000_000
+
+
+def test_a_boss_check_total_that_was_not_recorded_counts_as_zero_checks() -> None:
+    firm = [
+        cell(arm="firm", visible_passed=1, visible_total=None, wrong_checks=1),
+        cell(arm="firm", task="t2", visible_passed=2, visible_total=2, wrong_checks=0),
+    ]
+    assert summarize(firm)[0].boss_checks == 2
+
+
+def test_held_out_figures_are_none_until_a_cell_measured_them_and_skip_missing_totals() -> None:
+    assert summarize([cell(arm="firm")])[0].held_out_checks is None
+    held = [
+        cell(arm="firm", held_out_wrong=1, held_out_total=None),
+        cell(arm="firm", task="t2", held_out_wrong=0, held_out_passed=3, held_out_total=3),
+    ]
+    assert summarize(held)[0].held_out_checks == 3
+
+
+def test_one_visible_check_passed_counts_as_every_visible_check_passed() -> None:
+    s = summarize([cell(arm="firm", visible_passed=1, visible_total=1)])[0]
+    assert s.visible_pass_cells == 1
+
+
+def test_an_empty_table_says_why_and_stdout_is_exactly_the_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(ValueError, match="cannot tabulate an empty result set"):
+        render_table([])
+    _save(tmp_path, cell())
+    assert main([str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert out.endswith(CLOSING + "\n") and not out.endswith("\n\n")
+
+
+def test_the_command_is_named_and_its_out_option_says_what_it_does() -> None:
+    from docs_support import captured_parser
+
+    parser = captured_parser(main)
+    assert parser.prog == "python -m boss.bench.table"
+    out = next(a for a in parser._actions if "--out" in a.option_strings)
+    assert out.help == "write the table here instead of stdout"

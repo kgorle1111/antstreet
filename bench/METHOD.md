@@ -72,7 +72,9 @@ tests instead of hidden checks written here.
   ruling, so a disputed or blocked task is set aside, as it was before the investor could rule
   (`boss resume` is not used). A real run has a human there, who is also the filter for a wrong
   boss check and the one who rules on a dispute.
-- Extra `boss fund` options given with `--firm-args` are recorded in every result.
+- Extra `boss fund` options given with `--firm-args` are recorded in every result. A saved cell
+  whose task set, model, budget or `--firm-args` differ from the run's is refused, not reused: a
+  second firm arm (another `--firm-args`) needs its own `--out`.
 - A third arm, `single-review`, is the single arm with a self-review slice; see its own section.
 - The single arm gets one slice. The firm may use several within the same budget: the gate's
   feedback between slices is part of what is being measured.

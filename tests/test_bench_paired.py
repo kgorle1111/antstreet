@@ -269,3 +269,98 @@ def test_every_option_and_kpi_is_documented_where_the_docs_say_it():
         assert all(kpi in text for kpi in KPIS)
     assert all(f"`{o}`" in cli for o in options)
     assert "`shown`" in cli and "`not shown`" in cli
+
+
+def test_the_interval_ends_are_the_25th_and_the_974th_of_a_thousand_sorted_means():
+    import random
+    import statistics
+
+    diffs = [0.1 * i for i in range(7)]
+    rng = random.Random(4)
+    means = sorted(statistics.fmean(rng.choices(diffs, k=7)) for _ in range(1000))
+    assert bootstrap_interval(diffs, 1000, seed=4) == (means[25], means[974])
+
+
+def test_an_empty_difference_list_says_there_is_nothing_to_resample():
+    with pytest.raises(ValueError, match="no differences to resample"):
+        bootstrap_interval([], 10, 0)
+
+
+def test_the_defaults_are_ten_thousand_resamples_and_seed_zero():
+    a, b = sides([True] * 8, [False] * 8)
+    p = compare(a, b, "firm", "single", "delivery")
+    assert (p.resamples, p.seed) == (10_000, 0)
+
+
+def test_the_seed_given_is_the_seed_used_and_recorded():
+    a, b = sides([True, False, True, False] * 3, [False, False, True, True] * 3)
+    p = run(a, b, seed=5)
+    assert p.seed == 5
+    va, vb = task_values(a, "firm", "delivery"), task_values(b, "single", "delivery")
+    diffs = [va[t] - vb[t] for t in sorted(va)]
+    assert (p.low, p.high) == bootstrap_interval(diffs, 2000, 5)
+
+
+def test_one_resample_is_allowed_and_zero_is_refused_with_its_reason():
+    a, b = sides([True] * 8, [False] * 8)
+    assert compare(a, b, "firm", "single", "delivery", resamples=1).resamples == 1
+    with pytest.raises(ValueError, match="resamples must be at least 1, got 0"):
+        compare(a, b, "firm", "single", "delivery", resamples=0)
+
+
+def test_the_refusals_say_why():
+    a, b = sides([True], [False])
+    with pytest.raises(ValueError, match="only the firm arm has"):
+        compare(a, b, "firm", "single", "false_pass")
+    other = [cell("zz", "single")]
+    with pytest.raises(ValueError, match="no task has a counted run on both sides"):
+        compare(a, other, "firm", "single", "delivery")
+
+
+def test_a_comparison_of_like_with_like_is_not_warned_about(tmp_path, capsys):
+    cell("t0").save(cell_dir(tmp_path / "x", "t0", "firm", 1))
+    cell("t0", "single").save(cell_dir(tmp_path / "y", "t0", "single", 1))
+    assert main([str(tmp_path / "x"), str(tmp_path / "y")]) == 0
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def _paired(kpi):
+    from boss.bench.paired import Paired
+
+    return Paired("firm", "single", kpi, "h", 8, 1.5, 0.25, 2.0, 10, 3, 1, 2)
+
+
+@pytest.mark.parametrize(
+    ("kpi", "unit", "mean", "interval"),
+    [
+        ("delivery", "share", "+1.5000", "[+0.2500, +2.0000]"),
+        ("false_pass", "share", "+1.5000", "[+0.2500, +2.0000]"),
+        ("cost_per_delivery", "$", "+1.5000", "[+0.2500, +2.0000]"),
+        ("time", "s", "+1.5", "[+0.2, +2.0]"),
+    ],
+)
+def test_each_kpi_is_shown_with_its_unit_and_places(kpi, unit, mean, interval):
+    lines = render(_paired(kpi)).split("\n")
+    assert len(lines) == 5
+    assert lines[0] == f"paired firm vs single, {kpi} ({unit}), task set h"
+    assert lines[2] == f"mean difference (firm - single): {mean}"
+    assert lines[3] == f"95% interval: {interval} (10 task resamples, seed 3)"
+
+
+def test_the_command_line_defaults_and_options_are_the_documented_ones(tmp_path, capsys):
+    a, b = sides([True] * 8, [False] * 8)
+    for c in a + b:
+        c.save(cell_dir(tmp_path / "run", c.task, c.arm, c.rep))
+    run_dir = str(tmp_path / "run")
+    assert main([run_dir, run_dir]) == 0
+    assert "(10000 task resamples, seed 0)" in capsys.readouterr().out
+    assert main([run_dir, run_dir, "--seed", "3", "--resamples", "50"]) == 0
+    assert "(50 task resamples, seed 3)" in capsys.readouterr().out
+    for bad in (["--arm-a", "x"], ["--arm-b", "x"], ["--kpi", "x"], ["--seed", "x"]):
+        with pytest.raises(SystemExit):
+            main([run_dir, run_dir, *bad])
+
+
+def test_the_parser_names_its_command_and_describes_itself():
+    parser = captured_parser(main)
+    assert parser.prog == "python -m boss.bench.paired" and parser.description
