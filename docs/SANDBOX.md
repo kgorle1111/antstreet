@@ -88,21 +88,32 @@ a profile that interpolated the path fails it on quote, backslash and injection 
 An object whose `__eq__` always returns True passes `assert reverse("ab") == "ba"` without a right
 answer, and needs no knowledge of the gate. The gate's plugin wraps pytest's assertion rewrite:
 after pytest rewrites the check file, every `== != < <= > >= in not in` in it (in an assert or not,
-in a comprehension, in a helper) has each operand passed through `_guard`.
+in a comprehension, in a helper function defined in the check file itself) has each operand passed through `_guard`.
 
 - **Honest values are compared as Python compares them.** Exact `None bool int float complex str
-  bytes bytearray range type Decimal` and the `datetime` types, a `Fraction` of two ints, and
+  bytes bytearray range type Decimal` and the `datetime` types (an aware `datetime` or `time` only
+  with a `datetime.timezone`: a product `tzinfo`'s `utcoffset` runs inside the comparison), a
+  `Fraction` of two ints, and
   `list tuple dict set frozenset deque OrderedDict defaultdict Counter` and dict views whose contents
   are honest, walked with the base type's own iterator. A subclass of `list tuple dict set frozenset`
-  (a namedtuple) counts if it keeps every comparison method of its base. Nothing is made stricter:
+  (a namedtuple) counts if it keeps every comparison method and the `__hash__` of its base. A value
+  whose class has a metaclass other than `type` is never honest (a metaclass can make the class
+  compare equal to `int` in a set lookup, or answer `getattr(cls, "__eq__")` with `list.__eq__`);
+  `Fraction` (metaclass `ABCMeta`) is matched by identity before that test. Nothing is made stricter:
   `1 == 1.0`, `True == 1` and `Counter("aab") == {"a": 2, "b": 1}` still hold. A check that wants an
   exact type says so (`type(x) is int`).
-- **`pytest.approx` objects count only if the check file built them** (the plugin wraps
-  `pytest.approx` and records objects created from a frame in the check file). One the product
-  returns can hold a value that equals everything, or an infinite tolerance.
+- **`pytest.approx` objects count only if the check file built them, and only with honest
+  contents.** The plugin wraps `pytest.approx` and records objects created from code whose globals
+  are the check module's own dict, which the module registers as its first statement (a file name
+  would not do: `compile` lets the product pick one). One the product returns can hold a value that
+  equals everything, or an infinite tolerance. A check-built matcher is walked too: its expected
+  value and tolerances must be honest, so `approx(area()) == 3.14` with a product `area()` value is
+  not trusted.
 - **Anything else is wrapped.** The wrapper is never equal to an honest value and cannot be ordered
   against one (`TypeError`). Two wrapped values compare as the product says, and `x in product_obj`
-  asks the product's `__contains__`, so `Poly(1) == Poly(1)` and `"ab" in trie` keep working.
+  asks the product's `__contains__`, so `Poly(1) == Poly(1)` and `"ab" in trie` keep working. The
+  wrapper is unhashable: looking a product object up in a plain set or dict (`x not in {...}`)
+  raises, since the product's hash would decide the lookup.
 - **Fail closed:** a collected test whose module was not rewritten with the guard (a pytest that
   stopped calling `rewrite_asserts`) is never counted as passed, so the gate says FAILED.
 
@@ -120,8 +131,14 @@ comparisons outside an assert. Not covered:
   product's `__str__`, `__iter__` or `__hash__` returns before a plain comparison sees it. These
   give the product nothing an honest-looking return value would not.
 - Whole-tree runs (`gate.run_tree`, imported benchmark suites): no plugin, no guard, no proof.
-- Code aimed at the plugin: replacing `_guard` or `pytest.approx` in its own process (the
-  `accepted_risk` tests stand for this class).
+- `x not in [plain list]` and `x != plain` are true for any product object, as `==` is false for
+  it: a negative check cannot tell a wrong product object from a right one. Prefer positive checks.
+- Only the check file (always copied to `checks/<name>` directly, `gate._run_one`) is guarded, not
+  helpers it imports from elsewhere.
+- Code aimed at the plugin or the check module: replacing `_guard` or `pytest.approx`, calling
+  `_register` with its own globals, or running code inside the check module's globals (found
+  through `sys.modules`) to build a trusted `approx` (the `accepted_risk` tests stand for this
+  class).
 
 ## Plan: a verdict read from outside the process (T12, not built)
 
