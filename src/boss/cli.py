@@ -1,5 +1,5 @@
 """Commands: `fund`, `approve`, `resume`, `topup`, `report`, `status`, `routing`, `verify`, `roles`,
-`doctor`, `audit`.
+`doctor`, `mcp`, `audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
@@ -153,6 +153,10 @@ def main(
         return EXIT_OK
     if args.command == "verify":
         return _verify(args, project, say)
+    if args.command == "mcp":
+        from boss.mcp import serve
+
+        return serve(project, sys.stdin, sys.stdout, environ)
     return _show(args, project, say)
 
 
@@ -293,6 +297,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     doctor = sub.add_parser("doctor", parents=[common], help="check that this machine can run boss")
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
+    sub.add_parser(
+        "mcp",
+        parents=[common],
+        help="serve this project's runs read-only to an MCP client on stdin/stdout",
+    )
     _audit_parser(sub)
     return parser
 
