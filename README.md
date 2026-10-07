@@ -151,11 +151,20 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 
 ## 🗺️ Roadmap (planned, not built)
 
-- Installing the Claude Code plugin: it is built and waits on the next two items
-  ([how it works](README-technical.md#use-it-from-claude-code))
-- Making the repository public
+Shipped since the last roadmap: the Claude Code plugin ([how it works](README-technical.md#use-it-from-claude-code)),
+a read-only MCP server (`antstreet mcp`), a GitHub Action that runs `antstreet audit check` on a pull
+request, and `antstreet verify`, an offline check of a run's ledger.
+
+Next:
+
 - A PyPI release, so `uvx antstreet` works (the name is chosen; nothing is published yet)
-- A GitHub Action that runs `boss audit check` on a pull request
+- `antstreet approve`: approve a term sheet from Claude Code without a terminal, with a plugin guard so
+  the agent can never approve its own work
+- Every ledger line signed, not only your approvals
+- An approve pane inside Claude Code, to cut the time the approve step takes
+- Audit any agent's branch in one command, and an `audit export` so the Action needs no manual step
+- Results of two pre-registered experiments: a fresh-context critic against self-review (E4), and
+  reliability across runs (E5)
 
 See [docs/BACKLOG.md](docs/BACKLOG.md).
 

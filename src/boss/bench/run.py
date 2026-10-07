@@ -12,6 +12,7 @@ import argparse
 import os
 import shlex
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Mapping, Sequence
@@ -23,6 +24,7 @@ from boss.bench.results import ARMS, INFRA_OUTCOMES, CellResult, cell_dir
 from boss.bench.score import count_wrong_checks
 from boss.bench.tasks import BenchTask, grade_imported, load_tasks, task_set_hash, validate_task
 from boss.boss import DEFAULT_MODEL, load_prompt
+from boss.doctor import logged_in
 from boss.errors import Outcome
 from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
@@ -40,6 +42,7 @@ from boss.worker import (
     billing_mode,
     clean_status,
     usd,
+    uses_api_key,
     worker_env,
 )
 
@@ -49,6 +52,14 @@ SELF_REVIEW_PROMPT = "self_review_v1.md"
 # is split, the build getting this share and the review the rest.
 BUILD_SHARE = 0.75
 DEFAULT_ARMS = ("single", "firm")  # `single-review` costs a second slice, so it is asked for
+# A run stops once this many cells in a row end in the same infrastructure failure: a dead login
+# or a spent plan fails every later cell too, instantly (202 cells on 2026-10-07).
+INFRA_STREAK_STOP = 3
+_STREAK_FIX = {
+    "login": cli.LOGIN_FIX,
+    "usage_limit": "The plan's usage limit is reached; wait for it to reset.",
+}
+_SAVED_FAILURES = "A saved cell is never run again: move the failed cells' folders aside first."
 
 
 def run_cell(
@@ -331,8 +342,16 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         return 0
     for task in tasks:
         validate_task(task)
+    refusal = preflight(environ)
+    if refusal:
+        print(f"refused before any cell: {refusal}", file=sys.stderr)
+        return 1
+    lock, stop = threading.Lock(), threading.Event()
+    streak: list[tuple[str, int]] = [("", 0)]  # outcome, cells in a row; under `lock`
 
-    def run(cell: tuple[BenchTask, str, int]) -> CellResult:
+    def run(cell: tuple[BenchTask, str, int]) -> CellResult | None:
+        if stop.is_set():
+            return None
         task, arm, rep = cell
         result = run_cell(
             task,
@@ -353,12 +372,45 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
             score += f", {result.held_out_passed}/{result.held_out_total} held-out"
         cost = f"${usd(result.cost_micros)}"
         print(f"  {task.id:<14} {arm:<6} rep{rep}  {score}  {cost}  {result.outcome}  {verdict}")
+        kind = result.outcome.removeprefix("boss:")
+        with lock:
+            if stop.is_set():  # a cell already running when the run stopped: keep the reason
+                return result
+            last, count = streak[0]
+            count = (count + 1 if kind == last else 1) if kind in INFRA_OUTCOMES else 0
+            streak[0] = (kind, count)
+            if count >= INFRA_STREAK_STOP:
+                stop.set()
         return result
 
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        results = list(pool.map(run, cells))
+        results = [r for r in pool.map(run, cells) if r is not None]
     print(f"{sum(r.passed for r in results)}/{len(results)} cells passed every hidden check")
+    if stop.is_set():
+        kind = streak[0][0]
+        fix = _STREAK_FIX.get(kind, "Run `antstreet doctor --live` to find the cause.")
+        print(
+            f"stopped: {INFRA_STREAK_STOP} cells in a row ended as {kind}, an infrastructure "
+            f"failure; {len(cells) - len(results)} cells were not started. {fix} {_SAVED_FAILURES}",
+            file=sys.stderr,
+        )
+        return 1
     return 0
+
+
+def preflight(environ: Mapping[str, str]) -> str | None:
+    """Why no cell should start, or None. No model call: `claude auth status` with the exact
+    environment a worker gets. It cannot see a login whose refresh will fail; the streak stop
+    catches that one. An API key is not checked here (as in `boss doctor` without --live)."""
+    env = worker_env(environ)
+    if uses_api_key(env):
+        return None
+    state = logged_in(environ.get(EXECUTABLE_VAR, CLI), env)
+    if state is False:
+        return f"`claude auth status` says not logged in. {cli.LOGIN_FIX}"
+    if isinstance(state, str):
+        return f"the login could not be checked: {state}. Run `antstreet doctor` to see why."
+    return None
 
 
 if __name__ == "__main__":

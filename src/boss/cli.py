@@ -1,5 +1,5 @@
 """Commands: `fund`, `resume`, `topup`, `report`, `status`, `routing`, `verify`, `roles`, `doctor`,
-`audit`.
+`mcp`, `audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
@@ -47,6 +47,7 @@ from boss.budget import (
     round_budget,
 )
 from boss.context import derive_reads, verify
+from boss.errors import Outcome
 from boss.firm import (
     DEFAULT_SLICE_MICROS,
     DEFAULT_WORKER_MODEL,
@@ -102,6 +103,11 @@ from boss.worker import (
 
 RUNS_DIR = Path(".boss") / "runs"
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_INCOMPLETE, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
+LOGIN_FIX = (
+    "The Claude CLI that AntStreet starts is not logged in: its login expired or could not be "
+    "refreshed (with ANTHROPIC_API_KEY set, the key was refused). Run `claude auth login` in a "
+    "terminal, check with `antstreet doctor --live`, then run again."
+)
 
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
@@ -139,6 +145,10 @@ def main(
         return EXIT_OK
     if args.command == "verify":
         return _verify(args, project, say)
+    if args.command == "mcp":
+        from boss.mcp import serve
+
+        return serve(project, sys.stdin, sys.stdout, environ)
     return _show(args, project, say)
 
 
@@ -276,6 +286,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     doctor = sub.add_parser("doctor", parents=[common], help="check that this machine can run boss")
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
+    sub.add_parser(
+        "mcp",
+        parents=[common],
+        help="serve this project's runs read-only to an MCP client on stdin/stdout",
+    )
     _audit_parser(sub)
     return parser
 
@@ -486,6 +501,8 @@ def _fund(
                 boss_spend(exc.usage, str(exc.outcome))
                 record("boss", EventType.STOPPED, data={"reason": str(exc)})
                 say(f"The boss could not produce a term sheet: {exc}")
+                if exc.outcome is Outcome.LOGIN:
+                    say(LOGIN_FIX)
                 if isinstance(exc, InvalidDraftError):
                     say("\n".join(f"  - {p}" for p in exc.problems))
                 return None

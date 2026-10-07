@@ -146,6 +146,23 @@ The verdict is `refuted`, `unrefuted`, `inconclusive` or `no_claim`. `unrefuted`
 sealed checks catch only what they test. The agent never sees the checks, and the verdict is
 signed. Full rules: [docs/CLI.md](docs/CLI.md).
 
+## Use it from any MCP client
+
+`boss mcp` is a read-only MCP server on stdio: `list_runs`, `status`, `report`, `verify_ledger`
+and `doctor` (never `--live`). No tool funds, resumes, tops up or approves; those stay yours, at a
+terminal. Put this in a project's `.mcp.json`. It works once the package is on PyPI; until then
+use `"args": ["--from", "/path/to/your/antstreet/checkout", "antstreet", "mcp"]`.
+
+```json
+{
+  "mcpServers": {
+    "antstreet": { "command": "uvx", "args": ["antstreet", "mcp"] }
+  }
+}
+```
+
+Details: [docs/CLI.md](docs/CLI.md#boss-mcp).
+
 ## Use it in GitHub Actions
 
 The repository root holds a composite action, `action.yml`. It runs `antstreet audit check
@@ -321,6 +338,15 @@ installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs not
 agent stops, in a project with runs under `.boss/runs/`, the other runs `uvx antstreet status`,
 which checks the latest ledger's hash chain and signatures offline. A failure is shown to you; it
 never blocks the agent. In any other project both are silent.
+
+Running `antstreet` (or the benchmark) from a shell inside a Claude Code session is safe for the
+`claude` processes it starts: each gets only `HOME`, `PATH`, `USER`, `LANG`, `TMPDIR`,
+`CLAUDE_CONFIG_DIR` and, if set, `ANTHROPIC_API_KEY` (`worker_env` in `src/boss/worker.py`). The
+session's own variables (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*`, its
+`ANTHROPIC_BASE_URL`) never reach them. They use the login stored for your user by
+`claude auth login`, not the session's. If that login has expired, every call fails at once;
+`boss fund` and the benchmark then say to run `claude auth login`, and the benchmark stops after
+3 such cells.
 
 Until `antstreet` is on PyPI and this repository is public, `uvx antstreet` does not resolve, so
 the plugin cannot run yet. To try the CLI the same way before then, with access to the repository:
