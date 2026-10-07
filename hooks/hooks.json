@@ -1,5 +1,8 @@
 {
   "description": "AntStreet: say how to get uv when it is missing, keep the agent from approving a term sheet, and check the latest run's ledger when the agent stops.",
+  "modules": [
+    "./approve-pane.tsx"
+  ],
   "hooks": {
     "SessionStart": [
       {

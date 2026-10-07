@@ -98,6 +98,21 @@ def test_approve_records_the_shown_sheet_on_the_signed_ledger_and_resume_builds_
     assert code == EXIT_FAILED and "is not " + AWAITING in said
 
 
+def test_status_json_says_a_run_is_awaiting_until_it_is_approved(boss):
+    _, output = boss("fund", "Reverse a string.", "--budget", "0.50")
+    [run_dir] = boss.runs()
+    code, said = boss("status", "--json")
+    state = json.loads(said)
+    assert code == EXIT_OK and state["run"] == run_dir.name and state["awaiting"] is True
+    assert (state["last_actor"], state["last_event"]) == ("boss", "stopped")
+    assert state["checks_total"] == 0 and state["spend_micros"] > 0
+    boss("approve", run_dir.name, "--sheet", digest(output))
+    code, said = boss("status", "--json", run_dir.name)
+    assert code == EXIT_OK and json.loads(said)["awaiting"] is False
+    code, said = boss("status")  # the line for people is unchanged
+    assert not said.startswith("{") and run_dir.name in said
+
+
 def test_approve_refuses_a_sheet_changed_since_it_was_shown_and_resume_builds_nothing(boss):
     _, output = boss("fund", "Reverse a string.", "--budget", "0.50")
     [run_dir] = boss.runs()
