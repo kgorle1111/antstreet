@@ -85,3 +85,14 @@ $0.80 a cell. See `2026-10-05-e3-parallel/README.md` for the method, the split c
   was 5m22s against 4m19s for the default firm: 0.80x, against a bar of 1.3x.
 - Delivery: firm-par 7/24, firm 8/24, single 6/24. Paired, firm-par minus firm: -0.042 [-0.167, +0.083].
 - The boss split the work in 4 of 24 cells, so the flag mostly had nothing to run at once.
+
+## E4, fresh-context critic (2026-10-07-e4-critic)
+
+E4 from `bench/PREREG.md`, scored from saved cells; no model call. 35 tasks x 3 runs per arm, Haiku,
+$0.40 a cell. See `2026-10-07-e4-critic/README.md` for the method, the run history and the critic counts.
+
+- **E4 is not shown.** Firm with critic against self-review, paired delivery: +0.0571 [-0.0381, +0.1619].
+- A positive trend: delivery 67% (critic), 60% (firm), 61% (self-review); false passes 28%, 33%, 39%;
+  tasks delivered on all 3 runs 19, 12, 17 of 35. The interval crosses zero.
+- The critic arm costs about 1.5x as much per delivered task ($0.5590 against $0.3756) and takes about
+  3x as long (median 8m01s against 2m28s). Its call failed in 36 of 105 cells.
