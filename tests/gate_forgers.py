@@ -138,6 +138,62 @@ STR_ALWAYS_EQUAL = (
 )
 # Hidden one level down, inside a real list and a real tuple.
 NESTED_ALWAYS_EQUAL = ANYTHING + "def reverse(s):\n    return [Anything(), (Anything(),)]\n"
+# Review findings on the comparison guard, one product each.
+# A metaclass that makes the class compare equal to `int`, so a set lookup of the type finds it.
+METACLASS_EQ = """\
+class Meta(type):
+    def __eq__(cls, other): return True
+    def __hash__(cls): return hash(int)
+class Anything(metaclass=Meta):
+    def __eq__(self, other): return True
+    def __hash__(self): return 0
+def reverse(s):
+    return Anything()
+"""
+# A metaclass that answers `getattr(cls, "__eq__")` with list's, while the real slot is its own.
+METACLASS_GETATTR = """\
+_NAMES = {"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__contains__", "__hash__"}
+class Meta(type):
+    def __getattribute__(cls, name):
+        if name in _NAMES:
+            return getattr(list, name)
+        return type.__getattribute__(cls, name)
+class Fake(list, metaclass=Meta):
+    def __eq__(self, other): return True
+    def __ne__(self, other): return False
+def reverse(s):
+    return Fake(['x'])
+"""
+# A tzinfo whose utcoffset finds the other side of the comparison and makes the instants equal.
+TZINFO_FORGER = """\
+import datetime, sys
+class Tz(datetime.tzinfo):
+    def utcoffset(self, dt):
+        for value in sys._getframe(1).f_locals.values():
+            if isinstance(value, datetime.datetime) and value.tzinfo not in (None, self):
+                other = value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                return dt.replace(tzinfo=None) - other
+        return datetime.timedelta(0)
+def reverse(s):
+    return datetime.datetime(2020, 1, 1, tzinfo=Tz())
+"""
+# Builds pytest.approx(0, abs=inf) in code compiled under a file name inside the checks folder.
+APPROX_FAKE_FILENAME = """\
+import os
+_src = "import pytest\\nmatcher = pytest.approx(0, abs=float('inf'))\\n"
+_name = os.path.join(os.path.dirname(os.getcwd()), "checks", "test_planted.py")
+_scope = {}
+exec(compile(_src, _name, "exec"), _scope)
+def reverse(s):
+    return _scope["matcher"]
+"""
+# A tuple subclass that keeps tuple's comparisons but hashes to 0, so a set lookup misses.
+TUPLE_BAD_HASH = """\
+class T(tuple):
+    def __hash__(self): return 0
+def reverse(s):
+    return T(s)
+"""
 # pytest's own matcher, built by the product around a value that equals everything.
 APPROX_ANYTHING = (
     ANYTHING + "import pytest\ndef reverse(s):\n    return pytest.approx(Anything())\n"

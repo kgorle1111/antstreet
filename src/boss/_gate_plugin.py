@@ -72,15 +72,19 @@ _VIEWS = frozenset({type({}.keys()), type({}.values()), type({}.items())})
 _STDLIB_CONTAINERS = frozenset(
     {collections.deque, collections.OrderedDict, collections.defaultdict, collections.Counter}
 )
-# A subclass of one of these (a namedtuple) is honest if it keeps every comparison of its base;
-# their comparisons read the object's own storage, which a subclass cannot redirect.
+_AWARE = (datetime.datetime, datetime.time)  # compared through their tzinfo's utcoffset
+# A subclass of one of these (a namedtuple) is honest if it keeps every comparison and the hash of
+# its base; their comparisons read the object's own storage, which a subclass cannot redirect.
 _CONTAINERS = (list, tuple, dict, set, frozenset)
-_COMPARISONS = ("__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__contains__")
+_KEPT = ("__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__contains__", "__hash__")
 _GUARDED_OPS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn)
 
 
 # `pytest.approx` objects the check file built. One the product built is not trusted: it can hold
-# a value that equals everything, or an infinite tolerance.
+# a value that equals everything, or an infinite tolerance. "Built by the check" means called from
+# code whose globals are the check module's own dict (registered as the module starts), not from a
+# file name, which `compile` lets the product choose.
+_check_globals: list[dict[str, Any]] = []
 _matchers: dict[int, weakref.ref[ApproxBase]] = {}  # by id; an approx object is unhashable
 # kn: entries for dead matchers are never pruned and `_honest` walks a whole value per comparison;
 # both are bounded by one check's size. Prune on a weakref callback if a check ever builds millions.
@@ -89,12 +93,19 @@ _pytest_approx = pytest.approx
 
 def _approx(*args: Any, **kwargs: Any) -> ApproxBase:
     matcher = _pytest_approx(*args, **kwargs)
-    if Path(sys._getframe(1).f_code.co_filename).resolve().parent == _CHECKS:
+    caller = sys._getframe(1).f_globals
+    if any(caller is check for check in _check_globals):
         _matchers[id(matcher)] = weakref.ref(matcher)
     return matcher
 
 
 pytest.approx = _approx  # the check imports pytest after this plugin
+
+
+def _register(check_globals: dict[str, Any]) -> Callable[[object], object]:
+    """Run as the first statement of a guarded check module; returns the guard it then uses."""
+    _check_globals.append(check_globals)
+    return _guard
 
 
 def _built_by_the_check(item: object) -> bool:
@@ -107,7 +118,7 @@ def _container_base(cls: type) -> type | None:
         return cls
     for base in _CONTAINERS:
         if issubclass(cls, base) and all(
-            getattr(cls, name, None) is getattr(base, name, None) for name in _COMPARISONS
+            getattr(cls, name, None) is getattr(base, name, None) for name in _KEPT
         ):
             return base
     return None
@@ -121,16 +132,26 @@ def _honest(value: object) -> bool:
     while stack:
         item = stack.pop()
         cls = type(item)
-        if cls in _SCALARS or _built_by_the_check(item):
-            continue
-        if cls is fractions.Fraction:
+        if cls is fractions.Fraction:  # its metaclass is ABCMeta, so it is matched before the test
             if type(item._numerator) is int and type(item._denominator) is int:
                 continue
             return False
+        if type(cls) is not type:  # a metaclass can answer set lookups and `getattr` as it likes
+            return False
+        if cls in _SCALARS:  # by identity now: `type` hashes and compares classes by identity
+            if (
+                cls in _AWARE
+                and item.tzinfo is not None
+                and type(item.tzinfo) is not datetime.timezone
+            ):
+                return False  # a product tzinfo's utcoffset runs inside the comparison
+            continue
         if id(item) in seen:
             continue
         seen.add(id(item))
-        if cls in _VIEWS:
+        if _built_by_the_check(item):
+            stack.extend((item.expected, item.abs, item.rel))  # what the matcher compares with
+        elif cls in _VIEWS:
             stack.extend(item)
         elif (base := _container_base(cls)) is None:
             return False
@@ -172,7 +193,8 @@ class _Opaque:
         return (item.inner if type(item) is _Opaque else item) in self.inner
 
     def __hash__(self) -> int:
-        return hash(self.inner)
+        # The product's hash can steer a lookup in a plain set or dict (`x not in {...}`): fail.
+        raise TypeError("a product object cannot be looked up in a plain set or dict in a check")
 
     def __repr__(self) -> str:
         return repr(self.inner)
@@ -218,8 +240,12 @@ def _guard_module(mod: ast.Module) -> None:
     # Not `ast.fix_missing_locations`: it would stamp end lines onto pytest's own nodes.
     line = mod.body[pos].lineno if pos < len(mod.body) else 1
     place = {"lineno": line, "col_offset": 0, "end_lineno": line, "end_col_offset": 0}
-    alias = ast.alias("_guard", _GUARD, **place)
-    mod.body.insert(pos, ast.ImportFrom(__name__, [alias], 0, **place))
+    alias = ast.alias("_register", _GUARD, **place)
+    load, store = ast.Name(_GUARD, ast.Load(), **place), ast.Name(_GUARD, ast.Store(), **place)
+    own_globals = ast.Call(ast.Name("globals", ast.Load(), **place), [], [], **place)
+    call = ast.Call(load, [own_globals], [], **place)
+    register = ast.copy_location(ast.Assign(targets=[store], value=call), call)
+    mod.body[pos:pos] = [ast.ImportFrom(__name__, [alias], 0, **place), register]
 
 
 _pytest_rewrite_asserts = _rewrite.rewrite_asserts

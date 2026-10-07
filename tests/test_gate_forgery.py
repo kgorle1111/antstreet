@@ -177,6 +177,20 @@ def check_of(*lines: str) -> str:
         (forge.NESTED_ALWAYS_EQUAL, check_of("assert reverse('ab') == ['ba', ('ab',)]")),
         (forge.APPROX_ANYTHING, forge.CHECK),
         (forge.APPROX_ANYTHING, check_of("assert (reverse('ab'), 1) == ('ba', pytest.approx(1))")),
+        (forge.METACLASS_EQ, forge.CHECK),
+        (forge.METACLASS_GETATTR, check_of("assert reverse('ab') == ['b', 'a']")),
+        (forge.ALWAYS_EQUAL, check_of("assert pytest.approx(reverse('ab')) == 1.5")),
+        (forge.ALWAYS_EQUAL, check_of("assert pytest.approx([reverse('ab')]) == [1.5]")),
+        (
+            forge.TZINFO_FORGER,
+            check_of(
+                "import datetime",
+                "utc = datetime.timezone.utc",
+                "assert reverse('ab') == datetime.datetime(2020, 1, 1, 3, tzinfo=utc)",
+            ),
+        ),
+        (forge.APPROX_FAKE_FILENAME, check_of("assert reverse('ab') == 2.5")),
+        (forge.TUPLE_BAD_HASH, check_of("assert reverse('ab') not in {('a', 'b')}")),
     ],
     ids=[
         "eq",
@@ -194,6 +208,13 @@ def check_of(*lines: str) -> str:
         "nested",
         "product-built-approx",
         "product-built-approx-in-a-tuple",
+        "metaclass-eq",
+        "metaclass-getattr",
+        "check-built-approx-of-a-product-value",
+        "check-built-approx-of-a-product-list",
+        "product-tzinfo",
+        "approx-under-a-checks-file-name",
+        "tuple-subclass-bad-hash",
     ],
 )
 def test_a_value_that_equals_everything_is_failed(tmp_path, mode, product, check):
