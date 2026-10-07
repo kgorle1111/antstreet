@@ -3,8 +3,25 @@
   "displayName": "AntStreet",
   "version": "0.0.1",
   "description": "Fund an idea from Claude Code: you approve the checks first, a sandboxed gate outside the agent decides what passed, and a signed ledger records it.",
-  "author": { "name": "Kannishk Naidu Gorle" },
+  "author": {
+    "name": "Kannishk Naidu Gorle"
+  },
   "repository": "https://github.com/kgorle1111/antstreet",
   "license": "Apache-2.0",
-  "keywords": ["verification", "agents", "pytest", "ledger", "budget"]
+  "keywords": [
+    "verification",
+    "agents",
+    "pytest",
+    "ledger",
+    "budget"
+  ],
+  "types": "./hooks/approve-pane-state.d.ts",
+  "userConfig": {
+    "command": {
+      "type": "string",
+      "title": "antstreet command",
+      "description": "How the approve pane runs the CLI, split on spaces (default: uvx antstreet).",
+      "default": "uvx antstreet"
+    }
+  }
 }

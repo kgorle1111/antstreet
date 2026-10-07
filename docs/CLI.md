@@ -240,13 +240,14 @@ the command exits 1.
 
 ## `boss status`
 
-`boss status [--dir DIR] [RUN]`. Prints one line: the last event, checks passing, estimated spend.
+`boss status [--dir DIR] [--json] [RUN]`. Prints one line: the last event, checks passing, estimated spend.
 
 Argument: `run`, as for `report`.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
+| `--json` | off | Print one JSON object instead, for tools such as the Claude Code approve pane: `run`, `awaiting` (true while `boss fund` left the term sheet waiting for `boss approve`), `last_actor`, `last_event`, `checks_passed`, `checks_total`, `spend_micros`, `unknown_cost_events`. The exit codes are the same; a refusal (no run, a damaged ledger) is still a plain line. |
 
 ## `boss verify`
 

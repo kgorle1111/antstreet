@@ -108,7 +108,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 
 Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/term_sheet_v1.md`
 (one task), `term_sheet_v2.md` (several tasks), `term_sheet_v3.md` (one task whose checks cite the
-idea's rules, `boss fund --spec`), `builder_v4.md` (every worker) and `solo_v2.md` (the
+idea's rules, `boss fund --spec`), `builder_v5.md` (every worker; `builder_v4.md` is its predecessor, kept for the recorded benchmark runs) and `solo_v2.md` (the
 benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
 has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,

@@ -167,6 +167,49 @@ def test_stop_reads_the_latest_run_with_status_and_reports_a_failure_without_blo
     assert "did not verify" in bad.stderr and "Stopped: signature" in bad.stderr
 
 
+MOD = HOOKS / "approve-pane.tsx"
+APPROVE_CALL = re.compile(r"^.*\bapprove\(\$.*$", re.M)
+
+
+def test_the_approve_pane_mod_is_the_one_hooks_module_and_its_contract_is_named():
+    assert json.loads((HOOKS / "hooks.json").read_text())["modules"] == ["./approve-pane.tsx"]
+    manifest = json.loads((PLUGIN / "plugin.json").read_text())
+    assert (ROOT / manifest["types"]).is_file() and MOD.is_file()
+
+
+def test_the_mod_approves_only_from_the_approve_buttons_press():
+    """The mods API has no method that presses a Button, so a press is a person. This holds the
+    source to that: one `--sheet` call, inside `approve`, which only an onPress calls; and nothing
+    the model could reach (a tool, a prompt, a hotkey or a keybinding action on any Button)."""
+    source = MOD.read_text()
+    body = source[source.index("async function approve(") :]
+    body = body[: body.index("\n}\n")]
+    assert source.count("'--sheet'") == 1 and "'--sheet'" in body
+    calls = APPROVE_CALL.findall(source.replace(body, ""))
+    assert len(calls) == 1 and "onPress=" in calls[0], calls
+    for banned in (
+        "hotkey",
+        "action=",
+        "$.tool",
+        "$.prompt",
+        "$.agent",
+        "$.model",
+        "tool.call",
+        "tool.check",
+        "prompt.submit",
+        "asUser",
+        "ui.press",
+    ):
+        assert banned not in source, banned
+
+
+def test_the_mod_checker_can_fail():
+    body = "async function approve($) {\n  run(['approve', r, '--sheet', v])\n}\n"
+    leaked = body + "on('session.start', $ => approve($, cli))\n"
+    found = APPROVE_CALL.findall(leaked.replace(body, ""))
+    assert found and "onPress=" not in found[0]
+
+
 def _guard(command: str, tool: str = "Bash") -> subprocess.CompletedProcess[str]:
     """Run the PreToolUse hook on the input Claude Code sends (code.claude.com/docs/en/hooks)."""
     event = {

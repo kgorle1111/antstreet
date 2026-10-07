@@ -77,6 +77,10 @@ Being built, each in its own pull request.
   independent modules, then E3 again. No speed claim until that number says so.
 
 **See it, prove it**
+- **Autopilot mode** (opt-in): an LLM judge reviews the drafted checks against your idea in your
+  place, rejects the wrong ones, and lets the run go ahead unattended. Off by default; it unlocks
+  only after the judge agrees with human labels on a calibration set, the ledger says "approved by
+  autopilot" (never by you), and the gate still decides pass or fail with plain code.
 - **A web dashboard**: fund, approve and watch runs in a browser. It reads through the same
   read-only paths as the CLI and MCP server, and approving stays a human act.
 - **Audit reports for regulated teams**: an exportable, signed record of who approved which checks

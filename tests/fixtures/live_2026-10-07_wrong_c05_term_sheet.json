@@ -1,0 +1,65 @@
+{
+  "idea": "A function count_vowels(text) that returns how many vowels (a, e, i, o, u, in either case) the text contains.",
+  "budget_micros": 400000,
+  "rounds": [
+    {
+      "n": 1,
+      "budget_micros": 400000,
+      "unlock_checks": 7
+    }
+  ],
+  "checks": [
+    {
+      "id": "c01",
+      "description": "Basic case: counts vowels mixed with consonants",
+      "file": "test_c01.py",
+      "task": "count_vowels"
+    },
+    {
+      "id": "c02",
+      "description": "Case insensitivity: uppercase and lowercase vowels counted equally",
+      "file": "test_c02.py",
+      "task": "count_vowels"
+    },
+    {
+      "id": "c03",
+      "description": "Empty string returns zero",
+      "file": "test_c03.py",
+      "task": "count_vowels"
+    },
+    {
+      "id": "c04",
+      "description": "No vowels returns zero",
+      "file": "test_c04.py",
+      "task": "count_vowels"
+    },
+    {
+      "id": "c05",
+      "description": "Text with special characters and numbers ignores non-vowels",
+      "file": "test_c05.py",
+      "task": "count_vowels"
+    },
+    {
+      "id": "c06",
+      "description": "String of only vowels counts all",
+      "file": "test_c06.py",
+      "task": "count_vowels"
+    },
+    {
+      "id": "c07",
+      "description": "Whitespace and punctuation ignored",
+      "file": "test_c07.py",
+      "task": "count_vowels"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "count_vowels",
+      "brief": "Create module vowels.py with function count_vowels(text) that takes a string and returns an integer count of all vowels (a, e, i, o, u) in either lowercase or uppercase. The function should ignore consonants, numbers, special characters, and whitespace.",
+      "paths": [
+        "vowels.py"
+      ]
+    }
+  ],
+  "approved_by_investor": true
+}

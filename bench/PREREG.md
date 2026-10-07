@@ -69,6 +69,30 @@ reason, and the run it affects is reported under both rules. Why these five and 
 - **Primary KPI.** Delivery rate.
 - **Not shown if.** The critic arm does not beat the self-review arm by the paired test.
 
+## E4b. The same critic, with room to finish
+
+Added 2026-10-07, after E4's result and before any E4b run.
+
+- **Why.** In E4 the critic's call failed in 36 of 105 cells: 35 were cut off at its $0.15 cap
+  (completed calls cost up to $0.149, capped ones about $0.17), so E4 mostly measured a critic that
+  could not finish (bench/results/2026-10-07-e4-critic). E4's result stands as published; E4b asks
+  the question E4 could not: with enough budget, does the critic beat self-review?
+- **Change, and only this change.** The critic's per-call cap is $0.40 instead of $0.15. The code
+  is E4's commit (4ba91ad) with that one change applied, so the builder prompt and everything else
+  match E4's other arms; a run from a later `main` (which uses builder_v5) is not E4b.
+- **Arms.** firm `--roles critic` with the $0.40 cap, run fresh: blind35's 35 tasks x 3 reps, Haiku
+  boss and workers, `--budget 0.40 --firm-args "--slice 0.20 --roles critic --fix-budget 0.30"`,
+  in its own `--out` (`bench/results/raw/e4b-critic`). Compared with E4's saved self-review and
+  firm cells, which are not rerun: nothing in their arms changed.
+- **Primary KPI and decision.** As E4: delivery, paired by task, 10,000 task resamples, seed 0.
+  Shown only if the paired interval of firm+critic (E4b) minus self-review (E4) lies above 0.
+  Reported beside it, not decided on: E4b vs E4's firm, E4b vs E4's critic arm, the cost per
+  assigned cell, the share of critic calls that complete, and time.
+- **Infrastructure.** Cells stopped by a usage limit or a login failure are moved aside and rerun
+  (B71) until all 105 are counted; the run stops after 3 such failures in a row.
+- **Cost.** About $40-50 (E4's critic arm averaged about $0.37 a cell; a finishing critic adds up to
+  $0.25 a cell). Worst case per cell $1.35. Needs the owner's go; pre-registered 2026-10-07, not run.
+
 ## E5. The firm is more reliable across runs
 
 - **Claim.** Firing stalled workers and retrying inside a budget makes a task pass every time
@@ -172,3 +196,4 @@ equal compute in the literature. They stay off by default and are not claimed to
   (+0.11); with 1 lost it takes 7, with 2 lost 9. Reported, not decided on:
   `python -m boss.bench.kpi` on both folders, and `paired` with `--kpi delivery` and
   `cost_per_delivery`.
+- 2026-10-07: added E4b (the critic with a $0.40 cap), after E4's result and before any E4b run.

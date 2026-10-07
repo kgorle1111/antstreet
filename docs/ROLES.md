@@ -25,7 +25,7 @@ whole organisation").
   before anything uses it. A role drafts; code decides.
 - **Metered.** A call's spend is booked by whoever calls the role (`src/boss/pipeline.py`), as a
   `role_call` event under the actor `role:<name>` (`ledger_fields` builds the fields). The call has a cap of `cap_micros`
-  (150,000 micro-dollars, $0.15, unless the spec says otherwise).
+  (150,000 micro-dollars, $0.15, unless the spec says otherwise; the critic has $0.40).
 - **Off by default.** `default_on` is `False` until a measurement says the role earns its cost.
   A role runs only when `boss fund --roles` names it.
 - **Placed by two fields.** `department` is one of `product`, `engineering`, `quality`,
@@ -92,7 +92,7 @@ says how many to ask for (0 is off, up to 8), and `boss fund` has no option for 
 
 ## What a worker profile is
 
-- The same worker, the same three tools, the same base prompt (`builder_v4.md`), the same gate.
+- The same worker, the same three tools, the same base prompt (`builder_v5.md`), the same gate.
   Only the list of skills after the base prompt differs. A profile cannot grant a permission.
 - `builder_system_prompt(name)` is the base prompt, a blank line, then the profile's skills in
   order. With no skills it is the base prompt byte for byte.

@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import functools
+import json
 import os
 import sys
 import threading
@@ -274,6 +275,10 @@ def _parser() -> argparse.ArgumentParser:
         shown.add_argument("run", nargs="?", help="run id (default: the latest)")
         if name == "resume":
             _review_options(shown)
+        if name == "status":
+            shown.add_argument(
+                "--json", action="store_true", help="one JSON object, for tools (Claude Code mod)"
+            )
         if name == "verify":
             shown.add_argument(
                 "--adopt-unsigned",
@@ -1093,6 +1098,19 @@ def _show(args: argparse.Namespace, project: Path, say: Say) -> int:
     last = events[-1]
     passed = sum(c.status == "passed" for c in report.checks)
     unknown = report.total.unknown_cost_events
+    if args.json:
+        state = {
+            "run": run,
+            "awaiting": _awaiting(events),
+            "last_actor": last.actor,
+            "last_event": str(last.event),
+            "checks_passed": passed,
+            "checks_total": len(report.checks),
+            "spend_micros": report.total.cost_micros,
+            "unknown_cost_events": unknown,
+        }
+        say(json.dumps(state))
+        return EXIT_OK
     spend = dollars(report.total.cost_micros) + (f" + {unknown} unknown" if unknown else "")
     say(
         f"{run}: last event {last.actor} {last.event}; "

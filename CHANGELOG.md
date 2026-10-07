@@ -12,6 +12,9 @@ what changed for someone using the tool, not which commit did it.
 
 - `boss approve RUN [--sheet V]`: approves a term sheet `boss fund` left waiting, only if it is
   exactly the text shown with that value; the signed `approved` event adds `shown_sha256`.
+- `boss status --json`: one JSON object (`run`, `awaiting`, last event, checks, spend) for tools.
+- A Claude Code mod in the plugin: an approve pane that shows a waiting term sheet and approves
+  it only on a press of its Approve button, timing each approval in `.boss/approve-timings.jsonl`.
 - `boss verify [RUN]`: an offline check of a run's hash chain, signatures and saved prompts, with no model call. Exit 0 when it all verifies, 1 with one line per problem, 2 for no such run.
 - `boss mcp`: a read-only MCP server on stdio for any MCP client (`list_runs`, `status`, `report`, `verify_ledger`, `doctor` without `--live`); no tool can spend or approve.
 - A Claude Code plugin in the repository (`/antstreet:fund`, `/antstreet:report`,
@@ -203,6 +206,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- A worker facing a check that contradicts your idea bent correct code to it instead of disputing
+  it. `builder_v5.md` makes the dispute the expected move, and every later brief says how.
 - Ctrl-C during a slice could end in `RuntimeError: release unlocked lock` and a traceback instead of `continue with boss resume`: the interrupt was raised inside a lock wait. It now stops the worker first and is raised afterwards, where no lock is held.
 - A login whose refresh fails (Claude Code 2.1.292: no retry, no HTTP status) is `login`, not `api_error`: the run stops, and `boss fund` says to run `claude auth login`.
 - `python -m boss.bench.run` checks `claude auth status` before any cell, and stops after 3 cells in a row end in the same infrastructure failure instead of running every cell.

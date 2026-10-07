@@ -62,7 +62,7 @@ from boss.worker import (
     usd,
 )
 
-BUILDER_PROMPT = "builder_v4.md"
+BUILDER_PROMPT = "builder_v5.md"
 DEFAULT_WORKER_MODEL = "haiku"
 DEFAULT_SLICE_MICROS = 100_000
 MAX_WORKERS_PER_TASK = 2  # the first worker plus one reassignment

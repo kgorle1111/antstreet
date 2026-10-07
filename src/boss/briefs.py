@@ -103,7 +103,13 @@ def continuation_prompt(
             "current folder, which is your whole workspace; nothing else is available. "
             f"Use relative paths, for example `{example_path}`, and do the work again."
         )
-    parts.append("Fix what is failing. When you stop, report your status.")
+    # The decision to bend or dispute is made here, against a failing check: in a live run a
+    # worker that wrote "the test contradicts the request" in its reason still chased the check.
+    parts.append(
+        "Fix what is failing. If a failing check contradicts the request, do not change correct "
+        "code for it: keep your code and list the check under `disputed_checks`. "
+        "When you stop, report your status."
+    )
     return "\n\n".join(parts)
 
 
