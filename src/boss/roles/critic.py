@@ -73,6 +73,7 @@ SPECS = (
         gate="the quote is in the idea, the test is a valid check that imports the product, and "
         "the gate's run of it on the product fails with a test failure",
         prompt="critic_v1.md",
+        cap_micros=400_000,  # E4b: the only change from E4 (4ba91ad)
         skills=(
             "critic/tracing-each-stated-rule-through-the-code",
             "critic/writing-a-minimal-failing-test",
