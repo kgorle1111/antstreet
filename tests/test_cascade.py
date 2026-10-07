@@ -4,6 +4,7 @@ the dispatch table that shows the result. No model calls."""
 import dataclasses
 import json
 import random
+from pathlib import Path
 
 import pytest
 
@@ -23,7 +24,7 @@ from boss.dispatch import (
 )
 from boss.firm import FirmConfig, config_data
 from boss.ledger import Event, EventType
-from boss.routing import Attempt, Stats, choose_start, read_runs, task_kind
+from boss.routing import Attempt, Choice, Stats, choose_start, read_runs, task_kind
 from boss.rundir import RunPaths
 from boss.termsheet import CheckSpec, Round, Task, TermSheet
 
@@ -127,7 +128,8 @@ def test_the_worst_case_prices_every_rung_at_its_stalled_slices_and_its_own_rese
 
 def view(s, choices=None):
     level = RunLevel("haiku", "off", 0, 1)
-    return DispatchView(CASCADE, level, 2, {}, choices or {"t1": (KIND, "prior")})
+    start = {"tier": "haiku", "effort": "off", "kind": KIND, "source": "prior", "why": "cold"}
+    return DispatchView(CASCADE, level, 2, {}, choices or {"t1": start})
 
 
 def test_the_table_shows_kind_start_source_ladder_and_the_worst_case():
@@ -141,7 +143,7 @@ def test_the_table_shows_kind_start_source_ladder_and_the_worst_case():
 
 def test_the_table_says_measured_with_the_sample_and_warns_when_the_worst_case_is_over_budget():
     s = planned(sheet(budget=2_000_000))
-    text = "\n".join(render_table(s, view(s, {"t1": (KIND, "measured, n=12")})))
+    text = "\n".join(render_table(s, view(s, {"t1": {"kind": KIND, "source": "measured, n=12"}})))
     assert "measured, n=12" in text and "(OVER the budget" in text
 
 
@@ -481,3 +483,71 @@ def test_the_routing_view_names_a_run_it_left_out_and_why(project):
     text = "\n".join(routing.render_routing(read_runs(project), top="opus"))
     assert "Runs read: 0; left out: 1" in text and "r1:" in text
     assert "No recorded attempts: every kind starts from the priors" in text
+
+
+# --- the router's start: tier, effort, reason and features, from the term sheet alone ---
+
+
+def bench_shaped(idea="Build it.", files=("a.py",), checks=8):
+    """The shapes the benchmark's firm cells had: one module with 6+ checks, or 2-3 modules."""
+    task = Task("t1", "Create it.", files)
+    specs = tuple(CheckSpec(f"c{i:02}", "d", f"test_c{i:02}.py", "t1") for i in range(checks))
+    return TermSheet(idea, 800_000, (Round(1, 800_000, checks),), specs, (task,))
+
+
+def start_of(s, stats=None):
+    return routing.starts_for(s, stats or Stats(), top="opus", fundable=lambda _t: True)["t1"]
+
+
+@pytest.mark.parametrize(
+    ("files", "checks", "kind"),
+    [
+        (("bytesize.py",), 8, "files=1 checks=6+"),
+        (("store.py", "cli.py", "report.py"), 8, "files=2-3 checks=6+"),
+        (("a.py",), 4, "files=1 checks=3-5"),
+    ],
+)
+def test_a_cold_start_begins_on_haiku_at_effort_off_and_says_why(files, checks, kind):
+    record = start_of(bench_shaped(files=files, checks=checks)).record("opus")
+    assert (record["tier"], record["effort"], record["kind"]) == ("haiku", "off", kind)
+    assert record["source"] == "prior"
+    assert str(record["why"]).startswith("cold start, under 5 verified attempts of this kind")
+    assert record["features"] == {
+        "idea_chars": 9,
+        "tasks": 1,
+        "files": len(files),
+        "checks": checks,
+    }
+
+
+def test_a_measured_start_does_not_call_itself_a_cold_start():
+    choice = start_of(
+        bench_shaped(), Stats(tuple(attempts("haiku", 10, 1, kind="files=1 checks=6+")))
+    )
+    assert choice.source == "measured, n=10" and "cold start" not in choice.why
+
+
+def test_the_start_effort_is_the_first_rung_of_the_ladder_from_the_chosen_tier():
+    stats = Stats(tuple(attempts("haiku", 10, 9, kind="files=1 checks=6+")))
+    record = start_of(bench_shaped(), stats).record("opus")
+    assert (record["tier"], record["effort"]) == ("sonnet", "off")
+    assert Choice("k", "opus", {}, "prior", "w").record("opus")["effort"] == "off"
+
+
+def test_the_table_shows_the_routers_start_and_reason_before_the_worst_case():
+    s = planned()
+    start = {"tier": "haiku", "effort": "off", "kind": KIND, "source": "prior", "why": "cold x"}
+    lines = render_table(s, view(s, {"t1": start}))
+    reason = lines.index("Router's start for t1: haiku/off, cold x")
+    assert reason < next(i for i, x in enumerate(lines) if x.startswith("Worst case"))
+
+
+def test_no_benchmark_label_can_reach_the_start_tier():
+    # Leakage guard: the router reads the term sheet only. Two sheets that differ only in what a
+    # benchmark knows (a difficulty word of the same length) get the same start, reason and record.
+    hard, easy = bench_shaped(idea="difficulty: hard"), bench_shaped(idea="difficulty: easy")
+    assert start_of(hard).record("opus") == start_of(easy).record("opus")
+    assert set(routing.features(hard, hard.tasks[0])) == {"idea_chars", "tasks", "files", "checks"}
+    source = Path(routing.__file__).read_text(encoding="utf-8")
+    for leak in ("difficulty", "meta.json", "hidden_checks", "boss.bench"):
+        assert leak not in source, leak

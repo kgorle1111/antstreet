@@ -12,7 +12,7 @@ from boss.approval import (
     require_approval,
     review_term_sheet,
 )
-from boss.dispatch import DispatchPolicy, DispatchView, RunLevel, plan_dispatch
+from boss.dispatch import DispatchPolicy, DispatchView, RunLevel, plan_cascade, plan_dispatch
 from boss.ledger import Event, EventType, LedgerWriter, read_events
 from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
 
@@ -81,6 +81,24 @@ def test_approval_records_the_route_and_the_saved_sheet_carries_the_dispatch(run
     assert event.data["hashes"] == content_hashes(approved, run.checks)
     saved = TermSheet.from_json((run.dir / "term_sheet.json").read_text())
     assert saved.tasks[0].dispatch == SHEET.tasks[0].dispatch and saved.approved_by_investor
+
+
+def test_under_the_cascade_the_approval_records_the_routers_start_and_its_reason(run):
+    cascade = DispatchPolicy("opus", 100_000, cascade=True)
+    sheet = plan_cascade(BASE, starts={"t1": "haiku"}, profile=None, policy=cascade, reads={})
+    start = {"tier": "haiku", "effort": "off", "kind": "files=1 checks=1-2", "source": "prior"}
+    start |= {"why": "cold start, ...", "features": {"idea_chars": 17, "checks": 1}}
+    shown = DispatchView(cascade, RunLevel("haiku", "off", 0, 1), 2, {}, {"t1": start})
+    approved, said = run(["a"], view=shown, sheet=sheet)
+    assert approved is not None and "Router's start for t1: haiku/off, cold start, ..." in said
+    [event] = run.events()
+    assert event.data["routed"] == {"t1": start}  # signed with the approval, as shown
+
+
+def test_the_rules_route_records_no_router_start(run):
+    run(["a"])
+    [event] = run.events()
+    assert "routed" not in event.data
 
 
 def test_without_dispatch_the_approval_event_is_what_it_always_was(run):
