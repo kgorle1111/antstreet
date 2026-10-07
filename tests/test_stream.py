@@ -71,6 +71,14 @@ def test_outcomes_flow_through_to_the_classifier():
     assert classify(read("stream_safe_mode_ok_2.1.285.jsonl").signals()) is Outcome.COMPLETED
 
 
+def test_a_login_whose_refresh_failed_is_login_not_an_api_error():
+    # CLI 2.1.292 reports it only on a synthetic assistant message: no retry, no HTTP status.
+    reader = read("stream_auth_refresh_failed_2.1.292.jsonl")
+    assert reader.message_errors == ["authentication_failed"]
+    assert reader.result["terminal_reason"] == "api_error"
+    assert classify(reader.signals()) is Outcome.LOGIN
+
+
 def test_retry_errors_and_hook_events_are_collected():
     reader = read("stream_auth_expired_2.1.285.jsonl")
     assert reader.retry_errors == ["authentication_failed", "authentication_failed"]
