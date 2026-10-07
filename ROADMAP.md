@@ -1,139 +1,147 @@
-# AntStreet roadmap
+# AntStreet roadmap: make AI coding agents prove their work
 
-**North star.** An open-source tool that makes AI coding agents prove their work: you approve the
-checks before the agent runs, the agent never sees them, and a gate outside the agent decides.
-It has to work the first time, be easy to start (two commands, no config), and every claim it makes
-has to be checkable by you.
+You approve the checks before the agent writes a line. The agent never sees them. A sandboxed gate
+outside the agent decides what passed, and every decision lands on a ledger you can verify. The AI
+drafts; you and plain code decide.
 
-This page says what is shipped, what is being built, what comes after, and what was measured and
-dropped. It promises no dates. Item ids (`B..`) point at [docs/BACKLOG.md](docs/BACKLOG.md), which
-holds every deferred item with its reason and status.
+## Why it matters
 
-## Where things stand
+- Agents say "done" and mean "I stopped". In our false-pass audit, **29 of 77 runs (38%)** passed
+  every check the model wrote and still failed a hidden check it never saw.
+- The caveat, kept on purpose: 17 small Python tasks, one model writing both checks and code, and
+  under a stricter count it is 16 of 77 (21%). [Read the audit](bench/results/2026-10-03-false-pass-audit/README.md).
+- Either way, "the agent's own tests pass" proves little. Checks it never saw, which you approved,
+  prove more.
 
-Shipped on `main` (pre-release; nothing is on PyPI yet):
+This page lists what works today, what is being built, and what we measured and dropped. No dates.
+Item ids (`B..`) point at [docs/BACKLOG.md](docs/BACKLOG.md), where every item has its reason and
+status.
 
-- **The gate and the ledger.** Checks you approve run in a sandboxed gate outside the agent (macOS
-  seatbelt; Linux `bwrap`, run and required in CI). Every dollar and decision goes on a
-  hash-chained ledger; your approvals are signed. See [How it works](README-technical.md#how-it-works)
-  and the [threat model](docs/THREAT_MODEL.md).
-- **`antstreet fund`**: an LLM boss drafts checks, you approve them, budget-capped workers build,
-  the gate grades. Quickstart: [README.md](README.md#-quickstart).
-- **`antstreet audit`**: seal checks for a change request before any agent starts, then test the
-  agent's commit against them. [Audit an agent's "done"](README-technical.md#audit-an-agents-done).
-- **`antstreet verify`**: an offline integrity check of a run's ledger, with no model call
-  ([docs/CLI.md](docs/CLI.md)).
-- **A Claude Code plugin** (the repository is its own marketplace):
-  [Use it from Claude Code](README-technical.md#use-it-from-claude-code).
-- **A read-only MCP server** (`antstreet mcp`):
-  [Use it from any MCP client](README-technical.md#use-it-from-any-mcp-client).
-- **A GitHub Action** that runs `antstreet audit check` on a pull request, with one manual step
-  (B78): [Use it in GitHub Actions](README-technical.md#use-it-in-github-actions), [action.yml](action.yml).
-- **`--dispatch rules` and `--dispatch cascade`**, both off by default until E6 says otherwise.
-- **Six pre-registered experiments** and every result so far, including the negative ones:
-  [bench/PREREG.md](bench/PREREG.md), [bench/results/](bench/results/README.md).
+## Shipped
+
+On `main`, pre-release (not on PyPI yet).
+
+- **A gate the agent can't talk its way past.** Your checks run in a sandbox outside the agent
+  (macOS seatbelt; Linux `bwrap`, required in CI). [How it works](README-technical.md#how-it-works).
+- **A ledger you can check.** Every dollar and decision is hash-chained; your approvals are signed.
+  `antstreet verify` checks a run offline, with no model call ([docs/CLI.md](docs/CLI.md)).
+- **`antstreet audit`.** Seal checks for a change before any agent starts, then test its commit
+  against them. [Audit an agent's "done"](README-technical.md#audit-an-agents-done).
+- **`antstreet fund`.** The bull (the boss model) drafts checks, you, the pig, approve them, and
+  budget-capped ants build until the gate says pass. [Quickstart](README.md#-quickstart).
+- **Three front doors:** a [Claude Code plugin](README-technical.md#use-it-from-claude-code), a
+  read-only [MCP server](README-technical.md#use-it-from-any-mcp-client), and a
+  [GitHub Action](README-technical.md#use-it-in-github-actions) ([action.yml](action.yml); one
+  manual step today, B78).
+- **Model dispatch** (`--dispatch rules`, `--dispatch cascade`): start each task on the cheapest
+  model that fits, escalate when it stalls.
+- **A threat model with a test per row** ([docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)) and
+  **pre-registered experiments**, negative results included ([bench/PREREG.md](bench/PREREG.md),
+  [bench/results/](bench/results/README.md)).
 
 ## Now
 
 Being built, each in its own pull request.
 
-**Plug-and-play front doors**
-- `antstreet approve`: approve a term sheet when there is no terminal, so `fund` works from inside
+- **Approve from anywhere.** `antstreet approve` for runs with no terminal, so `fund` works inside
   Claude Code without losing a paid draft ([#42](https://github.com/kgorle1111/antstreet/pull/42)).
-- A plugin guard so the agent can never approve its own checks
-  ([#38](https://github.com/kgorle1111/antstreet/pull/38), after #42).
-- An approve pane inside Claude Code that times each approval, to measure the slowest step
-  ([#46](https://github.com/kgorle1111/antstreet/pull/46), draft).
-- A PyPI release, so `uvx antstreet ...` works without a clone (B41).
-
-**Verification core**
-- Every ledger line signed, not only your approvals
+- **The agent can never approve its own checks.** A plugin guard
+  ([#38](https://github.com/kgorle1111/antstreet/pull/38)).
+- **Every ledger line signed**, not only your approvals
   ([#40](https://github.com/kgorle1111/antstreet/pull/40)).
-
-**Evidence**
-- E4, a fresh-context critic against self-review: runs in progress, no result yet.
+- **An approve pane inside Claude Code** that times each approval, so we can fix the slowest step
+  ([#46](https://github.com/kgorle1111/antstreet/pull/46), draft).
+- **`uvx antstreet` from PyPI**, no clone needed (B41).
+- **Cascade dispatch becoming the default** (Haiku, then Sonnet, then Opus when a task stalls). E6
+  checks the cost: if the default raises the cost per delivered task, it goes back to opt-in (B101).
+- **Optional roles out of "experimental"**: the critic, the tester and the rest (B33). The judge
+  stays out of pass/fail until it is calibrated against human labels; tests decide. E4 is measuring
+  the critic right now.
+- **The Python module renamed** from `boss` to `antstreet`, with `boss` kept as an alias so
+  nothing breaks (B100).
 
 ## Next
 
-**Verification core**
-- Audit runs the checks in the repository's own environment, so a check that imports a
-  third-party package is not "blocked" (B77).
+**Audit, sharper**
+- Run the checks in your repository's own environment, so a check that imports a third-party
+  package isn't blocked (B77).
 - Audit any agent's branch in one command, with the checks shown as plain-English lines.
 - A Stop hook that calls `audit check`, so an in-session "done" gets a verdict.
 - `audit export`, so the GitHub Action needs no manual step (B78).
-- Put the delivered product where you expect it (a copy into the project, refused on a dirty tree).
 
-**Plug-and-play**
-- A short `--help` for first runs: advanced `fund` flags and experimental commands hidden.
-- A timed fresh-machine run of the two-command path, from PyPI, published in the README.
+**Back on the bench: features we cut, now being improved and re-measured**
+- **`--spec` mode**: write a rule list before the checks, so each rule gets a check (B85). Its
+  first test missed its bar; we are improving the draft, then running the larger firm experiment
+  before it becomes more than an option.
+- **Parallel building**: several ants on independent files at once (B04, B53). The first test came
+  in at 0.80x, mostly because the boss rarely split the work. Next: a planner that splits
+  independent modules, then E3 again. No speed claim until that number says so.
 
-**Security**
-- `antstreet doctor --mods`: warn when an installed Claude Code mod can override the plugin's guard.
-- Deny the agent reads of the sealed audit store, and alert on edits to `.boss/`.
-- Repository hygiene: Dependabot, and a release workflow with PyPI trusted publishing.
+**See it, prove it**
+- **A web dashboard**: fund, approve and watch runs in a browser. It reads through the same
+  read-only paths as the CLI and MCP server, and approving stays a human act.
+- **Audit reports for regulated teams**: an exportable, signed record of who approved which checks
+  and what the gate decided, to hand to your auditors. AntStreet holds no certification and
+  doesn't claim one.
+
+**First run**
+- A short `--help`, a timed fresh-machine run published in the README, a first-run guide, and a
+  few good first issues.
+- `antstreet doctor --mods`, which warns when an installed Claude Code mod can override the guard.
 
 **Evidence**
-- A new task-set version that fixes the defects an eval audit found (one wrong check and reference
-  in `tokenbucket`, unenforced "must not use" rules, two over-specified checks), as a new version
-  so earlier results stay reproducible.
-- Grading that holds under load: timeouts reported apart from failures, explicit time budgets for
-  scale checks.
-- The false-pass audit's scripts and per-cell labels committed next to its write-up.
-- An eval of the product's own claim: injected wrong products, and the catch rate of each layer
-  (boss checks, held-out checks, a human reading the checks).
-- E5 (reliability across runs) and E6 stage 1 (dispatch), as pre-registered.
-
-**Docs and contributors**
-- A first-run guide, issue and pull-request templates, and a few good first issues.
+- A new task-set version that fixes the defects an eval audit found, keeping old results
+  reproducible; grading that holds under load; the false-pass audit's scripts committed.
+- A catch-rate eval of the product's own claim: plant wrong products, measure what each layer
+  catches.
+- E5 (reliability across runs) and E6 stage 1 (dispatch cost).
 
 ## Later
 
-- Dispatch on by default, only if E6 shows a lower cost per delivered task at equal delivery
-  (B101).
-- Optional roles (critic, tester and others) out of "experimental", only if E4 or a later
-  experiment shows a gain (B33, B97).
-- Public-key (Ed25519) signatures on seals and verdicts, so anyone can check them without the key
+- **E7: does `audit` catch false "done" claims?** Recall against hidden checks, pre-registered
+  before it runs.
+- **An external benchmark**, NL2Repo-Bench, easy tasks first (B54).
+- **A live cost kill-switch** that stops a slice mid-stream at its cap (B13). Blocked today on a
+  reliable per-message cost from the stream; we won't ship one built on guessed prices.
+- Public-key (Ed25519) signatures on seals and verdicts, so anyone can verify them without the key
   (B80).
-- An audit store another OS user or a container holds, so a same-user agent cannot read it (B84).
-- A check that cannot forge its own verdict even with adversarial code (B19; accepted today as T12).
-- An external benchmark, NL2Repo-Bench, easy tasks first (B54).
-- Renaming the Python module from `boss` to `antstreet` (B100).
+- An audit store held by another OS user or a container (B84), and a gate that adversarial code
+  can't forge (B19).
+- SSO for the dashboard, if teams ask for it.
 
-## Experiments
+## Experiments: we publish the no
 
-Fixed in [bench/PREREG.md](bench/PREREG.md) before any run. "Not shown" means the paired 95%
-interval did not clear the bar, whatever the point estimate.
+Each rule is fixed in [bench/PREREG.md](bench/PREREG.md) before the run. "Not shown" means the
+paired 95% interval did not clear the bar.
 
 | Id | Question | Status |
 |---|---|---|
-| E1 | Do held-out checks from a separate examiner lower the false-pass rate? | **Not shown.** They caught 0 of 17 false passes ([write-up](bench/results/2026-10-03-heldout3-and-nl2repo/README.md)) |
-| E2 | Is a strong planner with cheap builders cheaper per delivered task? | Pre-registered, not run |
-| E3 | Are parallel waves faster on multi-file work? | **Not shown.** 0.80x against a 1.3x bar ([write-up](bench/results/2026-10-05-e3-parallel/README.md)) |
-| E4 | Does a fresh-context critic beat self-review? | Running; no result yet |
+| E1 | Do held-out checks from a separate examiner cut false passes? | **Not shown.** Caught 0 of 17 ([write-up](bench/results/2026-10-03-heldout3-and-nl2repo/README.md)) |
+| E2 | Strong planner, cheap builders: cheaper per delivered task? | Pre-registered, not run |
+| E3 | Are parallel waves faster on multi-file work? | **Not shown.** 0.80x against a 1.3x bar ([write-up](bench/results/2026-10-05-e3-parallel/README.md)). Re-run planned after the planner learns to split |
+| E4 | Does a fresh-context critic beat self-review? | Running, no result yet |
 | E5 | Is the firm more reliable across five runs? | Pre-registered, not run |
-| E6 | Does per-task dispatch (and the `cascade` arm) lower cost per delivered task? | Pre-registered, not run |
+| E6 | Does dispatch lower cost per delivered task? | Pre-registered; stage 1 next |
+| E7 | Does `audit` catch false "done" claims? | Planned, not yet pre-registered |
+| Spec | Does `--spec` make the boss write stronger checks? | **First test missed its bar** ([write-up](bench/results/2026-10-03-spec-p1/README.md)); the larger run waits on a better draft |
 
-Also published: the blinded 35-task comparison of the firm against one agent (64 of 105 against
-62 of 105, not shown, at about 2.4 times the cost; [write-up](bench/results/2026-10-03-blind35/README.md)),
-and the false-pass audit (29 of 77 runs that passed every visible check failed a hidden one; 16 of
-77 under a stricter count; [write-up](bench/results/2026-10-03-false-pass-audit/README.md)).
+The result we lead with is a loss. On a blinded 35-task run, a team of ants delivered 64 of 105 against one agent's
+62 of 105, at about 2.4 times the cost, and the difference is not shown. So we don't claim a team
+builds better. What AntStreet adds is verification and control. [Write-up](bench/results/2026-10-03-blind35/README.md).
 
-## Not planned, or cut
+## Not doing
 
-| Item | Why |
-|---|---|
-| Selling "a team of agents builds better" | Not shown on the blinded 35-task run, at about 2.4 times the cost. `fund` stays as a way to run the gate, not the pitch |
-| Parallel multi-file speed as a feature claim | E3 not shown |
-| `--spec` on by default | Its paid draft test missed its pre-registered bar ([write-up](bench/results/2026-10-03-spec-p1/README.md)); it stays off |
-| An LLM judge deciding pass or fail | Tests decide. Judges stay advisory and uncalibrated until labelled |
-| A model reading the audited agent's own words | It would give the agent a channel to the verdict (B81) |
-| Killing a slice mid-stream on an estimated cost | The stream carries no reliable per-message cost (B13) |
-| A leaderboard of other vendors' agents | Terms of service and cost per run |
-| A web UI, deploying built products, Windows | Out of scope; macOS and Linux only |
+- **Selling "a team of agents builds better."** We measured it and it didn't.
+- **An LLM judge deciding pass or fail.** Tests decide.
+- **A model reading the audited agent's own words.** That's a channel to the verdict (B81).
+- **A leaderboard of other vendors' agents**, deploying built products, or native Windows.
 
-## How to contribute
+## Help build it
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Good places to start: a new benchmark task, a sharper
-check for an existing one, or an `open` row in [docs/BACKLOG.md](docs/BACKLOG.md) (say which id in
-your pull request). To argue with a result, open an issue that names the number and the file it
-comes from. Security problems go through [SECURITY.md](SECURITY.md), not a public issue.
+- **Try it**: run the [quickstart](README.md#-quickstart) and tell us where it broke.
+- **Contribute**: read [CONTRIBUTING.md](CONTRIBUTING.md), then pick a benchmark task, a sharper
+  check, or an `open` row in [docs/BACKLOG.md](docs/BACKLOG.md).
+- **Argue with a number**: open an issue naming the number and the file it comes from.
+- **Star the repo** if you want agents that show their work. It helps other people find it.
+
+Security problems go through [SECURITY.md](SECURITY.md), not a public issue.
