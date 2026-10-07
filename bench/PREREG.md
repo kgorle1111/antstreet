@@ -197,3 +197,4 @@ equal compute in the literature. They stay off by default and are not claimed to
   `python -m boss.bench.kpi` on both folders, and `paired` with `--kpi delivery` and
   `cost_per_delivery`.
 - 2026-10-07: added E4b (the critic with a $0.40 cap), after E4's result and before any E4b run.
+- 2026-10-07, before any E4b result was read: the critic call's time limit rises from 300 s to 900 s for E4b. In the first 7 E4b cells, 4 critic calls hit the 300 s limit (E4 had 1 in 105), so with the $0.40 cap the time limit, not the critic, would have decided them. Those 7 cells are set aside unread and E4b restarts from zero with both changes; everything else is unchanged.
