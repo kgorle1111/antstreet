@@ -233,6 +233,8 @@ def review_term_sheet(
                 data["held_out_hashes"] = held
             if policy is not None:
                 data["route"] = approved.route
+            if view is not None and view.routing:
+                data["routed"] = {k: dict(v) for k, v in view.routing.items()}
             ledger.append(
                 Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED, data=data)
             )

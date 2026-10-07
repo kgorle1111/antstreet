@@ -14,7 +14,7 @@ Everything here is a pure function of the ledgers read. No model is called.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from boss import signing
@@ -73,6 +73,18 @@ def task_kind(sheet: TermSheet, task: Task) -> str:
     f = _bucket(files, ((1, "1"), (3, "2-3")), "4+")
     c = _bucket(checks, ((0, "0"), (2, "1-2"), (5, "3-5")), "6+")
     return f"files={f} checks={c}"
+
+
+def features(sheet: TermSheet, task: Task) -> dict[str, int]:
+    """What is known of a task before any worker runs, read from the term sheet alone, so nothing
+    a benchmark knows about its own tasks (their labels, the checks it hides) can reach a start
+    tier. Recorded with every start, so later runs can show which of them predicts a failure."""
+    return {
+        "idea_chars": len(sheet.idea),
+        "tasks": len(sheet.tasks),
+        "files": len(set(task.paths)),
+        "checks": sum(c.task == task.id for c in sheet.checks),
+    }
 
 
 # --- what past runs recorded ------------------------------------------------------------------
@@ -203,6 +215,19 @@ class Choice:
     expected: Mapping[str, float]  # tier -> expected cost in micros, for each tier considered
     source: str  # where the chosen tier's own estimate came from
     why: str
+    features: Mapping[str, int] = field(default_factory=dict)
+
+    def record(self, top: str) -> dict[str, object]:
+        """The start as the approval records it: the router's proposal and its reason. The sheet's
+        own dispatch, which the investor may have edited, is what runs."""
+        return {
+            "tier": self.tier,
+            "effort": rungs_from(self.tier, top)[0][1],
+            "kind": self.kind,
+            "source": self.source,
+            "why": self.why,
+            "features": dict(self.features),
+        }
 
 
 def expected_cost(stats: Stats, kind: str, start: str, top: str) -> float:
@@ -231,6 +256,8 @@ def choose_start(
     why = f"lowest expected cost ${expected[tier] / 1e6:.3f}" + (
         f" (vs {others})" if others else ""
     )
+    if not est.measured:
+        why = f"cold start, under {MIN_SAMPLE} verified attempts of this kind on {tier}: {why}"
     return Choice(kind, tier, expected, est.source, why)
 
 
@@ -299,6 +326,9 @@ def starts_for(
 ) -> dict[str, Choice]:
     """The chosen start of every task of the sheet."""
     return {
-        t.id: choose_start(stats, task_kind(sheet, t), top=top, fundable=fundable)
+        t.id: replace(
+            choose_start(stats, task_kind(sheet, t), top=top, fundable=fundable),
+            features=features(sheet, t),
+        )
         for t in sheet.tasks
     }
