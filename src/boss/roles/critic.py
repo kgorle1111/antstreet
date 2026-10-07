@@ -204,7 +204,7 @@ def review_product(
     model: str,
     executable: str = CLI,
     thinking_tokens: int | None = None,
-    timeout_s: float = 300.0,
+    timeout_s: float = 900.0,  # E4b amendment: the critic call may run 15 minutes
     gate_timeout_s: float = GATE_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
 ) -> tuple[Review, Usage]:
