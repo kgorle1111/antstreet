@@ -12,6 +12,9 @@ what changed for someone using the tool, not which commit did it.
 
 - `boss approve RUN [--sheet V]`: approves a term sheet `boss fund` left waiting, only if it is
   exactly the text shown with that value; the signed `approved` event adds `shown_sha256`.
+- `boss status --json`: one JSON object (`run`, `awaiting`, last event, checks, spend) for tools.
+- A Claude Code mod in the plugin: an approve pane that shows a waiting term sheet and approves
+  it only on a press of its Approve button, timing each approval in `.boss/approve-timings.jsonl`.
 - `boss verify [RUN]`: an offline check of a run's hash chain, signatures and saved prompts, with no model call. Exit 0 when it all verifies, 1 with one line per problem, 2 for no such run.
 - `boss mcp`: a read-only MCP server on stdio for any MCP client (`list_runs`, `status`, `report`, `verify_ledger`, `doctor` without `--live`); no tool can spend or approve.
 - A Claude Code plugin in the repository (`/antstreet:fund`, `/antstreet:report`,

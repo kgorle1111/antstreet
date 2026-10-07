@@ -354,6 +354,61 @@ the plugin cannot run yet. To try the CLI the same way before then, with access 
 `uvx --from git+https://github.com/kgorle1111/antstreet antstreet doctor`. The plugin files are
 not in the wheel or the sdist.
 
+## Approve from inside Claude Code (mod)
+
+The plugin also carries a Claude Code mod (`hooks/approve-pane.tsx`, TypeScript, about 180
+lines). Mods need Claude Code 2.1.287 or newer in the terminal (2.1.286 in the desktop app), and
+the mods API is early access, so it can change between releases; this one was tested on 2.1.292.
+The mod only draws and runs `antstreet`; every decision stays in the Python CLI.
+
+- When the agent stops a turn (and at session start), it runs `antstreet status --json`. If the
+  latest run is awaiting your approval (`boss fund` had no terminal to ask on and exited 4), a row
+  above the prompt says so, with `[ Review ]` and `[ Hide ]`.
+- Review opens a pane with the term sheet and every check as `antstreet approve RUN` prints them,
+  and two buttons: `[ Close ]` (focused first, so a stray Enter closes) and `[ Approve ]`. Approve
+  runs `antstreet approve RUN --sheet VALUE` with the value printed with that same text, and shows
+  what it said. If the sheet or a check changed since, the CLI refuses and nothing is written.
+  There is no Reject: Close leaves the run waiting, as not typing the command does.
+- No Button has a hotkey or a keybinding action: a key typed at the prompt cannot press one.
+- Each Approve press appends one line to `.boss/approve-timings.jsonl` in the project (git-ignored
+  with the rest of `.boss/`): the run, the value, when the pane opened and when Approve was
+  pressed (`ms`), the exit code and the surface. That measures how long approving takes.
+
+Try it from a checkout, before the package is on PyPI:
+
+```bash
+claude --plugin-dir /path/to/antstreet
+```
+
+then set the mod's `command` option (a row in the config menu, `antstreet.command`) to
+`uv run --project /path/to/antstreet antstreet`; the default is `uvx antstreet`. The option is
+split on spaces, so the path must not hold one. `claude plugin validate .claude-plugin/plugin.json`
+lists what the module hooks and calls, and `claude plugin test .` runs `hooks/approve-pane.test.ts`
+against a fake `antstreet`, with no session, model, process or network.
+
+What it does and does not protect, honestly:
+
+- The model cannot press the button. A Button's press comes from the surface (a click, or Enter
+  or Space while the pane has the keys). The mods API has no method that presses a Button, and the
+  mod registers no tool, no command and no prompt hook, so nothing the model can call reaches the
+  approve call. `tests/test_plugin.py` holds the source to that: one `--sheet` call, inside the
+  function only the Approve Button's `onPress` calls, and no hotkey, tool, prompt or agent use.
+- That does not stop the agent approving some other way. Its Bash tool can still run
+  `antstreet approve RUN --sheet VALUE` itself, as it could before the mod: the value is printed
+  where the agent can read it. That path needs its own guard (a `PreToolUse` deny on `approve`, or
+  a permission deny rule), which this mod does not add.
+- The mod is your own code, running as you, unsandboxed. Any other mod you install runs as you
+  too: it can run `antstreet approve` with `$.process.run`, answer or rewrite the agent's tool
+  calls so a `PreToolUse` guard never runs, approve a call a guard denied (`tool.check`), or hook
+  `ui.press` above this mod. On a machine without managed settings a mod can also override
+  permission deny rules. So "a person pressed Approve" holds only while every installed mod is one
+  you trust; the ledger records an approval, not who or what pressed.
+- A mod the agent writes into a skills folder (`.claude/skills/<name>/`) might load in a later
+  session; whether it loads without asking you is not yet checked. Do not let an unattended agent
+  write there.
+- The timing file is a local measurement, not evidence: anything that can write the project can
+  edit it, and it is never signed.
+
 ## Limits
 
 What AntStreet does not do, in plain words. Each links to its row in the [threat model](docs/THREAT_MODEL.md).
