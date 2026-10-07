@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from boss import spec as rulespec
-from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
+from boss.approval import TERM_SHEET_FILE, YES, _check_text, content_hashes
 from boss.budget import RESERVE_MICROS
 from boss.context import imported_modules
 from boss.dispatch import DispatchPolicy
@@ -73,7 +73,6 @@ _WHY = {
     "tester": "it writes checks for the stories and the design",
     "system_designer": "a design alone produces no checks",
 }
-YES = ("y", "yes", "a", "approve")
 _DEMO_DIR = "demo"  # the installed files, kept because every run of the firm rebuilds product/
 _STORIES_CHARS = 20_000
 

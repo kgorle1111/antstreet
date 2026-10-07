@@ -131,6 +131,7 @@ def test_the_exit_codes_stated_are_the_constants(text):
             cli.EXIT_FAILED,
             cli.EXIT_USAGE,
             cli.EXIT_INCOMPLETE,
+            cli.EXIT_AWAITING,
             cli.EXIT_INTERRUPTED,
         )
     ]

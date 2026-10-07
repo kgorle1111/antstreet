@@ -1,5 +1,5 @@
-"""Commands: `fund`, `resume`, `topup`, `report`, `status`, `routing`, `verify`, `roles`, `doctor`,
-`mcp`, `audit`.
+"""Commands: `fund`, `approve`, `resume`, `topup`, `report`, `status`, `routing`, `verify`, `roles`,
+`doctor`, `mcp`, `audit`.
 
 Exit codes:
   0    every required check passes on the product (or the command succeeded)
@@ -10,6 +10,7 @@ Exit codes:
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
        a declined round, a task set aside); for `boss audit check`, a refuted or inconclusive
        verdict
+  4    `fund` with no terminal to ask on: the drafted term sheet waits for `boss approve`
   130  interrupted; continue with `boss resume`
 """
 
@@ -28,9 +29,18 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from boss import __version__, audit, audit_check, audit_report, routing, spec
+from boss import __version__, audit, audit_check, audit_report, held_out, routing, spec
 from boss import dispatch as dispatching
-from boss.approval import NotApprovedError, review_term_sheet, spec_view
+from boss.approval import (
+    TERM_SHEET_FILE,
+    NotApprovedError,
+    SpecView,
+    approve_shown,
+    pending,
+    review_term_sheet,
+    shown_digest,
+    spec_view,
+)
 from boss.boss import (
     DEFAULT_MODEL,
     RULES_PROMPT,
@@ -54,6 +64,7 @@ from boss.firm import (
     Advise,
     FirmConfig,
     FirmReport,
+    config_data,
     run_firm,
     started_config,
 )
@@ -72,6 +83,7 @@ from boss.ledger import (
 from boss.limits import RunLimits
 from boss.pipeline import (
     Pipeline,
+    Plan,
     RolesError,
     Setup,
     default_fix_budget,
@@ -101,6 +113,8 @@ from boss.worker import (
 
 RUNS_DIR = Path(".boss") / "runs"
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_INCOMPLETE, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
+EXIT_AWAITING = 4
+AWAITING = "awaiting the investor's approval"  # the `stopped` reason of a deferred approval
 LOGIN_FIX = (
     "The Claude CLI that AntStreet starts is not logged in: its login expired or could not be "
     "refreshed (with ANTHROPIC_API_KEY set, the key was refused). Run `claude auth login` in a "
@@ -128,6 +142,8 @@ def main(
             return _fund(args, project, environ, ask, say)
         if args.command == "resume":
             return _resume(args, project, environ, ask, say)
+        if args.command == "approve":
+            return _approve(args, project, say)
         if args.command == "topup":
             return _topup(args, project, say)
     except (LedgerUnverifiedError, SigningError) as exc:  # a ledger the key does not vouch for
@@ -256,6 +272,15 @@ def _parser() -> argparse.ArgumentParser:
         shown.add_argument("run", nargs="?", help="run id (default: the latest)")
         if name == "resume":
             _review_options(shown)
+    approve = sub.add_parser(
+        "approve",
+        parents=[common],
+        help="show a term sheet `fund` left waiting, or approve exactly the one shown",
+    )
+    approve.add_argument("run", nargs="?", help="run id (default: the latest)")
+    approve.add_argument(
+        "--sheet", help="the value printed with the term sheet you read: approves that text only"
+    )
     topup = sub.add_parser(
         "topup", parents=[common], help="add money to a round of a run; reopens a locked round"
     )
@@ -581,27 +606,6 @@ def _fund(
             shown = {k: c.record(policy.max_tier) for k, c in chosen.items()}
             view = dispatching.DispatchView(policy, level, args.stall_slices, {}, shown)
         held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, reserve)
-        try:
-            sheet = review_term_sheet(
-                plan.sheet,
-                paths.checks,
-                paths.root,
-                ledger,
-                run_id,
-                ask=ask,
-                say=say,
-                notes=plan.notes,
-                held_out_dir=paths.held_out if held else None,
-                view=view,
-                spec_shown=spec_view(paths.rules, paths.checks, waivers) if rules else None,
-                rules_path=paths.rules if rules else None,
-            )
-        except SigningError as exc:
-            say(f"The approval could not be signed, so nothing was funded: {exc}")
-            return EXIT_FAILED
-        if sheet is None:
-            return EXIT_FAILED
-        say("Approved. Hiring a worker...")
         config = FirmConfig(
             model=args.model,
             slice_micros=args.slice,
@@ -617,10 +621,155 @@ def _fund(
             max_tier=policy.max_tier if policy is not None else dispatching.DEFAULT_MAX_TIER,
             cascade=policy is not None and policy.cascade,
         )
+        spec_shown = spec_view(paths.rules, paths.checks, waivers) if rules else None
+        if ask is input and not (sys.stdin and sys.stdin.isatty()):  # EOF would reject the draft
+            return _await_approval(pipe, plan, config, view, spec_shown, waivers)
+        try:
+            sheet = review_term_sheet(
+                plan.sheet,
+                paths.checks,
+                paths.root,
+                ledger,
+                run_id,
+                ask=ask,
+                say=say,
+                notes=plan.notes,
+                held_out_dir=paths.held_out if held else None,
+                view=view,
+                spec_shown=spec_shown,
+                rules_path=paths.rules if rules else None,
+            )
+        except SigningError as exc:
+            say(f"The approval could not be signed, so nothing was funded: {exc}")
+            return EXIT_FAILED
+        if sheet is None:
+            return EXIT_FAILED
+        say("Approved. Hiring a worker...")
         pipe.record_start(config)
         fix = args.fix_budget or default_fix_budget(config)
         outcome = _build(pipe, sheet, config, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _await_approval(
+    pipe: Pipeline,
+    plan: Plan,
+    config: FirmConfig,
+    view: dispatching.DispatchView | None,
+    spec_shown: SpecView | None,
+    waivers: Mapping[str, str],
+) -> int:
+    """`fund` with nobody at a terminal to answer: keep the paid-for draft, unapproved, and wait
+    for `boss approve`, where end of input would have read as a rejection. The configuration goes
+    on `started` now, so `boss resume` builds exactly what was asked for once it is approved."""
+    paths, run = pipe.paths, pipe.run_id
+    sheet = dataclasses.replace(plan.sheet, approved_by_investor=False)
+    (paths.root / TERM_SHEET_FILE).write_text(sheet.to_json())
+    record = Recorder(pipe.ledger, run, 0)
+    started = {"config": config_data(config), "roles": pipe.setup.data()}
+    record("boss", EventType.STARTED, data=started)
+    data = {"reason": AWAITING, "untested": dict(waivers), "notes": list(plan.notes)}
+    record("boss", EventType.STOPPED, data=data)
+    _show_pending(paths, run, view, spec_shown, plan.notes, pipe.say)
+    pipe.say("Nothing was funded; only the draft was paid for. Do not run `boss fund` again.")
+    return EXIT_AWAITING
+
+
+def _show_pending(
+    paths: RunPaths,
+    run: str,
+    view: dispatching.DispatchView | None,
+    spec_shown: SpecView | None,
+    notes: Sequence[str],
+    say: Say,
+) -> bool:
+    """Print the waiting term sheet and the one command that approves exactly that text."""
+    held_dir = paths.held_out if held_out.hashes(paths.held_out) else None
+    try:
+        _, _, text = pending(paths.root / TERM_SHEET_FILE, paths.checks, held_dir, view, spec_shown)
+    except (TermSheetError, spec.SpecError) as exc:
+        say(f"Run {run}: the term sheet cannot be approved as it stands: {exc}")
+        return False
+    say(text)
+    for note in notes:
+        say(note)
+    say(
+        f"\nRun {run} is {AWAITING}. Read the term sheet and every check above; to approve "
+        f"exactly that, run this yourself:\n  boss approve {run} --sheet {shown_digest(text)}\n"
+        "In Claude Code, type it with the `!` prefix: the approval is yours, never the agent's. "
+        f"Then build it with `boss resume {run}`."
+    )
+    return True
+
+
+def _awaiting(events: Sequence[Event]) -> bool:
+    """`fund` left this run's term sheet waiting, and no investor has approved it since."""
+    waited = any(
+        e.event is EventType.STOPPED and e.actor == "boss" and e.data.get("reason") == AWAITING
+        for e in events
+    )
+    return waited and not any(
+        e.event is EventType.APPROVED and e.actor == "investor" for e in events
+    )
+
+
+def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
+    """Show the term sheet `fund` left waiting, or, with `--sheet`, record the investor's approval
+    of exactly the text shown. Spends nothing; `boss resume` builds it."""
+    run = _find_run(args, project, say)
+    if run is None:
+        return EXIT_FAILED
+    paths = RunPaths(project / RUNS_DIR / run)
+    try:
+        with paths.writer() as ledger:  # held from the reading to the approval
+            events = paths.events()
+            config = started_config(events)
+            if config is None or not _awaiting(events):
+                say(
+                    f"Run {run} is not {AWAITING}: only a term sheet `boss fund` drafted with no "
+                    "terminal to ask on, and not yet approved, is approved this way."
+                )
+                return EXIT_FAILED
+            waited = [e.data for e in events if e.data.get("reason") == AWAITING][-1]
+            untested, notes = waited.get("untested"), waited.get("notes")
+            waivers = untested if isinstance(untested, dict) else {}
+            setup = recorded_setup(events) or Setup((), DEFAULT_MODEL, None)
+            policy = config.dispatch_policy()
+            view = None
+            if policy is not None:
+                review = "critic" if "critic" in setup.roles else "off"
+                level = dispatching.RunLevel(setup.model, review, config.held_out, config.parallel)
+                view = dispatching.DispatchView(policy, level, config.policy.stall_slices, {})
+            rules = paths.rules if paths.rules.is_file() else None
+            spec_shown = spec_view(paths.rules, paths.checks, waivers) if rules else None
+            if args.sheet is None:
+                kept = notes if isinstance(notes, list) else []
+                lines = [n for n in kept if isinstance(n, str)]
+                ok = _show_pending(paths, run, view, spec_shown, lines, say)
+                return EXIT_OK if ok else EXIT_FAILED
+            held_dir = paths.held_out if held_out.hashes(paths.held_out) else None
+            approve_shown(
+                args.sheet,
+                paths.root,
+                paths.checks,
+                ledger,
+                run,
+                held_out_dir=held_dir,
+                view=view,
+                spec_shown=spec_shown,
+                rules_path=rules,
+            )
+    except LedgerLockedError:
+        say(_held_by_another(run, "approve"))
+        return EXIT_FAILED
+    except LedgerCorruptError as exc:
+        say(f"Run {run} cannot be approved: its ledger is damaged ({exc}).")
+        return EXIT_FAILED
+    except (NotApprovedError, TermSheetError, spec.SpecError) as exc:
+        say(f"Not approved: {exc}. Nothing was written.")
+        return EXIT_FAILED
+    say(f"Approved run {run}. Build it with `boss resume {run}`.")
+    return EXIT_OK
 
 
 def _dispatch_refusal(args: argparse.Namespace) -> str | None:
@@ -812,6 +961,9 @@ def _resume_run(
         events = paths.events()
     except LedgerCorruptError as exc:
         say(f"Run {run} cannot be resumed: its ledger is damaged ({exc}).")
+        return EXIT_FAILED
+    if _awaiting(events):
+        say(f"Run {run} is {AWAITING}; nothing was built. Read it with `boss approve {run}`.")
         return EXIT_FAILED
     config = started_config(events)
     if config is None:

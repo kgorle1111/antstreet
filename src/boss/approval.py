@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import hmac
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,8 @@ from boss.worker import usd
 TERM_SHEET_FILE = "term_sheet.json"
 MAX_BRIEF_CHARS = 2_000  # shown cut (marked) beyond this; the hashed term sheet keeps all of it
 MAX_DESCRIPTION_CHARS = 300
+YES = ("y", "yes", "a", "approve")  # every investor question takes these as yes
+NO = ("n", "no", "r", "reject")
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
 
@@ -200,7 +203,7 @@ def review_term_sheet(
             answer = ask("[a]pprove, [r]eject, or [e]dit files and re-check? ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             answer = "r"
-        if answer in ("a", "approve"):
+        if answer in YES:
             if spec_problem:
                 say(
                     f"Not approved: the rule list is not the idea's ({spec_problem}). "
@@ -209,37 +212,30 @@ def review_term_sheet(
                 continue
             # Approval binds to what is on disk now, and only if the investor has seen exactly that.
             try:
-                current = _load_valid(path, checks_dir, held_out_dir, policy)
-                now = spec_shown(current) if spec_shown else None
+                current, now, again = pending(path, checks_dir, held_out_dir, view, spec_shown)
             except TermSheetError as exc:
                 say(_problems_text("The term sheet does not validate", exc))
                 continue
             except spec.SpecError as exc:
                 say(f"Not approved: the rule list cannot be used: {exc}")
                 continue
-            again = (now.text + "\n\n" if now else "") + render(
-                current, checks_dir, held_out_dir, view
-            )
             if again != shown:
                 say("The term sheet or a check changed since it was shown; review it again.")
                 sheet = current
                 continue
-            approved = dataclasses.replace(current, approved_by_investor=True)
-            path.write_text(approved.to_json())
-            data: dict[str, Any] = {"hashes": content_hashes(approved, checks_dir, rules_path)}
-            if now is not None:
-                data["spec"] = now.summary
-            if held_out_dir is not None and (held := held_out.hashes(held_out_dir)):
-                data["held_out_hashes"] = held
-            if policy is not None:
-                data["route"] = approved.route
-            if view is not None and view.routing:
-                data["routed"] = {k: dict(v) for k, v in view.routing.items()}
-            ledger.append(
-                Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED, data=data)
+            return _approve(
+                current,
+                path,
+                checks_dir,
+                ledger,
+                run_id,
+                now,
+                held_out_dir,
+                policy,
+                rules_path,
+                routed=_routed(view),
             )
-            return approved
-        if answer in ("r", "reject"):
+        if answer in NO:
             ledger.append(
                 Event(
                     run=run_id,
@@ -257,6 +253,105 @@ def review_term_sheet(
             sheet = _reload_after_edit(sheet, path, checks_dir, held_out_dir, ask, say, policy)
             continue
         say(f"Unrecognised answer {answer!r}.")
+
+
+def pending(
+    path: Path,
+    checks_dir: Path,
+    held_out_dir: Path | None,
+    view: DispatchView | None,
+    spec_shown: SpecView | None,
+) -> tuple[TermSheet, SpecShown | None, str]:
+    """The term sheet on disk (validated, never approved), its rule coverage, and exactly the text
+    an investor approving it must have read. TermSheetError or `spec.SpecError` when it cannot be
+    approved as it stands."""
+    current = _load_valid(path, checks_dir, held_out_dir, None if view is None else view.policy)
+    now = spec_shown(current) if spec_shown else None
+    text = (now.text + "\n\n" if now else "") + render(current, checks_dir, held_out_dir, view)
+    return current, now, text
+
+
+def shown_digest(text: str) -> str:
+    """What `boss approve --sheet` takes: short enough to type, and it names one shown text."""
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def approve_shown(
+    digest: str,
+    run_dir: Path,
+    checks_dir: Path,
+    ledger: LedgerWriter,
+    run_id: str,
+    *,
+    held_out_dir: Path | None = None,
+    view: DispatchView | None = None,
+    spec_shown: SpecView | None = None,
+    rules_path: Path | None = None,
+) -> TermSheet:
+    """The investor's approval of a sheet read earlier, outside any question (`boss approve`).
+    `digest` is the `shown_digest` of the text they read; anything changed since then is a
+    different text, so NotApprovedError, and nothing is written. TermSheetError or
+    `spec.SpecError` when the sheet on disk cannot be approved at all."""
+    path = run_dir / TERM_SHEET_FILE
+    current, now, text = pending(path, checks_dir, held_out_dir, view, spec_shown)
+    if not hmac.compare_digest(shown_digest(text), digest.strip().lower()):
+        raise NotApprovedError(
+            "the term sheet or a check is not the one shown with that --sheet value (it changed "
+            "since, or the value was mistyped); read it again and approve what is there now"
+        )
+    shown = hashlib.sha256(text.encode()).hexdigest()
+    policy = None if view is None else view.policy
+    return _approve(
+        current,
+        path,
+        checks_dir,
+        ledger,
+        run_id,
+        now,
+        held_out_dir,
+        policy,
+        rules_path,
+        shown,
+        routed=_routed(view),
+    )
+
+
+def _approve(
+    current: TermSheet,
+    path: Path,
+    checks_dir: Path,
+    ledger: LedgerWriter,
+    run_id: str,
+    now: SpecShown | None,
+    held_out_dir: Path | None,
+    policy: DispatchPolicy | None,
+    rules_path: Path | None,
+    shown_sha256: str | None = None,
+    *,
+    routed: dict[str, Any] | None = None,
+) -> TermSheet:
+    approved = dataclasses.replace(current, approved_by_investor=True)
+    path.write_text(approved.to_json())
+    data: dict[str, Any] = {"hashes": content_hashes(approved, checks_dir, rules_path)}
+    if now is not None:
+        data["spec"] = now.summary
+    if held_out_dir is not None and (held := held_out.hashes(held_out_dir)):
+        data["held_out_hashes"] = held
+    if policy is not None:
+        data["route"] = approved.route
+    if shown_sha256 is not None:
+        data["shown_sha256"] = shown_sha256
+    if routed:
+        data["routed"] = routed
+    ledger.append(Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED, data=data))
+    return approved
+
+
+def _routed(view: DispatchView | None) -> dict[str, Any] | None:
+    """The cascade's start for each task, as the approval records it."""
+    if view is None or not view.routing:
+        return None
+    return {k: dict(v) for k, v in view.routing.items()}
 
 
 def _reload_after_edit(
