@@ -304,6 +304,16 @@ uv run boss audit plan --repo . --request req.txt --base main   # seal checks fo
 `boss audit` checks a change an agent made in a git repository against checks sealed before it, and
 reports `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`; see [docs/CLI.md](docs/CLI.md).
 
+With no terminal to ask on (Claude Code's Bash tool, a pipe), `boss fund` does not ask: it prints
+the term sheet and every check, keeps the paid-for draft, and exits `4` with the one command that
+approves exactly that text. You run it yourself (in Claude Code, with the `!` prefix), then build:
+
+```bash
+boss approve <run>                  # read the term sheet again, with its --sheet value
+boss approve <run> --sheet <value>  # your approval, refused if anything changed since it was shown
+boss resume <run>                   # builds it; an agent may run this, never `approve`
+```
+
 `boss resume` reads the run's ledger and the settings it started with. Running it is your decision
 to lift a stop, and the approval, the budget and every limit are checked again. A round that closed
 below its unlock threshold stays locked until you `boss topup` it.
@@ -311,7 +321,7 @@ below its unlock threshold stays locked until you `boss topup` it.
 Exit codes: `0` every check passed; `1` the boss produced no usable term sheet, you rejected it, or
 a worker did not start isolated; `2` usage error (including a blank idea and a budget too small to fund one slice);
 `3` the run ended with checks not passing, including a run stopped early by a limit, a declined
-round, a pause or a lost login; `130` you pressed Ctrl-C (continue with `boss resume`).
+round, a pause or a lost login; `4` no terminal to ask on, the term sheet waits for `boss approve`; `130` you pressed Ctrl-C (continue with `boss resume`).
 
 ## Use it from Claude Code
 

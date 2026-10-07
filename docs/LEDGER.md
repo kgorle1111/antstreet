@@ -226,14 +226,16 @@ Example, a critic's call written by a run with every role:
 - Round: 0
 - Written once, before the first round, holding the configuration the run was started with.
   `run_firm` writes it. When roles were chosen `pipeline.py` writes it first (`record_start`) with
-  the same `config` and adds `roles`, and `run_firm` then writes none. `boss resume` reads it back,
-  so a run continues with its own settings and roles, not the defaults. A run without this event
-  never hired anyone and cannot be resumed.
+  the same `config` and adds `roles`, and `run_firm` then writes none. `boss fund` with no terminal
+  to ask on writes it too, before approval, with `roles` always (its `names` may be empty), and a
+  `stopped` event after it: that run is awaiting `boss approve`, and `boss resume` refuses it until
+  an `approved` event exists. `boss resume` reads it back, so a run continues with its own settings
+  and roles, not the defaults. A run without this event never hired anyone and cannot be resumed.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
-| `roles` | object | The roles the investor chose; only when `--roles` named some. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
+| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `boss approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
 
 Config keys:
 
@@ -636,7 +638,8 @@ Example:
 
 - Actor: `investor`
 - Three forms, all by the investor:
-  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`,
+  - Round 0, by `approval.py` when the investor approves the term sheet, at the question or with
+    `boss approve` (which adds `shown_sha256`). Carries `hashes`,
     `held_out_hashes` when the run has held-out checks, `route` when the run uses
     `--dispatch rules`, `rules.json` among its `hashes` and a `spec` coverage summary (rule and
     anchor counts, the uncovered and waived rule ids, the digest of the rule list) when the run
@@ -672,6 +675,7 @@ Example:
 |---|---|---|
 | `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file, and `rules.json` for a run started with `--spec`. Present in the first form, and in an amendment. |
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
+| `shown_sha256` | str | SHA-256 hex of the exact text the investor approved: the rule coverage (with `--spec`), the term sheet, every check and held-out check, as `boss approve` rendered it. Only on an approval made with `boss approve --sheet`, whose value is its first 16 characters. |
 | `route` | str | `one_agent` or `firm`: the route the investor approved (`dispatch.route_of` chose it from the sheet, or the investor edited it). Only in the first form, and only when the run uses `--dispatch rules`. The term sheet carries it too, and `hashes` covers that. |
 | `spec` | object | Only with `--spec`, in the first form: `rules_sha256` (digest of the rule list), `rules` (scored rules), `anchored`, `unanchored`, `anchor_missing`, `unscored_missing` (counts), `uncovered` and `waived` (rule ids) and `waived_reasons` (id to the boss's one-line reason). Inside the signed data. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
@@ -760,6 +764,10 @@ Example:
 - Written when the run ends on purpose. A stop holds until a `resumed` event; a later stop holds
   again. Writers:
   - `boss`, by `cli.py`: the boss's call failed or its draft was invalid (round 0).
+  - `boss`, by `cli.py`: `boss fund` had no terminal to ask on, so the drafted term sheet waits
+    for `boss approve` (round 0, reason `awaiting the investor's approval`, with `untested` and
+    `notes`). `boss resume` refuses the run until the investor's `approved` event exists, then
+    lifts this stop like any other.
   - `investor`, by `approval.py`: the term sheet was rejected (round 0).
   - `investor`, by `firm.py`: a later round was not funded.
   - `rule`, by `firm.py`: a hard run limit was reached, or the term sheet or a check no longer
@@ -772,6 +780,8 @@ Example:
 |---|---|---|
 | `reason` | str | Why the run stopped. |
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
+| `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `boss approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
+| `notes` | list | The roles' notes on the draft, shown under the term sheet by `boss approve`. They bind nothing. Only on a stop awaiting approval. |
 | `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Examples:
