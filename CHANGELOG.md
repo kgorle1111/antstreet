@@ -199,6 +199,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- A login whose refresh fails (Claude Code 2.1.292: no retry, no HTTP status) is `login`, not `api_error`: the run stops, and `boss fund` says to run `claude auth login`.
+- `python -m boss.bench.run` checks `claude auth status` before any cell, and stops after 3 cells in a row end in the same infrastructure failure instead of running every cell.
 - Docs no longer call the benchmark's hidden checks, mutants and labels "hand-written": Claude wrote them, apart from the agents measured. The 29 false passes are now "read and judged real errors", one class debatable.
 - `python -m boss.bench.run` refuses a saved cell that ran with another task set, model, budget
   or firm options, instead of counting it as this run's. Two arms of one name (the firm with and

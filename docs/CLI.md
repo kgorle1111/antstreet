@@ -454,9 +454,17 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 | `--jobs` | `2` | Cells to run at once. |
 | `--dry-run` | off | Print the cells and the task set hash, then exit. |
 
+Before any cell it runs `claude auth status` (no model call) with the environment a worker gets,
+and refuses to start when the CLI is not logged in or the login cannot be read; with
+`ANTHROPIC_API_KEY` set it does not check. That check cannot see a login whose refresh will fail,
+so the run also stops once 3 cells in a row end in the same infrastructure failure (`login`,
+`usage_limit`, `api_error`, ...), and says which cells were not started. Those 3 cells are saved;
+move their folders aside before running again, since a saved cell is never run again.
+
 Exit codes: `0` after the cells ran (whether or not they passed); `1` when no task matches
-`--only`; `2` for a usage error. A task that fails validation stops the run with an error before
-any cell starts.
+`--only`, when the login check refuses, or when the run stopped on an infrastructure failure;
+`2` for a usage error. A task that fails validation stops the run with an error before any cell
+starts.
 
 ## `python -m boss.bench.drafts`
 
