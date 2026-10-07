@@ -27,7 +27,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 | Id | Item | Why it was deferred | Status |
 |---|---|---|---|
 | B12 | A reserve per model; `budget.py` kn: one figure for every model; make it per-model when workers run on larger ones | Only Haiku has been measured | done: `budget.reserve_for` by model family; Sonnet and Opus figures are price-ratio estimates, measure them (D18) |
-| B13 | A stream-side cost watch that kills a slice in flight when it passes its cap | The CLI checks its cap only between responses | wont: D37. The stream has no per-message cost and its output counts are placeholders; an estimate would need invented prices |
+| B13 | A stream-side cost watch that kills a slice in flight when it passes its cap | The CLI checks its cap only between responses | open: reopened by the owner as a later item. D37's reason still holds (the stream has no per-message cost and its output counts are placeholders), so it waits for a reliable per-message cost; never built on invented prices |
 | B14 | No double count when a lost slice's session is resumed; `budget.py` kn: if the lost slice's session is later resumed | Over-counting after an interruption is the safe side | done: `budget._unknown_slice_charges` drops a lost slice's charge once a later slice of its session reports its total |
 | B15 | Thinking budget for workers, not only the boss | Would make the benchmark arms unequal until the single arm has it too | done: `FirmConfig.thinking_tokens` and `boss fund --worker-thinking N` (`worker.py`, `runner.py`, `firm.py`, `cli.py`) |
 | B16 | `--effort` for models that honour it | No reliable effect on Haiku in 4 drafts | wont: revisit when workers run on a model where it changes cost |

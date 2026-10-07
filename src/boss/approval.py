@@ -224,7 +224,16 @@ def review_term_sheet(
                 sheet = current
                 continue
             return _approve(
-                current, path, checks_dir, ledger, run_id, now, held_out_dir, policy, rules_path
+                current,
+                path,
+                checks_dir,
+                ledger,
+                run_id,
+                now,
+                held_out_dir,
+                policy,
+                rules_path,
+                routed=_routed(view),
             )
         if answer in NO:
             ledger.append(
@@ -293,7 +302,17 @@ def approve_shown(
     shown = hashlib.sha256(text.encode()).hexdigest()
     policy = None if view is None else view.policy
     return _approve(
-        current, path, checks_dir, ledger, run_id, now, held_out_dir, policy, rules_path, shown
+        current,
+        path,
+        checks_dir,
+        ledger,
+        run_id,
+        now,
+        held_out_dir,
+        policy,
+        rules_path,
+        shown,
+        routed=_routed(view),
     )
 
 
@@ -308,6 +327,8 @@ def _approve(
     policy: DispatchPolicy | None,
     rules_path: Path | None,
     shown_sha256: str | None = None,
+    *,
+    routed: dict[str, Any] | None = None,
 ) -> TermSheet:
     approved = dataclasses.replace(current, approved_by_investor=True)
     path.write_text(approved.to_json())
@@ -320,8 +341,17 @@ def _approve(
         data["route"] = approved.route
     if shown_sha256 is not None:
         data["shown_sha256"] = shown_sha256
+    if routed:
+        data["routed"] = routed
     ledger.append(Event(run=run_id, round=0, actor="investor", event=EventType.APPROVED, data=data))
     return approved
+
+
+def _routed(view: DispatchView | None) -> dict[str, Any] | None:
+    """The cascade's start for each task, as the approval records it."""
+    if view is None or not view.routing:
+        return None
+    return {k: dict(v) for k, v in view.routing.items()}
 
 
 def _reload_after_edit(

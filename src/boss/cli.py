@@ -611,7 +611,7 @@ def _fund(
                 args.held_out,
                 args.parallel,
             )
-            shown = {k: (c.kind, c.source) for k, c in chosen.items()}
+            shown = {k: c.record(policy.max_tier) for k, c in chosen.items()}
             view = dispatching.DispatchView(policy, level, args.stall_slices, {}, shown)
         held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, reserve)
         config = FirmConfig(
