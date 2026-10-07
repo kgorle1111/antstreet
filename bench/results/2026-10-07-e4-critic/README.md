@@ -341,17 +341,28 @@ for led in sorted(glob.glob(root + "/*/firm/rep*/.boss/runs/*/ledger.jsonl")):
     ev = [json.loads(line) for line in open(led)]
     r = json.load(open(led.split("/.boss/")[0] + "/result.json"))
     delivered = bool(r["hidden"]) and all(v == "passed" for v in r["hidden"].values())
-    calls = [e["data"] for e in ev if e["event"] == "role_call" and e["data"].get("role") == "critic"]
-    fix_round = sum(e["event"] == "approved" for e in ev) > 1  # the 2nd approval is the amended sheet
+    calls = [
+        e["data"] for e in ev if e["event"] == "role_call" and e["data"].get("role") == "critic"
+    ]
+    fix_round = (
+        sum(e["event"] == "approved" for e in ev) > 1
+    )  # the 2nd approval is the amended sheet
     if not calls:
         g = "critic never asked"
     elif calls[0]["result"] != "ok":
         g = "critic call failed (" + calls[0]["outcome"] + ")"
     else:
-        found += calls[0]["verified"]; rejected += calls[0]["rejected"]
-        g = "ok, nothing verified" if not calls[0]["verified"] else (
-            "finding verified, fix round ran" if fix_round else "finding verified, no fix round")
-    groups[g][0] += delivered; groups[g][1] += 1
+        found += calls[0]["verified"]
+        rejected += calls[0]["rejected"]
+        g = (
+            "ok, nothing verified"
+            if not calls[0]["verified"]
+            else (
+                "finding verified, fix round ran" if fix_round else "finding verified, no fix round"
+            )
+        )
+    groups[g][0] += delivered
+    groups[g][1] += 1
 for g, (d, n) in sorted(groups.items()):
     print(f"{g}: {d}/{n} delivered")
 print("verified findings:", found, "| rejected findings:", rejected)
