@@ -23,8 +23,6 @@ CALL = re.compile(r"uvx antstreet ([a-z]+)((?: --?[a-z-]+)*)")
 # approved run (`resume`). `approve` is the investor's act and is in no grant.
 READ_ONLY = {"status", "report", "doctor"}
 GRANTS = {"fund.md": READ_ONLY | {"fund", "resume"}}
-# kn: `approve` is on the feat/approve-command branch, not yet on main; drop this once it merges.
-APPROVE_OPTIONS = {"-h", "--help", "--dir", "--sheet"}
 UV_FIX = "curl -LsSf https://astral.sh/uv/install.sh | sh"
 
 
@@ -38,9 +36,7 @@ def frontmatter(path: Path) -> dict[str, str]:
 def subcommands() -> dict[str, set[str]]:
     """Each `boss` command and the option strings it accepts."""
     choices = cli._parser()._subparsers._group_actions[0].choices  # type: ignore[union-attr]
-    return {"approve": APPROVE_OPTIONS} | {
-        name: set(p._option_string_actions) for name, p in choices.items()
-    }
+    return {name: set(p._option_string_actions) for name, p in choices.items()}
 
 
 def test_the_plugin_manifest_names_the_plugin_and_its_version_matches_the_package():
