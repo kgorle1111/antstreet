@@ -41,7 +41,7 @@ _COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", "
 # kn: in-process verdicts are forgeable by deliberately adversarial code that reads the plugin's
 # nonce from the check's own process (gc, sys.modules); closing that needs the verdict read from
 # outside the process that runs worker code (a container or an out-of-process runner), parked until
-# untrusted ideas are supported.
+# untrusted ideas are supported; the planned runner is in docs/SANDBOX.md.
 _PLUGIN_SOURCE = Path(__file__).with_name("_gate_plugin.py")
 _PROOF_MAX_BYTES = 512  # a proof is "<n> <n> <64 hex>"; never read more of a file the check wrote
 _BOOTSTRAP = (  # not `-m pytest`: the plugin folder joins sys.path, the workspace still does not

@@ -151,6 +151,108 @@ def test_every_run_signs_with_a_fresh_nonce_and_a_fresh_proof_path(tmp_path):
     assert proof1 != proof2
 
 
+# --- a product value cannot decide its own comparison (the `__eq__` hole) -----------------------
+
+
+def check_of(*lines: str) -> str:
+    body = "".join(f"    {line}\n" for line in lines)
+    return f"import pytest\nfrom rev import reverse\n\ndef test_c():\n{body}"
+
+
+@pytest.mark.parametrize(
+    ("product", "check"),
+    [
+        (forge.ALWAYS_EQUAL, forge.CHECK),
+        (forge.ALWAYS_EQUAL, check_of("assert 'ba' == reverse('ab')")),
+        (forge.ALWAYS_EQUAL, check_of("assert not reverse('ab') != 'ba'")),
+        (forge.ALWAYS_EQUAL, check_of("assert reverse('ab') in ('ba', 'x')")),
+        (forge.ALWAYS_EQUAL, check_of("assert [reverse('ab')] == ['ba']")),
+        (forge.ALWAYS_EQUAL, check_of("assert sorted([reverse('ab')]) == ['ba']")),
+        (forge.ALWAYS_EQUAL, check_of("assert 'b' <= reverse('ab') < 'bb'")),
+        (forge.ALWAYS_EQUAL, check_of("assert all(reverse(w) == w[::-1] for w in ['ab', 'xy'])")),
+        (forge.ALWAYS_EQUAL, check_of("assert reverse('ab') == None")),
+        (forge.ALWAYS_EQUAL, check_of("assert reverse('ab') == pytest.approx(1.5)")),
+        (forge.ALWAYS_EQUAL, check_of("if reverse('ab') != 'ba':", "    raise AssertionError")),
+        (forge.STR_ALWAYS_EQUAL, forge.CHECK),
+        (forge.NESTED_ALWAYS_EQUAL, check_of("assert reverse('ab') == ['ba', ('ab',)]")),
+        (forge.APPROX_ANYTHING, forge.CHECK),
+        (forge.APPROX_ANYTHING, check_of("assert (reverse('ab'), 1) == ('ba', pytest.approx(1))")),
+    ],
+    ids=[
+        "eq",
+        "reflected-eq",
+        "ne",
+        "in",
+        "inside-a-list",
+        "sorted",
+        "chained-order",
+        "generator",
+        "eq-none",
+        "approx",
+        "outside-an-assert",
+        "str-subclass",
+        "nested",
+        "product-built-approx",
+        "product-built-approx-in-a-tuple",
+    ],
+)
+def test_a_value_that_equals_everything_is_failed(tmp_path, mode, product, check):
+    result = gate(tmp_path, product, mode, check=check)
+    assert result.status is CheckStatus.FAILED, result.detail
+    assert result.detail.startswith("pytest exited 1"), result.detail
+
+
+def test_a_check_module_the_guard_did_not_reach_is_never_a_pass(tmp_path, mode):
+    # Stands for a pytest that stopped calling the rewrite the plugin wraps: no guard, no proof.
+    check = "def test_x():\n    pass\n\ndel globals()['@boss_guard']\n"
+    result = gate(tmp_path, forge.RIGHT, mode, check=check)
+    assert result.status is CheckStatus.FAILED and result.detail == NO_PROOF
+
+
+HONEST_COMPARISONS = """\
+import collections, decimal, fractions, pytest
+from rev import Poly, Trie, pair, reverse
+
+def test_plain_values_compare_as_python_compares_them():
+    assert reverse('ab') == 'ba' and reverse('ab') != 'ab'
+    assert pair() == (1, 2) and pair().a == 1  # a namedtuple is still a tuple
+    assert 1 == 1.0 and True == 1 and 0.1 + 0.2 == pytest.approx(0.3)
+    assert [0.1 + 0.2] == pytest.approx([0.3])
+    assert (len(reverse('ab')), 0.1 + 0.2) == (2, pytest.approx(0.3))
+    assert collections.Counter('aab') == {'a': 2, 'b': 1}
+    assert fractions.Fraction(1, 2) == 0.5 and decimal.Decimal('1.5') == 1.5
+    assert 1 <= len(reverse('abc')) < 4 and 'b' in reverse('ab')
+    loop = [1]
+    loop.append(loop)
+    assert loop[1] is loop and loop == loop
+
+def test_product_objects_still_use_their_own_comparisons():
+    assert Poly(1, 2) == Poly(1, 2) and Poly(1) != Poly(2)
+    assert 'ab' in Trie(['ab']) and 'x' not in Trie(['ab'])
+    assert sorted([Poly(2), Poly(1)]) == [Poly(1), Poly(2)]
+"""
+HONEST_PRODUCT = (
+    forge.RIGHT
+    + """\
+import collections
+pair = lambda: collections.namedtuple('Pair', 'a b')(1, 2)
+class Poly:
+    def __init__(self, *c): self.c = c
+    def __eq__(self, other): return isinstance(other, Poly) and self.c == other.c
+    def __lt__(self, other): return self.c < other.c
+class Trie:
+    def __init__(self, words): self.words = set(words)
+    def __contains__(self, word): return word in self.words
+"""
+)
+
+
+def test_honest_comparisons_keep_their_meaning(tmp_path, mode):
+    result = gate(tmp_path, HONEST_PRODUCT, mode, check=HONEST_COMPARISONS)
+    assert result.status is CheckStatus.PASSED, (result.detail, result.output_tail)
+    assert result.detail == "2 passed"
+
+
 # --- the proof does not touch honest checks ----------------------------------------------------
 
 CLASS_BASED = """\

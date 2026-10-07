@@ -113,3 +113,32 @@ with open(_p._PROOF, "w") as fh:
 """
     + REPORT_FORGER
 )
+
+# A value that agrees with every comparison. Not aimed at the gate: it games any `assert x == y`
+# that lets the product's object decide, and needs no knowledge of the nonce or the plugin.
+ANYTHING = """\
+class Anything:
+    def __eq__(self, other): return True
+    def __ne__(self, other): return False
+    def __lt__(self, other): return True
+    def __le__(self, other): return True
+    def __gt__(self, other): return True
+    def __ge__(self, other): return True
+    def __contains__(self, item): return True
+    def __hash__(self): return 0
+"""
+ALWAYS_EQUAL = ANYTHING + "def reverse(s):\n    return Anything()\n"
+# The same trick on a builtin's subclass, so `isinstance(x, str)` also holds.
+STR_ALWAYS_EQUAL = (
+    "class S(str):\n"
+    "    __eq__ = lambda self, other: True\n"
+    "    __ne__ = lambda self, other: False\n"
+    "    __hash__ = str.__hash__\n"
+    "def reverse(s):\n    return S('nope')\n"
+)
+# Hidden one level down, inside a real list and a real tuple.
+NESTED_ALWAYS_EQUAL = ANYTHING + "def reverse(s):\n    return [Anything(), (Anything(),)]\n"
+# pytest's own matcher, built by the product around a value that equals everything.
+APPROX_ANYTHING = (
+    ANYTHING + "import pytest\ndef reverse(s):\n    return pytest.approx(Anything())\n"
+)
