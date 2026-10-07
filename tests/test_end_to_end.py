@@ -37,11 +37,17 @@ def test_fund_builds_an_unseen_idea_and_the_report_matches_the_ledger(tmp_path):
     events = read_events(run_dir / "ledger.jsonl")
     kinds = [e.event for e in events]
     assert kinds[:2] == [EventType.BOSS_CALL, EventType.APPROVED]
-    assert kinds[-1] is EventType.ROUND_CLOSED
+    # After the last round closes, the gate re-checks the delivered product (`scope: product`).
+    closed_at = max(i for i, k in enumerate(kinds) if k is EventType.ROUND_CLOSED)
+    assert all(
+        k is EventType.CHECK_RESULT and events[i].data.get("scope") == "product"
+        for i, k in enumerate(kinds)
+        if i > closed_at
+    )
     assert (run_dir / "report.md").read_text() == render_report(build_report(events))
     spent = total(events)
     assert spent.unknown_cost_events == 0
     assert 0 < spent.cost_micros < SPEND_CEILING_MICROS
-    closed = events[-1].data
+    closed = events[closed_at].data
     assert closed["total"] == len(list((run_dir / "checks").glob("test_*.py")))
     assert (code == EXIT_OK) == closed["unlocked"]
