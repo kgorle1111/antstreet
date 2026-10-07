@@ -152,10 +152,10 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 ## 🗺️ Roadmap (planned, not built)
 
 Now: `antstreet approve` for runs with no terminal, a plugin guard so the agent can never approve its
-own checks, every ledger line signed, a PyPI release so `uvx antstreet` works, and cascade dispatch
-becoming the default (E6 checks the cost). Next: audits that run in your repository's own
+own checks, every ledger line signed, and a PyPI release so `uvx antstreet` works. Next: audits that run in your repository's own
 environment, `--spec` and parallel building improved and re-measured (both missed their first bar),
-and a web dashboard. Measured and dropped: "a team of agents builds better" (not shown).
+a web dashboard, and (after launch, only if E6 proves it) cascade dispatch as the default.
+Measured and dropped: "a team of agents builds better" (not shown).
 
 The full plan, the status of each experiment and what is not planned: [ROADMAP.md](ROADMAP.md).
 Every deferred item, by id: [docs/BACKLOG.md](docs/BACKLOG.md).

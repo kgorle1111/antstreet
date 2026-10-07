@@ -52,8 +52,6 @@ Being built, each in its own pull request.
 - **An approve pane inside Claude Code** that times each approval, so we can fix the slowest step
   ([#46](https://github.com/kgorle1111/antstreet/pull/46), draft).
 - **`uvx antstreet` from PyPI**, no clone needed (B41).
-- **Cascade dispatch becoming the default** (Haiku, then Sonnet, then Opus when a task stalls). E6
-  checks the cost: if the default raises the cost per delivered task, it goes back to opt-in (B101).
 - **Optional roles out of "experimental"**: the critic, the tester and the rest (B33). The judge
   stays out of pass/fail until it is calibrated against human labels; tests decide. E4 is measuring
   the critic right now.
@@ -98,6 +96,9 @@ Being built, each in its own pull request.
 
 ## Later
 
+- **Cascade dispatch as the default, after launch and only with the numbers.** Today it is opt-in
+  (`--dispatch cascade`). It becomes the default only once E6 shows it lowers the cost per
+  delivered task at no loss of delivery, with a router that picks each task's starting model (B101).
 - **E7: does `audit` catch false "done" claims?** Recall against hidden checks, pre-registered
   before it runs.
 - **An external benchmark**, NL2Repo-Bench, easy tasks first (B54).
