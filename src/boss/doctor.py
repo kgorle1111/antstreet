@@ -119,7 +119,7 @@ def _check_version(path: str, env: Mapping[str, str]) -> DoctorCheck:
     return _pass("claude version", text)
 
 
-def _logged_in(path: str, env: Mapping[str, str]) -> bool | str:
+def logged_in(path: str, env: Mapping[str, str]) -> bool | str:
     """True/False from `auth status`, or a one-line reason it could not be read."""
     done = _run([path, "auth", "status"], env, _PROBE_TIMEOUT_S)
     if isinstance(done, str):
@@ -161,7 +161,7 @@ def _check_login(path: str, env: Mapping[str, str], *, live: bool) -> DoctorChec
             "login", "API key set; bare mode with an API key has not been verified by this project"
         )
     if not api_key:
-        state = _logged_in(path, env)
+        state = logged_in(path, env)
         if isinstance(state, str):
             return _fail("login", state, _LOGIN_FIX)
         if not state:
