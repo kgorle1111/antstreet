@@ -96,7 +96,7 @@ flowchart LR
 | ✅ **Checks before code** | You read and approve the checks first. Workers cannot edit them. |
 | ⚖️ **The gate decides** | A pass needs pytest to exit 0 and a signed proof that every test really ran. |
 | 💸 **Budget caps and firing** | Money is released in rounds against passing checks. Stalled workers are fired. |
-| 🔏 **A ledger you can trust** | Hash-chained lines, approvals signed with a key no worker can read. |
+| 🔏 **A ledger you can trust** | Hash-chained lines, each one signed with a key no worker can read. |
 
 ## 🛠️ How it's engineered
 
@@ -151,22 +151,14 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 
 ## 🗺️ Roadmap (planned, not built)
 
-Shipped since the last roadmap: the Claude Code plugin ([how it works](README-technical.md#use-it-from-claude-code)),
-a read-only MCP server (`antstreet mcp`), a GitHub Action that runs `antstreet audit check` on a pull
-request, and `antstreet verify`, an offline check of a run's ledger.
+Now: `antstreet approve` for runs with no terminal, a plugin guard so the agent can never approve its
+own checks, every ledger line signed, and a PyPI release so `uvx antstreet` works. Next: audits that run in your repository's own
+environment, `--spec` and parallel building improved and re-measured (both missed their first bar),
+a web dashboard, and (after launch, only if E6 proves it) cascade dispatch as the default.
+Measured and dropped: "a team of agents builds better" (not shown).
 
-Next:
-
-- A PyPI release, so `uvx antstreet` works (the name is chosen; nothing is published yet)
-- `antstreet approve`: approve a term sheet from Claude Code without a terminal, with a plugin guard so
-  the agent can never approve its own work
-- Every ledger line signed, not only your approvals
-- An approve pane inside Claude Code, to cut the time the approve step takes
-- Audit any agent's branch in one command, and an `audit export` so the Action needs no manual step
-- Results of two pre-registered experiments: a fresh-context critic against self-review (E4), and
-  reliability across runs (E5)
-
-See [docs/BACKLOG.md](docs/BACKLOG.md).
+The full plan, the status of each experiment and what is not planned: [ROADMAP.md](ROADMAP.md).
+Every deferred item, by id: [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## 🤝 Contributing
 

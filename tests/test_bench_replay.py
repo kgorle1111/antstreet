@@ -204,3 +204,20 @@ def test_main_rejects_a_nonpositive_policy_value(tmp_path):
     with pytest.raises(SystemExit) as exc:
         main([str(tmp_path), "--stall", "0"], decide=stall_decide)
     assert exc.value.code == 2
+
+
+def test_replay_reads_a_firm_ledger_with_its_project_key_and_refuses_a_keyless_append(
+    tmp_path, capsys
+):
+    from boss.bench.replay import main
+    from boss.rundir import RunPaths
+
+    run = RunPaths(tmp_path / "cell" / ".boss" / "runs" / "r1")
+    with run.writer() as ledger:
+        ledger.append(Event(run="r1", round=1, actor="worker:w1", event=EventType.SLICE_END,
+                            data={"slice": 1, "outcome": "completed"}))  # fmt: skip
+    with LedgerWriter(run.ledger) as ledger:
+        ledger.append(Event(run="r1", round=1, actor="gate", event=EventType.CHECK_RESULT,
+                            data={"check": "c01", "status": "passed"}))  # fmt: skip
+    assert main([str(tmp_path)]) == 1
+    assert "unsigned line after signed ones" in capsys.readouterr().err

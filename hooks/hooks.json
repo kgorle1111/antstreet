@@ -1,5 +1,5 @@
 {
-  "description": "AntStreet: say how to get uv when it is missing, and check the latest run's ledger when the agent stops.",
+  "description": "AntStreet: say how to get uv when it is missing, keep the agent from approving a term sheet, and check the latest run's ledger when the agent stops.",
   "modules": [
     "./approve-pane.tsx"
   ],
@@ -11,6 +11,18 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/check-uv.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Monitor|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/deny-approve.sh",
             "timeout": 10
           }
         ]

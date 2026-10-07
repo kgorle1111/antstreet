@@ -42,6 +42,7 @@ def rewrite(run, index, edit):
     edit(lines[index])
     prev, out = GENESIS, []
     for line in lines:
+        line.pop("mac", None)  # a line signature cannot be remade without the key
         line["prev"] = prev
         raw = json.dumps(line, sort_keys=True)
         prev = hashlib.sha256(raw.encode()).hexdigest()

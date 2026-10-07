@@ -30,7 +30,7 @@ from boss.firm import DEFAULT_WORKER_MODEL, SLICE_SHARE
 from boss.gate import run_gate
 from boss.held_out import MAX_HELD_OUT
 from boss.kpi import single_final_status
-from boss.ledger import Event, EventType, LedgerWriter, read_events, total, totals_by
+from boss.ledger import Event, EventType, LedgerWriter, total, totals_by
 from boss.report import build_report
 from boss.rundir import Recorder, RunPaths
 from boss.runner import run_slice
@@ -244,7 +244,7 @@ def _run_slices(
             )
             if run.outcome not in (Outcome.COMPLETED, Outcome.CAPPED):
                 break
-    return workspace, read_events(ledger_path)
+    return workspace, RunPaths(ledger_path.parent).events()
 
 
 def _run_firm(
@@ -262,7 +262,7 @@ def _run_firm(
     cli.main(argv, ask=lambda prompt: "a", say=transcript.append, environ=environ)
     (out / "transcript.txt").write_text("\n".join(transcript), encoding="utf-8")
     [run_dir] = sorted((out / cli.RUNS_DIR).iterdir())
-    return RunPaths(run_dir).product, read_events(run_dir / "ledger.jsonl")
+    return RunPaths(run_dir).product, RunPaths(run_dir).events()
 
 
 def _held_out_counts(events: Sequence[Event]) -> tuple[int | None, int | None]:

@@ -251,15 +251,22 @@ Argument: `run`, as for `report`.
 
 ## `boss verify`
 
-`boss verify [--dir DIR] [RUN]`. Checks a run's integrity and nothing else: the ledger's hash chain,
-the investor's signatures, and every saved worker prompt against the hash its `slice_start`
-recorded. Offline, no model call. Prints one line when everything holds, otherwise one line per
-problem. Argument: `run`, as for `report`; a run id that is not a folder under `.boss/runs/` is a
-usage error.
+`boss verify [--dir DIR] [--adopt-unsigned] [RUN]`. Checks a run's integrity and nothing else: the
+ledger's hash chain, its line and investor signatures, and every saved worker prompt against the
+hash its `slice_start` recorded. Offline, no model call. Prints one line when everything holds,
+otherwise one line per problem. Argument: `run`, as for `report`; a run id that is not a folder
+under `.boss/runs/` is a usage error.
+
+A run with unsigned lines and no anchor (one older than line signing, or one rewritten without the
+key: the two look the same) is refused by every command until you adopt it with
+`--adopt-unsigned`. Adopting runs every other check, then anchors the ledger as it is now, so you
+vouch for its current content; it never adopts a signed line that does not verify, and it changes
+nothing for a run that already has an anchor (`docs/LEDGER.md`).
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
+| `--adopt-unsigned` | off | Vouch for a run with unsigned lines and no anchor as it is now. |
 
 ## `boss roles`
 

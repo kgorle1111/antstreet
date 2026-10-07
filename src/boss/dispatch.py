@@ -458,8 +458,9 @@ class DispatchView:
     run: RunLevel
     stall_slices: int
     contexts: Mapping[str, int]  # task id -> characters of its first brief
-    # Cascade only: task id -> (task kind, where its start tier came from: "prior" or "measured")
-    routing: Mapping[str, tuple[str, str]] = field(default_factory=dict)
+    # Cascade only: task id -> the router's start (`routing.Choice.record`): tier, effort, kind,
+    # source ("prior" or "measured, n=..."), why and features. The approval records it as is.
+    routing: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
 
 
 def _money(micros: int) -> str:
@@ -509,10 +510,13 @@ def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
             reserve_micros=budget.reserve_for(d.tier) if d.tier in TIERS else budget.RESERVE_MICROS,
         )
         chars = view.contexts.get(task.id)
-        kind, source = view.routing.get(task.id, ("-", "-"))
+        start = view.routing.get(task.id, {})
         lead = [task.id]
         if cascade:
-            lead += [safe_text(kind, limit=24), safe_text(source, limit=40)]
+            lead += [
+                safe_text(str(start.get("kind", "-")), limit=24),
+                safe_text(str(start.get("source", "-")), limit=40),
+            ]
         rows.append(
             (
                 *lead,
@@ -530,6 +534,11 @@ def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
         'DISPATCH (change it by editing "dispatch" in term_sheet.json, then choose [e]dit)'
     )
     lines += ["  ".join(c.ljust(w) for c, w in zip(r, widths, strict=True)).rstrip() for r in rows]
+    for task_id, start in view.routing.items() if cascade else ():
+        lines.append(
+            f"Router's start for {task_id}: {start.get('tier')}/{start.get('effort')}, "
+            + safe_text(str(start.get("why", "")), limit=160)
+        )
     run = view.run
     held = "off" if not run.held_out else str(run.held_out)
     lines.append(

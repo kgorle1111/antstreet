@@ -22,6 +22,11 @@ LEDGER_VERSION = 1
 # `prev` of the first line of a chained ledger. Fixed, so a deleted first line is detected too.
 GENESIS = "0" * 64
 _HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
+# A signed line ends with its MAC, after the sorted keys, so the signed bytes are the line with this
+# suffix replaced by "}" and a reader never has to re-serialise an event to check it.
+_MAC_SUFFIX = r', "mac": "([0-9a-f]{64})"\}\Z'
+_MAC_RE = re.compile(_MAC_SUFFIX)
+_MAC_RE_B = re.compile(_MAC_SUFFIX.encode())
 _ACTOR_RE = re.compile(r"^(boss|gate|rule|investor|worker:[A-Za-z0-9_-]+|role:[a-z][a-z_]*)\Z")
 
 
@@ -153,6 +158,9 @@ class Event:
 
     @classmethod
     def from_json(cls, line: str) -> Event:
+        """The event of a line; a signed line's `mac` is the ledger's, not the event's."""
+        if m := _MAC_RE.search(line):
+            line = line[: m.start()] + "}"
         try:
             raw = json.loads(line)
         except RecursionError:  # a deeply nested line is corrupt, not a crash
@@ -214,14 +222,16 @@ def _end_last_line(fh: IO[str], path: Path) -> None:
 class LedgerWriter:
     """Exclusive appender. Use as a context manager; a second writer on the same file is refused.
 
-    With a `key_path` (`RunPaths.investor_key`) every investor event is signed with the project's
-    investor key as it is appended, and the ledger's tail is anchored after every append; see
-    `signing.py`. Both are done here so no writer can forget them.
+    With a `key_path` (`RunPaths.investor_key`) the project's investor key is created if needed
+    when the writer opens, every line is signed (`mac`) and every investor event too (`data.sig`)
+    as it is appended, and the ledger's tail is anchored after every append; see `signing.py`. All
+    of it is done here so no writer can forget it.
     """
 
     def __init__(self, path: Path, key_path: Path | None = None) -> None:
         self.path = Path(path)
         self._key_path = key_path
+        self._key: bytes | None = None
         self._fh: IO[str] | None = None
         self._prev = GENESIS
         self._lines = 0
@@ -239,7 +249,14 @@ class LedgerWriter:
             _end_last_line(fh, self.path)
             self._prev, self._lines = _last_line(self.path)
             if self._key_path is not None:  # never append to a ledger the key does not vouch for
-                read_events(self.path, self._key_path)
+                read_events(self.path, self._key_path)  # before a key is created: a lost one shows
+                run = self.path.parent.name
+                if self._lines and not signing.anchor_path(self._key_path, run).exists():
+                    # with no key the read above could check nothing; signing on top would launder
+                    raise LedgerUnverifiedError(
+                        _unadopted(self.path, run, unsigned_lines(self.path), self._lines)
+                    )
+                self._key = signing.load_or_create_key(self._key_path)
         except BaseException:
             fcntl.flock(fh, fcntl.LOCK_UN)
             fh.close()
@@ -254,17 +271,20 @@ class LedgerWriter:
             self._fh = None
 
     def append(self, event: Event) -> None:
-        """Write one line. An investor event is signed first, so a key that cannot be used raises
-        SigningError before anything is written; for any other event the line is written and
-        durable before the anchor is attempted, so a failing anchor never loses a record."""
+        """Write one line, signed when the writer has a key (loaded when it opened, so signing
+        cannot fail here). The line is durable before the anchor is attempted, so a failing anchor
+        never loses a record."""
         if self._fh is None:
             raise LedgerError("writer is not open; use `with LedgerWriter(path) as w:`")
         with self._append_lock:  # the link, the write and the next link are one step
             event = replace(event, prev=self._prev)
-            if self._key_path is not None and is_signed_kind(event):
-                event = signing.sign(signing.load_or_create_key(self._key_path), event)
+            if self._key is not None and is_signed_kind(event):
+                event = signing.sign(self._key, event)
             # serialise first so a bad event never leaves a partial line
             line = event.to_json()
+            if self._key is not None:
+                mac = signing.line_mac(self._key, self.path.parent.name, _sha256(line.encode()))
+                line = f'{line[:-1]}, "mac": "{mac}"}}'
             self._fh.write(line + "\n")
             self._fh.flush()
             os.fsync(self._fh.fileno())  # money records must survive a crash right after append
@@ -309,18 +329,24 @@ def repair_torn_tail(path: Path) -> str | None:
     return None
 
 
-def _parse(path: Path) -> tuple[list[Event], list[str]]:
-    """Every event, and the hash of every line."""
+type _Mark = tuple[str, str] | None  # a signed line's (hash of the signed bytes, mac)
+
+
+def _parse(path: Path) -> tuple[list[Event], list[str], list[_Mark]]:
+    """Every event, the hash of every line, and the signature of every signed line."""
     events: list[Event] = []
     hashes: list[str] = []
+    marks: list[_Mark] = []
     expected = GENESIS
     chained = False
     lines = Path(path).read_bytes().split(b"\n")
     if lines[-1] == b"":  # the file ends in a newline (or is empty)
         lines.pop()
     for lineno, raw in enumerate(lines, start=1):
+        m = _MAC_RE_B.search(raw)
+        body = raw[: m.start()] + b"}" if m else raw
         try:
-            event = Event.from_json(raw.decode("utf-8"))
+            event = Event.from_json(body.decode("utf-8"))
         except (ValueError, TypeError) as exc:
             raise LedgerCorruptError(f"{path}:{lineno}: {exc}") from exc
         if event.prev is not None:
@@ -334,7 +360,45 @@ def _parse(path: Path) -> tuple[list[Event], list[str]]:
         expected = _sha256(raw)
         hashes.append(expected)
         events.append(event)
-    return events, hashes
+        marks.append((_sha256(body), m.group(1).decode()) if m else None)
+    return events, hashes, marks
+
+
+def _unadopted(path: Path, run: str, unsigned: int, lines: int) -> str:
+    return (
+        f"{path}: {unsigned} of {lines} lines are unsigned and the run has no anchor: either older "
+        "than line signing or rewritten without the key. If you know the run is genuine, accept "
+        f"it as it is now with `boss verify {run} --adopt-unsigned`"
+    )
+
+
+def adopt_unsigned(path: Path, key_path: Path) -> int:
+    """The investor's decision (`boss verify RUN --adopt-unsigned`) to vouch for a run's ledger as
+    it is now: every check `read_events` makes but the anchor's, then an anchor for the current
+    tail, so later reads and appends verify as for any signed run. Returns the unsigned lines it
+    adopted; 0, changing nothing, when the run already has an anchor (which must verify). Never
+    called by the engine: what it accepts is exactly what the anchor exists to refuse."""
+    path = Path(path)
+    run = path.parent.name
+    with LedgerWriter(path):  # the lock only: no key, so it writes nothing
+        if signing.anchor_path(key_path, run).exists():
+            read_events(path, key_path)
+            return 0
+        events, hashes, marks = _parse(path)
+        anchor_file = signing.anchor_path(key_path, run)
+        try:  # a key is created only for a ledger no key ever signed: a lost one must show
+            key = signing.load_key(key_path) if any(marks) else signing.load_or_create_key(key_path)
+        except signing.SigningError as exc:
+            raise LedgerUnverifiedError(f"{path}: {exc}") from None
+        _vouched(path, run, anchor_file, key, events, hashes, marks, None, adopting=True)
+        signing.write_anchor(key_path, run, len(hashes), hashes[-1] if hashes else GENESIS)
+        return marks.count(None)
+
+
+def unsigned_lines(path: Path) -> int:
+    """How many lines carry no `mac`: lines written before line signing or by a writer with no
+    key. With a key, `read_events` refuses one after a signed line, so they are always first."""
+    return _parse(path)[2].count(None)
 
 
 # kn: every open re-reads and re-verifies the whole file, O(n) per CLI call: 79 ms to read and 99 ms
@@ -359,8 +423,8 @@ def read_events(path: Path, key_path: Path | None = None) -> list[Event]:
         # Anchor first: a writer appends before it re-anchors, so a ledger read after the anchor is
         # never shorter than it unless lines were dropped.
         anchor = None if key is None else signing.read_anchor(key_path, key, run)
-        events, hashes = _parse(path)
-        _vouched(path, signing.anchor_path(key_path, run), key, events, hashes, anchor)
+        events, hashes, marks = _parse(path)
+        _vouched(path, run, signing.anchor_path(key_path, run), key, events, hashes, marks, anchor)
     except signing.SigningError as exc:
         raise LedgerUnverifiedError(f"{path}: {exc}") from None
     return events
@@ -368,24 +432,40 @@ def read_events(path: Path, key_path: Path | None = None) -> list[Event]:
 
 def _vouched(
     path: Path,
+    run: str,
     anchor_file: Path,
     key: bytes | None,
     events: list[Event],
     hashes: list[str],
+    marks: list[_Mark],
     anchor: signing.Anchor | None,
+    *,
+    adopting: bool = False,
 ) -> None:
     """Raise LedgerUnverifiedError unless the key vouches for the ledger.
 
     Every investor event must verify; when a key exists an unsigned one is accepted only where the
     line has no `prev` (older than the chain), and a signed one is refused when the key is gone.
-    The first `anchor.lines` lines must be the ones the anchor recorded; lines past that are not
-    vouched for (a writer appends before it re-anchors, so a crash, or a reader racing it, sees
-    one or more).
-    A missing anchor is accepted only when the ledger holds no v2-signed event: a ledger that has
-    one was written by code that anchors, so its anchor was deleted (an old run, or one not yet
-    approved, never had one).
+    The first `anchor.lines` lines must be the ones the anchor recorded; lines past that need only
+    their `mac` (a writer appends before it re-anchors, so a crash, or a reader racing it, sees
+    one).
+    A missing anchor is accepted only when the ledger holds no signed line and no v2-signed event:
+    a ledger that has one was written by code that anchors, so its anchor was deleted. A ledger
+    with unsigned lines and no anchor is refused too: it is older than line signing or was rewritten
+    without the key, and only the investor can tell which (`adopt_unsigned`, which passes
+    `adopting` to skip both anchor rules once).
+    From its first signed line on, every line must carry a `mac` that verifies, so a line edited,
+    forged or appended without the key is refused wherever it is; the lines before the first
+    signed one are covered by its `prev`.
     """
-    stamped = False
+    signed_from = next((i for i, mark in enumerate(marks) if mark is not None), None)
+    stamped = signed_from is not None
+    if key is None and signed_from is not None:
+        raise LedgerUnverifiedError(
+            f"{path}: its lines are signed but the investor key is missing; restore "
+            f"{anchor_file.parent.parent / signing.KEY_FILE} from a backup (a new key cannot "
+            "verify them)"
+        )
     for lineno, e in enumerate(events, start=1):
         if not is_signed_kind(e):
             continue
@@ -404,10 +484,12 @@ def _vouched(
         if anchor_file.exists():
             raise LedgerUnverifiedError(f"{path}: has an anchor but the investor key is missing")
     elif anchor is None:
-        if stamped:
+        if stamped and not adopting:
             raise LedgerUnverifiedError(
                 f"{path}: its anchor {anchor_file} is missing, so dropped lines could not be seen"
             )
+        if (unsigned := marks.count(None)) and not adopting:
+            raise LedgerUnverifiedError(_unadopted(path, run, unsigned, len(marks)))
     elif len(events) < anchor.lines:
         raise LedgerUnverifiedError(
             f"{path}: has {len(events)} lines but its anchor records {anchor.lines}: "
@@ -417,6 +499,19 @@ def _vouched(
         raise LedgerUnverifiedError(
             f"{path}: line {anchor.lines} is not the line its anchor records (it was edited)"
         )
+    if key is None or signed_from is None:
+        return
+    for lineno, mark in enumerate(marks[signed_from:], start=signed_from + 1):
+        if mark is None:
+            raise LedgerUnverifiedError(
+                f"{path}:{lineno}: an unsigned line after signed ones (written without the "
+                "investor key)"
+            )
+        if not signing.verify_line(key, run, *mark):
+            raise LedgerUnverifiedError(
+                f"{path}:{lineno}: a line whose signature does not verify against "
+                ".boss/investor.key (edited, forged, from another run, or the key was replaced)"
+            )
 
 
 @dataclass(frozen=True, slots=True)

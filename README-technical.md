@@ -121,8 +121,8 @@ Why it is different:
   errors or skips, and a signed proof from a plugin that every test really ran.
 - **Budget caps and firing.** Money is released in rounds against passing checks. A worker that
   stops making progress is fired and replaced once. Hard limits stop the run.
-- **A signed ledger.** Every line carries the hash of the one before it; your approvals are signed
-  with a key no worker can read. Costs are the CLI's estimates, and unknown costs are shown as unknown.
+- **A signed ledger.** Every line carries the hash of the one before it and an HMAC with a key no
+  worker can read, and your approvals are signed with it too. Costs are the CLI's estimates, and unknown costs are shown as unknown.
 - **Blind measurement.** The benchmark's hidden checks are written separately from the agents being
   measured (by Claude, in a different session), validated against a reference solution and planted wrong
   solutions, and never shown to any agent, and neither arm is told it is measured.
@@ -334,20 +334,37 @@ This repository is also a Claude Code plugin marketplace. In a Claude Code sessi
 
 | Command | What it does |
 |---|---|
-| `/antstreet:fund <idea> [--budget 0.40]` | Runs `antstreet doctor` (no model call), then gives you the `uvx antstreet fund ...` line to paste into your own terminal. |
+| `/antstreet:fund <idea> [--budget 0.40]` | Runs `antstreet doctor` (no model call), then `antstreet fund`, which drafts the term sheet, keeps it unapproved and exits 4. You approve it yourself; then it runs `antstreet resume` to build. |
 | `/antstreet:report [run]` | Prints the board report from the run's ledger. |
 | `/antstreet:status [run]` | One line: last event, checks passing, spend. |
 
-The plugin is a thin front door; the engine runs outside the agent it checks. `fund` is never run
-from inside the session: approval reads your answer from a terminal, and from Claude Code it would
-read end of input, which is a reject after the draft is paid for. The plugin's commands may run
-only `status`, `report` and `doctor` (without `--live`) without asking you.
+`/antstreet:fund` needs an `antstreet` with the `approve` command. With no terminal to ask on,
+`fund` prints the term sheet and every check and stops, spending only the boss's draft. You approve
+by typing, at the Claude Code prompt,
 
-Two hooks run as you. At session start, if `uvx` is missing, one prints the one command that
-installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. When the
-agent stops, in a project with runs under `.boss/runs/`, the other runs `uvx antstreet status`,
-which checks the latest ledger's hash chain and signatures offline. A failure is shown to you; it
-never blocks the agent. In any other project both are silent.
+```text
+! uvx antstreet approve RUN --sheet VALUE
+```
+
+with the run id and value `fund` printed. A line starting with `!` runs as you, not through the
+agent. The plugin's commands may run `status`, `report` and `doctor` (without `--live`) without
+asking you; only `/antstreet:fund` may also run `fund` and `resume`. No grant includes `approve`.
+
+Three hooks run as you. At session start, if `uvx` is missing, one prints the one command that
+installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. Before each
+Bash, Monitor or PowerShell call, one denies any command that runs `antstreet approve` or
+`boss approve` (through `uvx`, `uv run`, `python -m boss.cli`, an installed script, env prefixes,
+`;`, `&&`, `|`, subshells or quotes) and tells the agent to ask you to type it. When the agent
+stops, in a project with runs under `.boss/runs/`, the last runs `uvx antstreet status`, which
+checks the latest ledger's hash chain and signatures offline. A failure is shown to you; it never
+blocks the agent. In any other project the first and last are silent.
+
+What the approve guard does not do: it reads the command's words, so a command that builds the
+word at run time (a variable, `xargs`, a script file) gets past it, and a command that only
+mentions both words (`echo boss approve`) is denied. It covers the agent's tool calls in Claude
+Code only; any other process running as you can approve, as you can. A Claude Code mod you install
+that handles `tool.check` can override its block. The `--sheet` value binds what is approved to
+the text you read; who approves rests on you.
 
 Running `antstreet` (or the benchmark) from a shell inside a Claude Code session is safe for the
 `claude` processes it starts: each gets only `HOME`, `PATH`, `USER`, `LANG`, `TMPDIR`,
@@ -449,8 +466,11 @@ What AntStreet does not do, in plain words. Each links to its row in the [threat
   cannot edit a check to make it pass.
 - Approval is recorded with hashes of the term sheet and each check, and verified again before
   every slice and every gate run. Any later edit stops the run.
-- Every ledger line carries the hash of the line before it, and your approvals are signed with a
-  key in `.boss/investor.key` that no worker can read, so a forged approval is refused.
+- Every ledger line carries the hash of the line before it and an HMAC with a key in
+  `.boss/investor.key` that no worker can read, and your approvals are signed with it too, so an
+  edited, forged or appended line, or a forged approval, is refused even when the chain is
+  recomputed. A run with no anchor and unsigned lines is refused until you adopt it
+  (`boss verify RUN --adopt-unsigned`).
 - Workers start in an isolated configuration (no hooks, MCP servers or shell) and are refused if
   the CLI reports anything else.
 - A pass needs pytest to exit 0, a test report showing at least one test and no failures, errors

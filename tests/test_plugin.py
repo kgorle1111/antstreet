@@ -1,6 +1,6 @@
 """The Claude Code plugin front door: its manifests load, every CLI call it makes exists, its grants
-stay read-only, and its hooks behave (silent when there is nothing to say, never install, never
-block)."""
+never include `approve`, the PreToolUse hook denies every way of running `approve`, and the other
+hooks behave (silent when there is nothing to say, never install, never block)."""
 
 import json
 import re
@@ -18,9 +18,11 @@ PLUGIN = ROOT / ".claude-plugin"
 HOOKS = ROOT / "hooks"
 PROMPTS = sorted((ROOT / "commands").glob("*.md")) + [ROOT / "skills" / "antstreet" / "SKILL.md"]
 CALL = re.compile(r"uvx antstreet ([a-z]+)((?: --?[a-z-]+)*)")
-# What the plugin may run without asking: reading a run and the free machine check, nothing that
-# spends money or needs the investor's own answer at a terminal.
+# What each prompt may run without asking. Reading a run and the free machine check everywhere;
+# only /antstreet:fund may draft (`fund` stops at exit 4 with the sheet unapproved) and build an
+# approved run (`resume`). `approve` is the investor's act and is in no grant.
 READ_ONLY = {"status", "report", "doctor"}
+GRANTS = {"fund.md": READ_ONLY | {"fund", "resume"}}
 UV_FIX = "curl -LsSf https://astral.sh/uv/install.sh | sh"
 
 
@@ -71,13 +73,15 @@ def test_the_skill_is_named():
 
 
 @pytest.mark.parametrize("path", PROMPTS, ids=lambda p: p.name)
-def test_no_prompt_grants_a_command_that_spends_or_needs_the_investor(path):
+def test_no_prompt_grants_approve_and_only_fund_grants_a_command_that_spends(path):
     grants = re.findall(r"Bash\(([^)]*)\)", frontmatter(path).get("allowed-tools", ""))
     assert grants
     for grant in grants:
+        assert "approve" not in grant, f"{path.name}: {grant!r} lets the agent approve"
         command = re.fullmatch(r"uvx antstreet ([a-z]+)(?: \*)?", grant)
         assert command, f"{path.name}: {grant!r} is not a single antstreet command"
-        assert command[1] in READ_ONLY, f"{path.name}: {grant!r} is not read-only"
+        allowed = GRANTS.get(path.name, READ_ONLY)
+        assert command[1] in allowed, f"{path.name}: {grant!r} is not allowed here"
         assert grant != "uvx antstreet doctor *", f"{path.name}: it would allow `doctor --live`"
 
 
@@ -89,7 +93,13 @@ def test_the_cli_calls_checker_can_fail():
 
 def test_hooks_json_points_at_executable_scripts_that_exist():
     config = json.loads((HOOKS / "hooks.json").read_text())
-    assert set(config["hooks"]) == {"SessionStart", "Stop"}
+    assert set(config["hooks"]) == {"SessionStart", "PreToolUse", "Stop"}
+    [guard] = config["hooks"]["PreToolUse"]
+    assert set(guard["matcher"].split("|")) == {
+        "Bash",
+        "Monitor",
+        "PowerShell",
+    }  # what runs a shell
     for groups in config["hooks"].values():
         for group in groups:
             for hook in group["hooks"]:
@@ -198,3 +208,94 @@ def test_the_mod_checker_can_fail():
     leaked = body + "on('session.start', $ => approve($, cli))\n"
     found = APPROVE_CALL.findall(leaked.replace(body, ""))
     assert found and "onPress=" not in found[0]
+
+
+def _guard(command: str, tool: str = "Bash") -> subprocess.CompletedProcess[str]:
+    """Run the PreToolUse hook on the input Claude Code sends (code.claude.com/docs/en/hooks)."""
+    event = {
+        "session_id": "s",
+        "cwd": "/home/user/boss",  # a project folder named boss must not arm the match
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool,
+        "tool_input": {"command": command, "description": "run it"},
+        "tool_use_id": "toolu_1",
+    }
+    return subprocess.run(
+        [str(HOOKS / "deny-approve.sh")],
+        input=json.dumps(event),
+        env={"PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
+APPROVES = [
+    "antstreet approve",
+    "boss approve r1 --sheet 0123456789abcdef",
+    "uvx antstreet approve r1 --sheet 0123456789abcdef",
+    "uvx antstreet@latest approve",
+    "uvx --from antstreet==0.0.1 boss approve",
+    "uvx --from git+https://github.com/kgorle1111/antstreet antstreet approve",
+    "uv run boss approve",
+    "uv run --directory . -- antstreet approve",
+    "python -m boss.cli approve",
+    "python3 src/boss/cli.py approve",
+    ".venv/bin/boss approve",
+    "/usr/local/bin/antstreet approve",
+    "FOO=1 BOSS_X=2 antstreet approve",
+    "env -i antstreet approve",
+    "cd x; antstreet approve",
+    "true && boss approve",
+    "echo y | antstreet approve",
+    "(antstreet approve)",
+    "echo $(boss approve)",
+    "echo `boss approve`",
+    "{ antstreet approve; }",
+    "antstreet   \t  approve",
+    "antstreet\napprove",
+    "true\nantstreet approve",
+    "'antstreet' \"approve\"",
+    "antstreet ap'pr'ove",
+    'antstreet ap""prove',
+    "antstreet ap\\prove",
+    "ANTSTREET APPROVE",
+    "antstreet $(echo approve)",
+    "sh -c 'antstreet approve'",
+]
+ALLOWED = [
+    "uvx antstreet status",
+    "uvx antstreet report r1",
+    "uvx antstreet doctor",
+    "uvx antstreet fund 'a csv parser' --budget 0.40",
+    "uvx antstreet resume r1",
+    "boss status --dir /home/user/boss",
+    "grep -rn approve src",
+    "ls /home/user/boss/.boss/runs && echo approved",
+    "git log --oneline",
+    "echo approve",
+]
+
+
+@pytest.mark.parametrize("command", APPROVES)
+def test_the_guard_denies_every_way_of_running_approve(command):
+    done = _guard(command)
+    assert done.returncode == 2, command  # blocks before allow rules are even read
+    decision = json.loads(done.stdout)["hookSpecificOutput"]
+    assert decision["hookEventName"] == "PreToolUse"
+    assert decision["permissionDecision"] == "deny"
+    assert "! uvx antstreet approve RUN --sheet VALUE" in decision["permissionDecisionReason"]
+    assert decision["permissionDecisionReason"] in done.stderr
+
+
+@pytest.mark.parametrize("command", ALLOWED)
+def test_the_guard_stays_silent_on_everything_else(command):
+    done = _guard(command)
+    assert (done.returncode, done.stdout, done.stderr) == (0, "", ""), command
+
+
+@pytest.mark.parametrize("tool", ["Monitor", "PowerShell"])
+def test_the_guard_reads_other_tools_that_run_a_command(tool):
+    assert _guard("uvx antstreet approve r1", tool).returncode == 2

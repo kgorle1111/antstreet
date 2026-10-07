@@ -79,7 +79,9 @@ from boss.ledger import (
     LedgerLockedError,
     LedgerUnverifiedError,
     LedgerWriter,
+    adopt_unsigned,
     repair_torn_tail,
+    unsigned_lines,
 )
 from boss.limits import RunLimits
 from boss.pipeline import (
@@ -276,6 +278,12 @@ def _parser() -> argparse.ArgumentParser:
         if name == "status":
             shown.add_argument(
                 "--json", action="store_true", help="one JSON object, for tools (Claude Code mod)"
+            )
+        if name == "verify":
+            shown.add_argument(
+                "--adopt-unsigned",
+                action="store_true",
+                help="vouch for a run with unsigned lines and no anchor as it is now",
             )
     approve = sub.add_parser(
         "approve",
@@ -608,7 +616,7 @@ def _fund(
                 args.held_out,
                 args.parallel,
             )
-            shown = {k: (c.kind, c.source) for k, c in chosen.items()}
+            shown = {k: c.record(policy.max_tier) for k, c in chosen.items()}
             view = dispatching.DispatchView(policy, level, args.stall_slices, {}, shown)
         held = args.held_out > 0 and pipe.examine(plan.sheet, args.held_out, reserve)
         config = FirmConfig(
@@ -914,6 +922,11 @@ def _report_text(paths: RunPaths, events: Sequence[Event]) -> tuple[str, list[st
     """The board report, with a failure line for each saved prompt that no longer matches the
     hash its slice recorded (only a run with dispatch on has any to check)."""
     text = render_report(build_report(events))
+    if paths.investor_key is not None and (unsigned := unsigned_lines(paths.ledger)):
+        text += (
+            f"\nLedger: {unsigned} of {len(events)} lines are unsigned: either older than line "
+            "signing or rewritten without the key; see docs/LEDGER.md.\n"
+        )
     problems = verify(paths, events)
     if problems:
         text += "\nCONTEXT CHECK FAILED: what a worker was given is not what was recorded\n"
@@ -1114,7 +1127,16 @@ def _verify(args: argparse.Namespace, project: Path, say: Say) -> int:
         return EXIT_USAGE
     paths = RunPaths(project / RUNS_DIR / run)
     try:
+        if args.adopt_unsigned and paths.investor_key is not None:
+            adopted = adopt_unsigned(paths.ledger, paths.investor_key)
+            say(
+                f"Run {run}: adopted {adopted} unsigned lines as they are now; from here on they "
+                "are anchored and every new line is signed."
+            )
         events = paths.events()
+    except LedgerLockedError:
+        say(f"Run {run} is being written by another `boss` process; try again.")
+        return EXIT_FAILED
     except (LedgerCorruptError, SigningError) as exc:
         say(f"Run {run} does not verify: {exc}. Do not trust it; restore the run folder.")
         return EXIT_FAILED
