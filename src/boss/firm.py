@@ -22,7 +22,7 @@ from typing import Any
 from boss import budget, handoff, limits, retry, rulings
 from boss import dispatch as dispatch_module
 from boss import held_out as held_out_store
-from boss.approval import NotApprovedError, require_approval
+from boss.approval import YES, NotApprovedError, require_approval
 from boss.boss import load_prompt
 from boss.briefs import added_checks_note, predecessor_disputes_note
 from boss.context import (
@@ -408,7 +408,7 @@ class _Firm:
             answer = self.ask(question).strip().lower()
         except EOFError:  # nobody is there to fund it; Ctrl-C is an interruption, not a no
             answer = "n"
-        if answer in ("y", "yes", "a", "approve"):
+        if answer in YES:
             record("investor", EventType.APPROVED, data={"round": round_.n})
             return True
         record("investor", EventType.STOPPED, data={"reason": f"round {round_.n} not funded"})

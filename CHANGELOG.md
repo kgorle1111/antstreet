@@ -10,6 +10,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss approve RUN [--sheet V]`: approves a term sheet `boss fund` left waiting, only if it is
+  exactly the text shown with that value; the signed `approved` event adds `shown_sha256`.
 - `boss verify [RUN]`: an offline check of a run's hash chain, signatures and saved prompts, with no model call. Exit 0 when it all verifies, 1 with one line per problem, 2 for no such run.
 - `boss mcp`: a read-only MCP server on stdio for any MCP client (`list_runs`, `status`, `report`, `verify_ledger`, `doctor` without `--live`); no tool can spend or approve.
 - A Claude Code plugin in the repository (`/antstreet:fund`, `/antstreet:report`,
@@ -203,6 +205,10 @@ what changed for someone using the tool, not which commit did it.
 - A login whose refresh fails (Claude Code 2.1.292: no retry, no HTTP status) is `login`, not `api_error`: the run stops, and `boss fund` says to run `claude auth login`.
 - `python -m boss.bench.run` checks `claude auth status` before any cell, and stops after 3 cells in a row end in the same infrastructure failure instead of running every cell.
 - Docs no longer call the benchmark's hidden checks, mutants and labels "hand-written": Claude wrote them, apart from the agents measured. The 29 false passes are now "read and judged real errors", one class debatable.
+- The term sheet question takes `y`/`yes` and `n`/`no` like every other question; `y` was
+  "Unrecognised answer" and asked again.
+- `boss fund` with no terminal to ask on (Claude Code, a pipe) no longer reads end of input as a
+  rejection of a paid-for draft: it keeps it waiting for `boss approve` and exits 4.
 - `python -m boss.bench.run` refuses a saved cell that ran with another task set, model, budget
   or firm options, instead of counting it as this run's. Two arms of one name (the firm with and
   without `--roles critic`) each need their own results folder.

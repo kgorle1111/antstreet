@@ -13,7 +13,7 @@ from collections import defaultdict
 from dataclasses import fields
 
 import pytest
-from docs_support import DOCS, ROOT, code_spans, read, run_cli, section, table
+from docs_support import DOCS, ROOT, code_spans, fake_claude, read, run_cli, section, table
 
 from boss import budget, held_out, pipeline, state
 from boss.approval import content_hashes
@@ -211,6 +211,31 @@ def cli_resumed_events(tmp_path):
     return read_events(run_dir / "ledger.jsonl")
 
 
+def cli_awaiting_events(tmp_path):
+    """`boss fund` with no terminal to ask on (the real `input`, a stdin that is not a TTY), then
+    `boss approve --sheet` with the value it printed: the waiting `stopped` and the approval."""
+    import io
+    import re
+    import sys
+    from unittest import mock
+
+    from boss.cli import main
+
+    project = tmp_path / "project"
+    project.mkdir(parents=True, exist_ok=True)
+    environ = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
+    environ["BOSS_CLAUDE_BIN"] = str(fake_claude(tmp_path))
+    said: list[str] = []
+    with mock.patch.object(sys, "stdin", io.StringIO()):
+        argv = ["fund", "Reverse a string.", "--budget", "0.50", "--dir", str(project)]
+        main(argv, say=said.append, environ=environ)
+    [run_dir] = sorted((project / ".boss" / "runs").iterdir())
+    [value] = set(re.findall(r"--sheet ([0-9a-f]{16})", "\n".join(said)))
+    approve = ["approve", run_dir.name, "--sheet", value, "--dir", str(project)]
+    main(approve, say=said.append, environ=environ)
+    return read_events(run_dir / "ledger.jsonl")
+
+
 def cli_topped_up_events(tmp_path):
     """A round that closed below its unlock threshold because its budget ran out ($0.108 funds one
     slice and leaves less than the $0.105 another needs), then `boss topup` on it."""
@@ -338,6 +363,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_spec_mapper_events(where("cli-spec-mapper")))
     runs.append(cli_resumed_events(where("cli-resumed")))
     runs.append(cli_topped_up_events(where("cli-topped-up")))
+    runs.append(cli_awaiting_events(where("cli-awaiting")))
     runs.append(audit_events(where("audit")))
     runs.append(roles_events(where("cli-roles")))
     runs.append(roles_events(where("cli-declined"), fix="n"))
@@ -568,9 +594,10 @@ def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(p
     with_roles = [
         e
         for e in produced["started"]
-        if "roles" in e.data and e.data["roles"]["names"] != ["spec_mapper"]
+        if "roles" in e.data and e.data["roles"]["names"] not in (["spec_mapper"], [])
     ]
-    # every other run with roles is a run with every role --roles all names; the `--spec` run
+    # a run awaiting `boss approve` records roles with no names; every other run with roles
+    # is a run with every role --roles all names; the `--spec` run
     # names the mapper alone, because `all` includes the staged roles --spec refuses
     assert with_roles
     assert any(e.data.get("roles", {}).get("names") == ["spec_mapper"] for e in produced["started"])
