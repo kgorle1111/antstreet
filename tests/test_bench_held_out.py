@@ -50,6 +50,7 @@ def stub(tmp_path, monkeypatch):
     """Replace `boss fund` with a stub that records its argv and writes the run folder the firm
     arm reads: a ledger from `stub.events` and the reference solution as product/."""
     calls = []
+    monkeypatch.setattr(bench_run, "preflight", lambda environ: None)  # no `claude` to ask
     stub = type("Stub", (), {})()
     stub.events, stub.calls = firm_ledger(), calls
     stub.held_out = {}  # file name -> code, written to the run folder's held_out/

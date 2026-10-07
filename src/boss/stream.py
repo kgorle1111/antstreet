@@ -41,6 +41,7 @@ class StreamReader:
         self.init: dict[str, Any] | None = None
         self.result: dict[str, Any] | None = None
         self.retry_errors: list[str] = []
+        self.message_errors: list[str] = []
         self.rate_limit: dict[str, Any] | None = None
         self.denials: list[dict[str, Any]] = []
         self.hook_events = 0
@@ -69,6 +70,8 @@ class StreamReader:
             self.rate_limit = event["rate_limit_info"]
         elif kind == "assistant":
             self._message(event.get("message"))
+            if event.get("is_api_error_message") is True:
+                self.message_errors.append(str(event.get("error", "unknown")))
         elif kind == "result":
             self.result = event
 
@@ -116,6 +119,7 @@ class StreamReader:
         return RunSignals(
             result=self.result,
             retry_errors=tuple(self.retry_errors),
+            message_errors=tuple(self.message_errors),
             rate_limit_status=(self.rate_limit or {}).get("status"),
             timed_out=timed_out,
             stderr_tail=stderr_tail,
