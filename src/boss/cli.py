@@ -58,6 +58,7 @@ from boss.budget import (
     round_budget,
 )
 from boss.context import derive_reads, verify
+from boss.errors import Outcome
 from boss.firm import (
     DEFAULT_SLICE_MICROS,
     DEFAULT_WORKER_MODEL,
@@ -115,6 +116,11 @@ RUNS_DIR = Path(".boss") / "runs"
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_INCOMPLETE, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
 EXIT_AWAITING = 4
 AWAITING = "awaiting the investor's approval"  # the `stopped` reason of a deferred approval
+LOGIN_FIX = (
+    "The Claude CLI that AntStreet starts is not logged in: its login expired or could not be "
+    "refreshed (with ANTHROPIC_API_KEY set, the key was refused). Run `claude auth login` in a "
+    "terminal, check with `antstreet doctor --live`, then run again."
+)
 
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
@@ -517,6 +523,8 @@ def _fund(
                 boss_spend(exc.usage, str(exc.outcome))
                 record("boss", EventType.STOPPED, data={"reason": str(exc)})
                 say(f"The boss could not produce a term sheet: {exc}")
+                if exc.outcome is Outcome.LOGIN:
+                    say(LOGIN_FIX)
                 if isinstance(exc, InvalidDraftError):
                     say("\n".join(f"  - {p}" for p in exc.problems))
                 return None
