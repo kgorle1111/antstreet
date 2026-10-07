@@ -608,3 +608,10 @@ FAILED_TAIL = (
 )
 def test_reproduced_means_exit_one_with_a_counted_failure_and_no_import_error(given, reproduced):
     assert (critic._why_not_reproduced(given) is None) is reproduced
+
+
+def test_the_critic_has_room_above_what_e4_showed_it_needs():
+    from boss.roles.critic import SPECS
+
+    # E4's completed critic calls reached $0.149 and its capped ones were cut off near $0.17.
+    assert SPECS[0].cap_micros >= 300_000

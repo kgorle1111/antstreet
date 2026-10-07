@@ -73,6 +73,9 @@ SPECS = (
         gate="the quote is in the idea, the test is a valid check that imports the product, and "
         "the gate's run of it on the product fails with a test failure",
         prompt="critic_v1.md",
+        # E4: completed calls cost up to $0.149 under the $0.15 default and 35 of 105 were cut
+        # off near $0.17: the default was the ceiling, not a margin (2026-10-07-e4-critic).
+        cap_micros=400_000,
         skills=(
             "critic/tracing-each-stated-rule-through-the-code",
             "critic/writing-a-minimal-failing-test",
