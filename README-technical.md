@@ -263,8 +263,9 @@ uv run boss fund "A function is_palindrome(text) that ignores case, spaces and p
    is given your idea word for word, then the boss's brief and checks.
 4. The gate runs the checks after every slice. The worker's next brief shows what failed.
 5. A worker that stops making progress is fired and replaced once, with its files and the gate's
-   findings handed over. A worker that believes a check contradicts your idea can dispute it. The
-   check never counts as passing. If the claim is credible (every other check passes and at most
+   findings handed over. A worker that believes a check contradicts your idea is told to dispute
+   it (in its status, `disputed_checks`), never to change correct code or stretch your words for
+   it. The check never counts as passing. If the claim is credible (every other check passes and at most
    half the task's checks are disputed), you are asked: drop the check, keep it, or set the task
    aside. A worker that says it is blocked gets the same choice, with a note from you. Your answer
    is a ledger event; the approved term sheet is not edited.
