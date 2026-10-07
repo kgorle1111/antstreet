@@ -25,7 +25,7 @@ whole organisation").
   before anything uses it. A role drafts; code decides.
 - **Metered.** A call's spend is booked by whoever calls the role (`src/boss/pipeline.py`), as a
   `role_call` event under the actor `role:<name>` (`ledger_fields` builds the fields). The call has a cap of `cap_micros`
-  (150,000 micro-dollars, $0.15, unless the spec says otherwise).
+  (150,000 micro-dollars, $0.15, unless the spec says otherwise; the critic has $0.40).
 - **Off by default.** `default_on` is `False` until a measurement says the role earns its cost.
   A role runs only when `boss fund --roles` names it.
 - **Placed by two fields.** `department` is one of `product`, `engineering`, `quality`,
