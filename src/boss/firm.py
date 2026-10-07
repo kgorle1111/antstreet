@@ -48,7 +48,7 @@ from boss.rundir import (
     slice_end_fields,
     workspace_bytes,
 )
-from boss.runner import SliceRun, run_slice
+from boss.runner import SliceRun, deferred_sigint, run_slice
 from boss.state import RunState, run_state, slice_history
 from boss.termsheet import Round, Task, TermSheet
 from boss.worker import (
@@ -563,14 +563,10 @@ class _Firm:
                 return [run(wave[0])]
             except IsolationError as exc:
                 return [exc]
-        with ThreadPoolExecutor(max_workers=len(wave)) as pool:
+        # Ctrl-C sets cancel, so the slice runners stop their processes and return; then it raises.
+        with ThreadPoolExecutor(max_workers=len(wave)) as pool, deferred_sigint(self.cancel):
             futures = [pool.submit(run, pending) for pending in wave]
-            try:
-                wait(futures)
-            except KeyboardInterrupt:
-                self.cancel.set()  # the slice runners stop their processes and return
-                wait(futures)
-                raise
+            wait(futures)
         results: list[SliceRun | BaseException] = []
         for future in futures:
             error = future.exception()

@@ -44,6 +44,16 @@ def test_failed_login_is_not_trusted_as_success_despite_its_subtype():
     assert classify(signals) is Outcome.LOGIN
 
 
+def test_only_an_auth_error_on_an_api_error_message_makes_an_api_error_a_login():
+    failed = {"type": "result", "subtype": "success", "is_error": True}
+    failed["terminal_reason"] = "api_error"
+    assert classify(RunSignals(result=failed)) is Outcome.API_ERROR
+    login = RunSignals(result=failed, message_errors=("authentication_failed",))
+    assert classify(login) is Outcome.LOGIN
+    other = RunSignals(result=failed, message_errors=("overloaded_error",))
+    assert classify(other) is Outcome.API_ERROR
+
+
 # No recording exists for these yet; each is derived from a real result line with changed fields.
 @pytest.mark.parametrize(
     ("overrides", "extra", "expected"),

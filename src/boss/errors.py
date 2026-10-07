@@ -60,6 +60,9 @@ class RunSignals:
     rate_limit_status: str | None = None  # `status` of the last `rate_limit_event`
     timed_out: bool = False
     stderr_tail: str = ""  # the CLI's own stderr, already redacted
+    # `error` of each assistant event flagged `is_api_error_message`. From CLI 2.1.292 a login
+    # whose OAuth refresh fails reports only here: no retry, no status (recorded 2026-10-07).
+    message_errors: tuple[str, ...] = ()
 
 
 def _str(value: object) -> str:
@@ -101,7 +104,7 @@ def classify(signals: RunSignals) -> Outcome:
 def _classify_error(result: Mapping[str, Any], signals: RunSignals) -> Outcome:
     raw_status = result.get("api_error_status")
     status = raw_status if type(raw_status) is int else None
-    retries = set(_strings(signals.retry_errors))
+    retries = set(_strings(signals.retry_errors)) | set(_strings(signals.message_errors))
     text = " ".join([_str(result.get("result")), *_strings(result.get("errors"))])
     if _SESSION_GONE_RE.search(text) or _SESSION_GONE_RE.search(signals.stderr_tail):
         return Outcome.SESSION_LOST

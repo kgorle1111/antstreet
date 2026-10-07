@@ -2,16 +2,18 @@
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
 import time
+import traceback
 from uuid import uuid4
 
 import pytest
 
 from boss.errors import Outcome
-from boss.runner import WorkspaceError, _stop, run_slice
+from boss.runner import WorkspaceError, _stop, deferred_sigint, run_slice
 from boss.worker import SCHEMA_TOOL, WORKER_TOOLS, IsolationError, SliceSpec
 
 INIT = {
@@ -211,6 +213,64 @@ def test_a_slice_can_be_stopped_from_another_thread_and_its_cost_is_still_read(f
     assert time.monotonic() - start < 60
     assert run.outcome is Outcome.TIMEOUT
     assert run.usage.cost_micros == 5400  # interrupted first, so the final result was printed
+
+
+def ctrl_c_once(path):
+    """Send this process a real SIGINT as soon as `path` has content: the fake worker is running."""
+
+    def watch():
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and not (path.exists() and path.stat().st_size):
+            time.sleep(0.02)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
+@pytest.mark.sigint
+def test_ctrl_c_stops_the_worker_first_and_raises_where_no_lock_is_held(fake, tmp_path):
+    # Raised mid-queue.get, KeyboardInterrupt left a lock released twice ("release unlocked lock")
+    # or held (under coverage, a hang). Deferred, it is raised by deferred_sigint, after the stop.
+    stop = threading.Event()
+    ctrl_c_once(tmp_path / "logs" / "w1.jsonl")
+    with pytest.raises(KeyboardInterrupt) as raised:
+        fake("graceful", timeout_s=120.0, stop=stop)
+    assert traceback.extract_tb(raised.value.__traceback__)[-1].name == "deferred_sigint"
+    assert stop.is_set()  # parallel slices sharing this event stop too
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+
+@pytest.mark.sigint
+def test_ctrl_c_in_a_deferred_block_is_raised_only_when_the_block_ends():
+    stop, after = threading.Event(), []
+    with pytest.raises(KeyboardInterrupt), deferred_sigint(stop):
+        os.kill(os.getpid(), signal.SIGINT)
+        time.sleep(0.2)  # a KeyboardInterrupt raised here would skip the next line
+        after.append(stop.is_set())
+    assert after == [True]
+    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
+
+
+def test_deferring_ctrl_c_leaves_another_handler_and_other_threads_alone():
+    def mine(*_):
+        pass
+
+    previous = signal.signal(signal.SIGINT, mine)
+    try:
+        with deferred_sigint(threading.Event()):
+            assert signal.getsignal(signal.SIGINT) is mine
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    seen = []
+
+    def in_a_thread():
+        with deferred_sigint(threading.Event()):
+            seen.append(signal.getsignal(signal.SIGINT))
+
+    thread = threading.Thread(target=in_a_thread)
+    thread.start()
+    thread.join()
+    assert seen == [signal.default_int_handler]
 
 
 def test_stopping_a_hung_slice_kills_it_and_its_children(fake):

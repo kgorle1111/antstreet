@@ -29,7 +29,9 @@ def test_an_error_detail_of_any_type_never_raises(field, junk):
     assert isinstance(run({field: junk}), Outcome)
 
 
-@pytest.mark.parametrize("field", ["retry_errors", "rate_limit_status", "timed_out"])
+@pytest.mark.parametrize(
+    "field", ["retry_errors", "message_errors", "rate_limit_status", "timed_out"]
+)
 @pytest.mark.parametrize("junk", JUNK + [[["nested"]], [{}], [[]]], ids=repr)
 def test_a_signal_of_any_type_never_raises(field, junk):
     assert isinstance(classify(RunSignals(result=FAILED, **{field: junk})), Outcome)

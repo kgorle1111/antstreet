@@ -14,6 +14,7 @@ from boss.cli import (
     EXIT_INTERRUPTED,
     EXIT_OK,
     EXIT_USAGE,
+    LOGIN_FIX,
     main,
 )
 from boss.ledger import EventType, LedgerWriter, read_events, total
@@ -50,7 +51,10 @@ argv = sys.argv[1:]
 say = lambda e: print(json.dumps(e), flush=True)
 result = {{"type": "result", "subtype": "success", "is_error": False,
           "terminal_reason": "completed", "modelUsage": {USAGE!r}, "session_id": "s-1"}}
-if argv[argv.index("--tools") + 1] == "":   # the boss drafting a term sheet
+if os.path.exists(os.path.join(os.environ["HOME"], "fake_refresh_failed")):  # CLI 2.1.292
+    say({{"type": "assistant", "error": "authentication_failed", "is_api_error_message": True}})
+    say(result | {{"is_error": True, "terminal_reason": "api_error", "total_cost_usd": 0}})
+elif argv[argv.index("--tools") + 1] == "":   # the boss drafting a term sheet
     say({BOSS_INIT!r})
     thinking = os.environ.get("MAX_THINKING_TOKENS", "unset")
     open(os.path.join(os.environ["HOME"], "boss_thinking.txt"), "w").write(thinking)
@@ -161,6 +165,13 @@ def test_callers_environment_does_not_reach_the_worker(boss):
     # The fake writes a broken product if it can see this variable; the allowlist must drop it.
     code, _ = boss("fund", "Reverse a string.", "--budget", "0.50", FAKE_BREAK="1")
     assert code == EXIT_OK
+
+
+def test_a_boss_call_refused_for_login_says_exactly_what_to_do(boss):
+    (boss.project.parent / "fake_refresh_failed").write_text("")
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50")
+    assert code == EXIT_FAILED
+    assert "boss call ended as login" in output and LOGIN_FIX in output
 
 
 def test_a_lone_surrogate_in_a_workers_reason_does_not_break_the_report(boss):
