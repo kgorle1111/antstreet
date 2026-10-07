@@ -83,6 +83,85 @@ a profile that interpolated the path fails it on quote, backslash and injection 
 - **`sandbox-exec` is deprecated** by Apple. It works on macOS 26.6.2; the probe in `detect()`
   reports it unavailable if it stops working.
 
+## Comparisons: a product value cannot decide its own check (T12)
+
+An object whose `__eq__` always returns True passes `assert reverse("ab") == "ba"` without a right
+answer, and needs no knowledge of the gate. The gate's plugin wraps pytest's assertion rewrite:
+after pytest rewrites the check file, every `== != < <= > >= in not in` in it (in an assert or not,
+in a comprehension, in a helper) has each operand passed through `_guard`.
+
+- **Honest values are compared as Python compares them.** Exact `None bool int float complex str
+  bytes bytearray range type Decimal` and the `datetime` types, a `Fraction` of two ints, and
+  `list tuple dict set frozenset deque OrderedDict defaultdict Counter` and dict views whose contents
+  are honest, walked with the base type's own iterator. A subclass of `list tuple dict set frozenset`
+  (a namedtuple) counts if it keeps every comparison method of its base. Nothing is made stricter:
+  `1 == 1.0`, `True == 1` and `Counter("aab") == {"a": 2, "b": 1}` still hold. A check that wants an
+  exact type says so (`type(x) is int`).
+- **`pytest.approx` objects count only if the check file built them** (the plugin wraps
+  `pytest.approx` and records objects created from a frame in the check file). One the product
+  returns can hold a value that equals everything, or an infinite tolerance.
+- **Anything else is wrapped.** The wrapper is never equal to an honest value and cannot be ordered
+  against one (`TypeError`). Two wrapped values compare as the product says, and `x in product_obj`
+  asks the product's `__contains__`, so `Poly(1) == Poly(1)` and `"ab" in trie` keep working.
+- **Fail closed:** a collected test whose module was not rewritten with the guard (a pytest that
+  stopped calling `rewrite_asserts`) is never counted as passed, so the gate says FAILED.
+
+Covered: `==`, `!=` (via the reflected and direct paths), `in`/`not in` against an honest container,
+`sorted(x) == [...]` (elements are walked), chained comparisons, a value hidden inside a list or tuple,
+comparisons outside an assert. Not covered:
+
+- Comparisons between two product objects, and `in` on a product container: the product decides.
+  A check that compares a product object to a plain value (`Money(5) == 5`) now fails; compare a
+  plain projection (`int(m) == 5`, `m.cents == 500`).
+- An exact-type scalar subclass: an `IntEnum` member is not equal to `3` under the guard.
+- `unittest` assert methods (`self.assertEqual`): the comparison happens inside `unittest`, not in
+  the check file. Boss-drafted and benchmark checks use `assert`.
+- Bare truthiness (`assert f(x)`), `len(x)` (a product object can report any length), and what a
+  product's `__str__`, `__iter__` or `__hash__` returns before a plain comparison sees it. These
+  give the product nothing an honest-looking return value would not.
+- Whole-tree runs (`gate.run_tree`, imported benchmark suites): no plugin, no guard, no proof.
+- Code aimed at the plugin: replacing `_guard` or `pytest.approx` in its own process (the
+  `accepted_risk` tests stand for this class).
+
+## Plan: a verdict read from outside the process (T12, not built)
+
+Every in-process control above shares one limit: the nonce, the monitoring and the guard live in the
+process that runs the product, so code written against this gate can reach them. Reading
+pytest's outcomes from a parent over a pipe does not help: the child writes the pipe and can lie.
+The parent has to evaluate the expectations itself, which means product code and check code must
+run in different processes.
+
+The smallest design that does that:
+
+1. **Checker process (trusted):** pytest, the check file, the plugin and the nonce. It never
+   imports product code. A meta-path import hook turns `import rev` (any module found in the
+   workspace) into a proxy module.
+2. **Product server (sandboxed as today, no nonce, no write access to the proof path):** imports
+   the product and answers requests over a pair of pipes: get an attribute, call, set an attribute,
+   iterate, compare, contains. Length-prefixed JSON, never pickle (unpickling runs code in the
+   checker).
+3. **Values cross by value only if `_honest`** (the same rules as the guard), as tagged JSON.
+   Anything else becomes a handle; comparing or testing membership on handles is a request to the
+   server, so the product still decides between its own objects, exactly as the guard allows today.
+4. **Exceptions:** a product exception class becomes a proxy class in the checker, with its name,
+   the nearest builtin exception as base and one class per remote class, so
+   `pytest.raises(ValueError)` and `pytest.raises(InsufficientFunds)` both work.
+5. **Callbacks:** a function the check passes into the product (18 of 457 hidden check files contain
+   a lambda) becomes a handle the server calls back into, so the protocol is re-entrant.
+
+What it would change for checks (why it is a separate, breaking PR): an argument the product
+mutates in place is a copy, so the check does not see the change; `a is b` on two returns of one
+product object needs handle caching; monkeypatching a product module in the check no longer reaches
+the code (no hidden check does today); every product call becomes a round trip
+(`test_from_roman_inverts_to_roman_for_every_number` makes 8,000). Size: a checker-side proxy and
+import hook, a product server, a codec with a fuzz test, `gate._run_one` launching two processes
+under the sandbox, and a rerun of every forgery test and every benchmark task: on the order of
+1,000 to 1,500 lines over 8 to 10 files, plus the behaviour change above.
+
+What would stay forgeable: the product's answers about its own objects (as now), a bug in the
+proxy or codec (the new boundary), and anything the check file or pytest itself does wrong (T14).
+Until it is built, the two `accepted_risk` forge tests stay pinned and T12 stays `accepted`.
+
 ## Probes, 2026-09-30
 
 Machine: macOS 26.6.2 (build 25G83), Darwin 25.6.0, arm64. Python 3.12.13 (uv-managed, under the
