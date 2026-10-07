@@ -121,8 +121,8 @@ Why it is different:
   errors or skips, and a signed proof from a plugin that every test really ran.
 - **Budget caps and firing.** Money is released in rounds against passing checks. A worker that
   stops making progress is fired and replaced once. Hard limits stop the run.
-- **A signed ledger.** Every line carries the hash of the one before it; your approvals are signed
-  with a key no worker can read. Costs are the CLI's estimates, and unknown costs are shown as unknown.
+- **A signed ledger.** Every line carries the hash of the one before it and an HMAC with a key no
+  worker can read, and your approvals are signed with it too. Costs are the CLI's estimates, and unknown costs are shown as unknown.
 - **Blind measurement.** The benchmark's hidden checks are written separately from the agents being
   measured (by Claude, in a different session), validated against a reference solution and planted wrong
   solutions, and never shown to any agent, and neither arm is told it is measured.
@@ -394,8 +394,11 @@ What AntStreet does not do, in plain words. Each links to its row in the [threat
   cannot edit a check to make it pass.
 - Approval is recorded with hashes of the term sheet and each check, and verified again before
   every slice and every gate run. Any later edit stops the run.
-- Every ledger line carries the hash of the line before it, and your approvals are signed with a
-  key in `.boss/investor.key` that no worker can read, so a forged approval is refused.
+- Every ledger line carries the hash of the line before it and an HMAC with a key in
+  `.boss/investor.key` that no worker can read, and your approvals are signed with it too, so an
+  edited, forged or appended line, or a forged approval, is refused even when the chain is
+  recomputed. A run with no anchor and unsigned lines is refused until you adopt it
+  (`boss verify RUN --adopt-unsigned`).
 - Workers start in an isolated configuration (no hooks, MCP servers or shell) and are refused if
   the CLI reports anything else.
 - A pass needs pytest to exit 0, a test report showing at least one test and no failures, errors

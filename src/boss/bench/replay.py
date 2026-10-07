@@ -21,9 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from boss import rule
-from boss.ledger import Event, EventType, LedgerError, read_events
+from boss.ledger import Event, EventType, LedgerError
 from boss.report import dollars
 from boss.rule import Decision, FiringPolicy, SliceRecord, Verdict
+from boss.rundir import RunPaths
 from boss.state import slice_history
 
 Decide = Callable[[frozenset[str], Sequence[SliceRecord], FiringPolicy], Verdict]
@@ -154,7 +155,7 @@ def main(argv: Sequence[str] | None = None, decide: Decide = rule.decide) -> int
     runs = []
     for path in sorted(args.results_dir.rglob("ledger.jsonl")):
         try:
-            runs.append(read_events(path))
+            runs.append(RunPaths(path.parent).events())
         except (LedgerError, OSError, UnicodeDecodeError) as exc:
             print(f"cannot read ledger {path}: {exc}", file=sys.stderr)
             return 1

@@ -16,7 +16,15 @@ from test_cli import boss, events_of_run, locked_run, slices_started
 
 from boss import budget, pipeline, rulings, signing
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK
-from boss.ledger import GENESIS, Event, EventType, LedgerUnverifiedError, LedgerWriter, read_events
+from boss.ledger import (
+    GENESIS,
+    Event,
+    EventType,
+    LedgerUnverifiedError,
+    LedgerWriter,
+    adopt_unsigned,
+    read_events,
+)
 from boss.rundir import RunPaths
 from boss.signing import SigningError, load_key
 from boss.state import run_state
@@ -124,20 +132,19 @@ def test_a_key_that_cannot_be_used_stops_the_writer_opening(run):
     assert run.ledger.read_bytes() == before
 
 
-def test_a_key_that_breaks_mid_run_signs_nothing_false_and_loses_no_other_record(run):
-    with run.writer() as ledger:
+def test_a_key_that_breaks_mid_run_signs_nothing_false_and_loses_no_record(run):
+    with run.writer() as ledger:  # the key is created and loaded when the writer opens
         ledger.append(boss_call())
-        ledger.append(investor("resumed"))  # creates the key
+        ledger.append(investor("resumed"))
         run.investor_key.chmod(0o644)
         n = len(run.ledger.read_bytes().splitlines())
-        with pytest.raises(
-            SigningError, match="chmod 600"
-        ):  # an unsignable decision is not written
+        with pytest.raises(SigningError, match="chmod 600"):  # only the anchor needs the file
             ledger.append(investor("topped_up"))
-        assert len(run.ledger.read_bytes().splitlines()) == n
-        with pytest.raises(SigningError):  # money records are durable before the anchor is tried
+        with pytest.raises(SigningError):  # every record is durable before the anchor is tried
             ledger.append(boss_call(5_000))
-        assert len(run.ledger.read_bytes().splitlines()) == n + 1
+        assert len(run.ledger.read_bytes().splitlines()) == n + 2
+    run.investor_key.chmod(0o600)
+    assert [e.event for e in run.events()][-2:] == [EventType.TOPPED_UP, EventType.BOSS_CALL]
 
 
 # --- a forgery is refused at the one place every reader gets its events from ------------------
@@ -245,7 +252,7 @@ def test_an_attacker_with_a_key_of_their_own_is_refused(run, tmp_path):
 def test_a_signed_event_is_refused_when_the_key_is_gone_or_replaced(run):
     honest(run, boss_call(), investor("topped_up"))
     run.investor_key.unlink()
-    with pytest.raises(LedgerUnverifiedError, match="does not verify"):
+    with pytest.raises(LedgerUnverifiedError, match="key is missing; restore"):
         run.events()
     signing.load_or_create_key(run.investor_key)  # a fresh key cannot vouch for the old events
     with pytest.raises(LedgerUnverifiedError, match="does not verify"):
@@ -341,6 +348,7 @@ def test_unsigned_investor_events_older_than_the_chain_still_load_with_a_key_pre
     signing.load_or_create_key(run.investor_key)
     run.ledger.parent.mkdir(parents=True, exist_ok=True)
     run.ledger.write_bytes(legacy_line(run, name, signed=False))
+    adopt_unsigned(run.ledger, run.investor_key)  # the investor vouches for the old run
     [event] = run.events()
     assert event.prev is None and "sig" not in event.data
 
@@ -358,12 +366,15 @@ def test_an_approval_signed_in_the_first_form_still_loads_and_nothing_else_does(
     sig = signing._digest_v1(key, approval)
     chained = dataclasses.replace(approval, data={**approval.data, "sig": sig})
     attacker(run, boss_call(), chained)
+    adopt_unsigned(run.ledger, run.investor_key)
     assert run.events()[1].data["sig"] == sig
-    # the same first-form signature on another kind of event is refused, in the chain or out of it
+    # the same first-form signature on another kind of event is refused, in the chain or out of
+    # it, and adopting the run does not make it pass
     for kind in (EventType.RESUMED, EventType.TOPPED_UP, EventType.RULED, EventType.STOPPED):
         attacker(run, boss_call(), dataclasses.replace(chained, event=kind))
-        with pytest.raises(LedgerUnverifiedError):
-            run.events()
+        signing.anchor_path(run.investor_key, run.root.name).unlink(missing_ok=True)
+        with pytest.raises(LedgerUnverifiedError, match="does not verify"):
+            adopt_unsigned(run.ledger, run.investor_key)
 
 
 def test_a_ledger_with_no_key_and_no_signature_loads_as_it_always_did(run):
