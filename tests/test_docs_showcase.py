@@ -63,7 +63,7 @@ def test_the_false_pass_figures_are_the_audits(text):
         "17 small Python tasks, Haiku writing both the checks and the code",
         "13 of the 29 failed only on non-ASCII input or a returned type",
         "16 of 77 (21%)",
-        "Every one of the 29 was a real error against the task text",
+        "We read all 29 against the task text and judge each a real error",
     ):
         assert phrase in text, f"README lost: {phrase}"
 
@@ -78,7 +78,7 @@ def test_the_blinded_benchmark_figures_are_the_runs_table(text):
     assert (firm[1], firm[3], firm[4], firm[6]) == ("105", "64", "61% [51-70%]", "$0.2149")
     assert (single[1], single[3], single[4], single[6]) == ("105", "62", "59% [49-68%]", "$0.0883")
     assert round(0.2149 / 0.0883, 1) == 2.4
-    assert "| firm (`boss`) | 64 of 105 (61%) | $0.2149 |" in text
+    assert "| AntStreet (boss + ants) | 64 of 105 (61%) | $0.2149 |" in text
     assert "| one agent | 62 of 105 (59%) | $0.0883 |" in text
     for phrase in (
         "35 tasks, three runs each, $0.40 a task",
@@ -111,12 +111,12 @@ def test_the_engineering_figures_are_the_repos(text):
     assert re.search(r"^strict = true", read(ROOT / "pyproject.toml"), re.M)
     assert "`mypy --strict`" in text and "typed-mypy%20strict" in text
     threats = re.findall(r"^\| T(\d+) ", read(DOCS / "THREAT_MODEL.md"), re.M)
-    assert len(threats) == 69 and "A threat model with 69 rows" in text
+    assert len(threats) == 71 and "A threat model with 71 rows" in text
     decisions = re.findall(r"^### D\d+:", read(DOCS / "DECISIONS.md"), re.M)
-    assert len(decisions) == 45 and "**45 recorded design decisions**" in text
+    assert len(decisions) == 46 and "**46 recorded design decisions**" in text
     experiments = re.findall(r"^## E\d+\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
     assert len(experiments) == 6 and "six experiments fixed before any run" in text
-    assert "macOS seatbelt; Linux `bwrap` is set up for CI but not yet confirmed there" in text
+    assert "macOS seatbelt; Linux `bwrap`, run and required in CI" in text
     assert "Python 3.12+" in text and "python-3.12%2B" in text
     assert "license-Apache--2.0" in text
     assert "Apache License, Version 2.0" in read(ROOT / "LICENSE")

@@ -38,7 +38,7 @@ The full list of threats, controls and the test behind each is in
 - **`boss` is not a container.** The gate runs the code a worker wrote on your machine, as you, with
   a filtered environment, a timeout and, where there is one, an OS sandbox that is partial: `stat`
   works on any path, a check can change its own folder (and the test report in it), and CPU and
-  disk are unlimited. On Linux the sandbox has never been run, and with no working tool checks run
+  disk are unlimited. On Linux the `bwrap` sandbox runs and is required in CI, and with no working tool checks run
   with your full access. Do not run ideas from sources you do not trust.
 - A worker CLI is not sandboxed: it is limited by its tool list and path rules only.
 - Prompt-injection resistance of the models is not measured. The controls limit what an injected

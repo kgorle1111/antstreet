@@ -220,10 +220,10 @@ def test_review_overwrites_a_preapproved_sheet_file_before_asking(session):
 
 
 def test_unrecognised_answers_never_reach_the_ledger(session):
-    session.review(["", "yes", "approve please", "r"])
+    session.review(["", "yup", "approve please", "r"])
     assert [e.event for e in session.events()] == [EventType.STOPPED]
     assert "Unrecognised answer ''." in session.said
-    assert "Unrecognised answer 'yes'." in session.said
+    assert "Unrecognised answer 'yup'." in session.said
 
 
 def test_the_menu_is_shown_again_after_every_unrecognised_answer(session):

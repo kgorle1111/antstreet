@@ -1,5 +1,7 @@
 <div align="center">
 
+# AntStreet: make AI coding agents prove their work
+
 <img src="docs/assets/hero.svg" alt="AntStreet: your AI agents get paid when the checks pass." width="100%">
 
 ![license Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -43,24 +45,31 @@ strings are the real ones. Try it yourself in [the quickstart](#-quickstart).
 
 ## 🧨 The problem
 
-Agents say "done" and mean "I stopped". We measured how often that is wrong.
+Agents say "done" and mean "I stopped". We measured a narrower thing: how often a run can satisfy the checks the model drafted and still be wrong.
 
 > **29 of 77 runs (38%, 95% interval 28-49%)** passed every check the model had written and still
-> failed a hand-written check it never saw. Every one of the 29 was a real error against the task text.
+> failed a hidden check it never saw (written by Claude, separately from the agents measured).
+> We read all 29 against the task text and judge each a real error; one class (tokenbucket's int-vs-float
+> return) is debatable.
+> These were firm runs (the boss drafting checks, workers building), not a general agent failure rate.
 
 Caveats, kept on purpose: 17 small Python tasks, Haiku writing both the checks and the code, and
 runs of one task are not independent (resampling tasks widens the interval to 20-57%). 13 of the 29
 failed only on non-ASCII input or a returned type; without those, 16 of 77 (21%). Read the
 [false-pass audit](bench/results/2026-10-03-false-pass-audit/README.md).
 
+The gate passed those runs: it only runs the checks it is given. That is why you read and approve
+the checks first, and why the stat measures weak checks, not the gate.
+
 ## 🧪 We measure, and we publish the "no"
 
-A fair, blinded benchmark: 35 tasks, three runs each, $0.40 a task, hidden checks written by hand
-and never shown to any agent.
+A fair, blinded benchmark: 35 tasks, three runs each, $0.40 a task, hidden checks written separately
+from the agents being measured (by Claude, in a different session), validated against a reference
+solution and planted wrong solutions, and never shown to any agent.
 
 | | passed | cost per task |
 |---|---|---|
-| firm (`boss`) | 64 of 105 (61%) | $0.2149 |
+| AntStreet (boss + ants) | 64 of 105 (61%) | $0.2149 |
 | one agent | 62 of 105 (59%) | $0.0883 |
 
 **Paired by task, the difference is not shown, and the firm cost about 2.4 times as much.** So we
@@ -96,13 +105,13 @@ Built like something you would be happy to inherit.
 - **5,000+ tests**, no model calls needed (recorded CLI output and fake `claude` executables).
 - **Coverage floor 96%** (line and branch) enforced in CI; about 98% measured when the floor was set.
 - **`mypy --strict`** over `src/`, plus ruff.
-- **A threat model with 69 rows**, each bound to a test that proves its control
+- **A threat model with 71 rows**, each bound to a test that proves its control
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
-- **A sandboxed gate**: macOS seatbelt; Linux `bwrap` is set up for CI but not yet confirmed there.
+- **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
 - **A blinded, pre-registered benchmark**: six experiments fixed before any run
   ([bench/PREREG.md](bench/PREREG.md)).
-- **45 recorded design decisions**, including what was rejected and why
+- **46 recorded design decisions**, including what was rejected and why
   ([DECISIONS.md](docs/DECISIONS.md)).
 - **Docs that cannot drift**: tests fail when this README, the CLI docs or the ledger docs disagree
   with the code.
@@ -116,14 +125,15 @@ You need macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/) and
 git clone https://github.com/kgorle1111/antstreet.git
 cd antstreet
 uv sync
-uv run boss doctor --live        # checks this machine; two paid calls of at most $0.05 each
-uv run boss fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
+uv run antstreet doctor --live      # checks this machine; two paid calls of at most $0.05 each
+uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
 ```
 
 After the PyPI release (not yet published), `uvx antstreet fund "..." --budget 0.40` will work
-without a clone. `boss fund` shows the term sheet and waits for your yes. Then `uv run boss report` reprints the
-board report, and `uv run boss resume` continues an interrupted run. Every command and option:
-[docs/CLI.md](docs/CLI.md). It also audits someone else's agent: `boss audit` seals checks before the
+without a clone. `antstreet fund` shows the term sheet and waits for your yes. Then `uv run antstreet report` reprints the
+board report, `uv run antstreet resume` continues an interrupted run, and `uv run antstreet routing` shows the model
+`--dispatch cascade` would start each kind of task on, from your past runs. Every command and option:
+[docs/CLI.md](docs/CLI.md). It also audits someone else's agent: `antstreet audit` seals checks before the
 agent starts and tests its commit afterwards.
 
 ## 🧭 Status and honest limits
@@ -141,11 +151,20 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 
 ## 🗺️ Roadmap (planned, not built)
 
-- Installing the Claude Code plugin: it is built and waits on the next two items
-  ([how it works](README-technical.md#use-it-from-claude-code))
-- Making the repository public
+Shipped since the last roadmap: the Claude Code plugin ([how it works](README-technical.md#use-it-from-claude-code)),
+a read-only MCP server (`antstreet mcp`), a GitHub Action that runs `antstreet audit check` on a pull
+request, and `antstreet verify`, an offline check of a run's ledger.
+
+Next:
+
 - A PyPI release, so `uvx antstreet` works (the name is chosen; nothing is published yet)
-- A GitHub Action that runs `boss audit check` on a pull request
+- `antstreet approve`: approve a term sheet from Claude Code without a terminal, with a plugin guard so
+  the agent can never approve its own work
+- Every ledger line signed, not only your approvals
+- An approve pane inside Claude Code, to cut the time the approve step takes
+- Audit any agent's branch in one command, and an `audit export` so the Action needs no manual step
+- Results of two pre-registered experiments: a fresh-context critic against self-review (E4), and
+  reliability across runs (E5)
 
 See [docs/BACKLOG.md](docs/BACKLOG.md).
 

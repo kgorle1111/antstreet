@@ -10,8 +10,8 @@ Every command also accepts `-h` and `--help`.
 
 ## `boss`
 
-`boss [--version] <command> ...` where the command is `fund`, `resume`, `topup`, `report`,
-`status`, `roles`, `doctor` or `audit` (which has three steps of its own: `audit plan`, `audit check`
+`boss [--version] <command> ...` where the command is `fund`, `approve`, `resume`, `topup`, `report`,
+`status`, `verify`, `roles`, `doctor`, `mcp` or `audit` (which has three steps of its own: `audit plan`, `audit check`
 and `audit report`).
 
 | Option | Default | Meaning |
@@ -40,8 +40,14 @@ Argument: `idea`, what to build, in plain words.
   called, ends the run with a message and exit 130: nothing was funded, what the calls so far cost
   is on the ledger, and there is nothing to resume. Ctrl-C at the approval question counts as
   reject.
+- With no terminal to ask on (standard input is not a TTY: Claude Code's Bash tool, a pipe, CI),
+  `fund` does not ask. It prints the term sheet, every check and the roles' notes, keeps the
+  paid-for draft unapproved, records the run's configuration (`started`) and a `stopped` event
+  with the reason `awaiting the investor's approval`, prints the one command that approves
+  exactly that text (`boss approve RUN --sheet VALUE`), and exits 4. No worker is hired. Before
+  this, end of input at the question was a rejection, after the draft was already paid for.
 - The dispatch options are checked before anything is spent (exit 2): `--max-tier` needs `--dispatch
-  rules`; with `--dispatch rules`, `--model` must be `haiku`, `sonnet` or `opus` (or a full id of
+  rules` or `cascade`; with either, `--model` must be `haiku`, `sonnet` or `opus` (or a full id of
   one), may not be above `--max-tier`, and `--reserve` may not be given (the reserve is per model).
   Under `--dispatch rules` the term sheet also shows `Route: one agent (one file, N checks)` when
   everything is built in one file, or `Route: firm (K tasks, files ...)`. On the one-agent route a
@@ -63,8 +69,8 @@ Argument: `idea`, what to build, in plain words.
 | `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
 | `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |
 | `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
-| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D43 to D45 in `docs/DECISIONS.md`. |
-| `--max-tier` | none | With `--dispatch rules`: the dearest model dispatch may use, `haiku`, `sonnet` or `opus`. Without it dispatch stays at `sonnet`. A sheet that names a dearer tier, in the first plan or in an edit, is refused before it can be approved and again before anyone is hired. |
+| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D43 to D45 in `docs/DECISIONS.md`. `cascade`: `rules` plus a ladder per task, `haiku`, `sonnet`, `opus`, then `opus` once more at one effort step higher (every rung but the last at effort `off`, the last at `default`), then you are asked. Each rung is climbed only after the gate fired the one before for no progress or a slice limit, and each gets the previous worker's findings in its brief. The tier a task starts on is chosen per task kind (files owned and checks, bucketed) as the one with the lowest expected cost, from the attempts recorded in this project's own earlier runs (`boss routing` shows how); below 5 attempts of a kind and tier a fixed prior is used and the table says `prior` instead of `measured, n=...`. The table shows each task's kind, where its start came from, the ladder after it, and a worst case that prices every rung. A task with no check is refused: the gate is the only verifier. See D46 in `docs/DECISIONS.md`. |
+| `--max-tier` | none | With `--dispatch rules` or `cascade`: the dearest model dispatch may use, `haiku`, `sonnet` or `opus`. Without it dispatch stays at `sonnet`. A sheet that names a dearer tier, in the first plan or in an edit, is refused before it can be approved and again before anyone is hired. |
 | `--spec` | off | The boss's checks must cite the rules of your idea, which code cuts out of your own sentences and numbers R01, R02, ...; each check names the 1 to 5 rules it tests, and the boss may list rules it leaves untested, with a reason. Before you approve you see the coverage, uncovered rules first, then claims a check cannot be testing (the check does not contain a non-ASCII string, the exception, the size or the type the rule names), then the boss's waivers; literals and list items are shown apart and not scored. The rule list is saved as `rules.json`, hashed in your approval, and a coverage summary is recorded in it. One task only (`--max-tasks 1`), not with the staged draft (`--roles system_designer,tester`). Refused before any spend when the idea has more than 40 numbered items or paragraphs, or no sentence stating a behaviour. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
 | `--max-slices` | `6` | Fire a worker after this many slices that count. |
@@ -80,8 +86,8 @@ Argument: `idea`, what to build, in plain words.
 What it asks you:
 
 - `[a]pprove, [r]eject, or [e]dit files and re-check?` after showing the term sheet. `edit` lets
-  you change `term_sheet.json` and the check files, then re-validates them. End of input counts as
-  reject.
+  you change `term_sheet.json` and the check files, then re-validates them. `y` or `yes` also
+  approves and `n` or `no` also rejects, as at every other question. End of input counts as reject.
 - `Round N: X/Y checks pass. Fund $Z more? [y]es / [n]o` before each round after the first. End
   of input counts as no.
 - With the critic on, after the build: `Add these N checks and fund a fix round of $X? [y]es / [n]o`,
@@ -112,6 +118,31 @@ When a disputed check or a blocked worker needs you, the run asks (`boss resume`
 - Anything else, or end of input, sets the task aside for the rest of the run. Your rulings are
   ledger events (`ruled`); the approved term sheet and checks are not edited.
 
+## `boss approve`
+
+`boss approve [--dir DIR] [--sheet VALUE] [RUN]`. Approves a term sheet that `boss fund` left
+waiting because it had no terminal to ask on. Spends nothing; `boss resume` then builds it.
+
+Argument: `run`, a run id. Default: the latest run in the folder.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder. |
+| `--sheet` | none | The 16-character value printed with the term sheet you read. Without it, `approve` prints the term sheet as it is on disk now, every check, the roles' notes and that value, and writes nothing. |
+
+- With `--sheet`, the term sheet and checks on disk are validated and rendered again, and the
+  approval is recorded only if that text is exactly the one the value names (its SHA-256, first 16
+  hex characters). A sheet, check, held-out check or rule list changed since it was shown, or a
+  mistyped value, is refused (exit 1) and nothing is written. Read it again with `boss approve
+  RUN` and approve what is there now.
+- The approval is the same signed `approved` event an approval at the question writes, plus
+  `shown_sha256`, the full hash of the text approved. `term_sheet.json` gets
+  `approved_by_investor: true`.
+- Refused with exit 1, writing nothing: no run found; a run `fund` did not leave waiting, or one
+  already approved; a damaged ledger; a ledger another process is writing.
+- It is your act, not an agent's. From Claude Code, type it yourself with the `!` prefix, and do
+  not grant it to the agent: an agent running as you can run any command you can.
+
 ## `boss resume`
 
 `boss resume [--dir DIR] [RUN]`. Continues a run from its ledger: one that was interrupted (exit
@@ -141,8 +172,9 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   `resume` of a finished run adds nothing.
 - On a run that already finished it changes nothing and prints the report.
 - Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; a damaged
-  ledger; the run never got as far as hiring (start again with `boss fund`); the term sheet or a
-  check no longer matches your approval.
+  ledger; the run never got as far as hiring (start again with `boss fund`); the run is still
+  awaiting your approval (`boss approve RUN`); the term sheet or a check no longer matches your
+  approval.
 - A ledger whose last line was cut by a hard kill is repaired first: the cut line is removed and
   `resume` prints it. A ledger damaged anywhere else is refused.
 - If another `boss` process is still writing the run's ledger, `resume` says so and exits 1.
@@ -216,6 +248,18 @@ Argument: `run`, as for `report`.
 |---|---|---|
 | `--dir` | `.` | Project folder. |
 
+## `boss verify`
+
+`boss verify [--dir DIR] [RUN]`. Checks a run's integrity and nothing else: the ledger's hash chain,
+the investor's signatures, and every saved worker prompt against the hash its `slice_start`
+recorded. Offline, no model call. Prints one line when everything holds, otherwise one line per
+problem. Argument: `run`, as for `report`; a run id that is not a folder under `.boss/runs/` is a
+usage error.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder. |
+
 ## `boss roles`
 
 `boss roles [--dir DIR]`. Prints the organisation as a tree: the investor, the boss, then the
@@ -228,6 +272,22 @@ skills, and whether it is on by default. Every specialist role is marked `off by
 | `--dir` | `.` | Accepted like the other commands. Not used: nothing is read from the project. |
 
 It reads the code only. It makes no model call, reads no run and writes nothing. Exit 0.
+
+## `boss routing`
+
+`boss routing [--dir DIR] [--max-tier TIER]`. Prints what `--dispatch cascade` would choose for this
+project: for each task kind and tier, the attempts recorded, the verified-fail rate and the mean
+cost per attempt, whether the chooser uses that data (`measured, n=...`) or the prior, and the start
+tier it picks per kind and why. A run counts only if the investor key vouches for its ledger, its
+term sheet and its checks match a signed approval; every other run is listed as left out, with the
+reason. Without a key, nothing is read.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder whose `.boss/runs` are read. |
+| `--max-tier` | `sonnet` | The top of the ladder to price: `haiku`, `sonnet` or `opus`. |
+
+It makes no model call and writes nothing. Exit 0.
 
 ## `boss doctor`
 
@@ -252,6 +312,23 @@ worker to write a file outside its own folder. It passes when the write was refu
 the file appears, when the worker did not start isolated, or when the call could not run. If the
 worker did not try the write, it passes with a warning (`inconclusive`) and the exit code stays 0:
 run `--live` again. The other checks make no paid call. The two costs are the CLI's estimates.
+
+## `boss mcp`
+
+`boss mcp [--dir DIR]`. Serves the project's runs read-only to an MCP client: one JSON-RPC 2.0
+message per line on stdin and stdout, until stdin closes (exit 0). It answers the `initialize`
+handshake (protocol 2025-11-25 and earlier) and `server/discover` (2026-07-28).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--dir` | `.` | Project folder whose `.boss/runs/` the tools read. No tool takes a path. |
+
+Tools: `list_runs`, `status`, `report`, `verify_ledger` and `doctor`. `status` and `report` run the
+commands above; `verify_ledger` checks the hash chain, the investor signatures, the anchor and the
+saved prompts; `doctor` never runs `--live`. None of them funds, resumes, tops up or approves, and
+none makes a model call. A `run` argument must be one word of letters, digits, `.`, `_` or `-`
+starting with a letter or digit, and one of the project's runs. A tool result is cut at 60,000
+characters, and a request line over 1,048,576 characters is refused.
 
 ## `boss audit plan`
 
@@ -375,10 +452,11 @@ Argument: `run`, an audit run id. Default: the latest.
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `topup`, `report`, `status`, `roles`, `doctor`: success. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, or the approval no longer matches. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
-| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
+| `0` | `fund`, `resume`: every check passed. `approve`: the term sheet was shown, or approved. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, a run still awaiting approval, or the approval no longer matches. `approve`: no run waiting for an approval, a sheet changed since it was shown, or a damaged or busy ledger. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
+| `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `verify`: no runs, or a run id that does not exist. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
 | `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
+| `4` | `fund`: there was no terminal to ask on, so the drafted term sheet waits for `boss approve`. Nothing was funded. |
 | `130` | `fund`, `resume`, `audit plan`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 
 A ledger with a damaged line makes `report` and `status` fail with an error that names the file
@@ -409,9 +487,17 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 | `--jobs` | `2` | Cells to run at once. |
 | `--dry-run` | off | Print the cells and the task set hash, then exit. |
 
+Before any cell it runs `claude auth status` (no model call) with the environment a worker gets,
+and refuses to start when the CLI is not logged in or the login cannot be read; with
+`ANTHROPIC_API_KEY` set it does not check. That check cannot see a login whose refresh will fail,
+so the run also stops once 3 cells in a row end in the same infrastructure failure (`login`,
+`usage_limit`, `api_error`, ...), and says which cells were not started. Those 3 cells are saved;
+move their folders aside before running again, since a saved cell is never run again.
+
 Exit codes: `0` after the cells ran (whether or not they passed); `1` when no task matches
-`--only`; `2` for a usage error. A task that fails validation stops the run with an error before
-any cell starts.
+`--only`, when the login check refuses, or when the run stopped on an infrastructure failure;
+`2` for a usage error. A task that fails validation stops the run with an error before any cell
+starts.
 
 ## `python -m boss.bench.drafts`
 
@@ -464,13 +550,14 @@ Arguments: `dir_a` and `dir_b`, results folders written by `run` (they may be th
 |---|---|---|
 | `--arm-a` | `firm` | The arm taken from `DIR_A`: `single`, `firm` or `single-review`. |
 | `--arm-b` | `single` | The arm taken from `DIR_B`. The difference is A minus B. |
-| `--kpi` | `delivery` | `delivery`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`. |
+| `--kpi` | `delivery` | `delivery`, `pass_all`, `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`, and `pass_all` the same number of counted runs of every task on both sides. |
 | `--resamples` | `10000` | Task resamples for the interval. |
 | `--seed` | `0` | Seed of the resampling; the same seed gives the same interval. |
 
 Exit codes: `0`; `1` when a folder holds no results for its arm, the two sides ran different task
-sets, no task is on both sides, or a result file is invalid; `2` for a usage error. A different
-model or budget between the sides prints a warning and still runs.
+sets, no task is on both sides, `pass_all` finds tasks with different numbers of counted runs, or a
+result file is invalid; `2` for a usage error. A different model or budget between the sides prints
+a warning and still runs.
 
 ## `python -m boss.bench.kpi`
 

@@ -204,16 +204,18 @@ the same tasks. `python -m boss.bench.paired DIR_A DIR_B` compares two arms task
 - A task is compared when both sides have at least one counted run of it. Infrastructure failures
   are excluded and counted, as in the table.
 - Per task and arm, one value: `delivery` is the share of the task's runs that passed every hidden
-  check; `time` the median duration of its runs; `cost_per_delivery` the mean cost of its runs
+  check; `pass_all` is 1 when every one of them did and 0 otherwise (KPI 5, pass^k, per task); `time` the median duration of its runs; `cost_per_delivery` the mean cost of its runs
   (all of them, delivered or not: a task that delivered nothing has no cost per delivery, and
   dropping it would favour the arm that fails more); `false_pass` the share of its runs that passed
   every visible check and failed a hidden one (firm arms only).
 - The difference A minus B is taken per task. The report gives the number of tasks, the mean
   difference and a 95% percentile interval from 10,000 resamples of tasks with replacement, with a
   fixed seed so the same results give the same interval.
-- The verdict is `shown` when the interval excludes 0 in A's favour (above 0 for `delivery`, below
-  0 for `false_pass`, cost and time), otherwise `not shown`. With one task it is always
+- The verdict is `shown` when the interval excludes 0 in A's favour (above 0 for `delivery` and
+  `pass_all`, below 0 for `false_pass`, cost and time), otherwise `not shown`. With one task it is always
   `not shown`: every resample is the same task.
+- `pass_all` is refused unless every compared task has the same number of counted runs on both
+  sides: pass^4 is easier to meet than pass^5, so an infrastructure cell is rerun (B71), not dropped.
 - Results that ran different task sets are refused. A different model or budget between the sides
   prints a warning, since the difference would then not be the arm's.
 - Limit: a percentile bootstrap over few tasks is too narrow. Nothing is enforced beyond two tasks,
@@ -258,7 +260,7 @@ Only the boss's drafting call costs money; no worker runs.
 
 ## Dispatch arms (E6)
 
-E6 in [PREREG.md](PREREG.md) compares three firm arms at the same per-cell budget, through the
+E6 in [PREREG.md](PREREG.md) compares four firm arms at the same per-cell budget, through the
 runner's own options and `--firm-args`, so the bench code is unchanged and each result records its
 arm in `firm_args`:
 
@@ -266,22 +268,50 @@ arm in `firm_args`:
 uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-haiku --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku
 uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-sonnet --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet
 uv run python -m boss.bench.run --out bench/results/raw/e6-dispatch --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier sonnet"
+uv run python -m boss.bench.run --out bench/results/raw/e6-cascade --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch cascade --max-tier opus"
 ```
 
-The eight multi-file tasks (`bench/tasks-multi`) take the same three arms with the firm run at three
+The eight multi-file tasks (`bench/tasks-multi`) take the same four arms with the firm run at three
 tasks, three at once, same $0.80 budget and 3 reps:
 
 ```bash
 uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-haiku --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3"
 uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-sonnet --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet --firm-args "--max-tasks 3 --parallel 3"
 uv run python -m boss.bench.run --out bench/results/raw/e6-multi-dispatch --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch rules --max-tier sonnet"
+uv run python -m boss.bench.run --out bench/results/raw/e6-multi-cascade --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch cascade --max-tier opus"
 ```
+
+the gate's `fired` verdict, `slice_end.cost_micros` and `slice_end.model_id`; `boss routing` run
+over a project that holds those runs prints the fail rate and mean cost per task kind and tier. Cells
+do not share a project, so the arm's starts are all the prior.
 
 A dispatch cell's ledger holds what to count: a `hired` event whose `dispatch` has `from_tier` is
 an escalation fired, one with `refused` is a step the round could not fund, and a fired task whose
 product later passes is rescued. No command counts them yet (B93): read them from the ledgers.
 A cell whose run stopped for a wrong model (T69) is reported apart, not counted as a failure of
 the arm; no command separates it yet (B93). The model each worker ran is `slice_end.model_id`.
+
+## Reliability arms (E5)
+
+E5 in [PREREG.md](PREREG.md) runs the firm and the single agent on the 35 tasks of
+`2026-10-03-blind35`, 5 runs each, with the same $0.40 cell budget and the firm's `--slice 0.20`
+of that run. Each arm has its own folder:
+
+```bash
+TASKS=(bigdecimal calc csvline duration intervals jsonpointer justify linediff lrucache matrixops
+       roman semver slugify tokenbucket toposort wildcard workdays
+       bytesize cronnext dedentblock exprtokens fracmath iniparse isoweek luhn mdheadings minheap
+       moneysplit prefixtrie rangesum ringbuffer shortestpath unionfind urlquery wordwrap)
+COMMON=(--reps 5 --budget 0.40 --model haiku --boss-model haiku --only "${TASKS[@]}")
+uv run python -m boss.bench.run --out bench/results/raw/e5-firm --arms firm --firm-args "--slice 0.20" "${COMMON[@]}"
+uv run python -m boss.bench.run --out bench/results/raw/e5-single --arms single "${COMMON[@]}"
+uv run python -m boss.bench.paired bench/results/raw/e5-firm bench/results/raw/e5-single --kpi pass_all
+uv run python -m boss.bench.kpi bench/results/raw/e5-firm bench/results/raw/e5-single
+```
+
+Adding `--dry-run` to the two run commands lists 175 cells each. An infrastructure cell is moved
+aside and rerun (B71) until each task has 5 counted runs per arm: `--kpi pass_all` refuses a task
+whose two sides ran a different number of times.
 
 ## Reproducing
 

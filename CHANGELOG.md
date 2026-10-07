@@ -10,6 +10,10 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss approve RUN [--sheet V]`: approves a term sheet `boss fund` left waiting, only if it is
+  exactly the text shown with that value; the signed `approved` event adds `shown_sha256`.
+- `boss verify [RUN]`: an offline check of a run's hash chain, signatures and saved prompts, with no model call. Exit 0 when it all verifies, 1 with one line per problem, 2 for no such run.
+- `boss mcp`: a read-only MCP server on stdio for any MCP client (`list_runs`, `status`, `report`, `verify_ledger`, `doctor` without `--live`); no tool can spend or approve.
 - A Claude Code plugin in the repository (`/antstreet:fund`, `/antstreet:report`,
   `/antstreet:status`), installable once the repository is public and `antstreet` is on PyPI.
 - `/antstreet:fund` drafts the term sheet and stops; you approve it yourself with
@@ -21,6 +25,13 @@ what changed for someone using the tool, not which commit did it.
 - `boss audit report [RUN | --all] [--agent L]`: verdicts, and the false-pass rate with a Wilson interval per agent and claim mode. Pre-registered and post-hoc results are never added together; the rate is a floor.
 - Ledger: the `audited` event, signed with the project's key like an investor's event, and `purpose` `audit_checks` on `boss_call`.
 - Security: threats T51 to T54 (the audit store read by the agent, checks fitted to the change, a leak in the diff, a forged seal).
+- `boss fund --dispatch cascade` (off by default): each task climbs haiku, sonnet, opus, then opus at
+  more effort, one rung per verified failure, with the findings handed on, then asks you.
+- The cascade starts each task on the tier with the lowest expected cost for its kind, from this
+  project's own past runs, or a stated prior below 5 attempts; the table prints it and a worst case.
+- `boss routing` prints the attempts, fail rate and mean cost behind that choice and names any run
+  the investor key does not vouch for, which is left out (D46, T70, T71).
+- E6 in `bench/PREREG.md` gains a fourth arm, `cascade`.
 - `boss fund --dispatch rules [--max-tier T]` (off by default): the term sheet shows a route (one
   agent for a one-file idea, else the firm) and a table of each task's model, effort and step-up.
 - Under dispatch you can edit the route and each task's model before approving; the approval
@@ -192,6 +203,14 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- Ctrl-C during a slice could end in `RuntimeError: release unlocked lock` and a traceback instead of `continue with boss resume`: the interrupt was raised inside a lock wait. It now stops the worker first and is raised afterwards, where no lock is held.
+- A login whose refresh fails (Claude Code 2.1.292: no retry, no HTTP status) is `login`, not `api_error`: the run stops, and `boss fund` says to run `claude auth login`.
+- `python -m boss.bench.run` checks `claude auth status` before any cell, and stops after 3 cells in a row end in the same infrastructure failure instead of running every cell.
+- Docs no longer call the benchmark's hidden checks, mutants and labels "hand-written": Claude wrote them, apart from the agents measured. The 29 false passes are now "read and judged real errors", one class debatable.
+- The term sheet question takes `y`/`yes` and `n`/`no` like every other question; `y` was
+  "Unrecognised answer" and asked again.
+- `boss fund` with no terminal to ask on (Claude Code, a pipe) no longer reads end of input as a
+  rejection of a paid-for draft: it keeps it waiting for `boss approve` and exits 4.
 - `python -m boss.bench.run` refuses a saved cell that ran with another task set, model, budget
   or firm options, instead of counting it as this run's. Two arms of one name (the firm with and
   without `--roles critic`) each need their own results folder.

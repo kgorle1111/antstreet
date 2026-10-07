@@ -93,6 +93,16 @@ Added 2026-10-04, before any E6 run.
   sonnet"`). The single Haiku arm of the blind 35-task run is a reference row only. Sets:
   `bench/tasks` (35 tasks, 3 runs) and `bench/tasks-multi` (8 tasks, 3 runs, `--max-tasks 3
   --parallel 3`, which the dispatch arm adds `--dispatch rules` to).
+- **Fourth arm, `cascade`** (added 2026-10-04, before any E6 run). The same code, prompts, sets and
+  per-cell budget, with `--firm-args "--dispatch cascade --max-tier opus"`: Haiku first, then Sonnet,
+  then Opus, then Opus at one effort step higher, one rung per task per verified failure (D46). It is
+  compared on the primary KPI below (cost per assigned cell) against `fixed-haiku`, `fixed-sonnet` and `dispatch` (v1) at
+  $0.80 a cell, by the same paired bootstrap. Adopt only if it wins at equal delivery: its interval
+  below zero against all three, and the delivery guard below met against each. Each benchmark cell
+  is its own project, so no cell has a history and every start is the prior (Haiku); this arm
+  tests the ladder, not the data-driven start (B105). At $0.80 an Opus rung is funded only if the
+  earlier rungs left $0.55 free in the round; rungs refused for money are reported apart (`hired`
+  with no worker after a `fired`, `abandoned` reason `cascade: ...`) and count as a failure of the arm.
 - **Primary KPI.** Cost per assigned cell (each cell's total cost, boss call included, delivered
   or not), paired by task (a task's mean over its runs) with a 10,000-resample bootstrap of tasks:
   `python -m boss.bench.paired --kpi cost_per_delivery`. With the delivery guard met, a lower cost
@@ -129,4 +139,36 @@ equal compute in the literature. They stay off by default and are not claimed to
   same instruction (`solo_v2`, `builder_v4`); `bench/results/2026-10-03-blind35/` is the baseline
   every experiment here compares against.
 - 2026-10-04: added E6 (per-task dispatch), before any run of it.
+- 2026-10-04: added E6's fourth arm, `cascade`, before any run of it.
 - 2026-10-05: E6's decision rule uses the paired cost per assigned cell, the interval the code computes; the pooled cost per delivered task is reported beside it. No E6 run had happened.
+- 2026-10-05: the `cascade` arm is compared on the primary KPI (cost per assigned cell), as every arm
+  is since that day's rule change. No E6 run had happened.
+- 2026-10-05, before any E4 run: E4 runs blind35's 35 tasks x 3 reps, Haiku boss and workers, all
+  three arms fresh, each in its own `--out`. Firm arms: `--budget 0.40 --firm-args "--slice 0.20"`,
+  the critic arm adding `--roles critic --fix-budget 0.30`. Self-review: `--arms single-review
+  --budget 0.40` (slice caps $0.24 + $0.08). Worst-case spend per cell: self-review $0.32, firm $0.65
+  (rounds $0.40 + the boss draft cap $0.25), firm with critic $1.10 (plus the critic cap $0.15 and the
+  fix round $0.30). The same budget for every arm cannot be set: the boss and critic caps alone are
+  $0.40, and every round keeps a $0.10 reserve, so a $0.40 firm-with-critic cell would leave its
+  workers about $0.06. Cost per cell is reported beside delivery under the fair-baselines rule, so a
+  win bought by spending more counts as a cost. The decision rule (firm with critic against
+  self-review, paired delivery) is unchanged; firm with critic against firm is reported beside it.
+- 2026-10-05, before any E5 run: E5's arms, sample and test are fixed. "Single at the firm's mean
+  dollar spend" cannot be forced: the single agent stops on its own. In `blind35` its 105 cells cost
+  $0.0883 on average and $0.1879 at most, none capped, under a cap of $0.32 (`SLICE_SHARE` 0.8 of a
+  $0.40 cell). The cap equal to the firm's mean spend ($0.2149, `--budget 0.268625`) is above every
+  one of those cells too, so it would change nothing but the label. So E5 gives both arms the same
+  cell budget, $0.40 (the fair-baselines rule; the single cap of $0.32 is above the firm's mean
+  spend), and reports each arm's actual mean spend beside the result. Tasks: the 35 `blind35` tasks,
+  so each has 3 earlier runs per arm at the same settings; the 24 others have none. 5 runs per task
+  and arm, Haiku boss and workers, firm `--slice 0.20` as in `blind35`; commands in
+  [METHOD.md](METHOD.md), "Reliability arms (E5)". Infrastructure cells are moved aside and rerun
+  until every task has 5 counted runs per arm (B71); `paired --kpi pass_all` refuses a task whose
+  runs differ in number. Primary KPI: `python -m boss.bench.paired bench/results/raw/e5-firm
+  bench/results/raw/e5-single --kpi pass_all`, task resamples 10,000, seed 0. Decision: "shown"
+  only when the 95% interval of firm minus single pass^5 lies above 0; otherwise "not shown",
+  whatever the point estimate. In `blind35` only 6 of 35 tasks were delivered on every run by one
+  arm and not the other, so the smallest gain this can show is 4 tasks gained with none lost
+  (+0.11); with 1 lost it takes 7, with 2 lost 9. Reported, not decided on:
+  `python -m boss.bench.kpi` on both folders, and `paired` with `--kpi delivery` and
+  `cost_per_delivery`.

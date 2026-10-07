@@ -192,14 +192,16 @@ Example, a critic's call written by a run with every role:
 - Round: 0
 - Written once, before the first round, holding the configuration the run was started with.
   `run_firm` writes it. When roles were chosen `pipeline.py` writes it first (`record_start`) with
-  the same `config` and adds `roles`, and `run_firm` then writes none. `boss resume` reads it back,
-  so a run continues with its own settings and roles, not the defaults. A run without this event
-  never hired anyone and cannot be resumed.
+  the same `config` and adds `roles`, and `run_firm` then writes none. `boss fund` with no terminal
+  to ask on writes it too, before approval, with `roles` always (its `names` may be empty), and a
+  `stopped` event after it: that run is awaiting `boss approve`, and `boss resume` refuses it until
+  an `approved` event exists. `boss resume` reads it back, so a run continues with its own settings
+  and roles, not the defaults. A run without this event never hired anyone and cannot be resumed.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
-| `roles` | object | The roles the investor chose; only when `--roles` named some. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
+| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `boss approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
 
 Config keys:
 
@@ -221,6 +223,7 @@ Config keys:
 | `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. Set by `boss fund --worker-thinking N`. A run started before the key existed loads with `null`. |
 | `dispatch` | bool | `true` when the run uses `--dispatch rules`. Written only then; a run without it has neither this key nor `max_tier`. |
 | `max_tier` | str | The dearest tier dispatch may use (`--max-tier`, default `sonnet`). Written only with `dispatch`. |
+| `cascade` | bool | `true` when the run uses `--dispatch cascade` (then `dispatch` is `true` too). Written only then; a run without it has no such key. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
@@ -272,16 +275,16 @@ Example:
 | `model` | str | The worker model: the run's `--model`, or, under `--dispatch rules`, the tier the term sheet gave this worker (a step up included). A resume runs the worker on this one, not on the config's. |
 | `prompt` | str | The builder prompt file the worker runs under. |
 | `profile` | str or null | The worker profile in force (`started`'s `config.profile`, or the task's `dispatch.profile`); `null` for none. |
-| `dispatch` | object | Why this worker is on this model. Only under `--dispatch rules`. Keys below. |
+| `dispatch` | object | Why this worker is on this model. Only under `--dispatch rules` or `cascade`. Keys below. |
 
 Dispatch keys:
 
 | Key | Type | Meaning |
 |---|---|---|
 | `tier` | str | `haiku`, `sonnet` or `opus`; the same as `model`. |
-| `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). |
+| `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). Under the cascade, `off` on every rung but the last, which is `default`. |
 | `why` | str | `term sheet` for a task's first worker; for a replacement, `predecessor fired: ` and the gate's reason (`no progress` or `slice limit`) and its stalled slices. |
-| `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier. |
+| `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier (under the cascade: the last rung, one effort step higher). |
 | `refused` | str | Why the step the task allowed was not taken (the round could not fund the next tier, or stepping up is off for the task). Only on a replacement. |
 
 Example:
@@ -601,7 +604,8 @@ Example:
 
 - Actor: `investor`
 - Three forms, all by the investor:
-  - Round 0, by `approval.py` when the investor approves the term sheet. Carries `hashes`,
+  - Round 0, by `approval.py` when the investor approves the term sheet, at the question or with
+    `boss approve` (which adds `shown_sha256`). Carries `hashes`,
     `held_out_hashes` when the run has held-out checks, `route` when the run uses
     `--dispatch rules`, `rules.json` among its `hashes` and a `spec` coverage summary (rule and
     anchor counts, the uncovered and waived rule ids, the digest of the rule list) when the run
@@ -637,6 +641,7 @@ Example:
 |---|---|---|
 | `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file, and `rules.json` for a run started with `--spec`. Present in the first form, and in an amendment. |
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
+| `shown_sha256` | str | SHA-256 hex of the exact text the investor approved: the rule coverage (with `--spec`), the term sheet, every check and held-out check, as `boss approve` rendered it. Only on an approval made with `boss approve --sheet`, whose value is its first 16 characters. |
 | `route` | str | `one_agent` or `firm`: the route the investor approved (`dispatch.route_of` chose it from the sheet, or the investor edited it). Only in the first form, and only when the run uses `--dispatch rules`. The term sheet carries it too, and `hashes` covers that. |
 | `spec` | object | Only with `--spec`, in the first form: `rules_sha256` (digest of the rule list), `rules` (scored rules), `anchored`, `unanchored`, `anchor_missing`, `unscored_missing` (counts), `uncovered` and `waived` (rule ids) and `waived_reasons` (id to the boss's one-line reason). Inside the signed data. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
@@ -725,6 +730,10 @@ Example:
 - Written when the run ends on purpose. A stop holds until a `resumed` event; a later stop holds
   again. Writers:
   - `boss`, by `cli.py`: the boss's call failed or its draft was invalid (round 0).
+  - `boss`, by `cli.py`: `boss fund` had no terminal to ask on, so the drafted term sheet waits
+    for `boss approve` (round 0, reason `awaiting the investor's approval`, with `untested` and
+    `notes`). `boss resume` refuses the run until the investor's `approved` event exists, then
+    lifts this stop like any other.
   - `investor`, by `approval.py`: the term sheet was rejected (round 0).
   - `investor`, by `firm.py`: a later round was not funded.
   - `rule`, by `firm.py`: a hard run limit was reached, or the term sheet or a check no longer
@@ -737,6 +746,8 @@ Example:
 |---|---|---|
 | `reason` | str | Why the run stopped. |
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
+| `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `boss approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
+| `notes` | list | The roles' notes on the draft, shown under the term sheet by `boss approve`. They bind nothing. Only on a stop awaiting approval. |
 | `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Examples:

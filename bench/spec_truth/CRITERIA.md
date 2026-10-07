@@ -15,9 +15,9 @@ No model call is made. Nothing here is a paid run.
   staged drafts, not the 18 later tasks (no labels yet).
 - **Flagged rule** (union form, because old drafts carry no claims): a scored rule that has at least
   one anchor, where at least one anchor appears in no check of the draft.
-- **Labels**: `bench/spec_truth/<task>.json` maps each hidden check to the rules it tests, by hand.
+- **Labels**: `bench/spec_truth/<task>.json` maps each hidden check to the rules it tests (written by Claude, not a human).
   A mutant's violated rules are the rules of the hidden checks that fail on it.
-- **Mutants**: the hand-written ones only. Mutants harvested from earlier runs (names starting
+- **Mutants**: the ones written for the tasks only (by Claude). Mutants harvested from earlier runs (names starting
   `pilot`, `rerun`, `final`, `heldout`) were built against these drafts and are excluded.
 - **Known omissions**: the 15 `final3` firm cells with a failing hidden check, except `wildcard`
   rep 1 (class b in `2026-10-02-why-the-firm-loses`, a wrong boss check).

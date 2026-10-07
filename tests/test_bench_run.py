@@ -37,13 +37,23 @@ INIT = {
 FAKE_CLAUDE = f"""#!{sys.executable}
 import json, os, sys
 home, argv = os.environ["HOME"], sys.argv[1:]
+if argv == ["auth", "status"]:
+    print(json.dumps({{"loggedIn": not os.path.exists(os.path.join(home, "logged_out"))}}))
+    sys.exit(0)
 with open(os.path.join(home, "argv.log"), "a") as log:
     log.write(json.dumps(argv) + "\\n")
+with open(os.path.join(home, "env.log"), "a") as log:
+    log.write(json.dumps(sorted(os.environ)) + "\\n")
 say = lambda e: print(json.dumps(e), flush=True)
 result = {{"type": "result", "subtype": "success", "is_error": False,
           "terminal_reason": "completed", "session_id": "s-1",
           "modelUsage": {{"m": {{"inputTokens": 10, "outputTokens": 5}}}}}}
-if os.path.exists(os.path.join(home, "login_broken")):
+if os.path.exists(os.path.join(home, "refresh_failed")):  # CLI 2.1.292: no retry, no status
+    say({{"type": "assistant", "error": "authentication_failed", "is_api_error_message": True,
+         "message": {{"content": [{{"type": "text", "text": "Failed to authenticate"}}]}}}})
+    say(result | {{"is_error": True, "terminal_reason": "api_error", "api_error_status": None,
+                  "total_cost_usd": 0, "modelUsage": {{}}}})
+elif os.path.exists(os.path.join(home, "login_broken")):
     say(result | {{"is_error": True, "api_error_status": 401, "terminal_reason": "api_error",
                   "total_cost_usd": 0, "modelUsage": {{}}}})
 elif argv[argv.index("--tools") + 1] == "":
@@ -264,6 +274,67 @@ def test_command_line_runs_every_cell_and_saves_results(bench, capsys):
     ]
     assert results[0].set_hash == task_set_hash(load_tasks(TASK.root.parent))
     assert "2/2 cells passed every hidden check" in capsys.readouterr().out
+
+
+# Set by a Claude Code session in every process it starts (CLI 2.1.292, desktop app).
+SESSION_VARS = {
+    "CLAUDECODE": "1",
+    "CLAUDE_CODE_ENTRYPOINT": "claude-desktop",
+    "CLAUDE_CODE_SESSION_ID": "s",
+    "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH": "1",
+    "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/x.sock",
+    "CLAUDE_AGENT_SDK_VERSION": "0",
+    "CLAUDE_PID": "1",
+    "CLAUDE_EFFORT": "high",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:1",
+}
+
+
+def test_no_claude_process_sees_the_parent_claude_code_session(bench):
+    # Run from inside Claude Code, a child that inherits these talks to the parent's session.
+    bench.environ.update(SESSION_VARS)
+    bench("single")
+    bench("firm")
+    seen = [set(json.loads(line)) for line in (bench.home / "env.log").read_text().splitlines()]
+    assert len(seen) == 3  # the single worker, the boss call, the firm's worker
+    for names in seen:
+        assert not names & set(SESSION_VARS)
+
+
+def _cli(bench, *extra):
+    (bench.home / "product.py").write_text(REFERENCE)
+    argv = ["--tasks", str(TASK.root.parent), "--out", str(bench.results), "--budget", "0.40"]
+    return main([*argv, "--only", "slugify", *extra], environ=bench.environ)
+
+
+def test_a_run_is_refused_before_any_cell_when_the_cli_is_not_logged_in(bench, capsys):
+    (bench.home / "logged_out").write_text("")
+    assert _cli(bench) == 1
+    err = capsys.readouterr().err
+    assert "refused before any cell" in err and "claude auth login" in err
+    assert not (bench.home / "argv.log").exists() and not bench.results.exists()
+
+
+def test_a_login_that_cannot_be_checked_is_refused_too(bench, capsys):
+    bench.environ["BOSS_CLAUDE_BIN"] = str(bench.home / "missing")
+    assert _cli(bench) == 1
+    assert "the login could not be checked" in capsys.readouterr().err
+
+
+def test_a_run_stops_after_three_cells_in_a_row_fail_the_same_infrastructure_way(bench, capsys):
+    (bench.home / "refresh_failed").write_text("")
+    assert _cli(bench, "--arms", "single", "--reps", "6", "--jobs", "1") == 1
+    assert len(bench.calls()) == 3  # cells 4 to 6 never launched a process
+    assert [r.outcome for r in load_results(bench.results)] == ["login"] * 3
+    err = capsys.readouterr().err
+    assert "3 cells in a row ended as login" in err and "3 cells were not started" in err
+    assert "claude auth login" in err
+
+
+def test_the_boss_and_workers_count_toward_the_same_streak(bench, capsys):
+    (bench.home / "refresh_failed").write_text("")
+    assert _cli(bench, "--reps", "3", "--jobs", "1") == 1  # firm and single cells interleave
+    assert len(load_results(bench.results)) == 3
 
 
 def test_unknown_task_selection_fails(bench, capsys):

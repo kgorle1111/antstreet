@@ -27,6 +27,8 @@ LEVEL = 0.95
 # Per-task value of each KPI, from that task's counted runs of one arm.
 _KPIS: dict[str, Callable[[Sequence[CellResult]], float]] = {
     "delivery": lambda rs: sum(r.passed for r in rs) / len(rs),
+    # pass^k: 1 when every counted run delivered. Comparable only at one k, which compare enforces.
+    "pass_all": lambda rs: float(all(r.passed for r in rs)),
     "false_pass": lambda rs: sum(_visible_pass(r) and not r.passed for r in rs) / len(rs),
     # The mean cost of all the task's runs, delivered or not: a task's cost per delivery is
     # undefined when it delivered nothing, and dropping those tasks would favour the arm that fails.
@@ -34,7 +36,7 @@ _KPIS: dict[str, Callable[[Sequence[CellResult]], float]] = {
     "time": lambda rs: statistics.median(r.duration_s for r in rs),
 }
 KPIS = tuple(_KPIS)
-HIGHER_IS_BETTER = {"delivery"}
+HIGHER_IS_BETTER = {"delivery", "pass_all"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +56,8 @@ class Paired:
 
     @property
     def shown(self) -> bool:
-        """The interval excludes 0 in A's favour: above it for delivery, below it otherwise."""
+        """The interval excludes 0 in A's favour: above it for delivery and pass_all, below it
+        otherwise."""
         if self.tasks < MIN_TASKS:
             return False
         return self.low > 0 if self.kpi in HIGHER_IS_BETTER else self.high < 0
@@ -110,6 +113,8 @@ def compare(
     both = sorted(values_a.keys() & values_b.keys())
     if not both:
         raise ValueError("no task has a counted run on both sides")
+    if kpi == "pass_all":
+        _same_runs(_counted(mine_a), _counted(mine_b), both)
     diffs = [values_a[t] - values_b[t] for t in both]
     low, high = bootstrap_interval(diffs, resamples, seed)
     all_tasks = {c.task for c in (*mine_a, *mine_b)}
@@ -129,6 +134,19 @@ def compare(
     )
 
 
+def _same_runs(
+    counted_a: Sequence[CellResult], counted_b: Sequence[CellResult], tasks: Sequence[str]
+) -> None:
+    """pass^k with a smaller k is easier to meet, so every compared task needs the same number of
+    counted runs on both sides."""
+    ks = {sum(c.task == t for c in side) for side in (counted_a, counted_b) for t in tasks}
+    if len(ks) > 1:
+        raise ValueError(
+            f"pass_all needs the same number of counted runs of every task on both sides, got "
+            f"{sorted(ks)}; rerun the infrastructure cells"
+        )
+
+
 def _mixed(cells_a: Sequence[CellResult], cells_b: Sequence[CellResult]) -> list[str]:
     return [
         f"{field} differs between the sides"
@@ -138,7 +156,13 @@ def _mixed(cells_a: Sequence[CellResult], cells_b: Sequence[CellResult]) -> list
 
 
 def render(p: Paired) -> str:
-    unit = {"delivery": "share", "false_pass": "share", "cost_per_delivery": "$", "time": "s"}
+    unit = {
+        "delivery": "share",
+        "pass_all": "share",
+        "false_pass": "share",
+        "cost_per_delivery": "$",
+        "time": "s",
+    }
     places = 4 if p.kpi != "time" else 1
 
     def num(x: float) -> str:

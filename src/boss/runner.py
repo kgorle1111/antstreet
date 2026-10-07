@@ -10,7 +10,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, cast
@@ -71,7 +71,8 @@ def run_slice(
     max_log_bytes: int = DEFAULT_MAX_LOG_BYTES,
 ) -> SliceRun:
     """Run one slice to completion, timeout or refusal. Setting `stop` from another thread ends
-    it the way a timeout does: the worker is interrupted and its final result still read.
+    it the way a timeout does: the worker is interrupted and its final result still read. Ctrl-C
+    on the main thread sets `stop` too, and raises KeyboardInterrupt once the worker is stopped.
 
     Raises IsolationError (after stopping the process) if the worker did not start isolated.
     """
@@ -83,54 +84,96 @@ def run_slice(
     secrets = [*known_secrets, *(v for k, v in env.items() if k == "ANTHROPIC_API_KEY")]
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    reader = StreamReader()
-    stderr_tail: collections.deque[str] = collections.deque(maxlen=STDERR_TAIL_LINES)
-    lines: queue.Queue[object] = queue.Queue()
-    start = time.monotonic()
-    proc = subprocess.Popen(
-        argv,
-        cwd=workspace,
-        env=dict(env),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        errors="replace",
-        start_new_session=True,
-    )
-    threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
-    drain = threading.Thread(target=_drain, args=(proc.stderr, stderr_tail), daemon=True)
-    drain.start()
+    stop = stop if stop is not None else threading.Event()
+    with deferred_sigint(stop):
+        reader = StreamReader()
+        stderr_tail: collections.deque[str] = collections.deque(maxlen=STDERR_TAIL_LINES)
+        lines: queue.Queue[object] = queue.Queue()
+        start = time.monotonic()
+        proc = subprocess.Popen(
+            argv,
+            cwd=workspace,
+            env=dict(env),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+            start_new_session=True,
+        )
+        threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
+        drain = threading.Thread(target=_drain, args=(proc.stderr, stderr_tail), daemon=True)
+        drain.start()
 
-    timed_out = False
+        timed_out = False
+        try:
+            with log_path.open("a", encoding="utf-8") as log:
+                timed_out = _consume(
+                    proc,
+                    lines,
+                    reader,
+                    log,
+                    secrets,
+                    start + timeout_s,
+                    grace_s,
+                    stop,
+                    max_log_bytes,
+                )
+            if not timed_out:
+                with contextlib.suppress(subprocess.TimeoutExpired):  # finally stops it if needed
+                    proc.wait(timeout=grace_s)
+        finally:
+            if proc.poll() is None:
+                _stop(proc, grace_s)
+            _kill_group(proc.pid)  # reap anything the worker left behind in its process group
+
+        drain.join(timeout=grace_s)  # the outcome may rest on the last stderr line
+        stderr_text = redact("".join(stderr_tail), secrets)
+        return SliceRun(
+            outcome=classify(reader.signals(timed_out=timed_out, stderr_tail=stderr_text)),
+            usage=reader.usage(),
+            status=reader.status,
+            session_id=reader.session_id,
+            exit_code=proc.returncode,
+            duration_s=time.monotonic() - start,
+            log_path=log_path,
+            denials=reader.denials,
+            rate_limit=reader.rate_limit,
+            stderr_tail=stderr_text,
+            model_id=model_id_of(reader.init),
+        )
+
+
+@contextlib.contextmanager
+def deferred_sigint(stop: threading.Event) -> Iterator[None]:
+    """Ctrl-C inside the block sets `stop`; KeyboardInterrupt is raised when the block ends.
+
+    Python raises KeyboardInterrupt between any two bytecodes of the main thread, even inside
+    threading.Condition.wait (queue.get, concurrent.futures.wait). There it can release a lock
+    twice ("RuntimeError: release unlocked lock") or leave one held, so Ctrl-C ends in a traceback
+    or a hang instead of `boss resume`. Here it is raised where no lock is held, after the workers
+    were stopped the way a timeout stops them. Only the main thread can set a handler, and a
+    handler other than Python's default (someone else's, or SIGINT ignored) is left alone.
+    """
+    if (
+        threading.current_thread() is not threading.main_thread()
+        or signal.getsignal(signal.SIGINT) is not signal.default_int_handler
+    ):
+        yield
+        return
+    pressed = threading.Event()
+
+    def on_sigint(signum: int, frame: object) -> None:
+        pressed.set()
+        stop.set()
+
+    signal.signal(signal.SIGINT, on_sigint)
     try:
-        with log_path.open("a", encoding="utf-8") as log:
-            timed_out = _consume(
-                proc, lines, reader, log, secrets, start + timeout_s, grace_s, stop, max_log_bytes
-            )
-        if not timed_out:
-            with contextlib.suppress(subprocess.TimeoutExpired):  # finally stops it if needed
-                proc.wait(timeout=grace_s)
+        yield
     finally:
-        if proc.poll() is None:
-            _stop(proc, grace_s)
-        _kill_group(proc.pid)  # reap anything the worker left behind in its process group
-
-    drain.join(timeout=grace_s)  # the outcome may rest on the last stderr line
-    stderr_text = redact("".join(stderr_tail), secrets)
-    return SliceRun(
-        outcome=classify(reader.signals(timed_out=timed_out, stderr_tail=stderr_text)),
-        usage=reader.usage(),
-        status=reader.status,
-        session_id=reader.session_id,
-        exit_code=proc.returncode,
-        duration_s=time.monotonic() - start,
-        log_path=log_path,
-        denials=reader.denials,
-        rate_limit=reader.rate_limit,
-        stderr_tail=stderr_text,
-        model_id=model_id_of(reader.init),
-    )
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+    if pressed.is_set():
+        raise KeyboardInterrupt
 
 
 def check_workspace(workspace: Path) -> None:

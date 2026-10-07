@@ -1,7 +1,7 @@
 # Decisions
 
 One entry per design decision, newest last. Each says what was decided, why, what was rejected and
-why, and the evidence. `tests/test_docs_decisions.py` checks that ids are unique and consecutive,
+why, and the evidence. `tests/test_docs_decisions.py` checks that ids are unique and increasing,
 that every entry has all its fields, that `superseded by` points at a real entry, and that every
 file and test an entry cites exists.
 
@@ -698,7 +698,7 @@ with a JSON schema.
   list item in 11 of 39 (28%, the base rate) and a literal in 1 of 22 (5%). Flagging as many rules at
   random would have hit 11.0 of the 15 cells, the verifier 12. Scoring the two noisy types would
   count a rule as uncovered on evidence no better than chance. Pre-registered O1 and O4 failed (94.9%
-  against 95%; a 4.5-point kill-rate gap against 25 on hand-written mutants that are killed 88% of the time
+  against 95%; a 4.5-point kill-rate gap against 25 on mutants written for the tasks that are killed 88% of the time
   whatever the draft holds), so this is a reduction, not a pass.
 - Rejected: Counting every anchor, as pre-registered: the evaluation's own numbers say two types are
   noise. Dropping literals and list items altogether: they are cheap to show and a person can judge
@@ -820,3 +820,42 @@ with a JSON schema.
   `tests/test_firm_dispatch.py::test_blocked_and_disputed_workers_and_infrastructure_never_step_anyone_up`,
   `tests/test_firm_dispatch.py::test_a_model_the_cli_did_not_launch_stops_the_run_and_the_slice_is_still_booked`,
   `tests/test_firm_dispatch.py::test_the_ceiling_uses_the_reachable_reserve_so_a_stepped_up_overshoot_is_not_a_breach`.
+
+### D46: The cascade starts each task where its own past runs say the ladder is cheapest
+
+- Status: `under evaluation`
+- Decision: `--dispatch cascade` gives each task a ladder: `haiku`, `sonnet`, `opus` (each at effort
+  `off`), then `opus` again at `default`, then the investor is asked (the ladder is cut at
+  `--max-tier`, whose last rung is that tier once more at `default`). A rung is climbed only after
+  the gate fired the one before for `no progress` or a `slice limit`, with the predecessor's
+  findings in the next brief (the reassignment brief, unchanged). The start tier of a task is not
+  fixed: for its kind (`files=` 1, 2-3 or 4+ owned, `checks=` 1-2, 3-5 or 6+ verifying it) it is
+  the tier T that minimises `E[T] = c_T + p_T * E[T+1]`, where `c` is the mean cost of one attempt
+  and `p` its verified-fail rate, read from this project's own earlier runs. The top rung is
+  `c * (1 + p)`: one retry at higher effort, then stop. The first rung uses attempts that were fresh
+  (no worker of the task before them), every later one the attempts that followed a failure. Below
+  5 attempts of a kind and tier (`routing.MIN_SAMPLE`) a fixed prior is used and the table prints
+  `prior`, not `measured, n=...`. Only runs whose ledger, term sheet and checks the investor key
+  vouches for are read; the rest are named and left out. The gate is the only verifier: a task with
+  no check is refused, and there is no reviewer path in v2. Break-even: with Haiku about a third of
+  Sonnet's price, Haiku first is cheaper unless Haiku fails more than about 2/3 of the time (less
+  the verifier's cost, which is a local test run and is taken as zero), so the data, not a fixed
+  rule, decides. Every start, rung, verdict and cost is already on the ledger (`hired.dispatch`,
+  `fired`, `check_result`, `slice_end`); the table shows the worst case, which prices every rung.
+- Why: Escalation is not free: a task that fails on Haiku has paid for Haiku and then pays for
+  Sonnet, so whether to begin one tier up depends on a fail rate that differs by kind of task and
+  by project, and only a measured one is evidence. Reading only verified runs keeps a doctored
+  folder from steering a start tier to a dearer model. A verified failure is the gate's own firing,
+  the one signal a stronger model can be shown to have been needed for (D40).
+- Rejected: A fixed rule such as "always Haiku" or "start on Sonnet for multi-file tasks" (the break-even moves
+  with the measured rate). Reading the term sheet's kind from the ledger only (v1 ledgers carry none; the
+  signed approval's hash makes the saved sheet trustworthy instead). A model's own estimate of
+  difficulty (B53). Pooling all projects (a project's checks, not the world's, decide failure).
+  An independent reviewer to verify tasks that have no check (no existing role fits without a
+  second model call per attempt; left out and listed as B103).
+- Evidence: `tests/test_cascade.py::test_the_start_tier_is_haiku_when_its_measured_fail_rate_is_low`,
+  `tests/test_cascade.py::test_the_start_tier_is_sonnet_when_haikus_measured_fail_rate_is_high`,
+  `tests/test_cascade.py::test_the_chooser_uses_the_priors_below_the_sample_minimum_and_says_so`,
+  `tests/test_cascade.py::test_the_expected_cost_is_c_plus_p_times_the_next_rung_and_the_top_pays_one_effort_retry`,
+  `tests/test_cascade.py::test_haiku_first_stays_cheaper_until_it_fails_about_two_thirds_of_the_time`,
+  `tests/test_firm_cascade.py::test_a_task_that_keeps_failing_climbs_the_whole_ladder_in_order_and_then_stops`.
