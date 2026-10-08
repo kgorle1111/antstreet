@@ -12,9 +12,9 @@ a cell.
 ## Answer
 
 1. **E4b is not shown, by the slimmest margin.** The rule compares the E4b critic arm with E4's
-   self-review on paired delivery. The difference is +0.0952 [-0.0000, +0.1905]. The lower bound is
-   exactly zero (a negative zero at four places); the rule requires it above zero. It is not, so the
-   claim is not shown.
+   self-review on paired delivery. The difference is +0.0952 [-0.0000, +0.1905]. The lower bound
+   displays as `-0.0000`; unrounded it is slightly negative (-9.5e-18, floating-point residue of a
+   resample mean that is zero). The rule requires it above zero. It is not, so the claim is not shown.
 2. **The picture is consistently positive, and it is not a result.** Delivery 74/105 (70%) against 61%
    (self-review), 60% (E4 firm) and 67% (E4 critic arm). False passes are the lowest of the four arms:
    19 of 80 cells that passed every visible check (24%). Wrong boss checks: 34 of 833 (4%). Tasks
