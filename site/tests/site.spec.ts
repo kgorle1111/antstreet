@@ -292,3 +292,66 @@ for (const w of [800, 1440]) {
     }
   });
 }
+
+/** Every rendered text in #hook, the art's SVG labels and aria-hidden caption included (only the
+ *  [data-decor] braces are exempt), at effective opacity ≥ 0.99 and visibility visible. */
+async function hiddenHookText(page: Page) {
+  return page.evaluate(() => {
+    const bad: string[] = [];
+    const hook = document.getElementById("hook")!;
+    for (const el of hook.querySelectorAll<Element>("*")) {
+      const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim());
+      if (!own || el.closest("[data-decor], defs, script, style")) continue;
+      if (!el.getClientRects().length) continue;
+      let opacity = 1;
+      for (let a: Element | null = el; a && a !== document.body; a = a.parentElement) opacity *= Number(getComputedStyle(a).opacity);
+      const vis = getComputedStyle(el).visibility;
+      if (opacity < 0.99 || vis !== "visible") bad.push(`${el.tagName}: ${el.textContent!.trim().slice(0, 40)} (${opacity.toFixed(2)}, ${vis})`);
+    }
+    return bad;
+  });
+}
+
+for (const w of [800, 1440]) {
+  test(`the H1, sub-line and both calls to action are visible 300 ms after load (${w}, motion)`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: 900 });
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto("./");
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(300);
+    const low = await page.evaluate(() => {
+      const els = [document.querySelector("#hook-h1"), document.querySelector(".hook-sub"), ...document.querySelectorAll(".hook-ctas a")];
+      return els.map((el) => {
+        let o = 1;
+        for (let a = el as Element | null; a && a !== document.body; a = a.parentElement) o *= Number(getComputedStyle(a).opacity);
+        return { text: el!.textContent!.trim().slice(0, 30), o, vis: getComputedStyle(el!).visibility };
+      }).filter((x) => x.o < 0.99 || x.vis !== "visible");
+    });
+    expect(low).toEqual([]);
+    expect(await page.locator(".hook-ctas a").count()).toBe(2);
+  });
+}
+
+for (const start of ["hash", "middle"] as const) {
+  test(`the hook ends fully visible after a reload away from the top (${start})`, async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 900 });
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    if (start === "hash") await page.goto("./#no");
+    else {
+      await page.goto("./");
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
+      await page.waitForTimeout(500);
+    }
+    await page.reload();
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(1500);
+    expect(await hiddenHookText(page)).toEqual([]);
+  });
+}
+
+test("the hook played from the top also ends fully visible", async ({ page }) => {
+  await open(page, { w: 800, motion: "no-preference" });
+  expect(await hiddenHookText(page)).toEqual([]);
+});

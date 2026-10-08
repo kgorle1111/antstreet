@@ -28,7 +28,7 @@
       "id": "caption",
       "text": "Checks it never saw.",
       "inMs": 2133,
-      "outMs": 4500
+      "outMs": null
     },
     {
       "id": "pill",
@@ -40,7 +40,7 @@
     {
       "id": "sub",
       "text": "AntStreet checks your AI coding agent's work against tests it never saw, so \"all tests pass\" actually means something.",
-      "inMs": 5400,
+      "inMs": 0,
       "outMs": null
     }
   ]

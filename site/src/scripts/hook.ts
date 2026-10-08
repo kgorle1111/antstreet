@@ -1,4 +1,4 @@
-// 5.1 The seal that cracks: plays once on load (~5.4 s), ends level and still. The text timings
+// 5.1 The seal that cracks: plays once on load (~5.4 s) in the art panel, ends level and still. The text timings
 // come from data/hook.json, which tests/test_site_facts.py lints against the reading floor.
 import { gsap } from "gsap";
 import hookData from "../data/hook.json";
@@ -23,11 +23,19 @@ export function hook() {
   const pill = q("#hk-pill");
   const wax = q("#hk-wax");
   const caption = q<HTMLElement>('[data-hook="caption"]');
-  const sub = document.querySelector('[data-hook="sub"]');
-  const ctas = document.querySelector('[data-hook="ctas"]');
   const { cam, apply } = rig(stage);
   const b = hookData.beats;
   const s = (ms: number) => ms / 1000;
+  const done = () => { (window as any).__hookDone = true; };
+
+  // The DOM's default is the final frame. Rewind and play only when the reader is at the top with
+  // the art on screen; a hash, a restored scroll position or an off-screen stage keeps the end.
+  const r = stage.getBoundingClientRect();
+  if (location.hash || scrollY > 40 || r.bottom <= 0 || r.top >= innerHeight) {
+    gsap.set(world, { visibility: "visible" });
+    done();
+    return;
+  }
 
   // Frame 0 of 1A: the seal is the subject, in focus, whole; the envelope is not in the world yet.
   sealLayer.dataset.p = "1";
@@ -48,7 +56,7 @@ export function hook() {
   apply();
   gsap.set(world, { visibility: "visible" });
 
-  const tl = gsap.timeline({ onUpdate: apply, onComplete: () => { (window as any).__hookDone = true; } });
+  const tl = gsap.timeline({ onUpdate: apply, onComplete: done });
   // 1A: the seal lands, then a slow push-in.
   tl.to(seal, { attr: { transform: "translate(320 240) scale(1)" }, duration: 4 * FRAME, ease: E.outExpo }, s(b.land));
   tl.add(nudge(world), s(b.land));
@@ -69,7 +77,6 @@ export function hook() {
 
   // 1C: the wax breaks, the flap opens, the card rises and turns from circle to diamond, X, crack.
   const o = s(b.open);
-  tl.to(caption, { autoAlpha: 0, duration: 3 * FRAME, ease: "none" }, o);
   tl.to(".hk-wax-l", { attr: { transform: "translate(-10 0) rotate(-10)" }, duration: 3 * FRAME, ease: E.snap }, o);
   tl.to(".hk-wax-r", { attr: { transform: "translate(10 0) rotate(10)" }, duration: 3 * FRAME, ease: E.snap }, o);
   tl.to(wax, { attr: { opacity: 0 }, duration: 0.15, ease: "none" }, o + 0.1);
@@ -86,10 +93,14 @@ export function hook() {
   tl.to(halves[0], { attr: { transform: "translate(-14 4) rotate(-6)" }, duration: 4 * FRAME, ease: E.snap }, hit);
   tl.to(halves[1], { attr: { transform: "translate(14 -4) rotate(6)" }, duration: 4 * FRAME, ease: E.snap }, hit);
 
-  // Settle: level and still; the sub and the calls to action enter as whole lines.
+  // Settle: level and still.
   const st = s(b.settle);
   tl.to(cam, { roll: 0, zoom: 1, duration: 0.6, ease: E.inOut }, st);
-  if (sub) tl.add(lineIn(sub), s(at("sub").inMs));
-  if (ctas) tl.add(lineIn(ctas), s(at("sub").inMs) + 0.3);
+
+  // Interrupted (a scroll, a hidden tab, a stalled frame clock): jump straight to the final frame.
+  const finish = () => { if (tl.progress() < 1) tl.progress(1); };
+  addEventListener("scroll", finish, { once: true, passive: true });
+  document.addEventListener("visibilitychange", finish, { once: true });
+  setTimeout(finish, (tl.duration() + 1) * 1000);
   return tl;
 }

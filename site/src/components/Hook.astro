@@ -108,7 +108,7 @@ const crack = "6,-100 -8,-32 12,30 -2,100";
 
           <!-- z4 foreground occluders, out of focus -->
           <div class="layer fg" data-p="1.3" data-z="4">
-            <svg viewBox="0 0 640 480"><text x="18" y="470" font-size="104" class="brace">{"{ }"}</text><text x="540" y="70" font-size="80" class="brace">{"{ }"}</text></svg>
+            <svg viewBox="0 0 640 480"><text x="18" y="470" font-size="104" class="brace" data-decor>{"{ }"}</text><text x="540" y="70" font-size="80" class="brace" data-decor>{"{ }"}</text></svg>
           </div>
         </div>
         <p class="hud stage-caption" data-hook="caption" aria-hidden="true">Checks it never saw.</p>
@@ -142,11 +142,11 @@ const crack = "6,-100 -8,-32 12,30 -2,100";
   .fg { filter: blur(6px); }
   .brace { font-family: var(--mono); font-weight: 500; fill: #24406e; opacity: 0.55; }
   .stage-caption {
-    position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); margin: 0; white-space: nowrap;
-    font-family: var(--display); font-weight: 800; font-size: clamp(17px, 2.4vw, 24px);
-    background: var(--bg); color: var(--ink); padding: 6px 14px; border-radius: 999px; opacity: 0; visibility: hidden;
+    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); margin: 0; white-space: nowrap;
+    font-family: var(--display); font-weight: 800; font-size: clamp(15px, 2.4vw, 24px);
+    background: var(--bg); color: var(--ink); padding: 6px 14px; border-radius: 999px;
   }
-  /* Motion mode, before the hook script starts: nothing of the later beats is on screen. */
+  /* Motion mode, before the hook script decides whether to play: only the art waits (at most
+     300 ms); the H1, the sub-line and the calls to action are visible from first paint. */
   :global(.m) .hook-stage .world { visibility: hidden; }
-  :global(.m) [data-hook="sub"], :global(.m) [data-hook="ctas"] { visibility: hidden; opacity: 0; }
 </style>

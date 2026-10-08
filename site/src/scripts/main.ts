@@ -43,7 +43,12 @@ quiz(motion);
 if (motion) {
   (window as any).__antMotion = true;
   Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 300))]).then(() => {
-    hook();
+    try {
+      hook();
+    } finally {
+      // whatever happened, the art is never left hidden by the pre-paint gate
+      document.querySelector<HTMLElement>(".hook-stage .world")?.style.setProperty("visibility", "visible");
+    }
     import("./scroll").then((m) => m.scroll());
   });
 }
