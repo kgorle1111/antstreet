@@ -7,7 +7,7 @@ import sys
 import xml.dom.minidom
 
 import pytest
-from docs_support import DOCS, ROOT, read, run_cli, section, table
+from docs_support import DOCS, ROOT, read, section, table
 
 README = ROOT / "README.md"
 ASSETS = ROOT / "docs" / "assets"
@@ -167,10 +167,25 @@ def test_each_svg_is_well_formed_small_and_scriptless(name):
         assert banned not in raw, f"{name} contains {banned}"
 
 
+LOCKUP = "Checks your AI coding agent's work against tests it never saw."
+
+
 def test_the_name_is_one_plain_text_element_in_the_hero():
     hero = read(ASSETS / "hero.svg")
     assert len(re.findall(r">AntStreet</text>", hero)) == 1
-    assert "Your AI agents get paid when the checks pass." in hero
+    words = " ".join(re.sub(r"<[^>]+>", " ", hero.split("</style>", 1)[1]).split())
+    assert "It wrote its own checks." in words and LOCKUP in words
+    assert hero.count(">CHECKS PASSED</text>") == 1 and "VERIFIED" not in hero.upper()
+    assert f'<img src="docs/assets/hero.svg" alt="{LOCKUP}"' in read(README)
+
+
+def test_the_hero_is_small_light_dark_and_still_without_motion():
+    hero = read(ASSETS / "hero.svg")
+    assert len(hero.encode()) <= 40_000
+    assert "@media (prefers-color-scheme:light)" in hero
+    assert "@media (prefers-reduced-motion:reduce){*{animation:none!important}}" in hero
+    assert '<rect class="bg" width="1200" height="560"' in hero, "a self-backgrounded card"
+    assert ".bg{fill:#0f1b2d}" in hero, "navy is the fallback when media queries are not honoured"
 
 
 def test_the_audit_comes_first_and_fund_is_labelled_experimental():
@@ -239,27 +254,57 @@ def test_the_audit_output_shown_is_what_a_real_audit_prints(tmp_path):
     )
 
 
-def test_the_demo_shows_only_strings_a_real_run_prints(tmp_path):
-    code, _, said = run_cli(tmp_path, ["fund", "Reverse a string.", "--budget", "0.50"])
-    assert code == 0
-    printed = "\n".join(said)
-    demo = read(ASSETS / "demo.svg")
+def _normalised(text: str) -> str:
+    """Run ids, hashes and timings differ on every run; the messages do not."""
+    text = re.sub(r"\d{8}T\d{6}Z-[0-9a-f]{6}", "<run>", text)
+    text = re.sub(r"\b[0-9a-f]{64}\b", "<sha256>", text)
+    text = re.sub(r"\b[0-9a-f]{12}\b", "<sha>", text)
+    return re.sub(r" in \d+\.\d+s\b", " in <t>s", text)
+
+
+def test_the_demo_shows_only_strings_a_real_audit_run_prints(tmp_path):
     import html
 
-    shown = [html.unescape(t) for t in re.findall(r"<text[^>]*>([^<]*)</text>", demo)]
-    real = [t for t in shown if t.strip() and not t.startswith(("$", "replay of", "spend (CLI"))]
+    from audit_support import WRONG_SLUG, Audit, branch, git, later
+
+    audit = Audit(tmp_path)
+    code, planned = audit.run("plan", "--request", str(audit.request), "--repo", str(audit.repo))
+    assert code == 0
+    branch(audit.repo, "agent", {"slug.py": WRONG_SLUG}, later())
+    git(audit.repo, "checkout", "-q", "agent")
+    own = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"],
+        cwd=audit.repo, capture_output=True, text=True, check=False,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(audit.home), "PYTHONDONTWRITEBYTECODE": "1"},
+    )  # fmt: skip
+    assert own.returncode == 0, own.stdout + own.stderr
+    git(audit.repo, "checkout", "-q", "main")
+    code, checked = audit.check(audit.run_id(), "agent", "--claim", "done")
+    assert code == 3
+    code, reported = audit.run("report", audit.run_id())
+    assert code == 0
+    printed = _normalised("\n".join((planned, own.stdout, checked, reported)))
+
+    demo = read(ASSETS / "demo.svg")
+    assert len(demo.encode()) <= 20_000
+    found = re.findall(r"<text[^>]*>(.*?)</text>", demo)
+    texts = [html.unescape(re.sub(r"<[^>]+>", "", t)) for t in found]
+    assert (
+        texts[0] == "replay of a test-suite run (fake model), not a live recording · output trimmed"
+    )
+    assert [t for t in texts if t.startswith("$ ")] == [
+        "$ uv run antstreet audit plan --request request.txt",
+        "$ python -m pytest -q tests",
+        "$ uv run antstreet audit check --claim done",
+        "$ uv run antstreet audit report",
+    ]
+    real = [t for t in texts[1:] if t.strip() and not t.startswith(("$", "#"))]
     assert len(real) >= 15
     for line in real:
-        if line.startswith("boss fund"):
-            assert line == 'boss fund "Reverse a string." --budget 0.50'
-        elif line.startswith("[a]pprove"):
-            prompt = "[a]pprove, [r]eject, or [e]dit files and re-check? "
-            assert line == prompt + "a" and f'ask("{prompt}")' in read(
-                ROOT / "src/antstreet/approval.py"
-            )
-        else:
-            assert line.strip() in printed, f"the demo shows output a run does not print: {line!r}"
-    for spend in ("boss $0.0040", "worker:w1 $0.0060", "total $0.0100"):
-        assert spend in demo
-        assert spend in " ".join(printed.split())
-    assert "replay of a test-suite run (fake model), not a live recording" in demo
+        assert _normalised(line) in printed, f"the demo shows output a run does not print: {line!r}"
+    assert "2 of 4 checks will be counted." in real
+    assert "Verdict: REFUTED (claim: done, pre-registered)" in real
+    assert any(t.startswith("A floor, not a measurement of the agent") for t in real)
+    assert "prefers-reduced-motion:reduce" in demo and "infinite" not in demo, "plays once, holds"
+    site_copy = ROOT / "site" / "public" / "assets" / "demo.svg"
+    assert site_copy.read_bytes() == (ASSETS / "demo.svg").read_bytes()

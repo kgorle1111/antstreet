@@ -2,7 +2,7 @@
 
 # AntStreet: tests your coding agent never saw
 
-<img src="docs/assets/hero.svg" alt="AntStreet: your AI agents get paid when the checks pass." width="100%">
+<img src="docs/assets/hero.svg" alt="Checks your AI coding agent's work against tests it never saw." width="100%">
 
 ![license Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab)
@@ -33,6 +33,8 @@ the answer key the student never sees.
 The AI drafts. You and plain code decide.
 
 ## 🎬 See it run
+
+<img src="docs/assets/demo.svg" alt="Terminal replay of a real audit run with a fake model: audit plan seals 2 of 4 checks, the agent's own tests pass, audit check says REFUTED with c01 and c02 failed, and audit report adds the floor sentence" width="100%">
 
 ```text
 $ antstreet audit plan --request ~/req.txt
@@ -183,8 +185,6 @@ bound to a test, every negative result published.
 AntStreet started as a firm of agents: you give it an idea and a budget, the boss drafts checks you
 approve, and budget-capped worker agents build until the gate says pass, with every dollar on the
 ledger.
-
-<img src="docs/assets/demo.svg" alt="Terminal replay: boss fund, the term sheet, approval, a worker slice, the gate verdict and the board report" width="100%">
 
 It works end to end, and it is **not shown to build better than a single agent**, at about 2.4
 times the cost (the table above). Try it if you are curious; do not pick it for results.
