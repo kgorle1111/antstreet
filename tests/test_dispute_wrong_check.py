@@ -9,11 +9,11 @@ from pathlib import Path
 
 from test_firm import Script, dispute, events_of, run, step
 
-from boss.boss import load_prompt
-from boss.firm import BUILDER_PROMPT
-from boss.ledger import EventType
-from boss.rundir import RunPaths
-from boss.termsheet import TermSheet
+from antstreet.boss import load_prompt
+from antstreet.firm import BUILDER_PROMPT
+from antstreet.ledger import EventType
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import TermSheet
 
 SHEET = Path(__file__).parent / "fixtures" / "live_2026-10-07_wrong_c05_term_sheet.json"
 CHECKS = {  # the run's check files, byte for byte

@@ -5,15 +5,15 @@ import json
 
 import pytest
 
-from boss.approval import (
+from antstreet.approval import (
     NotApprovedError,
     content_hashes,
     render,
     require_approval,
     review_term_sheet,
 )
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 C02 = "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n"

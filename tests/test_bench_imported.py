@@ -12,12 +12,12 @@ from pathlib import Path
 import pytest
 from test_bench_run import FAKE_CLAUDE  # the fake `claude` that plays boss and worker
 
-from boss.bench.imported import ConvertError, convert_nl2repo, main
-from boss.bench.results import CellResult, load_results
-from boss.bench.run import main as run_main
-from boss.bench.run import run_cell
-from boss.bench.table import render_table
-from boss.bench.tasks import (
+from antstreet.bench.imported import ConvertError, convert_nl2repo, main
+from antstreet.bench.results import CellResult, load_results
+from antstreet.bench.run import main as run_main
+from antstreet.bench.run import run_cell
+from antstreet.bench.table import render_table
+from antstreet.bench.tasks import (
     BenchTask,
     TaskError,
     grade_imported,
@@ -387,6 +387,6 @@ def test_method_states_the_format_and_command_the_code_uses():
     body = text.split("## Imported tasks")[1].split("\n## ")[0]
     for term in ("`hidden/`", "`support/`", "`idea.md`", "`imported`", "`test_count`"):
         assert term in body
-    assert "python -m boss.bench.imported nl2repo <task-dir> <dest-root>" in body
+    assert "python -m antstreet.bench.imported nl2repo <task-dir> <dest-root>" in body
     assert "Not comparable with the external leaderboard" in body
     assert "--continue-on-collection-errors" in body

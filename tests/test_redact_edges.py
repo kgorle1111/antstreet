@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from boss.redact import MASK, redact, safe_text
+from antstreet.redact import MASK, redact, safe_text
 
 KEY = "sk-ant-api03-" + "A1b2C3d4E5f6G7h8I9j0" * 2
 

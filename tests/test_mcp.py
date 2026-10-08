@@ -8,9 +8,9 @@ import sys
 
 import pytest
 
-from boss import mcp
-from boss.ledger import EventType
-from boss.rundir import Recorder, RunPaths
+from antstreet import mcp
+from antstreet.ledger import EventType
+from antstreet.rundir import Recorder, RunPaths
 
 NO_CLAUDE = {"PATH": "/nonexistent", "BOSS_CLAUDE_BIN": "/nonexistent/claude"}
 
@@ -201,7 +201,7 @@ def test_antstreet_mcp_speaks_on_stdout_only_in_protocol_lines(project):
          "params": {"name": "status", "arguments": {}}},
     ]  # fmt: skip
     done = subprocess.run(
-        [sys.executable, "-m", "boss.cli", "mcp", "--dir", str(project)],
+        [sys.executable, "-m", "antstreet.cli", "mcp", "--dir", str(project)],
         input="".join(json.dumps(r) + "\n" for r in requests),
         capture_output=True, text=True, timeout=60,
     )  # fmt: skip

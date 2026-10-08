@@ -3,8 +3,8 @@ from collections.abc import Sequence
 
 import pytest
 
-from boss.ledger import Event, EventType
-from boss.limits import RunLimits, breach, spend_ceiling
+from antstreet.ledger import Event, EventType
+from antstreet.limits import RunLimits, breach, spend_ceiling
 
 
 def ev(

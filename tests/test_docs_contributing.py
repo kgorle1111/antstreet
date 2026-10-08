@@ -9,9 +9,9 @@ import changed_tasks
 import pytest
 from docs_support import ROOT, code_spans, read, section
 
-from boss import boss, firm
-from boss.bench import run as bench_run
-from boss.bench.tasks import (
+from antstreet import boss, firm
+from antstreet.bench import run as bench_run
+from antstreet.bench.tasks import (
     DIFFICULTIES,
     MIN_HIDDEN_CHECKS,
     MIN_MUTANTS,
@@ -20,7 +20,7 @@ from boss.bench.tasks import (
 )
 
 DOC = ROOT / "CONTRIBUTING.md"
-PROMPTS = ROOT / "src" / "boss" / "prompts"
+PROMPTS = ROOT / "src" / "antstreet" / "prompts"
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +131,7 @@ def test_prompt_files_follow_the_versioned_naming_and_the_code_names_real_ones(t
     assert names and all(re.fullmatch(r"[a-z_]+_v\d+\.md", n) for n in names), names
     for used in (boss.TERM_SHEET_PROMPT, boss.MULTI_TASK_PROMPT, firm.BUILDER_PROMPT):
         assert used in names
-    assert "`src/boss/prompts/`" in text and "`<name>_v<N>.md`" in text
+    assert "`src/antstreet/prompts/`" in text and "`<name>_v<N>.md`" in text
 
 
 def test_gitignore_excludes_what_the_document_says(text):
@@ -205,7 +205,7 @@ def test_the_dry_run_named_in_the_document_lists_cells_and_writes_nothing(tmp_pa
     ]
     assert bench_run.main(args) == 0
     assert "118 cells" in capsys.readouterr().out and not out.exists()
-    assert "uv run python -m boss.bench.run --dry-run --out /tmp/bench --budget 0.40" in text
+    assert "uv run python -m antstreet.bench.run --dry-run --out /tmp/bench --budget 0.40" in text
 
 
 def test_the_mutation_modules_named_have_a_runner_entry_and_real_test_files(text):

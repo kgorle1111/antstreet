@@ -58,15 +58,15 @@ what changed for someone using the tool, not which commit did it.
   which rules each check asserts; the note lists citations it could not confirm.
 - `term_sheet_v3.md`, the prompt `--spec` uses; the check ceiling is 12 with rules, 8 without.
 - A check may cite a rule of the request (`R07`) in its `criteria`, beside a story criterion.
-- `python -m boss.bench.spec_eval`: the offline evaluation of that layer on saved drafts, with hand labels
+- `python -m antstreet.bench.spec_eval`: the offline evaluation of that layer on saved drafts, with hand labels
   in `bench/spec_truth/` and the criteria it is judged by fixed in `bench/spec_truth/CRITERIA.md`.
 - Security: threats T55 to T62 (the spec layer: a rule cited but not tested, an edited rule list, a forged coverage summary, waivers, a hostile idea, the mapper, a prompt tuned to the benchmark, spend).
-- `python -m boss.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
+- `python -m antstreet.bench.paired DIR_A DIR_B`: compares two arms task by task (delivery, false
   pass, cost, time) with a task-level bootstrap interval and a verdict of `shown` or `not shown`;
   refuses results from different task sets.
 - A `single-review` benchmark arm: the single agent resumes its own session once to review its
   work, within the single arm's total cap (75% build, 25% review). It runs only when asked for.
-- A fixed seven-KPI scorecard (`python -m boss.bench.kpi`: delivery, false pass, cost and time per
+- A fixed seven-KPI scorecard (`python -m antstreet.bench.kpi`: delivery, false pass, cost and time per
   delivery, pass^k, investor questions, check quality) and a KPIs section in `boss report`;
   definitions are in `bench/METHOD.md`.
 - `boss topup [RUN] --round N --amount D`: you add money to a round; only your top-up reopens a
@@ -74,12 +74,12 @@ what changed for someone using the tool, not which commit did it.
 - `boss report` says whether every check ran sandboxed, and warns when any ran unconfined.
 - The worker reserve is set per model (Haiku $0.10, Sonnet $0.30, Opus $0.50); `--reserve` still wins.
 - `--worker-thinking N` sets the thinking budget of every worker slice; unset keeps the CLI's default.
-- Imported benchmark tasks, graded per test by an external suite: `python -m boss.bench.imported`.
+- Imported benchmark tasks, graded per test by an external suite: `python -m antstreet.bench.imported`.
 - The benchmark records the held-out checks the reference solution fails (`held_out_wrong`).
 - CI is set up to run the Linux (bwrap) gate sandbox with `BOSS_GATE_SANDBOX=require`.
 - 42 benchmark tasks (text, data structures, numbers, dates, protocols, algorithms, stateful systems): 59 tasks,
   and recall on 276 known-wrong solutions; earlier results stay on the original 17. Plus 8 multi-file tasks.
-- Type checking: `uv run mypy` (strict, over `src/boss`) runs locally and in CI after the format check.
+- Type checking: `uv run mypy` (strict, over `src/antstreet`) runs locally and in CI after the format check.
 - `bench/calibration/`: 20 unlabelled cases each for the stories and usage rubrics, and `score.py` to
   label them; until you do and run `calibrate`, every judgement stays `uncalibrated`.
 - Held-out checks, off by default: an examiner writes checks from your idea and the product's
@@ -121,7 +121,7 @@ what changed for someone using the tool, not which commit did it.
   `bwrap` on Linux): no network, writes only in the check's own folder. Tested on macOS only.
 - `BOSS_GATE_SANDBOX` (`auto`, `require` or `off`) sets whether a check needs the sandbox, and
   `boss doctor` reports its state.
-- `python -m boss.bench.drafts` scores the boss's checks with no worker run: precision on the
+- `python -m antstreet.bench.drafts` scores the boss's checks with no worker run: precision on the
   reference solution, recall on 65 known-wrong solutions (`mutants/` in each task).
 - `boss resume` cuts an incomplete last ledger line left by a hard kill and says so. Damage
   anywhere else in a ledger is reported by file and line and never altered.
@@ -135,7 +135,7 @@ what changed for someone using the tool, not which commit did it.
   used unless asked for. It is recorded on every hire and kept on `boss resume`.
 - `boss roles` prints the organisation: each specialist role and worker profile, its gate, its
   skills and whether it is on by default (none is).
-- Versioned skill files under `src/boss/skills/`, with a test that holds each to a size and a
+- Versioned skill files under `src/antstreet/skills/`, with a test that holds each to a size and a
   quality bar.
 - Nine specialist roles, each one model call with no tools behind a gate in code (`boss roles`
   lists them). All are off unless you name them, and none is measured yet.
@@ -148,12 +148,12 @@ what changed for someone using the tool, not which commit did it.
   approval is recorded as an amendment: `--review-cycles` and `--fix-budget` set the limits.
 - A demo that ran is installed in `product/` with a `USAGE.md` that holds its real output.
 - The board report has a Roles section with one line per role call.
-- `python -m boss.roles.judge calibrate` compares the judge with a person's scores. Its scores
+- `python -m antstreet.roles.judge calibrate` compares the judge with a person's scores. Its scores
   stay labelled uncalibrated until they agree closely enough.
-- `python -m boss.bench.drafts` can score the product manager, designer and tester in place of the
+- `python -m antstreet.bench.drafts` can score the product manager, designer and tester in place of the
   boss's one call (`staged`).
-- `python -m boss.bench.audit` scores the check auditor's flags against the reference solution.
-- A benchmark of 17 tasks with hidden checks (`python -m boss.bench.run`, `.table`, `.replay`): a
+- `python -m antstreet.bench.audit` scores the check auditor's flags against the reference solution.
+- A benchmark of 17 tasks with hidden checks (`python -m antstreet.bench.run`, `.table`, `.replay`): a
   single agent against the firm, with intervals, the visible-against-hidden gap, the number of wrong
   boss checks, and an offline replay of firing policies.
 - Benchmark results under `bench/results/` with what they show: three runs of each arm, and the
@@ -212,13 +212,13 @@ what changed for someone using the tool, not which commit did it.
   it. `builder_v5.md` makes the dispute the expected move, and every later brief says how.
 - Ctrl-C during a slice could end in `RuntimeError: release unlocked lock` and a traceback instead of `continue with boss resume`: the interrupt was raised inside a lock wait. It now stops the worker first and is raised afterwards, where no lock is held.
 - A login whose refresh fails (Claude Code 2.1.292: no retry, no HTTP status) is `login`, not `api_error`: the run stops, and `boss fund` says to run `claude auth login`.
-- `python -m boss.bench.run` checks `claude auth status` before any cell, and stops after 3 cells in a row end in the same infrastructure failure instead of running every cell.
+- `python -m antstreet.bench.run` checks `claude auth status` before any cell, and stops after 3 cells in a row end in the same infrastructure failure instead of running every cell.
 - Docs no longer call the benchmark's hidden checks, mutants and labels "hand-written": Claude wrote them, apart from the agents measured. The 29 false passes are now "read and judged real errors", one class debatable.
 - The term sheet question takes `y`/`yes` and `n`/`no` like every other question; `y` was
   "Unrecognised answer" and asked again.
 - `boss fund` with no terminal to ask on (Claude Code, a pipe) no longer reads end of input as a
   rejection of a paid-for draft: it keeps it waiting for `boss approve` and exits 4.
-- `python -m boss.bench.run` refuses a saved cell that ran with another task set, model, budget
+- `python -m antstreet.bench.run` refuses a saved cell that ran with another task set, model, budget
   or firm options, instead of counting it as this run's. Two arms of one name (the firm with and
   without `--roles critic`) each need their own results folder.
 - The benchmark's spend cap now reserves a staged draft's full cost (its three role calls) before

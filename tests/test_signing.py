@@ -21,15 +21,22 @@ import pytest
 from docs_support import run_cli
 from test_gate_sandbox import ON, attempt, denied, requires_sandbox
 
-from boss import signing
-from boss.approval import NotApprovedError, content_hashes, require_approval, review_term_sheet
-from boss.firm import run_firm
-from boss.ledger import GENESIS, Event, EventType, LedgerUnverifiedError, LedgerWriter, read_events
-from boss.rundir import RunPaths
-from boss.sandbox import SandboxMode
-from boss.signing import SigningError, key_path, load_key, load_or_create_key, sign, verify
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import SliceSpec, build_command, worker_env
+from antstreet import signing
+from antstreet.approval import NotApprovedError, content_hashes, require_approval, review_term_sheet
+from antstreet.firm import run_firm
+from antstreet.ledger import (
+    GENESIS,
+    Event,
+    EventType,
+    LedgerUnverifiedError,
+    LedgerWriter,
+    read_events,
+)
+from antstreet.rundir import RunPaths
+from antstreet.sandbox import SandboxMode
+from antstreet.signing import SigningError, key_path, load_key, load_or_create_key, sign, verify
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.worker import SliceSpec, build_command, worker_env
 
 ROOT = Path(__file__).resolve().parent.parent
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"

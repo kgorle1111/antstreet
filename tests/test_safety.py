@@ -17,14 +17,14 @@ import pytest
 from boss_init import BOSS_INIT
 from gate_forgers import NONCE_READER
 
-from boss import termsheet
-from boss.approval import NotApprovedError, content_hashes, require_approval
-from boss.boss import draft_term_sheet
-from boss.budget import remaining
-from boss.errors import Outcome
-from boss.firm import FirmConfig, run_firm
-from boss.gate import Check, CheckStatus, run_gate
-from boss.ledger import (
+from antstreet import termsheet
+from antstreet.approval import NotApprovedError, content_hashes, require_approval
+from antstreet.boss import draft_term_sheet
+from antstreet.budget import remaining
+from antstreet.errors import Outcome
+from antstreet.firm import FirmConfig, run_firm
+from antstreet.gate import Check, CheckStatus, run_gate
+from antstreet.ledger import (
     Event,
     EventType,
     LedgerCorruptError,
@@ -32,12 +32,12 @@ from boss.ledger import (
     read_events,
     total,
 )
-from boss.rundir import RunPaths, assemble_product
-from boss.runner import SliceRun
-from boss.sandbox import SandboxMode
-from boss.state import RunState, TaskState
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, validate
+from antstreet.rundir import RunPaths, assemble_product
+from antstreet.runner import SliceRun
+from antstreet.sandbox import SandboxMode
+from antstreet.state import RunState, TaskState
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, validate
 
 CHECK = "from rev import reverse\n\ndef test_reverse():\n    assert reverse('ab') == 'ba'\n"
 RIGHT = "def reverse(s):\n    return s[::-1]\n"
@@ -485,7 +485,7 @@ else:
 
 
 def test_callers_secrets_reach_neither_the_boss_call_nor_the_worker(tmp_path):
-    from boss.cli import main
+    from antstreet.cli import main
 
     fake = tmp_path / "fake-claude"
     fake.write_text(FAKE_CLAUDE)

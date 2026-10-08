@@ -1,4 +1,4 @@
-"""boss.spec.split: the rules of a request. Properties are checked on all the benchmark ideas,
+"""antstreet.spec.split: the rules of a request. Properties are checked on all the benchmark ideas,
 because those are real ideas with real list markers, signatures and hard-wrapped sentences."""
 
 import contextlib
@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from boss import spec
-from boss.spec import MAX_RULES, SpecError, split
+from antstreet import spec
+from antstreet.spec import MAX_RULES, SpecError, split
 
 TASKS = Path(__file__).parent.parent / "bench" / "tasks"
 IDEAS = {

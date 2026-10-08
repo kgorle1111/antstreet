@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.bench.drafts import (
+from antstreet.bench.drafts import (
     FAILED,
     INVALID,
     REJECTED_FILE,
@@ -18,10 +18,10 @@ from boss.bench.drafts import (
     run_draft,
     settings_for,
 )
-from boss.bench.tasks import load_task, load_tasks, task_set_hash
-from boss.roles.base import system_prompt
-from boss.roles.engineering import SYSTEM_DESIGNER, TESTER
-from boss.roles.product import PRODUCT_MANAGER
+from antstreet.bench.tasks import load_task, load_tasks, task_set_hash
+from antstreet.roles.base import system_prompt
+from antstreet.roles.engineering import SYSTEM_DESIGNER, TESTER
+from antstreet.roles.product import PRODUCT_MANAGER
 
 TASKS = Path(__file__).parent.parent / "bench" / "tasks"
 TASK = load_task(TASKS / "slugify")
@@ -177,7 +177,7 @@ def test_a_call_that_fails_is_a_failed_draft_not_an_invalid_one(staged):
 def test_the_staged_settings_change_when_any_of_the_three_prompts_or_skills_change(monkeypatch):
     before = settings_for(STAGED, "haiku", None)
     assert before.prompt == STAGED and len(before.prompt_sha) == 12
-    import boss.bench.drafts as drafts
+    import antstreet.bench.drafts as drafts
 
     monkeypatch.setattr(drafts, "system_prompt", lambda spec: f"edited {spec.name}")
     assert settings_for(STAGED, "haiku", None).prompt_sha != before.prompt_sha
@@ -197,8 +197,8 @@ def test_the_command_line_runs_a_staged_draft_and_prints_its_cost_ceiling(staged
 
 
 def test_one_call_of_unknown_cost_makes_the_drafts_cost_unknown_never_a_smaller_number():
-    from boss.bench.drafts import _sum
-    from boss.stream import Usage
+    from antstreet.bench.drafts import _sum
+    from antstreet.stream import Usage
 
     total = _sum([Usage(10_000, 1, 2, 3), Usage(None, 4, 5, 6), Usage(7_000, 1, 1, 1)])
     assert total == Usage(None, 6, 8, 10)

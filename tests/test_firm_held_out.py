@@ -12,19 +12,19 @@ import pytest
 from boss_init import BOSS_INIT_LINE
 from test_firm import BAD, C01, C02, C03, ENV, GOOD, HALF, STARTED, Script, sheet, step
 
-from boss import held_out
-from boss.approval import NotApprovedError, content_hashes, review_term_sheet
-from boss.firm import FirmConfig, FirmReport, config_data, config_from_data, run_firm
-from boss.gate import run_gate
-from boss.ledger import Event, EventType, LedgerWriter, read_events, total
-from boss.limits import RunLimits
-from boss.report import build_report, render_report
-from boss.roles.examiner import run_examiner
-from boss.rule import FiringPolicy
-from boss.rundir import RunPaths
-from boss.runner import run_slice
-from boss.state import run_state, slice_history
-from boss.termsheet import Round
+from antstreet import held_out
+from antstreet.approval import NotApprovedError, content_hashes, review_term_sheet
+from antstreet.firm import FirmConfig, FirmReport, config_data, config_from_data, run_firm
+from antstreet.gate import run_gate
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events, total
+from antstreet.limits import RunLimits
+from antstreet.report import build_report, render_report
+from antstreet.roles.examiner import run_examiner
+from antstreet.rule import FiringPolicy
+from antstreet.rundir import RunPaths
+from antstreet.runner import run_slice
+from antstreet.state import run_state, slice_history
+from antstreet.termsheet import Round
 
 HP = "from rev import reverse\n\ndef test_held_pass():\n    assert reverse('xy') == 'yx'\n"
 HF = "from rev import reverse\n\ndef test_held_fail():\n    assert reverse('xy') == 'nope'\n"

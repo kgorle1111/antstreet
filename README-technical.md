@@ -369,7 +369,7 @@ the text you read; who approves rests on you.
 
 Running `antstreet` (or the benchmark) from a shell inside a Claude Code session is safe for the
 `claude` processes it starts: each gets only `HOME`, `PATH`, `USER`, `LANG`, `TMPDIR`,
-`CLAUDE_CONFIG_DIR` and, if set, `ANTHROPIC_API_KEY` (`worker_env` in `src/boss/worker.py`). The
+`CLAUDE_CONFIG_DIR` and, if set, `ANTHROPIC_API_KEY` (`worker_env` in `src/antstreet/worker.py`). The
 session's own variables (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*`, its
 `ANTHROPIC_BASE_URL`) never reach them. They use the login stored for your user by
 `claude auth login`, not the session's. If that login has expired, every call fails at once;
@@ -543,7 +543,7 @@ Each of these has a test that fails when the document and the code disagree.
 
 ```bash
 uv run pytest                 # unit tests, no model calls
-uv run pytest --cov --cov-report=term-missing   # same, with line and branch coverage of src/boss
+uv run pytest --cov --cov-report=term-missing   # same, with line and branch coverage of src/antstreet
 uv run ruff check . && uv run ruff format --check .
 BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py   # one real run, a few cents
 ```

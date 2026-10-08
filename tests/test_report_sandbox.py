@@ -7,10 +7,10 @@ import pytest
 from test_firm import C01, C02, C03, GOOD, Script, step
 from test_firm_held_out import HP, run
 
-from boss.gate import run_gate
-from boss.ledger import Event, EventType, read_events
-from boss.report import build_report, render_report
-from boss.rundir import RunPaths
+from antstreet.gate import run_gate
+from antstreet.ledger import Event, EventType, read_events
+from antstreet.report import build_report, render_report
+from antstreet.rundir import RunPaths
 
 NOT_RECORDED = "Checks ran sandboxed: not recorded (a ledger from before the flag existed)."
 

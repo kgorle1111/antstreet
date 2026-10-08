@@ -3,11 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from boss.errors import Outcome
-from boss.gate import CheckResult, CheckStatus
-from boss.handoff import PREVIOUS_DIR, failure_notes, prepare_workspace, reassignment_prompt
-from boss.rule import Decision, SliceRecord, Verdict
-from boss.runner import check_workspace
+from antstreet.errors import Outcome
+from antstreet.gate import CheckResult, CheckStatus
+from antstreet.handoff import PREVIOUS_DIR, failure_notes, prepare_workspace, reassignment_prompt
+from antstreet.rule import Decision, SliceRecord, Verdict
+from antstreet.runner import check_workspace
 
 VERDICT = Verdict(Decision.FIRE, "no new passing check in 2 slices")
 

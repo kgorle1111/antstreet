@@ -2,7 +2,7 @@
 
 import pytest
 
-from boss.ledger import AUDIT_ACTOR, Event, EventType, LedgerWriter, audited, read_events
+from antstreet.ledger import AUDIT_ACTOR, Event, EventType, LedgerWriter, audited, read_events
 
 DATA = {"base": "a" * 40, "head": "b" * 40, "verdict": "refuted", "claim": "done"}
 
@@ -52,7 +52,7 @@ def test_an_actor_that_is_not_one_of_the_known_forms_is_refused(actor):
 
 @pytest.fixture
 def run(tmp_path):
-    from boss.rundir import RunPaths
+    from antstreet.rundir import RunPaths
 
     return RunPaths(tmp_path / "store" / ".boss" / "runs" / "r1")
 
@@ -66,7 +66,7 @@ def test_the_writer_signs_an_audited_event_and_a_reader_with_the_key_accepts_it(
 
 
 def test_an_audited_line_added_without_the_key_is_refused_even_with_a_valid_chain(run):
-    from boss.ledger import LedgerUnverifiedError
+    from antstreet.ledger import LedgerUnverifiedError
 
     with run.writer() as ledger:
         ledger.append(ev("gate"))
@@ -80,7 +80,7 @@ def test_an_audited_line_added_without_the_key_is_refused_even_with_a_valid_chai
 def test_an_audited_verdict_edited_with_the_chain_recomputed_is_refused(run):
     import json
 
-    from boss.ledger import GENESIS, LedgerUnverifiedError
+    from antstreet.ledger import GENESIS, LedgerUnverifiedError
 
     with run.writer() as ledger:
         ledger.append(ev("gate"))

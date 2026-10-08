@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.boss import MULTI_TASK_PROMPT, TERM_SHEET_PROMPT, draft_term_sheet, load_prompt
+from antstreet.boss import MULTI_TASK_PROMPT, TERM_SHEET_PROMPT, draft_term_sheet, load_prompt
 
 RECORDED = json.loads(
     (Path(__file__).parent / "fixtures" / "json_boss_schema_call_2.1.285.json").read_text()

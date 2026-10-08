@@ -21,7 +21,7 @@ proposed, effect not yet measured).
 | Session probe | Small calls to CLI 2.1.285 made after P1 to P6. Starting a session with an id that was already in use failed with "Session ID ... is already in use"; resuming an id that was never created failed with "No conversation found". The output was not saved as a fixture. | D32 |
 | Review | An independent read of the code that reproduced a defect. The fix has a test that fails without it. | D34 |
 | Sandbox probes | macOS 26.6.2, 2026-09-30: the gate's own command run under candidate profiles, with attack scripts run with and without the sandbox. | [SANDBOX.md](SANDBOX.md) |
-| Draft baseline | The boss's saved drafts of the pilot and the rerun, scored with `python -m boss.bench.drafts --score-existing`. No spend. | D36 |
+| Draft baseline | The boss's saved drafts of the pilot and the rerun, scored with `python -m antstreet.bench.drafts --score-existing`. No spend. | D36 |
 | Test | A test in this repository, named with its path. | `tests/` |
 
 - Numbers marked pilot or rerun cannot be reproduced from this repository alone. The commands that
@@ -207,7 +207,7 @@ with a JSON schema.
 - Why: The gate runs checks with the interpreter that runs `boss`, so an install step per run would
   need its own environment and a network.
 - Rejected: Third-party dependencies in built products, for now. Whether they come in is open.
-- Evidence: `src/boss/prompts/builder_v4.md` (the same lines as `builder_v3.md`),
+- Evidence: `src/antstreet/prompts/builder_v4.md` (the same lines as `builder_v3.md`),
   `tests/test_bench_tasks.py::test_reference_must_be_stdlib_only`.
 
 ### D14: The gate runs worker code on the host, with no container
@@ -239,7 +239,7 @@ with a JSON schema.
 - Rejected: A learned stopping predictor. Letting a model decide who to fire. Live-only tuning.
 - Evidence: `tests/test_rule.py::test_infrastructure_slices_do_not_consume_the_stall_count`,
   `tests/test_replay_integration.py::test_two_ledgers_and_three_policies_give_the_hand_worked_totals`,
-  `src/boss/bench/replay.py`. The defaults 2 and 6 have not been checked against replayed
+  `src/antstreet/bench/replay.py`. The defaults 2 and 6 have not been checked against replayed
   benchmark ledgers in this repository.
 
 ### D16: One reassignment per task; the old files are offered, not imposed
@@ -378,7 +378,7 @@ with a JSON schema.
   measured. Wrong checks are the failure the investor cannot always see.
 - Rejected: Making thinking off the default before that measurement.
 - Evidence: The 4-draft probe in D24. What would change this: 17 drafts scored against the reference
-  solutions with thinking off (`python -m boss.bench.run` reports wrong checks per draft).
+  solutions with thinking off (`python -m antstreet.bench.run` reports wrong checks per draft).
 
 ### D26: A second boss pass that audits each check against the idea is not built
 
@@ -389,7 +389,7 @@ with a JSON schema.
   boss's checks do not cover the idea; a second pass might catch missing rules and wrong ones.
 - Rejected: Adding it before it is measured: it is one more model call in every run, and the
   benchmark has to show that it lowers the wrong-check count and the gamed cells enough to pay for it.
-- Evidence: Rerun; the wrong-check count is measured by `src/boss/bench/run.py`.
+- Evidence: Rerun; the wrong-check count is measured by `src/antstreet/bench/run.py`.
 
 ### D27: The benchmark compares a single agent with the firm on the same idea, model, tools and budget
 
@@ -577,7 +577,7 @@ with a JSON schema.
 - Decision: A draft's checks are scored without running a worker. Precision: the task's reference
   must pass every check, and a check it fails is wrong. Recall: each known-wrong implementation (a
   mutant) must fail a check the reference passes; a mutant that fails only wrong checks is not
-  counted as caught. `python -m boss.bench.drafts` drafts and scores; `--score-existing` scores
+  counted as caught. `python -m antstreet.bench.drafts` drafts and scores; `--score-existing` scores
   saved drafts for free.
 - Why: Wrong checks and checks that miss the idea were the pilot's failures, and a full worker run
   costs too much to iterate a prompt on. Only the boss's call is paid: about $0.09 a draft.
@@ -688,7 +688,7 @@ with a JSON schema.
 ### D40: The rule layer's headline counts four anchor types; literals and list items are shown apart
 
 - Status: `under evaluation`
-- Decision: `boss.spec` extracts six kinds of anchor from a rule (a literal, a list item, an exception
+- Decision: `antstreet.spec` extracts six kinds of anchor from a rule (a literal, a list item, an exception
   name, a type, a size, "non-ASCII"). A rule's state and the headline score (anchored rules over
   scored rules) use only the last four. A missing literal or list item is shown in its own section of
   the approval view, labelled as not scored.
@@ -733,10 +733,10 @@ with a JSON schema.
 ### D42: Roles and the core never import the CLI or the benchmark
 
 - Status: `in force`
-- Decision: Nothing under `src/boss/roles/` and none of `rule`, `gate`, `ledger`, `signing`,
-  `sandbox`, `runner`, `worker`, `budget`, `firm`, `pipeline` imports `boss.cli` or `boss.bench`.
+- Decision: Nothing under `src/antstreet/roles/` and none of `rule`, `gate`, `ledger`, `signing`,
+  `sandbox`, `runner`, `worker`, `budget`, `firm`, `pipeline` imports `antstreet.cli` or `antstreet.bench`.
   Shared pieces sit below both: `worker.EXECUTABLE_VAR` and `stats` (interval, rate, Markdown table).
-- Why: `roles.judge` imported `boss.cli` and `boss.bench.table`, so `pipeline` had to import the
+- Why: `roles.judge` imported `antstreet.cli` and `antstreet.bench.table`, so `pipeline` had to import the
   judge inside a method to avoid the cycle `pipeline -> cli -> roles.judge`. The lazy import hid
   the inversion instead of fixing it.
 - Rejected: Keeping the lazy import: it works until the next import moves to module level.

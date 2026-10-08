@@ -18,8 +18,8 @@ import threading
 
 import pytest
 
-from boss import signing
-from boss.ledger import (
+from antstreet import signing
+from antstreet.ledger import (
     Event,
     EventType,
     LedgerCorruptError,
@@ -30,8 +30,8 @@ from boss.ledger import (
     repair_torn_tail,
     unsigned_lines,
 )
-from boss.rundir import RunPaths
-from boss.signing import anchor_path, load_key, load_or_create_key, read_anchor, write_anchor
+from antstreet.rundir import RunPaths
+from antstreet.signing import anchor_path, load_key, load_or_create_key, read_anchor, write_anchor
 
 TS = "2026-10-02T11:00:00+00:00"  # fixed: an edit must not hide behind a clock tick
 
@@ -498,7 +498,7 @@ def test_an_older_unsigned_ledger_still_loads_says_so_and_is_signed_from_its_nex
 
 
 def test_the_report_names_a_ledger_no_line_signature_covers(run):
-    from boss.cli import _report_text
+    from antstreet.cli import _report_text
 
     with LedgerWriter(run.ledger) as ledger:
         ledger.append(boss_call())
@@ -561,7 +561,7 @@ def test_accepted_risk_a_rewritten_ledger_with_its_anchor_gone_loads_once_the_in
 
 
 def test_boss_verify_refuses_an_unanchored_old_run_until_adopt_unsigned_is_given(run):
-    from boss import cli
+    from antstreet import cli
 
     with LedgerWriter(run.ledger) as ledger:  # an old run: unsigned, no anchor
         ledger.append(boss_call())

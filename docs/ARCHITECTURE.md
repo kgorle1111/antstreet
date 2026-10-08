@@ -22,7 +22,7 @@ Related: [LEDGER.md](LEDGER.md) (event schema), [CLI.md](CLI.md) (commands, run 
   `reassigned`, `abandoned`, `round_closed`, `paused`, `stopped`). Those are code, not a model
   call. Only `boss_call` is a model call.
 - The loop (`firm.py`) is not an actor. It reads the ledger, asks the rule, and writes events.
-- Specialist roles (`src/boss/roles/`) are not in this table. Each is one model call with no tools,
+- Specialist roles (`src/antstreet/roles/`) are not in this table. Each is one model call with no tools,
   behind a gate in code, and its spend is booked as a `role_call` event under the actor
   `role:<name>`. Every role is off unless `boss fund --roles` names it, and `pipeline.py` is the
   only module that calls one; [ROLES.md](ROLES.md) says where each runs and when one is switched
@@ -32,7 +32,7 @@ Related: [LEDGER.md](LEDGER.md) (event schema), [CLI.md](CLI.md) (commands, run 
 
 ## Module map
 
-One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `src/boss/bench/`. "Never" is a rule the module keeps.
+One row per file under `src/antstreet/`, `src/antstreet/roles/`, `src/antstreet/skills/` and `src/antstreet/bench/`. "Never" is a rule the module keeps.
 
 | Module | Owns | Never |
 |---|---|---|
@@ -74,7 +74,7 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `roles/examiner.py` | The examiner: held-out checks written from the idea and the public names alone, its gate, and `run_examiner` (booking the call, storing the checks, telling the investor when none were kept). | Show it a visible check's body, description or file name; keep a check whose quote is not a fragment of the idea or that passes on an empty workspace. |
 | `roles/spec_mapper.py` | The spec mapper: one call that says which rules each check asserts, from the rules and the check code alone, and the comparison with what the boss cites. | Show it, or let it see, what the boss says a check covers; accept a line that is not an assertion or a rule id that is not the idea's; decide anything. |
 | `roles/judge.py` | The judge, which scores an artifact against a rubric, and the calibration that compares it with a person. | Hand out a score with no quote from the artifact; mark a judgement calibrated anywhere but `judge_artifact`. |
-| `roles/org.py` | The organisation chart, built from each role's department and parent (`python -m boss.roles.org`). | Draw roles that do not form a tree under the boss. |
+| `roles/org.py` | The organisation chart, built from each role's department and parent (`python -m antstreet.roles.org`). | Draw roles that do not form a tree under the boss. |
 | `roles/planning.py` | Funding rounds that unlock in story-priority order. | Call a model. |
 | `roles/product.py` | The product manager (user stories) and the user agent (what the stories miss or misread). | Let the user agent edit the stories. |
 | `roles/stories.py` | The shape of user stories and acceptance criteria, and the word-for-word quote check against the idea. | Accept a criterion whose source is not a fragment of the idea. |
@@ -87,15 +87,15 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `skills/__init__.py` | Loading and parsing skill files: a header of `name`, `version` and `description`, then a body. | Accept another header; load a body over 4,000 characters. |
 | `spec.py` | Splitting a request into rules with offsets, extracting the literals a test of each rule must contain, and checking which rules a draft's checks cover, in code. | Call a model; run a check; count an unverifiable claim as verified; let a model write or reword a rule. |
 | `state.py` | Rebuilding run state (workers, tasks, rounds, stops, sessions, dropped checks) from events. | Read anything but events. |
-| `stats.py` | The Wilson interval, the rate and percentage formatters and the Markdown table helper that roles and benchmarks share. | Import anything else from `boss`; let a role or a core module import `boss.cli` or `boss.bench`. |
+| `stats.py` | The Wilson interval, the rate and percentage formatters and the Markdown table helper that roles and benchmarks share. | Import anything else from `boss`; let a role or a core module import `antstreet.cli` or `antstreet.bench`. |
 | `stream.py` | Reading the CLI's `stream-json` output; usage and cost. | Raise on malformed input; turn a missing cost into 0. |
 | `termsheet.py` | Term sheet types, JSON round trip, validation. | Accept a wrong JSON type; skip the empty-workspace run of every check. |
 | `worker.py` | The exact worker command, the environment allowlist, status cleaning, the isolation test. | Offer a shell tool; pass a variable that is not on the allowlist. |
 | `bench/__init__.py` | The package marker for the benchmark. | Hold logic. |
-| `bench/audit.py` | Auditing saved drafts with the check auditor and scoring its flags against the reference solution (`python -m boss.bench.audit`). | Show the auditor the reference or a mutant; spend money under `--dry-run`. |
-| `bench/drafts.py` | Drafting checks per task, with the boss's one call or the three-role staged draft, and scoring each draft (`python -m boss.bench.drafts`). | Start a worker; show the boss a hidden check, the reference or a mutant. |
-| `bench/imported.py` | Converting a downloaded external task into an imported bench task folder (`python -m boss.bench.imported`). | Write task data into the repository; overwrite an existing task. |
-| `bench/paired.py` | A paired comparison of two arms by task: the mean per-task difference of one KPI with a task-level bootstrap interval (`python -m boss.bench.paired`). | Compare results of different task sets; count an infrastructure failure; call one task enough to show a difference. |
+| `bench/audit.py` | Auditing saved drafts with the check auditor and scoring its flags against the reference solution (`python -m antstreet.bench.audit`). | Show the auditor the reference or a mutant; spend money under `--dry-run`. |
+| `bench/drafts.py` | Drafting checks per task, with the boss's one call or the three-role staged draft, and scoring each draft (`python -m antstreet.bench.drafts`). | Start a worker; show the boss a hidden check, the reference or a mutant. |
+| `bench/imported.py` | Converting a downloaded external task into an imported bench task folder (`python -m antstreet.bench.imported`). | Write task data into the repository; overwrite an existing task. |
+| `bench/paired.py` | A paired comparison of two arms by task: the mean per-task difference of one KPI with a task-level bootstrap interval (`python -m antstreet.bench.paired`). | Compare results of different task sets; count an infrastructure failure; call one task enough to show a difference. |
 | `bench/replay.py` | Replaying a firing policy over recorded ledgers, offline. | Call a model; use a different rule from the live one; walk past DONE or ESCALATE. |
 | `bench/results.py` | One benchmark cell's result record and its load checks. | Accept a wrongly typed field. |
 | `bench/run.py` | Running benchmark cells through the single, single-review and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
@@ -106,14 +106,14 @@ One row per file under `src/boss/`, `src/boss/roles/`, `src/boss/skills/` and `s
 | `bench/kpi.py` | The fixed KPI scorecard of benchmark results: one column per folder, arm, model, budget and firm options. | Count an infrastructure failure in a figure; show an unknown cost or an unrecorded figure as 0; pool columns that share a label. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
 
-Prompts are files, not code. The boss and the benchmark use `src/boss/prompts/term_sheet_v1.md`
+Prompts are files, not code. The boss and the benchmark use `src/antstreet/prompts/term_sheet_v1.md`
 (one task), `term_sheet_v2.md` (several tasks), `term_sheet_v3.md` (one task whose checks cite the
 idea's rules, `boss fund --spec`), `builder_v5.md` (every worker; `builder_v4.md` is its predecessor, kept for the recorded benchmark runs) and `solo_v2.md` (the
 benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
 has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
 `check_auditor_v1.md`, `spec_mapper_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `boss audit plan` has one of its
-own, `audit_checks_v1.md`. Skills are Markdown files under `src/boss/skills/`
+own, `audit_checks_v1.md`. Skills are Markdown files under `src/antstreet/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
 
 ## Life of a run

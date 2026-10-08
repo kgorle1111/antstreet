@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench.replay import (
+from antstreet.bench.replay import (
     PolicyResult,
     WorkerReplay,
     main,
@@ -11,9 +11,9 @@ from boss.bench.replay import (
     replay_worker,
     task_checks_by_worker,
 )
-from boss.errors import Outcome
-from boss.ledger import Event, EventType, LedgerWriter
-from boss.rule import Decision, FiringPolicy, SliceRecord, Verdict
+from antstreet.errors import Outcome
+from antstreet.ledger import Event, EventType, LedgerWriter
+from antstreet.rule import Decision, FiringPolicy, SliceRecord, Verdict
 
 
 def stall_decide(checks, history, policy):
@@ -209,8 +209,8 @@ def test_main_rejects_a_nonpositive_policy_value(tmp_path):
 def test_replay_reads_a_firm_ledger_with_its_project_key_and_refuses_a_keyless_append(
     tmp_path, capsys
 ):
-    from boss.bench.replay import main
-    from boss.rundir import RunPaths
+    from antstreet.bench.replay import main
+    from antstreet.rundir import RunPaths
 
     run = RunPaths(tmp_path / "cell" / ".boss" / "runs" / "r1")
     with run.writer() as ledger:

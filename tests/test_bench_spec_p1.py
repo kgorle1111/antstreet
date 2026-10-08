@@ -1,5 +1,5 @@
-"""boss.bench.spec_p1: the P1 criteria in code against the criteria written first, the scoring of
-drafts on failing products, and the mapper pass under a spend cap. No model calls: a fake CLI."""
+"""antstreet.bench.spec_p1: the P1 criteria in code against the criteria written first, the scoring
+of drafts on failing products, and the mapper pass under a spend cap. No model calls: a fake CLI."""
 
 import json
 import re
@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss import spec
-from boss.bench import spec_p1 as p1
-from boss.bench.drafts import DraftCell, save_claims
-from boss.bench.score import DraftScore
+from antstreet import spec
+from antstreet.bench import spec_p1 as p1
+from antstreet.bench.drafts import DraftCell, save_claims
+from antstreet.bench.score import DraftScore
 
 ROOT = Path(__file__).parent.parent
 TASKS = ROOT / "bench" / "tasks"

@@ -2,8 +2,8 @@
 
 import pytest
 
-from boss.ledger import Event, EventType
-from boss.rulings import (
+from antstreet.ledger import Event, EventType
+from antstreet.rulings import (
     DROPPED,
     KEPT,
     MAX_NOTE_CHARS,

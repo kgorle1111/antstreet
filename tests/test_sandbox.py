@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from sandbox_support import working_sandbox
 
-from boss import sandbox
-from boss.sandbox import (
+from antstreet import sandbox
+from antstreet.sandbox import (
     Sandbox,
     SandboxMode,
     SandboxUnavailable,

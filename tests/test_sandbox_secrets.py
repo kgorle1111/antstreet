@@ -16,10 +16,10 @@ import pytest
 from sandbox_support import working_sandbox
 from test_gate_sandbox import HONEST, PROBE, RIGHT, denied
 
-from boss import gate as gate_module
-from boss import sandbox
-from boss.gate import AUDIT_HOME_ENV, Check, CheckStatus, run_gate, secret_paths
-from boss.sandbox import Sandbox, SandboxMode, bwrap_argv
+from antstreet import gate as gate_module
+from antstreet import sandbox
+from antstreet.gate import AUDIT_HOME_ENV, Check, CheckStatus, run_gate, secret_paths
+from antstreet.sandbox import Sandbox, SandboxMode, bwrap_argv
 
 ON, OFF = SandboxMode.REQUIRE, SandboxMode.OFF
 

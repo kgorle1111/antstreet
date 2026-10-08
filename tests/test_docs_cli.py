@@ -16,18 +16,18 @@ from docs_support import (
     table,
 )
 
-from boss import audit as audit_run
-from boss import cli, gate, worker
-from boss.bench import audit, drafts, paired, replay
-from boss.bench import kpi as bench_kpi
-from boss.bench import run as bench_run
-from boss.bench import table as bench_table
-from boss.bench.tasks import BenchTask
-from boss.ledger import EventType, read_events
-from boss.roles import judge
+from antstreet import audit as audit_run
+from antstreet import cli, gate, worker
+from antstreet.bench import audit, drafts, paired, replay
+from antstreet.bench import kpi as bench_kpi
+from antstreet.bench import run as bench_run
+from antstreet.bench import table as bench_table
+from antstreet.bench.tasks import BenchTask
+from antstreet.ledger import EventType, read_events
+from antstreet.roles import judge
 
 DOC = DOCS / "CLI.md"
-SRC = ROOT / "src" / "boss"
+SRC = ROOT / "src" / "antstreet"
 HELP = {"-h", "--help"}
 # flags of the `claude` CLI that the document names when it explains isolation
 CLAUDE_FLAGS = {"--bare", "--safe-mode"}
@@ -50,15 +50,15 @@ def parsers() -> dict[str, argparse.ArgumentParser]:
 @pytest.fixture(scope="module")
 def bench_parsers() -> dict[str, argparse.ArgumentParser]:
     return {
-        "python -m boss.bench.run": captured_parser(bench_run.main),
-        "python -m boss.bench.drafts": captured_parser(drafts.main),
-        "python -m boss.bench.table": captured_parser(bench_table.main),
-        "python -m boss.bench.paired": captured_parser(paired.main),
-        "python -m boss.bench.kpi": captured_parser(bench_kpi.main),
-        "python -m boss.bench.replay": captured_parser(replay.main),
-        "python -m boss.bench.audit": captured_parser(audit.main),
+        "python -m antstreet.bench.run": captured_parser(bench_run.main),
+        "python -m antstreet.bench.drafts": captured_parser(drafts.main),
+        "python -m antstreet.bench.table": captured_parser(bench_table.main),
+        "python -m antstreet.bench.paired": captured_parser(paired.main),
+        "python -m antstreet.bench.kpi": captured_parser(bench_kpi.main),
+        "python -m antstreet.bench.replay": captured_parser(replay.main),
+        "python -m antstreet.bench.audit": captured_parser(audit.main),
     } | {
-        f"python -m boss.roles.judge {name}": parser
+        f"python -m antstreet.roles.judge {name}": parser
         for name, parser in captured_parser(judge.main)
         ._subparsers._group_actions[0]
         .choices.items()
@@ -178,7 +178,7 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
         "sandbox.py",
     }
     for module in ("gate", "sandbox", "bench.drafts", "bench.audit", "roles.judge"):
-        assert f"`boss.{module}`" in text
+        assert f"`antstreet.{module}`" in text
 
 
 @pytest.fixture(scope="module")

@@ -15,7 +15,7 @@ from audit_support import (
     short_timeout_for_hangs,
 )
 
-from boss.audit_report import Observation, collect, render, wilson
+from antstreet.audit_report import Observation, collect, render, wilson
 
 
 @pytest.fixture(scope="module")
@@ -138,9 +138,9 @@ def test_the_same_counts_in_two_modes_stay_in_two_rows():
 def test_a_forged_audited_line_makes_the_report_refuse(audited, tmp_path):
     import shutil
 
-    from boss.ledger import Event, EventType, LedgerWriter, read_events
-    from boss.ledger import audited as gate_verdicts
-    from boss.rundir import RunPaths
+    from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+    from antstreet.ledger import audited as gate_verdicts
+    from antstreet.rundir import RunPaths
 
     copy = tmp_path / "store"
     shutil.copytree(audited.store, copy)

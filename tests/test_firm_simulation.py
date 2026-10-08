@@ -107,23 +107,23 @@ from typing import Any, NamedTuple
 
 import pytest
 
-from boss import budget as budget_mod
-from boss import firm as firm_mod
-from boss.approval import content_hashes
-from boss.errors import INFRASTRUCTURE, Outcome
-from boss.firm import FirmConfig, FirmReport, run_firm
-from boss.gate import Check, CheckResult, CheckStatus
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.limits import RunLimits
-from boss.report import build_report, render_report
-from boss.roles.builders import PROFILES
-from boss.rule import FiringPolicy
-from boss.rundir import RunPaths
-from boss.runner import SliceRun
-from boss.state import slice_history
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, structural_problems
-from boss.worker import IsolationError, usd
+from antstreet import budget as budget_mod
+from antstreet import firm as firm_mod
+from antstreet.approval import content_hashes
+from antstreet.errors import INFRASTRUCTURE, Outcome
+from antstreet.firm import FirmConfig, FirmReport, run_firm
+from antstreet.gate import Check, CheckResult, CheckStatus
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.limits import RunLimits
+from antstreet.report import build_report, render_report
+from antstreet.roles.builders import PROFILES
+from antstreet.rule import FiringPolicy
+from antstreet.rundir import RunPaths
+from antstreet.runner import SliceRun
+from antstreet.state import slice_history
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, structural_problems
+from antstreet.worker import IsolationError, usd
 
 ENV = {"HOME": "/h"}
 TOOLS = ("Read", "Write", "Edit", "Bash", "WebFetch")

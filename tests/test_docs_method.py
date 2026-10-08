@@ -6,21 +6,21 @@ import re
 import pytest
 from docs_support import ROOT, captured_parser, original_tasks, read
 
-from boss import kpi as run_kpi
-from boss.bench import drafts as bench_drafts
-from boss.bench import kpi as bench_kpi
-from boss.bench import results, score
-from boss.bench import run as bench_run
-from boss.bench import table as bench_table
-from boss.bench.score import DraftScore
-from boss.bench.tasks import (
+from antstreet import kpi as run_kpi
+from antstreet.bench import drafts as bench_drafts
+from antstreet.bench import kpi as bench_kpi
+from antstreet.bench import results, score
+from antstreet.bench import run as bench_run
+from antstreet.bench import table as bench_table
+from antstreet.bench.score import DraftScore
+from antstreet.bench.tasks import (
     MIN_MUTANTS,
     load_tasks,
     task_set_hash,
     validate_task,
 )
-from boss.firm import SLICE_SHARE
-from boss.ledger import Event, EventType
+from antstreet.firm import SLICE_SHARE
+from antstreet.ledger import Event, EventType
 
 DOC = ROOT / "bench" / "METHOD.md"
 
@@ -62,12 +62,12 @@ def test_the_task_rules_named_are_enforced(text):
 def test_the_reproducing_commands_use_real_modules_and_options(text):
     body = text.split("## Reproducing")[1]
     first, second = body.split("```bash")[1:3]
-    assert "python -m boss.bench.run" in first and "python -m boss.bench.table" in first
+    assert "python -m antstreet.bench.run" in first and "python -m antstreet.bench.table" in first
     options = set(re.findall(r"--[a-z-]+", first))
     assert options == {"--out", "--budget", "--reps"}
     real = {s for a in captured_parser(bench_run.main)._actions for s in a.option_strings}
     assert options <= real
-    assert second.count("python -m boss.bench.drafts") == 2
+    assert second.count("python -m antstreet.bench.drafts") == 2
     drafts_options = set(re.findall(r"--[a-z-]+", second))
     assert drafts_options == {"--out", "--reps", "--prompt", "--score-existing"}
     real = {s for a in captured_parser(bench_drafts.main)._actions for s in a.option_strings}
@@ -87,8 +87,8 @@ def test_the_draft_evaluation_states_the_scores_and_layout_the_code_uses(text):
 
 def test_the_firm_arm_answers_every_question_with_a(text):
     assert "every question the\n  run asks is answered `a`" in text
-    assert 'ask=lambda prompt: "a"' in read(ROOT / "src" / "boss" / "bench" / "run.py")
-    from boss import rulings
+    assert 'ask=lambda prompt: "a"' in read(ROOT / "src" / "antstreet" / "bench" / "run.py")
+    from antstreet import rulings
 
     for answer in ("a", "y"):  # an automatic answer is never one of the rulings
         assert (
@@ -134,7 +134,9 @@ def test_the_kpi_section_names_the_scorecards_seven_rows_in_order(text):
     assert len(named) == len(rows) == 7
     # the scorecard's row names are shorter than the note's: each row's first word opens the name
     assert [n.split()[0].lower() for n in named] == [r[1].split()[0].lower() for r in rows]
-    assert "python -m boss.bench.kpi" in body and "fixed before any new run is analysed" in body
+    assert (
+        "python -m antstreet.bench.kpi" in body and "fixed before any new run is analysed" in body
+    )
 
 
 def test_the_investor_question_rule_lists_the_events_the_code_counts(text):

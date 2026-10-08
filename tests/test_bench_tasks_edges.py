@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench import tasks as bench_tasks
-from boss.bench.tasks import (
+from antstreet.bench import tasks as bench_tasks
+from antstreet.bench.tasks import (
     MIN_HIDDEN_CHECKS,
     MIN_MUTANTS,
     BenchTask,
@@ -18,7 +18,7 @@ from boss.bench.tasks import (
     task_set_hash,
     validate_task,
 )
-from boss.gate import Check, CheckResult, CheckStatus
+from antstreet.gate import Check, CheckResult, CheckStatus
 
 HIDDEN = "from demo import f\n\ndef test_x():\n    assert f() == 1\n"
 

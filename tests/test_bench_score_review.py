@@ -5,9 +5,9 @@ import pytest
 import test_roles_critic as shared
 from test_roles_critic import CORRECT, HEAD, LEADING, QUOTE, RUN_OF_SPACES, SLEEPS, finding
 
-from boss.bench.score import ReviewScore, score_review
-from boss.bench.tasks import BenchTask
-from boss.roles.critic import Finding, Rejected, Review
+from antstreet.bench.score import ReviewScore, score_review
+from antstreet.bench.tasks import BenchTask
+from antstreet.roles.critic import Finding, Rejected, Review
 
 product = shared.product  # fixtures shared with the critic's tests
 review_with = shared.review_with

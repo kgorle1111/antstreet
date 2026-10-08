@@ -11,16 +11,16 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT, BOSS_INIT_LINE
 
-from boss.boss import (
+from antstreet.boss import (
     BOSS_TOOLS,
     BossError,
     BossIsolationError,
     build_boss_command,
     draft_term_sheet,
 )
-from boss.errors import Outcome
-from boss.roles.base import RoleError, RoleSpec, call_role
-from boss.worker import SCHEMA_TOOL
+from antstreet.errors import Outcome
+from antstreet.roles.base import RoleError, RoleSpec, call_role
+from antstreet.worker import SCHEMA_TOOL
 
 RECORDED = json.loads(
     (Path(__file__).parent / "fixtures" / "json_boss_schema_call_2.1.285.json").read_text()
@@ -180,8 +180,8 @@ def test_the_recorded_no_tool_call_passes_the_check_it_is_held_to():
     """The real init of a boss call, recorded with the exact argv, is what the check expects."""
     from boss_init import BOSS_INIT
 
-    from boss.boss import BOSS_TOOLS
-    from boss.worker import isolation_violations
+    from antstreet.boss import BOSS_TOOLS
+    from antstreet.worker import isolation_violations
 
     assert BOSS_INIT["tools"] == ["StructuredOutput"] and BOSS_INIT["mcp_servers"] == []
     assert BOSS_INIT["permissionMode"] == "dontAsk"

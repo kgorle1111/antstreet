@@ -8,10 +8,10 @@ import sys
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss import spec
-from boss.roles import registry
-from boss.roles.base import RoleOutputError
-from boss.roles.spec_mapper import (
+from antstreet import spec
+from antstreet.roles import registry
+from antstreet.roles.base import RoleOutputError
+from antstreet.roles.spec_mapper import (
     MAX_EXERCISES,
     SPEC_MAPPER,
     Comparison,
@@ -23,7 +23,7 @@ from boss.roles.spec_mapper import (
     mapper_schema,
     render_comparison,
 )
-from boss.termsheet import CheckSpec
+from antstreet.termsheet import CheckSpec
 
 IDEA = (
     "Create rev.py.\n\n1. reverse('') returns ''.\n2. A non-string raises `TypeError`.\n"

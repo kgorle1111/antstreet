@@ -3,7 +3,7 @@
 What can go wrong in AntStreet, what stops it, and the test that proves it. Every test named here is
 checked to exist by `tests/test_threat_model.py`, so deleting a cited test breaks the build.
 
-Scope: one investor on one machine, running `boss fund` (and `python -m boss.bench.run`) against
+Scope: one investor on one machine, running `boss fund` (and `python -m antstreet.bench.run`) against
 the headless `claude` CLI. Not in scope: multi-user machines, hosted use, untrusted ideas.
 
 ## Assets

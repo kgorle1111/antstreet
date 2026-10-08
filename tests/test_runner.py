@@ -12,9 +12,9 @@ from uuid import uuid4
 
 import pytest
 
-from boss.errors import Outcome
-from boss.runner import WorkspaceError, _stop, deferred_sigint, run_slice
-from boss.worker import SCHEMA_TOOL, WORKER_TOOLS, IsolationError, SliceSpec
+from antstreet.errors import Outcome
+from antstreet.runner import WorkspaceError, _stop, deferred_sigint, run_slice
+from antstreet.worker import SCHEMA_TOOL, WORKER_TOOLS, IsolationError, SliceSpec
 
 INIT = {
     "type": "system",

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench.results import (
+from antstreet.bench.results import (
     ARMS,
     FAILURE_CLASSES,
     RESULT_FILE,

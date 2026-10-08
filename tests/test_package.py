@@ -1,11 +1,11 @@
 import shutil
 import subprocess
 
-import boss
+import antstreet
 
 
 def test_package_imports_from_installed_src_layout():
-    assert boss.__version__ == "0.0.1"
+    assert antstreet.__version__ == "0.0.1"
 
 
 def test_console_script_is_installed_and_runs():

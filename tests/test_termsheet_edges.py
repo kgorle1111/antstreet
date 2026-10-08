@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from boss import termsheet
-from boss.gate import Check
-from boss.termsheet import (
+from antstreet import termsheet
+from antstreet.gate import Check
+from antstreet.termsheet import (
     CheckSpec,
     Round,
     Task,

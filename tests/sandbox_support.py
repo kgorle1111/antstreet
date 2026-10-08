@@ -2,9 +2,9 @@
 
 import os
 
-from boss import sandbox
-from boss.gate import SANDBOX_ENV
-from boss.sandbox import Sandbox, SandboxMode
+from antstreet import sandbox
+from antstreet.gate import SANDBOX_ENV
+from antstreet.sandbox import Sandbox, SandboxMode
 
 
 def working_sandbox() -> Sandbox | None:

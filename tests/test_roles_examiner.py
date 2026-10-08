@@ -9,12 +9,12 @@ import sys
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss import budget, held_out
-from boss.approval import review_term_sheet
-from boss.ledger import EventType, LedgerWriter, read_events
-from boss.roles import registry
-from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.examiner import (
+from antstreet import budget, held_out
+from antstreet.approval import review_term_sheet
+from antstreet.ledger import EventType, LedgerWriter, read_events
+from antstreet.roles import registry
+from antstreet.roles.base import RoleError, RoleOutputError, system_prompt
+from antstreet.roles.examiner import (
     EXAMINER,
     MAX_CODE_CHARS,
     MAX_NAMES,
@@ -24,9 +24,9 @@ from boss.roles.examiner import (
     public_names,
     run_examiner,
 )
-from boss.rundir import RunPaths
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.rundir import RunPaths
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 IDEA = (
     "Create rev.py with reverse(s). reverse returns the characters of s in the opposite order.\n"

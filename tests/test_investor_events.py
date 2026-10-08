@@ -14,9 +14,9 @@ import random
 import pytest
 from test_cli import boss, events_of_run, locked_run, slices_started
 
-from boss import budget, pipeline, rulings, signing
-from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK
-from boss.ledger import (
+from antstreet import budget, pipeline, rulings, signing
+from antstreet.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_OK
+from antstreet.ledger import (
     GENESIS,
     Event,
     EventType,
@@ -25,10 +25,10 @@ from boss.ledger import (
     adopt_unsigned,
     read_events,
 )
-from boss.rundir import RunPaths
-from boss.signing import SigningError, load_key
-from boss.state import run_state
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.rundir import RunPaths
+from antstreet.signing import SigningError, load_key
+from antstreet.state import run_state
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 SHEET = TermSheet(
     idea="Reverse a string.",

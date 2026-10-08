@@ -36,7 +36,7 @@ tests instead of hidden checks written here.
   with an `imported` block (`source`, `test_path` inside the product, `test_count`), and an optional
   `support/` (harness-owned files laid over the product root while grading, e.g. a shim that
   stands in for the PyPI backport `mock`, which the gate's interpreter lacks).
-- Convert a download with `python -m boss.bench.imported nl2repo <task-dir> <dest-root>`, then run
+- Convert a download with `python -m antstreet.bench.imported nl2repo <task-dir> <dest-root>`, then run
   with `--tasks <dest-root>`. External task data is never committed here (the source may carry no
   licence); `<dest-root>` is outside the repository.
 - `validate_task` skips the reference, mutant and `def test_` rules (there is no reference solution;
@@ -85,7 +85,7 @@ For experiment E4: does a single agent that reviews its own work do as well as t
 It is the `single` arm with a second slice, and it is graded exactly like `single`.
 
 - Slice 1 is the `single` build. If it ended normally or at its cap, the same session is resumed
-  once (`--resume`) with the fixed prompt `src/boss/prompts/self_review_v1.md`, which asks it to
+  once (`--resume`) with the fixed prompt `src/antstreet/prompts/self_review_v1.md`, which asks it to
   review its work against the request and fix what it finds. A build that ended any other way is
   not reviewed and stands as the cell's outcome.
 - The two caps share what `single` gets: 80% of the cell budget, split 75% to the build and 25%
@@ -134,7 +134,7 @@ start as `unlabelled` and are classified by hand, with the evidence kept in the 
 ## KPIs
 
 Seven figures, fixed before any new run is analysed: their definitions below are the code's, and a
-change to one is a new version of this note, not a re-read of old results. `python -m boss.bench.kpi`
+change to one is a new version of this note, not a re-read of old results. `python -m antstreet.bench.kpi`
 prints them, from result files and ledgers only, never from what a model wrote. A **counted** cell is
 one that is not an infrastructure failure; infrastructure failures are left out of every figure and
 counted beside it. A figure the data cannot give is shown as "n/a" or "not recorded", never as 0.
@@ -199,7 +199,7 @@ task are not independent, so an interval over cells is narrower than the evidenc
 ## Paired comparison
 
 The table pools runs, so a task run more often counts more and the two arms are not compared on
-the same tasks. `python -m boss.bench.paired DIR_A DIR_B` compares two arms task by task.
+the same tasks. `python -m antstreet.bench.paired DIR_A DIR_B` compares two arms task by task.
 
 - A task is compared when both sides have at least one counted run of it. Infrastructure failures
   are excluded and counted, as in the table.
@@ -225,7 +225,7 @@ the same tasks. `python -m boss.bench.paired DIR_A DIR_B` compares two arms task
 
 The arms above are scored on products. The boss's checks are the weak point (some are wrong; some
 do not cover the idea), and a full worker run is too costly to iterate a prompt against. So the
-checks are scored alone, as a classifier of implementations, with `python -m boss.bench.drafts`.
+checks are scored alone, as a classifier of implementations, with `python -m antstreet.bench.drafts`.
 Only the boss's drafting call costs money; no worker runs.
 
 - **Precision**: the task's reference is a correct implementation, so it must pass every check.
@@ -265,20 +265,20 @@ runner's own options and `--firm-args`, so the bench code is unchanged and each 
 arm in `firm_args`:
 
 ```bash
-uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-haiku --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku
-uv run python -m boss.bench.run --out bench/results/raw/e6-fixed-sonnet --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet
-uv run python -m boss.bench.run --out bench/results/raw/e6-dispatch --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier sonnet"
-uv run python -m boss.bench.run --out bench/results/raw/e6-cascade --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch cascade --max-tier opus"
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-fixed-haiku --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-fixed-sonnet --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-dispatch --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch rules --max-tier sonnet"
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-cascade --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--dispatch cascade --max-tier opus"
 ```
 
 The eight multi-file tasks (`bench/tasks-multi`) take the same four arms with the firm run at three
 tasks, three at once, same $0.80 budget and 3 reps:
 
 ```bash
-uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-haiku --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3"
-uv run python -m boss.bench.run --out bench/results/raw/e6-multi-fixed-sonnet --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet --firm-args "--max-tasks 3 --parallel 3"
-uv run python -m boss.bench.run --out bench/results/raw/e6-multi-dispatch --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch rules --max-tier sonnet"
-uv run python -m boss.bench.run --out bench/results/raw/e6-multi-cascade --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch cascade --max-tier opus"
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-multi-fixed-haiku --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3"
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-multi-fixed-sonnet --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model sonnet --boss-model sonnet --firm-args "--max-tasks 3 --parallel 3"
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-multi-dispatch --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch rules --max-tier sonnet"
+uv run python -m antstreet.bench.run --out bench/results/raw/e6-multi-cascade --tasks bench/tasks-multi --arms firm --reps 3 --budget 0.80 --model haiku --boss-model haiku --firm-args "--max-tasks 3 --parallel 3 --dispatch cascade --max-tier opus"
 ```
 
 the gate's `fired` verdict, `slice_end.cost_micros` and `slice_end.model_id`; `boss routing` run
@@ -303,10 +303,10 @@ TASKS=(bigdecimal calc csvline duration intervals jsonpointer justify linediff l
        bytesize cronnext dedentblock exprtokens fracmath iniparse isoweek luhn mdheadings minheap
        moneysplit prefixtrie rangesum ringbuffer shortestpath unionfind urlquery wordwrap)
 COMMON=(--reps 5 --budget 0.40 --model haiku --boss-model haiku --only "${TASKS[@]}")
-uv run python -m boss.bench.run --out bench/results/raw/e5-firm --arms firm --firm-args "--slice 0.20" "${COMMON[@]}"
-uv run python -m boss.bench.run --out bench/results/raw/e5-single --arms single "${COMMON[@]}"
-uv run python -m boss.bench.paired bench/results/raw/e5-firm bench/results/raw/e5-single --kpi pass_all
-uv run python -m boss.bench.kpi bench/results/raw/e5-firm bench/results/raw/e5-single
+uv run python -m antstreet.bench.run --out bench/results/raw/e5-firm --arms firm --firm-args "--slice 0.20" "${COMMON[@]}"
+uv run python -m antstreet.bench.run --out bench/results/raw/e5-single --arms single "${COMMON[@]}"
+uv run python -m antstreet.bench.paired bench/results/raw/e5-firm bench/results/raw/e5-single --kpi pass_all
+uv run python -m antstreet.bench.kpi bench/results/raw/e5-firm bench/results/raw/e5-single
 ```
 
 Adding `--dry-run` to the two run commands lists 175 cells each. An infrastructure cell is moved
@@ -316,15 +316,15 @@ whose two sides ran a different number of times.
 ## Reproducing
 
 ```bash
-uv run python -m boss.bench.run --out bench/results/raw/<label> --budget 0.40 --reps 3
-uv run python -m boss.bench.table bench/results/raw/<label>
+uv run python -m antstreet.bench.run --out bench/results/raw/<label> --budget 0.40 --reps 3
+uv run python -m antstreet.bench.table bench/results/raw/<label>
 ```
 
 Both commands make real model calls or read their results; the first one costs money.
 
 ```bash
-uv run python -m boss.bench.drafts --out bench/results/raw/<label> --reps 3 [--prompt NAME]
-uv run python -m boss.bench.drafts --score-existing bench/results/raw/<run>
+uv run python -m antstreet.bench.drafts --out bench/results/raw/<label> --reps 3 [--prompt NAME]
+uv run python -m antstreet.bench.drafts --score-existing bench/results/raw/<run>
 ```
 
 The first drafts with the boss (about $0.09 a draft, capped at $0.25); the second spends nothing.

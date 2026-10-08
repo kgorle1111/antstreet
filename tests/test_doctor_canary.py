@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.doctor import run_doctor
+from antstreet.doctor import run_doctor
 
 INIT = {
     "type": "system",
@@ -51,7 +51,7 @@ else:                                       # the canary slice
     if mode == "unisolated":
         # A worker that is not isolated is still running when the runner refuses it. If this fake
         # exited first, the runner's killpg would hit a zombie group leader, which macOS answers
-        # with EPERM (src/boss/runner.py `_stop` catches only ProcessLookupError).
+        # with EPERM (src/antstreet/runner.py `_stop` catches only ProcessLookupError).
         time.sleep(30)
 """
 

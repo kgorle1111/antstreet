@@ -16,7 +16,7 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from boss.roles.judge import ANCHOR_POINTS, MAX_SCORE, MIN_SCORE, Rubric, load_rubric
+from antstreet.roles.judge import ANCHOR_POINTS, MAX_SCORE, MIN_SCORE, Rubric, load_rubric
 
 HERE = Path(__file__).resolve().parent
 

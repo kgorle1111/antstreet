@@ -16,7 +16,14 @@ from skills_support import (
     users,
 )
 
-from boss.skills import MAX_SKILL_CHARS, Skill, SkillError, all_skill_ids, load_skill, parse_skill
+from antstreet.skills import (
+    MAX_SKILL_CHARS,
+    Skill,
+    SkillError,
+    all_skill_ids,
+    load_skill,
+    parse_skill,
+)
 
 
 def skill(text: str, name: str = "x", description: str = "d") -> Skill:

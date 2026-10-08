@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from boss import held_out
-from boss.approval import NotApprovedError, content_hashes, require_approval
-from boss.bench.table import wilson_interval
-from boss.cli import usd_arg
-from boss.errors import INFRASTRUCTURE, Outcome, classify
-from boss.ledger import (
+from antstreet import held_out
+from antstreet.approval import NotApprovedError, content_hashes, require_approval
+from antstreet.bench.table import wilson_interval
+from antstreet.cli import usd_arg
+from antstreet.errors import INFRASTRUCTURE, Outcome, classify
+from antstreet.ledger import (
     LEDGER_VERSION,
     Billing,
     Event,
@@ -26,11 +26,11 @@ from boss.ledger import (
     total,
     totals_by,
 )
-from boss.redact import redact
-from boss.rule import Decision, FiringPolicy, SliceRecord, decide
-from boss.stream import StreamReader
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError
-from boss.worker import usd
+from antstreet.redact import redact
+from antstreet.rule import Decision, FiringPolicy, SliceRecord, decide
+from antstreet.stream import StreamReader
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError
+from antstreet.worker import usd
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FIXTURE_LINES = [

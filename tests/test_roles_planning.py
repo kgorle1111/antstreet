@@ -6,10 +6,10 @@ from itertools import combinations
 
 import pytest
 
-from boss.budget import RESERVE_MICROS, min_round_budget, plan_rounds, reserve_for, unlocked
-from boss.roles.planning import plan_rounds_by_priority
-from boss.roles.stories import Stories, parse_stories
-from boss.termsheet import CheckSpec, Round, TermSheet, _money_problems, _round_problems
+from antstreet.budget import RESERVE_MICROS, min_round_budget, plan_rounds, reserve_for, unlocked
+from antstreet.roles.planning import plan_rounds_by_priority
+from antstreet.roles.stories import Stories, parse_stories
+from antstreet.termsheet import CheckSpec, Round, TermSheet, _money_problems, _round_problems
 
 FLOOR = min_round_budget()
 

@@ -17,7 +17,7 @@ from audit_support import (
     later,
 )
 
-from boss.audit import (
+from antstreet.audit import (
     AuditError,
     CheckState,
     parse_seal,
@@ -25,8 +25,8 @@ from boss.audit import (
     request_hash,
     store_root,
 )
-from boss.ledger import EventType, read_events
-from boss.termsheet import TermSheet
+from antstreet.ledger import EventType, read_events
+from antstreet.termsheet import TermSheet
 
 
 @pytest.fixture(scope="module")
@@ -228,8 +228,8 @@ def test_a_non_audit_term_sheet_is_not_a_seal():
 
 
 def test_a_missing_third_party_module_is_environment_blocked_not_failing():
-    from boss.audit import observe
-    from boss.gate import CheckResult, CheckStatus
+    from antstreet.audit import observe
+    from antstreet.gate import CheckResult, CheckStatus
 
     def result(tail, status=CheckStatus.FAILED):
         return CheckResult("c01", status, 1, "pytest exited 1", tail, 0.1)

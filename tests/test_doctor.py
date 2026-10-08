@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.doctor import DoctorCheck, render_doctor, run_doctor
+from antstreet.doctor import DoctorCheck, render_doctor, run_doctor
 
 FAKE_CLI = f"""#!{sys.executable}
 import os, sys

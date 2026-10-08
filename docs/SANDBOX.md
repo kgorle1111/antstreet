@@ -1,6 +1,6 @@
 # Gate sandbox
 
-The gate (`src/boss/gate.py`) runs worker- and boss-written code with pytest. `src/boss/sandbox.py`
+The gate (`src/antstreet/gate.py`) runs worker- and boss-written code with pytest. `src/antstreet/sandbox.py`
 wraps that one process in an OS sandbox where the platform has one. It narrows what the code can
 do to the machine. It does not make the verdict unforgeable (T12, only partly closed by the gate's plugin) and it is not a container.
 Threat rows: T05, T12, T13, T14, T39 in `THREAT_MODEL.md`.
@@ -16,7 +16,7 @@ Threat rows: T05, T12, T13, T14, T39 in `THREAT_MODEL.md`.
   fails under `require`, or for a bad value.
 - Every `CheckResult` has `sandboxed`. `False` means unsandboxed, whether by `off` or by `auto`
   finding no tool. `boss report` does not show it yet.
-- Benchmark runs (`boss.bench`) go through `run_gate` too, so `auto` sandboxes them.
+- Benchmark runs (`antstreet.bench`) go through `run_gate` too, so `auto` sandboxes them.
 
 ## What is denied (macOS, verified by tests in `tests/test_gate_sandbox.py`)
 

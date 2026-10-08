@@ -22,10 +22,10 @@ from audit_support import (
     short_timeout_for_hangs,
 )
 
-from boss.audit_check import base_tests_on_head, claim_mode, decide, leak_scan
-from boss.gitrepo import Commit
-from boss.ledger import Event, EventType, LedgerWriter, audited, read_events
-from boss.rundir import RunPaths
+from antstreet.audit_check import base_tests_on_head, claim_mode, decide, leak_scan
+from antstreet.gitrepo import Commit
+from antstreet.ledger import Event, EventType, LedgerWriter, audited, read_events
+from antstreet.rundir import RunPaths
 
 DELETE = {"tests/test_slug.py": None}
 
@@ -291,8 +291,8 @@ def test_a_forged_approval_line_appended_with_a_valid_chain_is_refused(sealed, s
     path = run_dir(sealed, store) / "checks" / "test_c01.py"
     path.write_text(path.read_text().replace("hello-world", "hello,-world"))
     paths = RunPaths(run_dir(sealed, store))
-    from boss.approval import content_hashes
-    from boss.termsheet import TermSheet
+    from antstreet.approval import content_hashes
+    from antstreet.termsheet import TermSheet
 
     sheet = TermSheet.from_json((run_dir(sealed, store) / "term_sheet.json").read_text())
     forged = Event(
@@ -402,8 +402,8 @@ def test_a_claim_text_that_cannot_be_read_or_is_too_big_is_refused(sealed, store
 
 
 def test_a_claim_other_than_done_or_none_is_a_usage_error(sealed, store):
-    from boss.audit import AuditError
-    from boss.audit_check import check as run_check
+    from antstreet.audit import AuditError
+    from antstreet.audit_check import check as run_check
 
     with pytest.raises(AuditError, match="claim must be one of done, none"):
         run_check(sealed.rid, "good", repo=sealed.repo, store=store, claim="maybe")
@@ -430,8 +430,8 @@ def test_a_term_sheet_that_is_missing_or_not_marked_approved_is_refused(sealed, 
 
 
 def test_a_request_that_does_not_match_its_seal_is_refused():
-    from boss.audit import AuditError, parse_seal, seal_brief
-    from boss.termsheet import Round, Task, TermSheet
+    from antstreet.audit import AuditError, parse_seal, seal_brief
+    from antstreet.termsheet import Round, Task, TermSheet
 
     brief = seal_brief("a" * 40, "b" * 64)
     sheet = TermSheet("another request", 1, (Round(1, 1, 1),), (), (Task("t1", brief, (".",)),))

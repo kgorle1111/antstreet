@@ -1,13 +1,13 @@
-"""Replay recorded ledgers through the real `boss.rule.decide`.
+"""Replay recorded ledgers through the real `antstreet.rule.decide`.
 
 test_bench_replay.py injects a fake `decide`; these tests check that replay and the real rule agree.
-Ledgers are built from `Event`s following the data contract in `boss.state`, and every expected
+Ledgers are built from `Event`s following the data contract in `antstreet.state`, and every expected
 number is worked by hand in a comment next to its fixture.
 """
 
 from pathlib import Path
 
-from boss.bench.replay import (
+from antstreet.bench.replay import (
     PolicyResult,
     WorkerReplay,
     main,
@@ -15,10 +15,10 @@ from boss.bench.replay import (
     replay_worker,
     task_checks_by_worker,
 )
-from boss.errors import INFRASTRUCTURE, Outcome
-from boss.ledger import Event, EventType, LedgerWriter
-from boss.rule import FiringPolicy, decide
-from boss.state import slice_history
+from antstreet.errors import INFRASTRUCTURE, Outcome
+from antstreet.ledger import Event, EventType, LedgerWriter
+from antstreet.rule import FiringPolicy, decide
+from antstreet.state import slice_history
 
 OK = Outcome.COMPLETED
 RATE = Outcome.RATE_LIMITED

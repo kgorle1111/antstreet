@@ -5,9 +5,9 @@ and `test_docs_roles.py` uses it to check the steps `docs/ROLES.md` gives."""
 import re
 from collections.abc import Mapping
 
-from boss.roles import registry
-from boss.roles.builders import PROFILES
-from boss.skills import MAX_SKILL_CHARS, Skill, all_skill_ids, load_skill
+from antstreet.roles import registry
+from antstreet.roles.builders import PROFILES
+from antstreet.skills import MAX_SKILL_CHARS, Skill, all_skill_ids, load_skill
 
 # Filler that costs tokens and changes nothing: politeness, role-play, and exhortations no one can
 # check. Matched as whole words or phrases, case-insensitively.

@@ -2,7 +2,7 @@
 
 import pytest
 
-from boss.gate import Check, CheckStatus, GateError, _ini, run_gate
+from antstreet.gate import Check, CheckStatus, GateError, _ini, run_gate
 
 CHECK = "from rev import reverse\n\ndef test_it():\n    assert reverse('ab') == 'ba'\n"
 

@@ -9,7 +9,7 @@ from docs_support import ROOT
 
 pytestmark = pytest.mark.skipif(shutil.which("uv") is None, reason="uv builds the wheel")
 
-PKG = ROOT / "src" / "boss"
+PKG = ROOT / "src" / "antstreet"
 NOT_SHIPPED = ("tests/", "bench/", ".claude/", "docs/", "ops/", "posts/")
 
 

@@ -370,7 +370,7 @@ you every check and what it does there, and asks whether to approve. It never wr
   audit store inside the repo; a request that is empty, too big or starts with `-`.
 - The boss is shown the request and the base's public surface: file paths and, for each Python file
   outside tests, the names and signatures it exposes. It is never shown a function body, a test, or
-  any change (`src/boss/prompts/audit_checks_v1.md`). The call has no tools.
+  any change (`src/antstreet/prompts/audit_checks_v1.md`). The call has no tools.
 - Each check then runs on the base, in the gate, and is shown with what happened: **fails on the
   base: counted** (it separates a finished change from an unfinished one), **passes on the base:
   shown, not counted**, **cannot run here: not counted** (it needs a module that is not installed
@@ -499,7 +499,7 @@ and line.
 `run` makes real model calls for every cell. `drafts` and `audit` make one call per draft. `table`,
 `kpi` and `replay` make none. See [../bench/METHOD.md](../bench/METHOD.md).
 
-## `python -m boss.bench.run`
+## `python -m antstreet.bench.run`
 
 Runs benchmark cells (one task, one arm, one repetition) and scores each with the task's hidden
 checks. A cell whose `result.json` already exists is skipped, so a run can be repeated to finish.
@@ -531,7 +531,7 @@ Exit codes: `0` after the cells ran (whether or not they passed); `1` when no ta
 `2` for a usage error. A task that fails validation stops the run with an error before any cell
 starts.
 
-## `python -m boss.bench.drafts`
+## `python -m antstreet.bench.drafts`
 
 Scores the checks the boss drafts, without running any worker. For each task and repetition the
 boss drafts checks from the idea; each draft is then run against the task's reference solution
@@ -547,20 +547,20 @@ See [../bench/METHOD.md](../bench/METHOD.md).
 | `--reps` | `1` | Drafts per task. |
 | `--boss-model` | `haiku` | Model for the boss's call. |
 | `--boss-thinking` | none | Thinking tokens per draft. |
-| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/boss/prompts`. `term_sheet_v3.md` also passes the idea's rules and keeps `rules.json` and `claims.json` in each draft's folder. |
+| `--prompt` | `term_sheet_v1.md` | Term-sheet prompt file under `src/antstreet/prompts`. `term_sheet_v3.md` also passes the idea's rules and keeps `rules.json` and `claims.json` in each draft's folder. |
 | `--jobs` | `2` | Drafts to make and score at once. |
 | `--max-spend` | none | Dollars. Makes the drafts one at a time and stops before a call that could take the measured spend past this (a call may cost up to its $0.25 cap; a cost the CLI did not report counts at that cap). |
 | `--dry-run` | off | List the drafts and exit. |
-| `--score-existing` | none | Score the boss drafts already saved in a `boss.bench.run` results folder; spends nothing. |
+| `--score-existing` | none | Score the boss drafts already saved in a `antstreet.bench.run` results folder; spends nothing. |
 
 - A folder refuses drafts made with other settings (prompt, its content hash, model, thinking).
   Use a fresh `--out` to compare prompts.
 - Exit codes: `0`; `1` when no task matches, a results folder cannot be read or holds no drafts, or
   the prompt cannot be used; `2` for a usage error.
 
-## `python -m boss.bench.table`
+## `python -m antstreet.bench.table`
 
-`python -m boss.bench.table [--out OUT] RESULTS_DIR`. Prints the results table as markdown.
+`python -m antstreet.bench.table [--out OUT] RESULTS_DIR`. Prints the results table as markdown.
 
 Argument: `results_dir`, a folder written by `run`.
 
@@ -570,9 +570,9 @@ Argument: `results_dir`, a folder written by `run`.
 
 Exit codes: `0`; `1` when no results are found or a result file is invalid; `2` for a usage error.
 
-## `python -m boss.bench.paired`
+## `python -m antstreet.bench.paired`
 
-`python -m boss.bench.paired [options] DIR_A DIR_B`. Compares two arms by task and prints the
+`python -m antstreet.bench.paired [options] DIR_A DIR_B`. Compares two arms by task and prints the
 number of tasks, the mean difference, its 95% interval and a verdict, `shown` or `not shown`.
 See [../bench/METHOD.md](../bench/METHOD.md). It reads results and makes no model call.
 
@@ -591,9 +591,9 @@ sets, no task is on both sides, `pass_all` finds tasks with different numbers of
 result file is invalid; `2` for a usage error. A different model or budget between the sides prints
 a warning and still runs.
 
-## `python -m boss.bench.kpi`
+## `python -m antstreet.bench.kpi`
 
-`python -m boss.bench.kpi RESULTS_DIR [RESULTS_DIR ...]`. Prints the fixed KPI scorecard as one
+`python -m antstreet.bench.kpi RESULTS_DIR [RESULTS_DIR ...]`. Prints the fixed KPI scorecard as one
 markdown table: a row per KPI, a column per arm. The seven KPIs and their definitions are in
 [../bench/METHOD.md](../bench/METHOD.md).
 
@@ -608,9 +608,9 @@ Exit codes: `0`; `1` when no results are found, a result file is invalid, or two
 the same label (the same folder name twice, or one folder and arm holding two task sets); `2` for a
 usage error.
 
-## `python -m boss.bench.replay`
+## `python -m antstreet.bench.replay`
 
-`python -m boss.bench.replay [--stall N ...] [--max-slices N ...] RESULTS_DIR`. Replays firing
+`python -m antstreet.bench.replay [--stall N ...] [--max-slices N ...] RESULTS_DIR`. Replays firing
 policies over recorded ledgers and prints, for each combination, how many workers would have been
 fired, how many of those later passed a new check, and the spend saved.
 
@@ -624,15 +624,15 @@ Argument: `results_dir`, a folder holding `ledger.jsonl` files.
 Exit codes: `0`; `1` when a ledger cannot be read or none has slice data; `2` for an invalid
 policy value or a usage error.
 
-## `python -m boss.bench.audit`
+## `python -m antstreet.bench.audit`
 
 Scores the check auditor, a role that gives an opinion on each check of a draft: does the idea say
 what the check demands? The benchmark knows which checks are wrong (the task's reference solution
 fails them), so the auditor's flags can be counted against that. The auditor stays advisory until
 these numbers say it is worth its cost.
 
-It audits drafts that are already saved, from a `boss.bench.run` results folder or a
-`boss.bench.drafts` output folder. It makes one model call per draft, capped at $0.15 a call
+It audits drafts that are already saved, from a `antstreet.bench.run` results folder or a
+`antstreet.bench.drafts` output folder. It makes one model call per draft, capped at $0.15 a call
 (the auditor's cap), unless `--dry-run`. The real cost per call has not been measured.
 
 | Option | Default | Meaning |
@@ -652,9 +652,9 @@ It audits drafts that are already saved, from a `boss.bench.run` results folder 
 - Exit codes: `0` after the audits ran; `1` when no task matches, a folder cannot be read, no draft
   is found, or `--out` holds audits made with other settings; `2` for a usage error.
 
-## `python -m boss.roles.judge template`
+## `python -m antstreet.roles.judge template`
 
-`python -m boss.roles.judge template --rubric ID --artifacts DIR --out FILE`. Writes a case file
+`python -m antstreet.roles.judge template --rubric ID --artifacts DIR --out FILE`. Writes a case file
 with one unlabelled case for each file in a folder (not files that start with a dot), for a person to score by hand. The judge
 is advisory, and its scores are labelled `uncalibrated` until a calibration shows it agrees with a
 person. Makes no model call. See [ROLES.md](ROLES.md).
@@ -668,9 +668,9 @@ person. Makes no model call. See [ROLES.md](ROLES.md).
 Fill in every context and every score (1 to 5) in the file, then run `calibrate`. Exit codes: `0`;
 `1` for an unreadable case file, rubric or folder.
 
-## `python -m boss.roles.judge calibrate`
+## `python -m antstreet.roles.judge calibrate`
 
-`python -m boss.roles.judge calibrate --cases FILE --out FILE [--model M] [--dry-run]`. Runs the
+`python -m antstreet.roles.judge calibrate --cases FILE --out FILE [--model M] [--dry-run]`. Runs the
 judge on every case of a labelled case file, compares its scores with yours, and saves and prints
 the result. It prints the number of calls and the most they can cost (each call is capped at $0.15)
 before it makes any. It will not overwrite `--out`.
@@ -684,9 +684,9 @@ before it makes any. It will not overwrite `--out`.
 
 Exit codes: `0`; `1` for an unreadable case file, rubric or calibration, or an `--out` that exists.
 
-## `python -m boss.roles.judge show`
+## `python -m antstreet.roles.judge show`
 
-`python -m boss.roles.judge show FILE`. Prints a calibration file. Makes no model call.
+`python -m antstreet.roles.judge show FILE`. Prints a calibration file. Makes no model call.
 
 Argument: `file`, a calibration file written by `calibrate`.
 
@@ -712,8 +712,8 @@ Exit codes: `0`; `1` when the file cannot be read.
 - Nothing else from your environment reaches a worker or boss process. The gate builds its own
   environment for checks: a temporary `HOME` and `TMPDIR`, a short `PATH`, `LANG`, and
   `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`.
-- Only `boss.cli`, `boss.bench.run`, `boss.bench.drafts`, `boss.bench.audit`, `boss.roles.judge`,
-  `boss.gate` and `boss.sandbox` read the process environment.
+- Only `antstreet.cli`, `antstreet.bench.run`, `antstreet.bench.drafts`, `antstreet.bench.audit`, `antstreet.roles.judge`,
+  `antstreet.gate` and `antstreet.sandbox` read the process environment.
 
 ## Run folder
 
@@ -743,7 +743,7 @@ written by `fund` and `resume`; `boss report` prints it again from the ledger wi
 
 ## Benchmark cell folder
 
-`python -m boss.bench.run --out DIR` writes one folder per cell: `DIR/<task>/<arm>/rep<N>/`.
+`python -m antstreet.bench.run --out DIR` writes one folder per cell: `DIR/<task>/<arm>/rep<N>/`.
 
 | Path | Arm | What it holds |
 |---|---|---|

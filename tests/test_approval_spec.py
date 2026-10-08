@@ -6,17 +6,17 @@ import json
 
 import pytest
 
-from boss import spec
-from boss.approval import (
+from antstreet import spec
+from antstreet.approval import (
     NotApprovedError,
     content_hashes,
     require_approval,
     review_term_sheet,
     spec_view,
 )
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.rundir import RunPaths
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 IDEA = (
     "Create rev.py with reverse(s).\n\n"

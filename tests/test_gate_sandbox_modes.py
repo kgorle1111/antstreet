@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from boss import gate as gate_module
-from boss.gate import Check, CheckResult, CheckStatus, GateError, run_gate, sandbox_mode
-from boss.sandbox import SandboxMode, python_readable
+from antstreet import gate as gate_module
+from antstreet.gate import Check, CheckResult, CheckStatus, GateError, run_gate, sandbox_mode
+from antstreet.sandbox import SandboxMode, python_readable
 
 PASSING = "def test_ok():\n    assert True\n"
 HANGING = "import time\ndef test_x():\n    time.sleep(60)\n"
@@ -128,7 +128,9 @@ def test_auto_without_a_tool_runs_the_check_and_says_it_was_not_sandboxed(
 
 
 def test_off_never_looks_for_a_tool(dirs, monkeypatch):
-    monkeypatch.setattr("boss.sandbox.detect", lambda *a, **k: pytest.fail("looked for a tool"))
+    monkeypatch.setattr(
+        "antstreet.sandbox.detect", lambda *a, **k: pytest.fail("looked for a tool")
+    )
     [result] = gate(dirs, sandbox=SandboxMode.OFF)
     assert result.status is CheckStatus.PASSED and result.sandboxed is False
 

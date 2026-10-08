@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from boss import dispatch, routing, signing
-from boss.approval import content_hashes
-from boss.dispatch import (
+from antstreet import dispatch, routing, signing
+from antstreet.approval import content_hashes
+from antstreet.dispatch import (
     DispatchPolicy,
     DispatchView,
     RunLevel,
@@ -22,11 +22,11 @@ from boss.dispatch import (
     rungs_from,
     worst_case_micros,
 )
-from boss.firm import FirmConfig, config_data
-from boss.ledger import Event, EventType
-from boss.routing import Attempt, Choice, Stats, choose_start, read_runs, task_kind
-from boss.rundir import RunPaths
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.firm import FirmConfig, config_data
+from antstreet.ledger import Event, EventType
+from antstreet.routing import Attempt, Choice, Stats, choose_start, read_runs, task_kind
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 CASCADE = DispatchPolicy("opus", 100_000, cascade=True)
 KIND = "files=1 checks=1-2"
@@ -406,7 +406,7 @@ def test_a_run_forged_without_the_key_is_left_out(project):
     (paths.root / "term_sheet.json").write_text(
         dataclasses.replace(s, approved_by_investor=True).to_json()
     )
-    from boss.ledger import LedgerWriter
+    from antstreet.ledger import LedgerWriter
 
     with LedgerWriter(paths.ledger) as ledger:  # a chained ledger with an approval nobody signed
         ledger.append(Event(run="evil", round=0, actor="investor", event=EventType.APPROVED,
@@ -549,5 +549,5 @@ def test_no_benchmark_label_can_reach_the_start_tier():
     assert start_of(hard).record("opus") == start_of(easy).record("opus")
     assert set(routing.features(hard, hard.tasks[0])) == {"idea_chars", "tasks", "files", "checks"}
     source = Path(routing.__file__).read_text(encoding="utf-8")
-    for leak in ("difficulty", "meta.json", "hidden_checks", "boss.bench"):
+    for leak in ("difficulty", "meta.json", "hidden_checks", "antstreet.bench"):
         assert leak not in source, leak

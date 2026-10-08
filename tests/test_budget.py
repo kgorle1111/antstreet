@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from boss.budget import (
+from antstreet.budget import (
     MIN_SLICE_MICROS,
     RESERVE_MICROS,
     is_top_up,
@@ -15,8 +15,8 @@ from boss.budget import (
     round_spend,
     unlocked,
 )
-from boss.ledger import Event, EventType
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, _money_problems, _round_problems
+from antstreet.ledger import Event, EventType
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, _money_problems, _round_problems
 
 
 def sheet(rounds: tuple[Round, ...] | None = None, n_checks: int = 4) -> TermSheet:

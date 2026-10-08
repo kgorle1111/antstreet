@@ -10,14 +10,22 @@ import pytest
 from test_dispute_wrong_check import C05_IS_WRONG, CHECKS, CORRECT, SHEET, live_run, vowels
 from test_firm import Script, dispute, events_of, run
 
-from boss import rulings
-from boss.cli import EXIT_AWAITING, EXIT_FAILED, EXIT_OK, EXIT_USAGE, _finish, _unattended, main
-from boss.firm import FirmReport
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.rulings import RULING_AWAITED, awaited
-from boss.rundir import RunPaths
-from boss.signing import SIG_KEY
-from boss.termsheet import TermSheet
+from antstreet import rulings
+from antstreet.cli import (
+    EXIT_AWAITING,
+    EXIT_FAILED,
+    EXIT_OK,
+    EXIT_USAGE,
+    _finish,
+    _unattended,
+    main,
+)
+from antstreet.firm import FirmReport
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.rulings import RULING_AWAITED, awaited
+from antstreet.rundir import RunPaths
+from antstreet.signing import SIG_KEY
+from antstreet.termsheet import TermSheet
 
 DESCRIBED = "Text with special characters and numbers ignores non-vowels"
 # Satisfies the wrong c05 as the investor's "keep" demands: "0" counts.

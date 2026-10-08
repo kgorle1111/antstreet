@@ -9,11 +9,11 @@ import sys
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.boss import load_prompt
-from boss.errors import Outcome
-from boss.roles import registry
-from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.product import (
+from antstreet.boss import load_prompt
+from antstreet.errors import Outcome
+from antstreet.roles import registry
+from antstreet.roles.base import RoleError, RoleOutputError, system_prompt
+from antstreet.roles.product import (
     MAX_FINDINGS,
     PRODUCT_MANAGER,
     REVIEW_SCHEMA,
@@ -28,9 +28,9 @@ from boss.roles.product import (
     uncovered_fragments,
     write_stories,
 )
-from boss.roles.stories import STORIES_SCHEMA, parse_stories, story_problems
-from boss.skills import all_skill_ids, load_skill
-from boss.stream import Usage
+from antstreet.roles.stories import STORIES_SCHEMA, parse_stories, story_problems
+from antstreet.skills import all_skill_ids, load_skill
+from antstreet.stream import Usage
 
 IDEA = (
     "Create slugify.py with slugify(text, max_length=None).\n"

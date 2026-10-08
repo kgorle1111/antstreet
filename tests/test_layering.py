@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "boss"
+SRC = Path(__file__).resolve().parents[1] / "src" / "antstreet"
 CORE = ("rule", "gate", "ledger", "signing", "sandbox", "runner", "worker", "budget", "firm")
-FORBIDDEN = ("boss.cli", "boss.bench")
-# module (relative to src/boss) -> reason it may import a forbidden layer. Empty: no exceptions.
+FORBIDDEN = ("antstreet.cli", "antstreet.bench")
+# module (relative to src/antstreet) -> why it may import a forbidden layer. Empty: no exceptions.
 ALLOWED: dict[str, str] = {}
 
 
@@ -21,7 +21,7 @@ def _guarded() -> list[Path]:
 
 
 def _package(path: Path, root: Path) -> list[str]:
-    return ["boss", *path.relative_to(root).parent.parts]
+    return ["antstreet", *path.relative_to(root).parent.parts]
 
 
 def _imports(path: Path, root: Path = SRC) -> set[str]:
@@ -65,15 +65,24 @@ def test_the_guard_names_real_files():
 
 def test_the_guard_can_fail(tmp_path):
     f = tmp_path / "m.py"
-    f.write_text("from boss.cli import EXECUTABLE_VAR\nimport boss.bench.table\n")
-    assert _forbidden(f, tmp_path) == {"boss.cli", "boss.cli.EXECUTABLE_VAR", "boss.bench.table"}
+    f.write_text("from antstreet.cli import EXECUTABLE_VAR\nimport antstreet.bench.table\n")
+    assert _forbidden(f, tmp_path) == {
+        "antstreet.cli",
+        "antstreet.cli.EXECUTABLE_VAR",
+        "antstreet.bench.table",
+    }
 
 
 def test_the_guard_resolves_relative_imports(tmp_path):
     (tmp_path / "roles").mkdir()
     f = tmp_path / "roles" / "m.py"
     f.write_text("from ..bench import table\nfrom ..cli import x\nfrom . import judge\n")
-    assert _forbidden(f, tmp_path) == {"boss.bench", "boss.bench.table", "boss.cli", "boss.cli.x"}
+    assert _forbidden(f, tmp_path) == {
+        "antstreet.bench",
+        "antstreet.bench.table",
+        "antstreet.cli",
+        "antstreet.cli.x",
+    }
 
 
 def _all_modules() -> list[str]:
@@ -82,7 +91,7 @@ def _all_modules() -> list[str]:
         # _gate_plugin deletes its own file when imported: it is only ever loaded by the gate.
         if p.name in ("__main__.py", "_gate_plugin.py"):
             continue
-        parts = ("boss", *p.relative_to(SRC).with_suffix("").parts)
+        parts = ("antstreet", *p.relative_to(SRC).with_suffix("").parts)
         names.append(".".join(parts).removesuffix(".__init__"))
     return names
 

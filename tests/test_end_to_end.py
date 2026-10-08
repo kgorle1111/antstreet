@@ -7,9 +7,9 @@ import os
 
 import pytest
 
-from boss.cli import EXIT_INCOMPLETE, EXIT_OK, main
-from boss.ledger import EventType, read_events, total
-from boss.report import build_report, render_report
+from antstreet.cli import EXIT_INCOMPLETE, EXIT_OK, main
+from antstreet.ledger import EventType, read_events, total
+from antstreet.report import build_report, render_report
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("BOSS_LIVE") != "1", reason="live model call; set BOSS_LIVE=1 to run"

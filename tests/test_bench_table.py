@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench.results import CellResult, cell_dir
-from boss.bench.table import (
+from antstreet.bench.results import CellResult, cell_dir
+from antstreet.bench.table import (
     CLOSING,
     MIXED_WARNING,
     main,
@@ -430,6 +430,6 @@ def test_the_command_is_named_and_its_out_option_says_what_it_does() -> None:
     from docs_support import captured_parser
 
     parser = captured_parser(main)
-    assert parser.prog == "python -m boss.bench.table"
+    assert parser.prog == "python -m antstreet.bench.table"
     out = next(a for a in parser._actions if "--out" in a.option_strings)
     assert out.help == "write the table here instead of stdout"
