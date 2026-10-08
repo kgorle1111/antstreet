@@ -57,13 +57,13 @@ export function hook() {
   // 1B: match cut to the wax seal (same centre, same on-screen diameter), pull-out, rack focus, tilt.
   tl.call(() => {
     sealLayer.dataset.p = "0.8";
-    gsap.set(seal, { attr: { transform: "translate(95 110) scale(0.75)" } });
+    gsap.set(seal, { attr: { transform: "translate(88 124) scale(0.7)" } });
     gsap.set(env, { autoAlpha: 1 });
     cam.zoom = 1.45;
     apply();
   }, [], s(b.cut));
   tl.to(cam, { zoom: 1, duration: 1.0, ease: E.inOut }, s(b.cut));
-  tl.to(sealLayer, { filter: "blur(10px) brightness(0.6)", duration: 0.5, ease: E.inOut }, s(b.cut));
+  tl.to(sealLayer, { filter: "blur(3.5px) brightness(0.8)", duration: 0.5, ease: E.inOut }, s(b.cut));
   tl.add(lineIn(caption), s(at("caption").inMs));
   tl.to(cam, { roll: -3, duration: 1.5, ease: E.drift }, s(b.cut) + 1.0);
 

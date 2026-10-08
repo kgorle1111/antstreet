@@ -52,7 +52,7 @@ const crack = "6,-100 -8,-32 12,30 -2,100";
                 <clipPath id="hk-left"><polygon points={`-200,-200 6,-200 ${crack} -2,200 -200,200`} /></clipPath>
                 <clipPath id="hk-right"><polygon points={`200,-200 6,-200 ${crack} -2,200 200,200`} /></clipPath>
               </defs>
-              <g id="hk-seal" transform="translate(95 110) scale(0.75)">
+              <g id="hk-seal" transform="translate(88 124) scale(0.7)">
                 <g class="hk-half hk-half-l" transform="translate(-14 4) rotate(-6)"><use href="#hk-seal-art" clip-path="url(#hk-left)" /></g>
                 <g class="hk-half hk-half-r" transform="translate(14 -4) rotate(6)"><use href="#hk-seal-art" clip-path="url(#hk-right)" /></g>
                 <polyline class="hk-crack" points={crack} fill="none" stroke={N} stroke-width="9" stroke-linejoin="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0" />
@@ -118,7 +118,7 @@ const crack = "6,-100 -8,-32 12,30 -2,100";
 </section>
 
 <style>
-  .hook { padding-block: clamp(28px, 6vw, 72px) clamp(56px, 8vw, 96px); }
+  .hook { padding-block: clamp(28px, 5vw, 56px) clamp(24px, 3vw, 40px); }
   .hook-grid { display: grid; gap: 28px; align-items: center; }
   @media (min-width: 960px) { .hook-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 56px; } }
   .hook h1 { font-size: clamp(44px, 7.4vw, 92px); }
@@ -130,7 +130,7 @@ const crack = "6,-100 -8,-32 12,30 -2,100";
   .hook-stage .seal-text, .hook-stage .pill-text { letter-spacing: 0.06em; }
   .hook-stage .label-text { font-family: var(--mono); font-weight: 500; letter-spacing: 0.06em; }
   .ghost { opacity: 0.1; filter: blur(4px); }
-  .seal-layer { filter: blur(10px) brightness(0.6); }
+  .seal-layer { filter: blur(3.5px) brightness(0.8); }
   .env { perspective: 900px; }
   .env > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .flap { position: absolute; left: 20.3125%; top: 31.25%; width: 59.375%; height: 25%; transform-origin: 50% 0; transform: rotateX(-180deg); z-index: 0; }

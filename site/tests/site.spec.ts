@@ -222,3 +222,73 @@ for (const scheme of SCHEMES) {
     expect(jumps[1]).toBeLessThan(8);
   });
 }
+
+/** Every text-bearing element in the section is fully visible: effective opacity ≥ 0.99 (its own
+ *  and every ancestor's), visibility visible. Decorative aria-hidden art and content that is not
+ *  rendered (display: none, e.g. an unanswered quiz beat) are out of scope; captions shown one at a
+ *  time ([data-sequenced]) may have at most one visible. */
+async function hiddenText(page: Page, id: string) {
+  return page.evaluate((id) => {
+    const section = document.getElementById(id)!;
+    const bad: string[] = [];
+    for (const el of section.querySelectorAll<HTMLElement>("*")) {
+      const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim());
+      if (!own || el.closest("[aria-hidden='true'], [data-sequenced], script, style, svg")) continue;
+      if (!el.getClientRects().length) continue; // not rendered
+      let opacity = 1;
+      for (let a: HTMLElement | null = el; a && a !== document.body; a = a.parentElement) opacity *= Number(getComputedStyle(a).opacity);
+      if (opacity < 0.99 || getComputedStyle(el).visibility !== "visible") bad.push(`${el.tagName}.${el.className}: ${el.textContent!.trim().slice(0, 40)} (${opacity.toFixed(2)}, ${getComputedStyle(el).visibility})`);
+    }
+    const seq = [...section.querySelectorAll<HTMLElement>("[data-sequenced]")].filter((e) => getComputedStyle(e).visibility === "visible" && Number(getComputedStyle(e).opacity) > 0.01);
+    if (seq.length > 1) bad.push(`${seq.length} sequenced captions visible at once`);
+    return bad;
+  }, id);
+}
+
+const SECTIONS = ["problem", "quiz", "how", "try", "no", "next", "built-by", "cta"];
+for (const w of [800, 1440]) {
+  for (const how of ["anchor", "wheel"] as const) {
+    test(`content stays visible after a ${how} jump (${w}, motion)`, async ({ page }) => {
+      const problems = await open(page, { w, motion: "no-preference" });
+      for (const id of SECTIONS) {
+        if (how === "anchor") {
+          await page.evaluate((id) => { location.hash = id; }, id);
+        } else {
+          await page.mouse.move(w / 2, 400);
+          for (let i = 0; i < 40; i++) {
+            const top = await page.evaluate((id) => document.getElementById(id)!.getBoundingClientRect().top, id);
+            if (Math.abs(top) < 200) break;
+            await page.mouse.wheel(0, Math.sign(top) * Math.min(2400, Math.abs(top)));
+            await page.waitForTimeout(60);
+          }
+        }
+        await page.waitForTimeout(1500);
+        expect(await hiddenText(page, id), `${id} by ${how}`).toEqual([]);
+      }
+      expect(problems).toEqual([]);
+    });
+  }
+}
+
+for (const w of [800, 1440]) {
+  test(`the scanner label never covers a cell (${w})`, async ({ page }) => {
+    await open(page, { w, motion: "no-preference" });
+    const range = await page.evaluate(() => {
+      const s = document.getElementById("problem")!;
+      const spacer = s.querySelector(".pin-spacer") as HTMLElement | null;
+      const top = s.getBoundingClientRect().top + scrollY;
+      return [top, top + (spacer ? spacer.offsetHeight : s.offsetHeight)];
+    });
+    for (let f = 0; f <= 1; f += 0.125) {
+      await scrollTo(page, range[0] + (range[1] - range[0]) * f);
+      const overlap = await page.evaluate(() => {
+        const l = document.querySelector(".scan-label")!.getBoundingClientRect();
+        return [...document.querySelectorAll(".cell")].some((c) => {
+          const r = c.getBoundingClientRect();
+          return r.left < l.right && r.right > l.left && r.top < l.bottom && r.bottom > l.top;
+        });
+      });
+      expect(overlap, `at ${f}`).toBe(false);
+    }
+  });
+}
