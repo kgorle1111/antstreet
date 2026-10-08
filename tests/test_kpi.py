@@ -43,6 +43,7 @@ def product(check: str, status: str) -> Event:
         (ev("investor", EventType.RULED, ruling="dropped", check="c1"), 1),
         (ev("investor", EventType.RULED, ruling="unblocked", note="try x"), 1),
         (ev("investor", EventType.RULED, ruling="declined"), 1),
+        (ev("boss", EventType.RULED, ruling="declined", reason="review-cycles 0"), 0),
         (ev("boss", EventType.ABANDONED, task="t1", reason="disputed"), 1),
         (ev("boss", EventType.ABANDONED, task="t1", reason="blocked"), 1),
         (ev("boss", EventType.ABANDONED, task="t1", reason="refusal"), 1),

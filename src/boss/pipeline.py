@@ -522,18 +522,25 @@ class Pipeline:
             review = self._critic(sheet)
             if review is None or not review.verified:
                 break
-            amended = None
+            amended: TermSheet | str | None
             if cycles == 0:
                 self.say(
                     "--review-cycles is 0: the findings are in the report, no fix round is offered."
                 )
+                amended = "review-cycles 0"
             elif outcome.stopped:
                 self.say(f"The run ended early ({outcome.stopped}): no fix round is offered.")
+                amended = f"ended early: {outcome.stopped}"
             else:
                 amended = self._amend(sheet, review, fix_micros)
-            if amended is None:
+            if not isinstance(amended, TermSheet):
+                # Only a no the investor typed is theirs; a skip nobody was asked about is the
+                # boss's, with its reason, so the signed ledger never says the human declined.
                 record = Recorder(self.ledger, self.run_id, 0)
-                record("investor", EventType.RULED, data={"ruling": DECLINED})
+                if amended is None:
+                    record("investor", EventType.RULED, data={"ruling": DECLINED})
+                else:
+                    record("boss", EventType.RULED, data={"ruling": DECLINED, "reason": amended})
                 break
             result = rerun(amended)
             if isinstance(result, int):
@@ -581,13 +588,14 @@ class Pipeline:
         }
         return [c.description for c in sheet.checks if c.id in passed]
 
-    def _amend(self, sheet: TermSheet, review: Review, fix_micros: int) -> TermSheet | None:
+    def _amend(self, sheet: TermSheet, review: Review, fix_micros: int) -> TermSheet | str | None:
         """The sheet the investor is asked to approve: the verified findings as checks, and a new
         last round that funds a worker to fix them. Records the approval when the investor says
-        yes; the checks it wrote are removed again when the sheet is not approved."""
+        yes; the checks it wrote are removed again when the sheet is not approved. None is the
+        investor's no; a str is why nobody was asked (or could answer)."""
         checks = self._proposed(sheet, review)
         if not checks:
-            return None
+            return "no finding could be proposed as a check"
         n, rounds = _with_fix_round(
             sheet,
             fix_micros,
@@ -606,7 +614,7 @@ class Pipeline:
             problems = _one_line("; ".join(exc.problems), 250)
             self.say(f"The amended term sheet does not validate: {problems}")
             self._remove(checks)
-            return None
+            return f"amended term sheet does not validate: {problems}"
         for c in checks:
             self.say(f"\nCheck {c.id} [{c.task}] {_one_line(c.description, 300)}")
             self.say(f"--- {self.paths.checks / c.file}")
@@ -624,7 +632,9 @@ class Pipeline:
         try:
             answer = self.ask(question).strip().lower()
         except EOFError:  # nobody is there to approve it; Ctrl-C is an interruption, not a no
-            answer = "n"
+            self.say("No fix round. The findings are in the report only.")
+            self._remove(checks)
+            return "input ended before the investor answered"
         except KeyboardInterrupt:  # the files were written for a sheet nobody approved
             self._remove(checks)
             raise
@@ -769,15 +779,17 @@ def _settled(events: Sequence[Event]) -> int:
         if e.event is EventType.ROLE_CALL and e.data.get("role") == "critic":
             waiting = bool(e.data.get("verified"))
             done += not waiting
-        elif waiting and e.actor == "investor" and _answers_fix_question(e):
+        elif waiting and _answers_fix_question(e):
             done, waiting = done + 1, False
     return done
 
 
 def _answers_fix_question(event: Event) -> bool:
     if event.event is EventType.APPROVED:
-        return "added_checks" in event.data
-    return event.event is EventType.RULED and event.data.get("ruling") == DECLINED
+        return event.actor == "investor" and "added_checks" in event.data
+    # "boss": a skip nobody was asked about; "investor": the human's no, and every older ledger.
+    declined = event.data.get("ruling") == DECLINED
+    return event.event is EventType.RULED and event.actor in ("investor", "boss") and declined
 
 
 def _with_fix_round(

@@ -367,6 +367,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(audit_events(where("audit")))
     runs.append(roles_events(where("cli-roles")))
     runs.append(roles_events(where("cli-declined"), fix="n"))
+    runs.append(roles_events(where("cli-skipped"), fix=EOFError))  # the boss's skip: ruled.reason
     found: dict[str, list[Event]] = defaultdict(list)
     for events in runs:
         for e in events:
@@ -527,7 +528,9 @@ def test_every_ruling_and_when_its_optional_keys_appear_is_documented(produced, 
     for ruling in rulings:
         assert f"`{ruling}`" in body
     for e in produced["ruled"]:
-        assert e.actor == "investor"
+        # the investor rules; the boss only records a declined fix round nobody was asked about
+        assert e.actor == "investor" or (e.actor == "boss" and e.data["ruling"] == "declined")
+        assert ("reason" in e.data) == (e.actor == "boss")
         assert ("check" in e.data) == (e.data["ruling"] in ("dropped", "kept"))
         assert ("note" in e.data) == (e.data["ruling"] == "unblocked")
         assert ("task" in e.data) == (e.data["ruling"] != "declined")
