@@ -52,10 +52,12 @@ Being built, each in its own pull request.
 - **An approve pane inside Claude Code** that times each approval, so we can fix the slowest step
   ([#46](https://github.com/kgorle1111/antstreet/pull/46), draft).
 - **`uvx antstreet` from PyPI**, no clone needed (B41).
-- **Optional roles out of "experimental"**: the critic, the tester and the rest (B33). The judge
-  stays out of pass/fail until it is calibrated against human labels; tests decide. E4 measured
-  the critic: a positive trend that is not shown (+0.057 delivery [-0.038, +0.162]), at about 1.5x the
-  cost per delivered task.
+- **Optional roles out of "experimental"**: the critic, the tester and the rest (B33). All stay
+  off unless `--roles` names them. The critic is the one we suggest turning on: in E4b, firm plus
+  critic delivered 74 of 105 (70%) against 61% for self-review, with the fewest false passes (24%),
+  at about 1.56x the cost per delivered task. The pre-registered comparison is not shown
+  (+0.0952 [-0.0000, +0.1905]). The judge stays out of pass/fail until its 40-case calibration set
+  is labelled; tests decide.
 - **The Python module renamed** from `boss` to `antstreet`, with `boss` kept as an alias so
   nothing breaks (B100).
 
@@ -126,6 +128,7 @@ paired 95% interval did not clear the bar.
 | E2 | Strong planner, cheap builders: cheaper per delivered task? | Pre-registered, not run |
 | E3 | Are parallel waves faster on multi-file work? | **Not shown.** 0.80x against a 1.3x bar ([write-up](bench/results/2026-10-05-e3-parallel/README.md)). Re-run planned after the planner learns to split |
 | E4 | Does a fresh-context critic beat self-review? | **Not shown** (positive trend; see [write-up](bench/results/2026-10-07-e4-critic/README.md)) |
+| E4b | The same critic with room to finish: does it beat self-review? | **Not shown, by the slimmest margin; strongest positive trend so far** (+0.0952 [-0.0000, +0.1905]; see [write-up](bench/results/2026-10-07-e4b-critic/README.md)) |
 | E5 | Is the firm more reliable across five runs? | Pre-registered, not run |
 | E6 | Does dispatch lower cost per delivered task? | Pre-registered; stage 1 next |
 | E7 | Does `audit` catch false "done" claims? | Planned, not yet pre-registered |
