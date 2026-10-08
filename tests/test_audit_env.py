@@ -101,6 +101,15 @@ def test_a_hostile_venv_cannot_run_startup_hooks_write_outside_or_flip_the_verdi
     (site / "zz_evil.pth").write_text(
         f"{swap}\nimport os; open({str(outside / 'pth')!r}, 'w').write('ran')\n"
     )
+    # A pytest plugin by entry point: pytest would auto-load it once the site-packages is on
+    # sys.path, unless PYTEST_DISABLE_PLUGIN_AUTOLOAD (gate._env) stays set.
+    (site / "zz_evilplug.py").write_text(
+        f"{swap}\nopen({str(outside / 'plugin')!r}, 'w').write('ran')\n"
+    )
+    dist = site / "zz_evilplug-0.1.dist-info"
+    dist.mkdir()
+    (dist / "METADATA").write_text("Metadata-Version: 2.1\nName: zz-evilplug\nVersion: 0.1\n")
+    (dist / "entry_points.txt").write_text("[pytest11]\nevil = zz_evilplug\n")
     # The package a check imports does run (that is the point of it); it still cannot write out.
     (site / "depzq" / "__init__.py").write_text(
         "EXPECTED = 'hello-world'\n"
