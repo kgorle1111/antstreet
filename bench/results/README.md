@@ -96,3 +96,20 @@ $0.40 a cell. See `2026-10-07-e4-critic/README.md` for the method, the run histo
   tasks delivered on all 3 runs 19, 12, 17 of 35. The interval crosses zero.
 - The critic arm costs about 1.5x as much per delivered task ($0.5590 against $0.3756) and takes about
   3x as long (median 8m01s against 2m28s). Its call failed in 36 of 105 cells.
+
+## E4b, the same critic with room to finish (2026-10-07-e4b-critic)
+
+E4b from `bench/PREREG.md`, scored from saved cells; no model call. E4's code with the critic cap at $0.40
+(was $0.15) and the critic call time limit at 900 s (was 300 s, added by a dated amendment before any
+result was read). 35 tasks x 3 runs, Haiku, $0.40 a cell. See `2026-10-07-e4b-critic/README.md`.
+
+- **E4b is not shown, by the slimmest margin.** Firm with critic against E4's self-review, paired
+  delivery: +0.0952 [-0.0000, +0.1905]. The lower bound displays as `-0.0000`
+  and is slightly negative unrounded (-9.5e-18); the rule needs it above zero.
+- Delivery 74/105 (70%) against 61% (self-review), 60% (E4 firm), 67% (E4 critic); false passes 24%
+  (lowest); tasks delivered on all 3 runs 17 of 35. Against E4's firm +0.1048 [+0.0286, +0.1810], a
+  secondary comparison, not the decision.
+- Cost per assigned cell against self-review +$0.1844 [+0.1547, +0.2152]; cost per delivered task
+  $0.5865 against $0.3756; median time of delivered cells 7m18s against 2m28s.
+- The critic call completed in 94 of 105 cells (10 capped, 0 timed out); 36 findings verified in 29
+  cells; a fix round ran in 20.
