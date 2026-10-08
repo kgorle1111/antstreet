@@ -10,7 +10,8 @@ Exit codes:
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
        a declined round, a task set aside); for `boss audit check`, a refuted or inconclusive
        verdict
-  4    `fund` with no terminal to ask on: the drafted term sheet waits for `boss approve`
+  4    no terminal to ask on: the drafted term sheet (`fund`) or a worker's dispute of a check
+       (`fund`, `resume`) waits for `boss approve`
   130  interrupted; continue with `boss resume`
 """
 
@@ -30,7 +31,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from boss import __version__, audit, audit_check, audit_report, held_out, routing, spec
+from boss import __version__, audit, audit_check, audit_report, held_out, routing, rulings, spec
 from boss import dispatch as dispatching
 from boss.approval import (
     TERM_SHEET_FILE,
@@ -294,6 +295,14 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("run", nargs="?", help="run id (default: the latest)")
     approve.add_argument(
         "--sheet", help="the value printed with the term sheet you read: approves that text only"
+    )
+    approve.add_argument(
+        "--dispute", metavar="CHECK", help="rule on the dispute of CHECK the run is waiting on"
+    )
+    approve.add_argument(
+        "--ruling",
+        choices=("drop", "keep"),
+        help="with --dispute: drop the check, or keep it (the worker must satisfy it)",
     )
     topup = sub.add_parser(
         "topup", parents=[common], help="add money to a round of a run; reopens a locked round"
@@ -647,7 +656,7 @@ def _fund(
             cascade=policy is not None and policy.cascade,
         )
         spec_shown = spec_view(paths.rules, paths.checks, waivers) if rules else None
-        if ask is input and not (sys.stdin and sys.stdin.isatty()):  # EOF would reject the draft
+        if _unattended(ask):  # EOF would reject the draft
             return _await_approval(pipe, plan, config, view, spec_shown, waivers)
         try:
             sheet = review_term_sheet(
@@ -674,6 +683,11 @@ def _fund(
         fix = args.fix_budget or default_fix_budget(config)
         outcome = _build(pipe, sheet, config, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _unattended(ask: Ask) -> bool:
+    """Nobody is at a terminal to answer: the real `input` on a stdin that is not a TTY."""
+    return ask is input and not (sys.stdin and sys.stdin.isatty())
 
 
 def _await_approval(
@@ -740,11 +754,17 @@ def _awaiting(events: Sequence[Event]) -> bool:
 
 def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
     """Show the term sheet `fund` left waiting, or, with `--sheet`, record the investor's approval
-    of exactly the text shown. Spends nothing; `boss resume` builds it."""
+    of exactly the text shown. Spends nothing; `boss resume` builds it. With `--dispute`, record
+    the investor's ruling on a dispute the run stopped on instead."""
+    if (args.dispute is None) != (args.ruling is None) or (args.dispute and args.sheet):
+        say("Rule on a dispute with both --dispute CHECK and --ruling drop|keep, without --sheet.")
+        return EXIT_USAGE
     run = _find_run(args, project, say)
     if run is None:
         return EXIT_FAILED
     paths = RunPaths(project / RUNS_DIR / run)
+    if args.dispute is not None:
+        return _rule(args.dispute, args.ruling, run, paths, say)
     try:
         with paths.writer() as ledger:  # held from the reading to the approval
             events = paths.events()
@@ -794,6 +814,41 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
         say(f"Not approved: {exc}. Nothing was written.")
         return EXIT_FAILED
     say(f"Approved run {run}. Build it with `boss resume {run}`.")
+    return EXIT_OK
+
+
+def _rule(check: str, ruling: str, run: str, paths: RunPaths, say: Say) -> int:
+    """Record the investor's ruling on a dispute the run stopped on, signed like an approval.
+    Only a check the run is waiting on can be ruled on, and only once."""
+    try:
+        with paths.writer() as ledger:  # held from the reading to the ruling
+            events = paths.events()
+            waiting = {d["check"]: d for d in rulings.awaited(events)}
+            dispute = waiting.get(check)
+            if dispute is None:
+                listed = ", ".join(waiting) or "none"
+                say(
+                    f"Run {run} is not waiting for a ruling on {check!r} (waiting on: {listed}). "
+                    "Nothing was written."
+                )
+                return EXIT_FAILED
+            kind = rulings.DROPPED if ruling == "drop" else rulings.KEPT
+            data = {"task": dispute["task"], "worker": dispute["worker"], "check": check}
+            Recorder(ledger, run, events[-1].round)(
+                "investor", EventType.RULED, data=data | {"ruling": kind}
+            )
+            left = [c for c in waiting if c != check]
+    except LedgerLockedError:
+        say(_held_by_another(run, "rule"))
+        return EXIT_FAILED
+    except LedgerCorruptError as exc:
+        say(f"Run {run} cannot be ruled on: its ledger is damaged ({exc}).")
+        return EXIT_FAILED
+    say(f"Ruled on check {check} of run {run}: {kind}.")
+    if left:
+        say(f"Still waiting for your ruling on: {', '.join(left)}.")
+    else:
+        say(f"Continue with `boss resume {run}`.")
     return EXIT_OK
 
 
@@ -864,8 +919,8 @@ def _build(
         )
 
     outcome = run(sheet)
-    if isinstance(outcome, int):
-        return outcome
+    if isinstance(outcome, int) or outcome.stopped == rulings.RULING_AWAITED:
+        return outcome  # no critic or demo on a build that waits for the investor's ruling
     try:
         return pipe.after_build(sheet, outcome, run, review_cycles=cycles, fix_micros=fix_micros)
     except KeyboardInterrupt:
@@ -900,6 +955,7 @@ def _run(
             slice_runner=functools.partial(run_slice, executable=executable, stop=cancel),
             cancel=cancel,
             advise=advise,
+            unattended=_unattended(ask),
         )
     except IsolationError as exc:
         say(f"Stopped: the worker did not start isolated ({exc}). Run `boss doctor`.")
@@ -920,6 +976,10 @@ def _finish(paths: RunPaths, outcome: FirmReport | int, say: Say) -> int:
     text, unverified = _report_text(paths, events)
     (paths.root / "report.md").write_text(text, encoding="utf-8")
     say(text)
+    if outcome.stopped == rulings.RULING_AWAITED:
+        say(rulings.how_to_rule(paths.root.name, rulings.awaited(events)))
+        say(f"Run folder: {paths.root}")
+        return EXIT_AWAITING
     if outcome.stopped:
         say(f"Ended early: {outcome.stopped}")
         if not outcome.all_passed:

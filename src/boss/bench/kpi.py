@@ -129,7 +129,8 @@ def _false_pass(c: KpiCard) -> str:
 def _cost(c: KpiCard) -> str:
     if not c.delivered:
         return "n/a (0 delivered)"
-    return dollars(round(c.cost_micros / c.delivered))
+    shown = dollars(round(c.cost_micros / c.delivered))
+    return f"{shown} (lower bound)" if c.unknown_cost_events else shown
 
 
 def _times(c: KpiCard) -> str:

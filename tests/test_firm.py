@@ -134,6 +134,7 @@ def run(
     gate=run_gate,
     clock=time.monotonic,
     advise=None,
+    unattended=False,
 ):
     s = s or sheet()
     replies = iter(answers)
@@ -146,7 +147,7 @@ def run(
         except StopIteration:
             raise EOFError from None  # nobody at the keyboard
 
-    with LedgerWriter(paths.ledger) as ledger:
+    with paths.writer() as ledger:  # signed when `paths` is a project's run
         if approved and not paths.ledger.read_text():
             data = {"hashes": content_hashes(s, paths.checks)}
             ledger.append(
@@ -166,6 +167,7 @@ def run(
             clock=clock,
             advise=advise,
             sleep=(sleeps if sleeps is not None else []).append,
+            unattended=unattended,
         )
     return report, said
 

@@ -183,6 +183,7 @@ Example:
     `requested`, `kept` and `problems`. `boss fund --held-out N` calls it through
     `Pipeline.examine`.
 - `boss report` reads these events for its Roles section.
+- `budget.remaining` reads them to charge a timed-out call at its `cap_micros` (below).
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
   for a call that was not made (`outcome` `not_called` or `skipped`). Billing is `api` or
   `subscription`. The report's spend line for the actor comes from these events.
@@ -193,6 +194,7 @@ Example:
 | `model` | str | The model the call used. |
 | `prompt` | str | The prompt file the role runs under. |
 | `skills` | list | The skill ids appended to that prompt, in order. Empty if none. |
+| `cap_micros` | int | The role's per-call cap. When `cost_micros` is `null` (killed at its timeout) and the outcome is not an infrastructure failure, `budget.remaining` charges this against the event's round. Older events lack it and are charged 0. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `api_error`, `timeout` or `crashed`; `not_called` when the pipeline refused it before any call (an unusable request, for example a file that already exists); `skipped` when the examiner was not called because round 1 could not then fund a worker slice. `completed` is also used for a paid call whose output failed the role's gate. `completed` is also used for a paid call whose output failed the role's gate. |
 | `result` | str | What became of the output: `ok` (used), `failed` (the call failed or its output failed the gate; nothing was used) or `unused` (a good output thrown away because a later stage of the staged draft failed). |
 | `detail` | str | One line, made safe to show. The reason for a failure or an `unused` result; for `ok`, a short count such as `1 verified, 0 rejected`. |
@@ -217,7 +219,7 @@ call per rubric and build.
 Example, a critic's call written by a run with every role:
 
 ```json
-{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
+{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cap_micros": 400000, "cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
 ```
 
 ### `started`

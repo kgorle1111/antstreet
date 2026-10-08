@@ -187,7 +187,7 @@ def test_3_cost_per_delivered_is_all_counted_spend_over_delivered_with_unknown_a
     # 100+200+300+50+150+70+10+10 = 890k over 5 delivered; the infrastructure cell is excluded
     assert card.cost_micros == 890_000 and card.unknown_cost_events == 2
     shown = render_cards([("c", card)])
-    assert "| 3 Cost per delivered task | $0.1780 |" in shown
+    assert "| 3 Cost per delivered task | $0.1780 (lower bound) |" in shown
     assert "|   events of unknown cost | 2 |" in shown
 
 

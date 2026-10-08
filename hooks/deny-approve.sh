@@ -1,8 +1,9 @@
 #!/bin/sh
 # PreToolUse (Bash, Monitor, PowerShell): deny any call that runs `antstreet approve` / `boss
 # approve`, in any wrapper (uvx, uv run, python -m boss.cli, env prefixes, `;` `&&` `|` `$(...)`,
-# quotes, backslashes). Approving the term sheet is the investor's act; the agent being checked
-# must not do it. The user's own `!` commands skip PreToolUse, which is how the human approves.
+# quotes, backslashes). Approving the term sheet, and ruling on a worker's dispute of a check
+# (`approve --dispute`), are the investor's acts; the agent being checked must not do either. The
+# user's own `!` commands skip PreToolUse, which is how the human approves and rules.
 #
 # It reads the whole hook input instead of parsing out tool_input.command: jq is not on every
 # machine and python3 on macOS can be an install stub, and a hook that cannot run fails open. The
@@ -29,7 +30,7 @@ END {
     }
 }' && exit 0
 
-reason="Approving an AntStreet term sheet is the investor's own act, so this agent may not run \`approve\` in any form. Show the user the term sheet and checks that \`fund\` printed, and ask them to type this themselves at the Claude Code prompt (the ! runs it as the user, outside the agent): ! uvx antstreet approve RUN --sheet VALUE, with the run id and value fund printed. Once they have approved, you may run \`uvx antstreet resume RUN\`."
+reason="Approving an AntStreet term sheet is the investor's own act, so this agent may not run \`approve\` in any form. Show the user the term sheet and checks that \`fund\` printed, and ask them to type this themselves at the Claude Code prompt (the ! runs it as the user, outside the agent): ! uvx antstreet approve RUN --sheet VALUE, with the run id and value fund printed. A ruling on a disputed check is theirs too: ! uvx antstreet approve RUN --dispute CHECK --ruling drop|keep, as the run printed. Once they have approved or ruled, you may run \`uvx antstreet resume RUN\`."
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
 printf '%s\n' "$reason" >&2
 exit 2 # blocks even where an allow rule or bypass mode would let the call run

@@ -197,6 +197,7 @@ def test_ledger_fields_book_a_roles_spend_under_its_own_actor():
         "model": "haiku",
         "prompt": "term_sheet_v1.md",
         "skills": [],
+        "cap_micros": role.cap_micros,
         "outcome": "crashed",
         "purpose": "checks",
     }
@@ -283,3 +284,17 @@ def test_every_shipped_skill_loads_and_every_role_names_only_shipped_skills():
     for role in registry().values():
         assert set(role.skills) <= set(shipped), f"{role.name} names a skill that is not shipped"
         assert system_prompt(role).strip()
+
+
+def test_a_role_call_killed_at_its_timeout_books_an_unknown_cost_not_zero(tmp_path):
+    cli = tmp_path / "slow-claude"
+    cli.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(30)\n")
+    cli.chmod(0o755)
+    with pytest.raises(RoleError) as info:
+        call_role(
+            spec(), "Idea:\nx", SCHEMA, env={"HOME": "/h"}, model="haiku",
+            executable=str(cli), timeout_s=0.5,
+        )  # fmt: skip
+    assert info.value.outcome is Outcome.TIMEOUT and info.value.usage.cost_micros is None
+    fields = ledger_fields(spec(), info.value.usage, "timeout", model="haiku", env={"HOME": "/h"})
+    assert fields["cost_micros"] is None and fields["data"]["cap_micros"] == spec().cap_micros
