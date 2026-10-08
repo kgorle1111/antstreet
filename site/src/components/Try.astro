@@ -1,0 +1,63 @@
+---
+import Fact from "./Fact.astro";
+import { FUND_URL, REPO } from "../data/links";
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
+const demo = `${base}assets/demo.svg`;
+const install = `git clone ${REPO}.git ~/antstreet\ncd ~/antstreet && uv sync`;
+const audit = [
+  'alias antstreet="uv run --project ~/antstreet antstreet"',
+  "antstreet audit plan --request ~/req.txt   # before the agent starts",
+  "antstreet audit check --claim done         # when it says it is done",
+  "antstreet audit report                     # every verdict so far",
+].join("\n");
+---
+<section id="try" class="section try" aria-labelledby="try-h">
+  <div class="wrap">
+    <p class="eyebrow">Try it</p>
+    <h2 id="try-h">Seal the checks first. Check the "done" after.</h2>
+    <p class="lede">
+      You need macOS or Linux, <Fact id="python" />, <a href="https://docs.astral.sh/uv/">uv</a> and Claude Code, logged in.
+      AntStreet runs from a clone today; PyPI is <span class="soon">coming</span>.
+    </p>
+
+    <figure class="demo">
+      <img
+        class="demo-img"
+        data-src={demo}
+        width="960"
+        height="612"
+        alt="Replay of a test-suite run with a fake model: audit plan seals 2 of 4 checks, the agent's own tests pass, audit check says REFUTED with c01 and c02 failed, and audit report adds the floor sentence."
+      />
+      <noscript><img class="demo-img" src={demo} width="960" height="612" alt="Replay of a test-suite run with a fake model: audit plan seals the checks, audit check says REFUTED, audit report adds the floor sentence." /></noscript>
+      <figcaption>A replay of a test-suite run (fake model), not a live recording. Output trimmed.</figcaption>
+    </figure>
+
+    <div class="cmds">
+      <div class="cmd">
+        <div class="cmd-head"><span>Install from a clone</span><button type="button" class="copy" data-copy={install} aria-label="Copy the install commands">Copy</button></div>
+        <pre><code data-literal>{install}</code></pre>
+      </div>
+      <div class="cmd">
+        <div class="cmd-head"><span>Then, in the repo your agent will change</span><button type="button" class="copy" data-copy={audit} aria-label="Copy the audit commands">Copy</button></div>
+        <pre><code>{audit}</code></pre>
+      </div>
+    </div>
+    <p class="also">Also: <a href={FUND_URL}>fund a build</a>, the experimental mode where budget-capped agents build until the gate says pass.</p>
+  </div>
+</section>
+
+<style>
+  .soon { font-family: var(--mono); font-size: 0.85em; background: var(--chip); padding: 2px 8px; border-radius: 6px; color: var(--ink); }
+  .demo { margin: 32px 0 0; }
+  .demo-img { display: block; width: 100%; height: auto; border-radius: 14px; background: #0d1117; aspect-ratio: 960 / 612; }
+  .demo figcaption { margin-top: 10px; font-size: 14px; color: var(--mute); }
+  .cmds { display: grid; gap: 16px; margin-top: 28px; }
+  @media (min-width: 960px) { .cmds { grid-template-columns: 0.8fr 1.2fr; } }
+  .cmd { border: 2px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--bg-2); min-width: 0; }
+  .cmd-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 2px solid var(--line); font-size: 15px; font-weight: 700; }
+  .cmd-head span { font-family: var(--display); font-weight: 600; }
+  .copy { min-height: 36px; padding: 6px 14px; border-radius: 999px; border: 2px solid var(--ink); background: transparent; cursor: pointer; font-weight: 700; font-size: 14px; }
+  .cmd pre { margin: 0; padding: 14px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
+  .also { margin-top: 18px; color: var(--mute); }
+</style>

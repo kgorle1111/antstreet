@@ -1,0 +1,8 @@
+---
+import facts from "../data/facts.json";
+
+interface Props { id: keyof typeof facts; tag?: string; class?: string }
+const { id, tag = "span", class: cls = "caveat" } = Astro.props;
+const Tag = tag as any;
+---
+<Tag data-fact={id} data-caveat class={cls}>{facts[id].caveat}</Tag>

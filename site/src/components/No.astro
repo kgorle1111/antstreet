@@ -1,0 +1,62 @@
+---
+import Fact from "./Fact.astro";
+import Caveat from "./Caveat.astro";
+import { BLOB, PREREG_URL, AUDIT_URL } from "../data/links";
+
+const R = `${BLOB}/bench/results`;
+const cards = [
+  { id: "blind35", name: "blind35", q: "A team of agents against one agent, blinded", href: `${R}/2026-10-03-blind35/README.md` },
+  { id: "e1", name: "E1", q: "Held-out checks from a separate examiner", href: `${R}/2026-10-03-heldout3-and-nl2repo/README.md` },
+  { id: "e3", name: "E3", q: "Parallel waves on multi-file work", href: `${R}/2026-10-05-e3-parallel/README.md` },
+  { id: "e4", name: "E4", q: "A fresh-context critic against self-review", href: `${R}/2026-10-07-e4-critic/README.md` },
+  { id: "e4b", name: "E4b", q: "The same critic, with room to finish", href: `${R}/2026-10-07-e4b-critic/README.md` },
+] as const;
+---
+<section id="no" class="section no" aria-labelledby="no-h">
+  <div class="wrap">
+    <p class="eyebrow">Results</p>
+    <h2 id="no-h">We publish every no.</h2>
+    <p class="lede"><Caveat id="notshown" class="" /> <Fact id="notshown" /> <a href={PREREG_URL}>Read the pre-registrations</a>.</p>
+
+    <ul class="cards">
+      {cards.map((c) => (
+        <li class="card no-card">
+          <p class="card-top"><span class="card-id mono" data-literal>{c.name}</span><span class="status">Not shown</span></p>
+          <h3>{c.q}</h3>
+          <p class="figure"><Fact id={c.id} /></p>
+          <Caveat id={c.id} />
+          <a class="card-link" href={c.href}>Write-up<span class="visually-hidden">: {c.q}</span></a>
+        </li>
+      ))}
+    </ul>
+
+    <details class="limits">
+      <summary>Honest limits</summary>
+      <ul>
+        <li>The false-pass rate is for small, strict standard-library tasks, one model (Haiku) writing both the checks and the code, and workers with no shell. It is not a rate for coding agents in general.</li>
+        <li>Runs of one task fail alike, so the per-run interval is too narrow. Resampling whole tasks widens it; use the wider interval for claims about tasks.</li>
+        <li>It does not estimate how often you would hit a bug. Hidden checks probe every rule the task states, including exotic input.</li>
+        <li>The hidden checks were written by Claude, separately from the agents measured, and never shown to any agent. A different reader may judge the tokenbucket cells debatable.</li>
+        <li>An unrefuted audit claim is not a correct one: the sealed checks catch only some wrong implementations, so the false-pass rate shown is a floor.</li>
+      </ul>
+      <p><a href={AUDIT_URL}>The full audit, with every case</a></p>
+    </details>
+  </div>
+</section>
+
+<style>
+  .lede a { color: var(--ink); }
+  .cards { list-style: none; padding: 0; margin: 32px 0 0; display: grid; gap: 16px; }
+  @media (min-width: 768px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (min-width: 1100px) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .card { border: 2px solid var(--line); border-radius: 16px; padding: 20px 22px; background: var(--bg-2); display: flex; flex-direction: column; gap: 8px; }
+  .card-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .card-id { font-size: 14px; color: var(--mute); }
+  .status { font-family: var(--mono); font-size: 13px; letter-spacing: 0.04em; border: 2px solid var(--ink); border-radius: 999px; padding: 2px 10px; }
+  .no-card h3 { font-size: 20px; }
+  .figure { font-family: var(--display); font-weight: 800; font-size: 22px; line-height: 1.25; font-variant-numeric: tabular-nums; }
+  .card-link { margin-top: auto; font-weight: 700; padding-top: 6px; }
+  .limits { margin-top: 28px; border: 2px solid var(--line); border-radius: 14px; padding: 16px 20px; max-width: 860px; }
+  .limits summary { cursor: pointer; font-family: var(--display); font-weight: 800; font-size: 20px; }
+  .limits ul { margin: 14px 0; padding-left: 20px; display: grid; gap: 8px; color: var(--ink); }
+</style>

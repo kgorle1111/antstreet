@@ -1,0 +1,73 @@
+---
+import "../styles/global.css";
+import Nav from "../components/Nav.astro";
+import Hook from "../components/Hook.astro";
+import Problem from "../components/Problem.astro";
+import Quiz from "../components/Quiz.astro";
+import How from "../components/How.astro";
+import Try from "../components/Try.astro";
+import No from "../components/No.astro";
+import Next from "../components/Next.astro";
+import BuiltBy from "../components/BuiltBy.astro";
+import Cta from "../components/Cta.astro";
+import Footer from "../components/Footer.astro";
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/");
+const url = "https://kgorle1111.github.io/antstreet/";
+const title = "AntStreet: tests your coding agent never saw";
+const description =
+  "AntStreet checks your AI coding agent's work against tests it never saw: checks you approve, sealed before it starts, run by a sandboxed gate, with every decision written down in a signed, hash-chained record.";
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0f1b2d" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)" />
+    <link rel="icon" href={`${base}assets/favicon.svg`} type="image/svg+xml" />
+    <link rel="canonical" href={url} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={url} />
+    <meta property="og:image" content={`${url}assets/og.png`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preload" href={`${base}fonts/bricolage-800.woff2`} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={`${base}fonts/bricolage-600.woff2`} as="font" type="font/woff2" crossorigin />
+    <!-- Before first paint: "js" turns on the interactive parts, "m" (motion allowed) hides the
+         hook's later beats until its timeline starts. If the motion script never starts, the
+         page falls back to the static final frames after 3 s. -->
+    <script is:inline>
+      (function (d) {
+        d.classList.add("js");
+        if (matchMedia("(prefers-reduced-motion: no-preference)").matches) {
+          d.classList.add("m");
+          setTimeout(function () { if (!window.__antMotion) d.classList.remove("m"); }, 3000);
+        }
+      })(document.documentElement);
+    </script>
+  </head>
+  <body>
+    <Nav />
+    <main id="main" tabindex="-1">
+      <Hook />
+      <Problem />
+      <Quiz />
+      <How />
+      <Try />
+      <No />
+      <Next />
+      <BuiltBy />
+      <Cta />
+    </main>
+    <Footer />
+    <script>
+      import "../scripts/main";
+    </script>
+  </body>
+</html>

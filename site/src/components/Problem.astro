@@ -1,0 +1,129 @@
+---
+import grid from "../data/grid.json";
+import Caveat from "./Caveat.astro";
+import Fact from "./Fact.astro";
+import { AUDIT_URL } from "../data/links";
+
+// Sorted order is the document order (false passes first), so keyboard order matches what is on
+// screen once the sort has run. Motion places each cell at its original slot first (FLIP).
+const cells = [...grid.filter((c) => c.false_pass), ...grid.filter((c) => !c.false_pass)];
+const runName = { heldout3: "heldout3", final3: "final3" } as Record<string, string>;
+const label = (c: (typeof grid)[number]) =>
+  c.false_pass
+    ? `${c.task}, run ${runName[c.run]}, rep ${c.rep}: every check it wrote passed; failed hidden check ${c.hidden_failed.join(", ")}${c.strict_drop ? " (the strict count drops it)" : ""}`
+    : `${c.task}, run ${runName[c.run]}, rep ${c.rep}: every check it wrote passed, and every hidden check passed`;
+---
+<section id="problem" class="section problem" aria-labelledby="problem-h">
+  <div class="wrap problem-grid">
+    <div class="problem-head">
+      <p class="eyebrow">The data</p>
+      <h2 id="problem-h">Every check it wrote passed. Then the hidden checks ran.</h2>
+      <p class="lede">Each cell is one run where the AI wrote the code and its own checks, and all of its checks passed. A red diamond failed a check it never saw.</p>
+
+    </div>
+    <div class="problem-figure">
+      <div class="stage grain grid-stage">
+        <div class="world">
+          <div class="layer grid-layer" data-p="1">
+            <div class="cells" id="cells" role="group" aria-label="77 runs, one button per run" aria-describedby="cells-help">
+              {cells.map((c) => (
+                <button
+                  type="button"
+                  class:list={["cell", { "is-fail": c.false_pass }]}
+                  data-cell={c.cell}
+                  data-fp={c.false_pass ? "1" : undefined}
+                  data-drop={c.strict_drop ?? undefined}
+                  aria-label={label(c)}
+                />
+              ))}
+            </div>
+            <div class="scanner" aria-hidden="true"><span>HIDDEN CHECKS</span></div>
+          </div>
+        </div>
+      </div>
+      <p id="cells-help" class="visually-hidden">Arrow keys move between runs; the panel below the legend shows the selected run.</p>
+      <ul class="legend" aria-label="Legend">
+        <li><span class="key key-pass" aria-hidden="true"></span>its own checks passed</li>
+        <li><span class="key key-fail" aria-hidden="true"></span>failed a hidden check</li>
+        <li><span class="key key-hollow" aria-hidden="true"></span>the strict count drops it</li>
+      </ul>
+      <div class="inspector hud" id="inspector">
+        <p class="inspector-empty">Pick a cell to see its task, its run and the hidden check it failed.</p>
+      </div>
+      <script is:inline type="application/json" id="grid-data" set:html={JSON.stringify(grid)} />
+    </div>
+    <div class="problem-b1 hud">
+      <div class="b1-block">
+        <p data-fact="b1" class="b1">
+          <span class="b1-head display">29 of 77 runs passed their own checks and failed a hidden one</span>
+          <span class="chip b1-chip">(<mark class="strict-mark">16 of 77 under a strict count</mark>; 17 small Python tasks; Haiku)</span>
+        </p>
+        <Caveat id="b1" />
+        <p class="read29"><Fact id="read29" /> and judge each a real error. <Caveat id="read29" class="" /></p>
+        <div class="problem-actions">
+          <button type="button" class="btn strict-toggle" aria-pressed="false" aria-controls="cells">Strict count</button>
+          <a class="text-link" href={AUDIT_URL}>Read the audit</a>
+        </div>
+        <p class="strict-note" hidden><Caveat id="strict" tag="span" class="caveat-inline" /></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .problem-grid { display: grid; gap: 28px; grid-template-areas: "head" "fig" "b1"; }
+  .problem-head { grid-area: head; } .problem-figure { grid-area: fig; } .problem-b1 { grid-area: b1; }
+  @media (min-width: 960px) { .problem-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); grid-template-areas: "head fig" "b1 fig"; column-gap: 56px; row-gap: 0; align-items: start; } }
+  .b1-block { margin-top: 8px; }
+  .b1 { margin: 0; }
+  .read29 { margin-top: 10px; font-size: 15px; color: var(--mute); }
+  .b1-head { display: block; font-size: clamp(26px, 3.2vw, 36px); line-height: 1.15; }
+  .b1-chip { margin-top: 12px; }
+  mark { background: none; color: inherit; border-radius: 4px; transition: background-color 0.2s, color 0.2s; }
+  .strict-on mark.strict-mark { background: var(--yellow); color: var(--navy); }
+  .problem-actions { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 18px; }
+  .strict-toggle[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .text-link { font-weight: 700; }
+  .strict-note { margin-top: 10px; }
+  .caveat-inline { font-size: 15px; color: var(--mute); }
+
+  .grid-stage { padding: clamp(14px, 3vw, 32px); }
+  .grid-stage .world { position: relative; inset: auto; }
+  .grid-layer { position: relative; inset: auto; }
+  .cells { display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: clamp(4px, 1vw, 10px); position: relative; z-index: 1; }
+  .cell {
+    position: relative; aspect-ratio: 1; min-width: 24px; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 6px;
+  }
+  .cell::before, .cell::after { content: ""; position: absolute; }
+  .cell::before { /* the shape: circle (pass) or diamond (fail) */
+    inset: 10%; border-radius: 50%; background: #2fb457; border: 2px solid var(--cell-stroke, #0f1b2d);
+    transition: border-radius 133ms cubic-bezier(.7,0,.2,1), transform 133ms cubic-bezier(.7,0,.2,1), background-color 133ms cubic-bezier(.7,0,.2,1), border-color 200ms;
+  }
+  .cell::after { /* the glyph: tick or X, never rotated */
+    inset: 30%; background: #f4f1ea;
+    clip-path: polygon(14% 52%, 30% 36%, 44% 50%, 76% 18%, 92% 34%, 44% 82%);
+  }
+  .cell.is-fail::before { border-radius: 8%; transform: rotate(45deg) scale(0.82); background: #ff5a4f; }
+  .cell.is-fail::after {
+    background: #0f1b2d;
+    clip-path: polygon(20% 8%, 50% 38%, 80% 8%, 92% 20%, 62% 50%, 92% 80%, 80% 92%, 50% 62%, 20% 92%, 8% 80%, 38% 50%, 8% 20%);
+  }
+  .strict-on .cell.is-fail[data-drop]::before { background: transparent; border: 3px solid var(--fail); transition-duration: 200ms; transition-delay: var(--d, 0ms); }
+  .strict-on .cell.is-fail[data-drop]::after { background: var(--fail); }
+  .cell[aria-current="true"] { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  .scanner { position: absolute; left: -6px; right: -6px; top: 0; height: 6px; background: var(--yellow); border-radius: 3px; z-index: 2; display: none; box-shadow: 0 0 0 2px var(--navy); }
+  .scanner span { position: absolute; right: 0; top: -34px; font: 500 13px/1 var(--mono); letter-spacing: 0.06em; background: var(--yellow); color: var(--navy); padding: 6px 8px; border-radius: 6px; }
+
+  .legend { list-style: none; padding: 0; margin: 16px 0 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 15px; color: var(--mute); }
+  .legend li { display: flex; align-items: center; gap: 8px; }
+  .key { width: 16px; height: 16px; display: inline-block; border: 2px solid #0f1b2d; }
+  .key-pass { border-radius: 50%; background: #2fb457; }
+  .key-fail { background: #ff5a4f; transform: rotate(45deg) scale(0.8); border-radius: 2px; }
+  .key-hollow { background: transparent; border: 3px solid var(--fail); transform: rotate(45deg) scale(0.8); border-radius: 2px; }
+
+  .inspector { margin-top: 16px; min-height: 132px; padding: 16px 18px; border: 2px solid var(--line); border-radius: 14px; font-size: 16px; }
+  .inspector :global(p + p) { margin-top: 6px; }
+  .inspector :global(.ins-title) { font-family: var(--display); font-weight: 800; font-size: 19px; }
+  .inspector-empty { color: var(--mute); }
+</style>

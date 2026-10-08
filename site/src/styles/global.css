@@ -1,0 +1,131 @@
+/* Fonts: self-hosted subsets (OFL). The fallbacks are metric-matched (size-adjust from the
+   subsets' own advance widths against Arial Bold / Courier New) so the swap shifts nothing. */
+@font-face { font-family: "Bricolage"; src: url("fonts/bricolage-800.woff2") format("woff2"); font-weight: 800; font-display: swap; }
+@font-face { font-family: "Bricolage"; src: url("fonts/bricolage-600.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("fonts/jetbrains-mono-500.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Arabic Digits"; src: url("fonts/noto-arabic-digits.woff2") format("woff2"); font-weight: 700; font-display: swap; unicode-range: U+0660-0669; }
+@font-face { font-family: "Bricolage Fallback"; src: local("Arial Bold"), local("Arial-BoldMT"), local("Arial"); size-adjust: 98.8%; ascent-override: 94%; descent-override: 27.3%; line-gap-override: 0%; }
+@font-face { font-family: "Mono Fallback"; src: local("Courier New"), local("CourierNewPSMT"); size-adjust: 100%; ascent-override: 102%; descent-override: 30%; line-gap-override: 0%; }
+
+:root {
+  --navy: #0f1b2d;
+  --navy-2: #24406e;
+  --paper: #f4f1ea;
+  --yellow: #ffc61a;
+  --gold: #e3a82e;
+  --cream: #f4f1ea;
+
+  --bg: var(--paper);
+  --bg-2: #e9e4d8;
+  --stage: #e4ded0;
+  --ink: var(--navy);
+  --mute: #4c5a6e;
+  --line: #c9c1ae;
+  --pass: #1f7a45;
+  --fail: #c4302b;
+  --emph: var(--navy);
+  --focus: #0f1b2d;
+  --chip: #e9e4d8;
+
+  --display: "Bricolage", "Bricolage Fallback", -apple-system, "SF Pro Display", "Segoe UI", sans-serif;
+  --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", "Mono Fallback", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ar: "Arabic Digits", "Bricolage", "Bricolage Fallback", sans-serif;
+
+  --gutter: 16px;
+  --max: 1160px;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: var(--navy);
+    --bg-2: #15253c;
+    --stage: #13223a;
+    --ink: var(--paper);
+    --mute: #9aa7b8;
+    --line: #2b3e5c;
+    --pass: #2fb457;
+    --fail: #ff5a4f;
+    --emph: var(--yellow);
+    --focus: var(--yellow);
+    --chip: #1b2c47;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: var(--navy); --bg-2: #15253c; --stage: #13223a; --ink: var(--paper); --mute: #9aa7b8;
+  --line: #2b3e5c; --pass: #2fb457; --fail: #ff5a4f; --emph: var(--yellow); --focus: var(--yellow); --chip: #1b2c47;
+}
+@media (min-width: 768px) { :root { --gutter: 32px; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 72px; }
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 17px/1.55 var(--body);
+  overflow-x: clip;
+}
+h1, h2, h3, .display { font-family: var(--display); font-weight: 800; line-height: 1.08; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+h2 { font-size: clamp(32px, 5.2vw, 56px); }
+h3 { font-size: 22px; line-height: 1.2; }
+p { margin: 0; text-wrap: pretty; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 2px; }
+code, kbd, pre, .mono { font-family: var(--mono); font-weight: 500; }
+code { font-size: 0.92em; }
+bdi.ar, .ar { font-family: var(--ar); font-weight: 700; }
+img, svg { max-width: 100%; }
+button { font: inherit; color: inherit; }
+
+/* One focus ring everywhere: 3 px, offset, theme colour. */
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
+
+.wrap { width: min(100% - 2 * var(--gutter), var(--max)); margin-inline: auto; }
+.section { padding-block: clamp(64px, 10vw, 128px); position: relative; }
+.eyebrow { font-family: var(--mono); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); margin-bottom: 14px; }
+.lede { font-size: clamp(18px, 2vw, 21px); color: var(--mute); max-width: 62ch; margin-top: 16px; }
+.em { color: var(--emph); }
+:root:not([data-theme="dark"]) .em { box-shadow: inset 0 -0.16em 0 var(--yellow); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .em { box-shadow: none; } }
+
+.skip { position: absolute; left: 12px; top: -60px; z-index: 100; background: var(--yellow); color: var(--navy); padding: 10px 16px; border-radius: 8px; font-weight: 700; }
+.skip:focus { top: 12px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px 22px;
+  border-radius: 999px; font-family: var(--display); font-weight: 800; font-size: 17px; text-decoration: none;
+  border: 2px solid var(--ink); background: transparent; cursor: pointer;
+}
+.btn-primary { background: var(--yellow); color: var(--navy); border-color: var(--yellow); }
+.btn code { font-size: 0.95em; }
+
+.chip { display: inline-block; font-size: 15px; line-height: 1.45; color: var(--mute); background: var(--chip); padding: 8px 12px; border-radius: 10px; }
+.caveat { display: block; font-size: 14px; line-height: 1.45; color: var(--mute); margin-top: 6px; }
+
+/* Shapes: pass is a circle with a tick, fail a diamond with an X. Never colour alone. */
+.mark { display: inline-block; width: 1em; height: 1em; vertical-align: -0.15em; }
+
+/* Stages: the camera rig. The HUD (anything outside .world) never moves. */
+.stage { position: relative; overflow: hidden; border-radius: 20px; background: var(--stage); isolation: isolate; }
+.stage::after { /* z4.5 lens: static vignette */
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 4;
+  background: radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / 0.18));
+}
+.grain::before { /* static grain tile at 3% */
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' seed='7'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px;
+}
+.world { position: absolute; inset: 0; z-index: 1; }
+.layer { position: absolute; inset: 0; transform-origin: 50% 50%; will-change: transform; }
+.layer > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hud { position: relative; z-index: 5; }
+
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
