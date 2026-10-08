@@ -31,6 +31,16 @@ whole organisation").
 - **Placed by two fields.** `department` is one of `product`, `engineering`, `quality`,
   `delivery` or `advisory`. `reports_to` is `boss` or the name of another role.
 
+## Which role to turn on
+
+Every role is optional and off until `--roles` names it. If you turn on one, make it the critic.
+In E4b (the critic with a $0.40 call cap, [PREREG.md](../bench/PREREG.md)) firm plus critic
+delivered 74 of 105 cells (70%) against 61% for self-review, and had the lowest false-pass rate
+(24%). That is a trend, not a result: the pre-registered paired comparison is not shown
+(+0.0952, 95% interval [-0.0000, +0.1905]), and the critic costs about 1.56x per delivered task.
+The judge is the exception: it is advisory and never decides pass or fail, calibrated or not,
+until its 40-case calibration set is labelled and agrees with a person.
+
 ## A role is switched on by a measurement, not by an opinion
 
 - `default_on=True` needs a benchmark or draft-evaluation result that shows the role moves a number
