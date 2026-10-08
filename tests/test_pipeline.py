@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT
 
+from boss import pipeline
 from boss.boss import load_prompt
 from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
 from boss.firm import FirmConfig
@@ -1061,7 +1062,7 @@ def test_every_way_the_firm_accepts_a_yes_is_a_yes_here(fx, answer):
     assert out.code == EXIT_OK and len(approvals(fx)) == 2
 
 
-@pytest.mark.parametrize("answer", ["n", "no", "", "maybe", EOFError])
+@pytest.mark.parametrize("answer", ["n", "no", "", "maybe"])  # EOF is nobody's no: see below
 def test_anything_but_a_yes_is_a_no_and_the_findings_stay_in_the_report(fx, answer):
     critic_finds(fx, finding())
     out = fx.fund("--roles", "critic", answers={"Add these": answer})
@@ -1116,6 +1117,33 @@ def test_review_cycles_zero_reports_the_findings_and_asks_nothing(fx):
     assert len(approvals(fx)) == 1 and fx.calls() == ["boss", "worker", "critic"]
     out = fx.run("resume")  # the findings were not offered, not interrupted: no second critic call
     assert out.code == EXIT_OK and asked(out, "Add these") == [] and fx.calls().count("critic") == 1
+    [ruling] = fx.events(EventType.RULED)
+    assert ruling.actor == "boss" and ruling.data == {
+        "ruling": "declined",
+        "reason": "review-cycles 0",
+    }
+
+
+def test_input_ending_at_the_question_is_not_the_investors_no(fx):
+    critic_finds(fx, finding())
+    out = fx.fund("--roles", "critic", answers={"Add these": EOFError})
+    assert "No fix round. The findings are in the report only." in out.text
+    [ruling] = fx.events(EventType.RULED)
+    assert ruling.actor == "boss" and ruling.data["reason"].startswith("input ended")
+    assert "sig" not in ruling.data  # only the investor's own events are signed with their key
+    assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
+
+
+def test_settled_counts_the_investors_no_old_ledgers_and_the_boss_skip_alike():
+    def cycle(actor: str, **data: str) -> list[Event]:
+        call = Event(
+            "r", 0, "role:critic", EventType.ROLE_CALL, data={"role": "critic", "verified": 1}
+        )
+        return [call, Event("r", 0, actor, EventType.RULED, data={"ruling": "declined", **data})]
+
+    assert pipeline._settled(cycle("investor")) == 1  # a ledger written before the boss's skip
+    assert pipeline._settled(cycle("boss", reason="review-cycles 0")) == 1
+    assert pipeline._settled(cycle("worker:w1")) == 0  # nobody else answers for the investor
 
 
 def test_one_review_cycle_means_the_critic_is_not_asked_again_after_the_fix_round(fx):
@@ -1208,6 +1236,11 @@ def test_a_run_that_ended_early_reports_the_findings_and_offers_no_fix_round(fx)
     assert "Critic verified a finding (high)" in out.text
     assert f"The run ended early ({reason}): no fix round is offered." in out.text
     assert asked(out, "Add these") == [] and len(approvals(fx)) == 1
+    [ruling] = fx.events(EventType.RULED)  # nobody was asked: the boss skipped it, not the investor
+    assert ruling.actor == "boss"
+    assert ruling.data == {"ruling": "declined", "reason": f"ended early: {reason}"}
+    fx.run("resume")  # the skip counts as the cycle's answer: the critic is not called again
+    assert fx.calls().count("critic") == 1 and fx.events(EventType.RULED) == [ruling]
 
 
 def test_the_fix_budget_is_what_the_new_round_is_funded_with(fx):

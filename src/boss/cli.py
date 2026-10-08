@@ -261,7 +261,8 @@ def _parser() -> argparse.ArgumentParser:
     fund.add_argument(
         "--roles",
         default="",
-        help="specialist roles to run, comma separated, or 'all' (default: none); see `boss roles`",
+        help="specialist roles to run, comma separated, or 'all' (default: none; critic is the "
+        "one to try); see `boss roles`",
     )
     _review_options(fund)
 

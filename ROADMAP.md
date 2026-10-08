@@ -52,10 +52,12 @@ Being built, each in its own pull request.
 - **An approve pane inside Claude Code** that times each approval, so we can fix the slowest step
   ([#46](https://github.com/kgorle1111/antstreet/pull/46), draft).
 - **`uvx antstreet` from PyPI**, no clone needed (B41).
-- **Optional roles out of "experimental"**: the critic, the tester and the rest (B33). The judge
-  stays out of pass/fail until it is calibrated against human labels; tests decide. E4 measured
-  the critic: a positive trend that is not shown (+0.057 delivery [-0.038, +0.162]), at about 1.5x the
-  cost per delivered task.
+- **Optional roles out of "experimental"**: the critic, the tester and the rest (B33). All stay
+  off unless `--roles` names them. The critic is the one we suggest turning on: in E4b, firm plus
+  critic delivered 74 of 105 (70%) against 61% for self-review, with the fewest false passes (24%),
+  at about 1.56x the cost per delivered task. The pre-registered comparison is not shown
+  (+0.0952 [-0.0000, +0.1905]). The judge stays out of pass/fail until its 40-case calibration set
+  is labelled; tests decide.
 - **The Python module renamed** from `boss` to `antstreet`, with `boss` kept as an alias so
   nothing breaks (B100).
 
