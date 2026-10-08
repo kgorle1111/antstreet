@@ -67,6 +67,8 @@ def remaining(sheet: TermSheet, events: Sequence[Event], round_n: int) -> int:
     cap, and so is a slice that started and never reported an end (the run was interrupted):
     treating either as free would let a round fund such slices without end. An infrastructure
     failure (login, rate limit) reported no cost because it did no work, so it is not charged.
+    A role call of unknown cost (killed at its timeout) is charged at the cap its event recorded;
+    an older event without one is charged 0.
     The charge is dropped once a later slice resumes the same session and reports its total: that
     total covers the lost slice's real spend, which the later slice's cost then books.
 
@@ -82,7 +84,11 @@ def _unknown_slice_charges(events: Sequence[Event], round_n: int) -> int:
     lost: list[tuple[int, int, object]] = []  # (round, cap, session)
     for e in events:
         key = (e.round, e.actor, e.data.get("slice"))
-        if e.event is EventType.SLICE_START:
+        if e.event is EventType.ROLE_CALL:
+            cap = e.data.get("cap_micros")
+            if e.cost_micros is None and e.data.get("outcome") not in _INFRASTRUCTURE:
+                lost.append((e.round, cap if type(cap) is int and cap > 0 else 0, None))
+        elif e.event is EventType.SLICE_START:
             if key in unfinished:  # the same slice started again: the first was lost
                 lost.append((e.round, *unfinished[key]))
             cap = e.data.get("cap_micros")

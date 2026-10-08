@@ -516,3 +516,35 @@ def test_plan_properties_and_term_sheet_validity() -> None:
                 assert _round_problems(s) == []
                 assert _money_problems(s) == []
     assert planned > 300
+
+
+def role_call(cost: int | None, outcome: str = "timeout", cap: object = 150_000, round_n: int = 1):
+    data = {"outcome": outcome} | ({} if cap is None else {"cap_micros": cap})
+    return Event(
+        run="r", round=round_n, actor="role:examiner", event=EventType.ROLE_CALL,
+        cost_micros=cost, data=data,
+    )  # fmt: skip
+
+
+def test_a_timed_out_role_call_is_charged_at_its_cap_so_the_round_cannot_spend_it_twice() -> None:
+    full = remaining(sheet(), [], 1)
+    assert remaining(sheet(), [role_call(None)], 1) == full - 150_000
+    assert round_spend([role_call(None)], 1).unknown_cost_events == 1  # reported as unknown
+
+
+def test_a_role_call_that_was_not_charged_is_not_charged_here() -> None:
+    full = remaining(sheet(), [], 1)
+    assert remaining(sheet(), [role_call(0, "skipped")], 1) == full
+    assert remaining(sheet(), [role_call(None, "login")], 1) == full  # infrastructure: no work
+    assert remaining(sheet(), [role_call(None, cap=None)], 1) == full  # a ledger from before caps
+    assert remaining(sheet(), [role_call(None, round_n=2)], 1) == full  # another round's
+
+
+def test_timed_out_role_calls_cannot_fund_slices_past_the_round_budget() -> None:
+    events = [role_call(None), role_call(None), role_call(None)]
+    spent = 0
+    while (cap := next_slice_cap(remaining(sheet(), events, 1), slice_micros=200_000)) is not None:
+        events.append(start(len(events), cap))
+        events.append(end(len(events) - 1, cap, "completed"))
+        spent += cap
+    assert spent + 3 * 150_000 <= round_budget(sheet(), events, 1)

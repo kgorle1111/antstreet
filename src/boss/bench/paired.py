@@ -53,6 +53,9 @@ class Paired:
     seed: int
     infrastructure: int  # cells excluded from either side
     unpaired: int  # tasks with no counted run on both sides
+    unknown_cost_cells: int = (
+        0  # counted cells with an event of unknown cost: cost is a lower bound
+    )
 
     @property
     def shown(self) -> bool:
@@ -131,6 +134,9 @@ def compare(
         seed=seed,
         infrastructure=len(mine_a) + len(mine_b) - len(_counted(mine_a)) - len(_counted(mine_b)),
         unpaired=len(all_tasks) - len(both),
+        unknown_cost_cells=sum(
+            c.unknown_cost_events > 0 for c in (*_counted(mine_a), *_counted(mine_b))
+        ),
     )
 
 
@@ -178,6 +184,14 @@ def render(p: Paired) -> str:
             f"({p.resamples} task resamples, seed {p.seed})",
             f"verdict: {'shown' if p.shown else 'not shown'}",
         ]
+        + (
+            [
+                f"WARNING: {p.unknown_cost_cells} counted cell(s) have events of unknown cost "
+                "(counted as 0 here): each side's cost is a lower bound."
+            ]
+            if p.kpi == "cost_per_delivery" and p.unknown_cost_cells
+            else []
+        )
     )
 
 
