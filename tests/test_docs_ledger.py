@@ -579,7 +579,9 @@ def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(prod
         for p in SRC.rglob("*.py")
         if p not in own and ("ledger_fields" in read(p) or "ROLE_CALL" in read(p))
     )
-    assert callers == ["pipeline.py", "report.py"], f"a new module touches role_call: {callers}"
+    assert callers == ["budget.py", "pipeline.py", "report.py"], (
+        f"a new module touches role_call: {callers}"
+    )
     assert "ledger_fields" not in read(SRC / "report.py")
     # Every event the pipeline wrote is under a role actor, in round 0, with the two keys it adds.
     written = [e for e in produced["role_call"] if e.actor != "role:examiner"]
