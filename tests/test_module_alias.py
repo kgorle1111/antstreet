@@ -21,7 +21,7 @@ from antstreet import signing
 from antstreet.ledger import EventType, read_events
 
 ROOT = Path(__file__).resolve().parent.parent
-PRE_RENAME = Path(__file__).parent / "fixtures" / "pre_rename_ledger"
+FIXTURES = Path(__file__).parent / "fixtures"  # flat: other tests read every file in it
 # The fixture was written by the pre-rename `boss` package with this test key; it is written back
 # at run time so no key file is committed.
 FIXTURE_KEY = bytes(range(32)).hex() + "\n"
@@ -133,7 +133,13 @@ def test_the_approve_guard_ignores_a_project_folder_named_antstreet():
 @pytest.fixture
 def old_project(tmp_path: Path) -> Path:
     project = tmp_path / "project"
-    shutil.copytree(PRE_RENAME, project / ".boss")
+    for kind, dest in (
+        ("ledger", "runs/r-prerename/ledger.jsonl"),
+        ("anchor", "anchors/r-prerename"),
+    ):
+        target = project / ".boss" / dest
+        target.parent.mkdir(parents=True)
+        shutil.copyfile(FIXTURES / f"pre_rename_r-prerename.{kind}", target)
     key = project / ".boss" / signing.KEY_FILE
     fd = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as fh:
