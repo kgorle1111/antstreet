@@ -364,3 +364,15 @@ def test_the_command_line_defaults_and_options_are_the_documented_ones(tmp_path,
 def test_the_parser_names_its_command_and_describes_itself():
     parser = captured_parser(main)
     assert parser.prog == "python -m boss.bench.paired" and parser.description
+
+
+def test_cost_per_delivery_says_so_when_unknown_costs_were_counted_as_zero():
+    a, b = sides([True, True], [True, True], cost=100_000)
+    a[0] = dataclasses.replace(a[0], unknown_cost_events=1)
+    p = run(a, b, "cost_per_delivery")
+    assert p.unknown_cost_cells == 1
+    assert "1 counted cell(s) have events of unknown cost" in render(p)
+    assert "unknown cost" not in render(
+        run(*sides([True, True], [True, True]), "cost_per_delivery")
+    )
+    assert "unknown cost" not in render(run(a, b, "delivery"))
