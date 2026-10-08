@@ -1,11 +1,11 @@
-# Publishes site/ to GitHub Pages. It only works once the owner sets
-# Settings -> Pages -> Source: GitHub Actions; until then the deploy step fails and nothing else does.
+# Builds site/ (an Astro project) and publishes site/dist to GitHub Pages. It only works once the
+# owner sets Settings -> Pages -> Source: GitHub Actions; until then the deploy step fails and nothing else does.
 name: Pages
 
 on:
   push:
     branches: [main]
-    paths: ["site/**"]
+    paths: ["site/**", "docs/assets/demo.svg"]
   workflow_dispatch:
 
 permissions:
@@ -27,9 +27,20 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: site/.nvmrc
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      # --ignore-scripts: no dependency runs an install script; the build needs none.
+      - name: Build the site
+        working-directory: site
+        run: |
+          npm ci --ignore-scripts
+          npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: site/dist
       - id: deployment
         uses: actions/deploy-pages@v4
