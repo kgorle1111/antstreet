@@ -219,6 +219,9 @@ class _Firm:
     started: float
     cancel: threading.Event  # set on Ctrl-C so slices running in other threads stop
     advise: Advise | None  # an opinion to show the investor before a dispute is ruled on
+    # Nobody is at a terminal to rule (no TTY): a dispute stops the run pending, for
+    # `boss approve --dispute`, instead of reading end of input as "set the task aside".
+    unattended: bool = False
 
     def events(self) -> list[Event]:
         return self.paths.events()
@@ -456,7 +459,9 @@ class _Firm:
                     self._gate_slice(task, current, record)
                 except _CANNOT_GATE as exc:
                     return None, self._halt(record, exc)
-                self._act(task, current, record, None)
+                stop = self._act(task, current, record, None)
+                if stop:  # a dispute waits for the investor: asking again would loop
+                    return None, stop
         if len(self.events()) != before:
             return [], None
         plans: list[tuple[Task, str, int]] = []
@@ -893,8 +898,7 @@ class _Firm:
             # The investor was part way through this worker's disputes when the run stopped.
             # The rest are asked before anything else is decided: a kept check no longer makes
             # the rule escalate, so the rule alone would leave them unasked.
-            self._ask_disputes(task, worker, open_disputes, events, record)
-            return None
+            return self._ask_disputes(task, worker, open_disputes, events, record)
         verdict = decide(needed, history, self.config.policy)
         if verdict.decision is Decision.RETRY:
             return self._infrastructure(run, history, record) if run else None
@@ -905,7 +909,7 @@ class _Firm:
             if verdict.reason == "disputed" or not any(
                 _unblocks(e, task.id) for e in events[since:]
             ):
-                self._escalate(task, worker, verdict, events, since, record)
+                return self._escalate(task, worker, verdict, events, since, record)
         elif verdict.decision is Decision.FIRE and (
             self.config.firing or verdict.reason == "slice limit"
         ):
@@ -922,12 +926,12 @@ class _Firm:
         events: Sequence[Event],
         since: int,
         record: Recorder,
-    ) -> None:
+    ) -> str | None:
         """Put to the investor what the worker could not settle. No clear ruling sets the task
-        aside; nothing is ever decided for the investor."""
+        aside; nothing is ever decided for the investor. Returns why the run must stop, if it
+        must wait for a ruling."""
         if verdict.reason == "disputed":
-            self._ask_disputes(task, worker, verdict.evidence["disputed"], events, record)
-            return
+            return self._ask_disputes(task, worker, verdict.evidence["disputed"], events, record)
         reason = _last_reason(events, worker) or verdict.reason
         if not any(e.event is EventType.BLOCKED for e in events[since:]):
             blocked = {"task": task.id, "reason": _last_reason(events, worker)}
@@ -935,9 +939,10 @@ class _Firm:
         note = rulings.ask_block(self.ask, task=task.id, worker=worker, reason=reason)
         if note is None:
             record("boss", EventType.ABANDONED, data={"task": task.id, "reason": verdict.reason})
-            return
+            return None
         ruled = {"task": task.id, "worker": worker, "ruling": rulings.UNBLOCKED, "note": note}
         record("investor", EventType.RULED, data=ruled)
+        return None
 
     def _ask_disputes(
         self,
@@ -946,30 +951,41 @@ class _Firm:
         checks: Sequence[str],
         events: Sequence[Event],
         record: Recorder,
-    ) -> None:
+    ) -> str | None:
         """Ask the investor to rule on each disputed check. The first one left unruled sets the
-        task aside."""
+        task aside. Unattended, nobody is asked: the run stops with every one of them pending."""
         described = {c.id: c.description for c in self.sheet.checks}
         raised = _disputes(events, task.id)
+        waiting = []
         for check in checks:
             by, reason = raised.get(check, (worker, ""))  # a fired worker's dispute is put too
             advice = self.advise(check, reason) if self.advise else None
             if advice:
                 self.say(advice)
+            description = safe_text(" ".join(described.get(check, "").split()), limit=200)
+            if self.unattended:
+                self.say(f'Task {task.id}: {by} disputes check {check} ({description}): "{reason}"')
+                waiting.append({"task": task.id, "check": check, "worker": by})
+                continue
             ruling = rulings.ask_dispute(
                 self.ask,
                 task=task.id,
                 worker=by,
                 check=check,
-                description=safe_text(" ".join(described.get(check, "").split()), limit=200),
+                description=description,
                 reason=reason,
             )
             if ruling is None:
                 self.say(f"Task {task.id} is set aside: {by} disputes {check}.")
                 record("boss", EventType.ABANDONED, data={"task": task.id, "reason": "disputed"})
-                return
+                return None
             ruled = {"task": task.id, "worker": by, "check": check, "ruling": ruling}
             record("investor", EventType.RULED, data=ruled)
+        if not waiting:
+            return None
+        data = {"reason": rulings.RULING_AWAITED, "disputes": waiting}
+        record("boss", EventType.STOPPED, data=data)
+        return rulings.RULING_AWAITED
 
     def _infrastructure(self, run: SliceRun, history: list[Any], record: Recorder) -> str | None:
         attempt = 0
@@ -1083,6 +1099,7 @@ def run_firm(
     clock: Callable[[], float] = time.monotonic,
     cancel: threading.Event | None = None,
     advise: Advise | None = None,
+    unattended: bool = False,
 ) -> FirmReport:
     events = paths.events()
     require_approval(events, sheet, paths.checks, paths.held_out, paths.investor_key, paths.rules)
@@ -1110,5 +1127,6 @@ def run_firm(
         clock(),
         cancel or threading.Event(),
         advise,
+        unattended,
     )
     return firm.run()
