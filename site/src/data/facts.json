@@ -1,0 +1,306 @@
+{
+  "b1": {
+    "value": "29 of 77",
+    "wording": "29 of 77 runs passed their own checks and failed a hidden one (16 of 77 under a strict count; 17 small Python tasks; Haiku)",
+    "caveat": "Runs of one task fail alike: resampling tasks widens the 38% interval to 20-57%.",
+    "sources": [
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "29 of 77 (37.7%, Wilson 95% [28-49%])"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "the rate is 16 of 77 (20.8%, [13-31%])"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "On 17 small Python tasks (3 runs each, Haiku writing both the checks and the code)"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "resampling tasks widens the 38% interval to 20-57%"
+      }
+    ]
+  },
+  "b2": {
+    "value": "9 of the 29",
+    "wording": "9 of the 29 failed only on non-ASCII input",
+    "caveat": "29 of 77 runs passed their own checks and failed a hidden one (16 of 77 under a strict count; 17 small Python tasks; Haiku)",
+    "sources": [
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "9 of the 29 fail only on non-ASCII input"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "29 of 77 (37.7%, Wilson 95% [28-49%])"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "the rate is 16 of 77 (20.8%, [13-31%])"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "On 17 small Python tasks (3 runs each, Haiku writing both the checks and the code)"
+      }
+    ]
+  },
+  "strict": {
+    "value": "16 of 77",
+    "wording": "Without those 13, the rate is 16 of 77",
+    "caveat": "The 13: 9 failed only on non-ASCII input and 4 only on an int returned where the task says float.",
+    "sources": [
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "Without those 13, the rate is 16 of 77"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "9 of the 29 fail only on non-ASCII input and 4 only on an `int` returned where the text says `float`"
+      }
+    ]
+  },
+  "read29": {
+    "value": "29",
+    "wording": "We read all 29 against the task text",
+    "caveat": "One class, tokenbucket's int-vs-float return, is debatable.",
+    "sources": [
+      {
+        "path": "README.md",
+        "quote": "We read all 29 against the task text and judge each a real error"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "(one class, tokenbucket's int-vs-float return, is"
+      }
+    ]
+  },
+  "rule": {
+    "value": "0 to 9",
+    "wording": "Digits are only the ASCII characters 0 to 9.",
+    "caveat": "From the bigdecimal task's rules, bench/tasks/bigdecimal/idea.md.",
+    "sources": [
+      {
+        "path": "bench/tasks/bigdecimal/idea.md",
+        "quote": "Digits are only the ASCII characters `0` to `9`."
+      }
+    ]
+  },
+  "isdigit": {
+    "value": "True",
+    "wording": "\"١٢٣\".isdigit() → True",
+    "caveat": "Run under Python 3.12; int(\"١٢٣\") is 123 too. The product tested digits with str.isdigit.",
+    "sources": [
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "Product tests digits with `str.isdigit`"
+      },
+      {
+        "path": "pyproject.toml",
+        "quote": "requires-python = \">=3.12\""
+      }
+    ],
+    "computed": [
+      "123"
+    ]
+  },
+  "blind35": {
+    "value": "64 of 105",
+    "wording": "64 of 105 delivered against one agent's 62 of 105, at about 2.4 times the cost",
+    "caveat": "Paired by task, the difference is not shown. 35 tasks, 3 runs each, Haiku.",
+    "sources": [
+      {
+        "path": "bench/results/README.md",
+        "quote": "35 tasks, 3 runs each: the firm delivered 64 of 105, the single agent 62 of 105."
+      },
+      {
+        "path": "bench/results/README.md",
+        "quote": "the firm costs 2.4 times as much per cell"
+      }
+    ]
+  },
+  "e1": {
+    "value": "0 of 17",
+    "wording": "Caught 0 of 17",
+    "caveat": "The examiner's held-out checks (3 per cell) passed in all 17 false-pass cells.",
+    "sources": [
+      {
+        "path": "ROADMAP.md",
+        "quote": "Caught 0 of 17"
+      },
+      {
+        "path": "bench/results/2026-10-03-false-pass-audit/README.md",
+        "quote": "held-out checks (3 per cell in `heldout3`) passed in all 17 false-pass cells there"
+      }
+    ]
+  },
+  "e3": {
+    "value": "0.80x",
+    "wording": "0.80x against a 1.3x bar",
+    "caveat": "Median time to delivery; 8 multi-file tasks x 3 runs, Haiku.",
+    "sources": [
+      {
+        "path": "bench/results/README.md",
+        "quote": "0.80x, against a bar of 1.3x"
+      },
+      {
+        "path": "bench/results/README.md",
+        "quote": "8 multi-file tasks x 3 runs, Haiku"
+      }
+    ]
+  },
+  "e4": {
+    "value": "+0.0571 [-0.0381, +0.1619]",
+    "wording": "+0.0571 [-0.0381, +0.1619]",
+    "caveat": "Paired delivery, critic against self-review; 35 tasks x 3 runs, Haiku. The interval includes zero.",
+    "sources": [
+      {
+        "path": "bench/results/README.md",
+        "quote": "paired delivery: +0.0571 [-0.0381, +0.1619]"
+      },
+      {
+        "path": "bench/results/README.md",
+        "quote": "35 tasks x 3 runs per arm, Haiku"
+      }
+    ]
+  },
+  "e4b": {
+    "value": "+0.0952 [-0.0000, +0.1905]",
+    "wording": "+0.0952 [-0.0000, +0.1905]; 74/105 (70%) delivered, about 1.56x the cost per delivered task",
+    "caveat": "The lower bound is slightly negative unrounded; the rule needs it above zero.",
+    "sources": [
+      {
+        "path": "bench/results/README.md",
+        "quote": "paired delivery: +0.0952 [-0.0000, +0.1905]"
+      },
+      {
+        "path": "bench/results/2026-10-07-e4b-critic/README.md",
+        "quote": "Delivery 74/105 (70%) against 61%"
+      },
+      {
+        "path": "bench/results/2026-10-07-e4b-critic/README.md",
+        "quote": "(1.56x)"
+      },
+      {
+        "path": "bench/results/README.md",
+        "quote": "is slightly negative unrounded (-9.5e-18); the rule needs it above zero"
+      }
+    ]
+  },
+  "tests": {
+    "value": "5,700+",
+    "wording": "5,700+ tests",
+    "caveat": "Counted by pytest --collect-only; a test keeps this floor true.",
+    "sources": [
+      {
+        "path": "README.md",
+        "quote": "**5,700+ tests**"
+      },
+      {
+        "path": "tests/test_docs_showcase.py",
+        "quote": "assert collected >= 5700"
+      }
+    ]
+  },
+  "coverage": {
+    "value": "96%",
+    "wording": "Coverage floor 96%, about 98% measured",
+    "caveat": "Line and branch coverage over src/antstreet, enforced in CI.",
+    "sources": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "quote": "--fail-under=96"
+      },
+      {
+        "path": ".github/workflows/ci.yml",
+        "quote": "98.58%"
+      },
+      {
+        "path": "README.md",
+        "quote": "about 98% measured"
+      }
+    ]
+  },
+  "threats": {
+    "value": "71",
+    "wording": "71 threat rows",
+    "caveat": "A threat model with a test per row.",
+    "sources": [
+      {
+        "path": "docs/THREAT_MODEL.md",
+        "count": "^\\| T(\\d+) ",
+        "equals": 71
+      },
+      {
+        "path": "ROADMAP.md",
+        "quote": "A threat model with a test per row"
+      }
+    ]
+  },
+  "decisions": {
+    "value": "46",
+    "wording": "46 recorded design decisions",
+    "caveat": "Each says what was decided, why, and what was rejected.",
+    "sources": [
+      {
+        "path": "docs/DECISIONS.md",
+        "count": "^### D\\d+:",
+        "equals": 46
+      },
+      {
+        "path": "docs/DECISIONS.md",
+        "quote": "Each says what was decided, why, what was rejected and why, and the evidence."
+      }
+    ]
+  },
+  "experiments": {
+    "value": "7",
+    "wording": "7 pre-registered experiments",
+    "caveat": "Four have run; none has shown its benefit.",
+    "sources": [
+      {
+        "path": "bench/PREREG.md",
+        "count": "^## E\\d+b?\\. ",
+        "equals": 7
+      },
+      {
+        "path": "README.md",
+        "quote": "Four have run. **None has shown its benefit, and every one is published.**"
+      }
+    ]
+  },
+  "python": {
+    "value": "3.12+",
+    "wording": "Python 3.12+",
+    "caveat": "macOS or Linux; Apache-2.0.",
+    "sources": [
+      {
+        "path": "pyproject.toml",
+        "quote": "requires-python = \">=3.12\""
+      },
+      {
+        "path": "LICENSE",
+        "quote": "Apache License, Version 2.0"
+      },
+      {
+        "path": "README.md",
+        "quote": "You need macOS or Linux, Python 3.12+"
+      }
+    ]
+  },
+  "notshown": {
+    "value": "95%",
+    "wording": "\"Not shown\" means the paired 95% interval did not clear the bar.",
+    "caveat": "Each rule is fixed in bench/PREREG.md before the run.",
+    "sources": [
+      {
+        "path": "ROADMAP.md",
+        "quote": "\"Not shown\" means the paired 95% interval did not clear the bar."
+      },
+      {
+        "path": "ROADMAP.md",
+        "quote": "Each rule is fixed in [bench/PREREG.md](bench/PREREG.md) before the run."
+      }
+    ]
+  }
+}

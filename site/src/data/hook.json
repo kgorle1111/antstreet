@@ -1,0 +1,47 @@
+{
+  "beats": {
+    "land": 0,
+    "cut": 2000,
+    "open": 4500,
+    "settle": 5400
+  },
+  "lines": [
+    {
+      "id": "h1",
+      "text": "It wrote its own checks.",
+      "inMs": 0,
+      "outMs": null
+    },
+    {
+      "id": "seal",
+      "text": "CHECKS PASSED",
+      "inMs": 0,
+      "outMs": 2000
+    },
+    {
+      "id": "label",
+      "text": "HIDDEN CHECKS",
+      "inMs": 2000,
+      "outMs": null
+    },
+    {
+      "id": "caption",
+      "text": "Checks it never saw.",
+      "inMs": 2133,
+      "outMs": 4500
+    },
+    {
+      "id": "pill",
+      "text": "HIDDEN CHECK: FAILED",
+      "inMs": 4870,
+      "outMs": null,
+      "minHoldMs": 1400
+    },
+    {
+      "id": "sub",
+      "text": "AntStreet checks your AI coding agent's work against tests it never saw, so \"all tests pass\" actually means something.",
+      "inMs": 5400,
+      "outMs": null
+    }
+  ]
+}
