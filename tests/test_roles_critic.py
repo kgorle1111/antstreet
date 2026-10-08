@@ -615,3 +615,21 @@ def test_the_critic_has_room_above_what_e4_showed_it_needs():
 
     # E4's completed critic calls reached $0.149 and its capped ones were cut off near $0.17.
     assert SPECS[0].cap_micros >= 300_000
+
+
+def test_the_critic_call_waits_900s_by_default_because_300s_cut_e4b_calls(
+    product, tmp_path, monkeypatch
+):
+    class Stop(Exception):
+        pass
+
+    seen: dict = {}
+
+    def record(*args, **kwargs):
+        seen.update(kwargs)
+        raise Stop
+
+    monkeypatch.setattr(critic, "call_role", record)
+    with pytest.raises(Stop):
+        review_product(IDEA, product, [], tmp_path / "scratch", env={}, model="haiku")
+    assert seen["timeout_s"] == 900.0
