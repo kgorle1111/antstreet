@@ -364,6 +364,16 @@ you every check and what it does there, and asks whether to approve. It never wr
   shown, not counted**, **cannot run here: not counted** (it needs a module that is not installed
   and that neither the base nor the request names), or **timed out on the base: not counted**. If
   no check fails on the base you are told every verdict would be inconclusive, and can reject.
+- **Environment.** The checks import from the base, the standard library, pytest and, when the repo
+  has one, the site-packages of its own `.venv` (what `uv sync` or `python -m venv .venv` makes).
+  Nothing is installed. That folder is the repo's code, so it is used only when the gate runs inside
+  an OS sandbox, which may read it and nothing else of the environment; only if it is for the
+  Python that runs the checks (a compiled module built for another one would fail and look like a
+  failing check); and only if it resolves inside the repo, away from `.boss` and the audit store. It
+  joins the import path last and is never run as an interpreter: its `.pth` files and
+  `sitecustomize` do not run, and it cannot replace pytest or the gate's plugin. The output's
+  `Environment:` line says which was used, or why not and what to run (`uv sync`). Without it, a
+  check that imports a third-party module is **cannot run here**.
 - You approve or reject as for `boss fund`; the approval is signed with the audit store's investor
   key. The sheet's budget figure is a placeholder: the audit funds no worker.
 - The base commit and the request's SHA-256 are in the one synthetic task's brief, so they are inside
@@ -428,6 +438,8 @@ Argument: `run`, the id `boss audit plan` printed.
   against the head's code. It lists base test files the head no longer has, and base tests that
   pass on the base and fail on the head's code, so a test the agent deleted or weakened still speaks.
   A request that changes behaviour breaks old tests honestly, so these are for you to read.
+- The checks see the same environment as in `boss audit plan`, found again in `--repo` (its
+  `.venv`), for the base and the head alike; the `Environment:` line says which.
 - The output names failing checks by id and description, never by code.
 - The `audited` event is written only after all of the above, signed with the store's key.
 - Exit 0 for `unrefuted` and `no_claim`. Exit 3 for `refuted` and `inconclusive`. Exit 1 for any

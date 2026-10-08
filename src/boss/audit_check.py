@@ -25,6 +25,7 @@ from boss.audit import (
     AuditError,
     CheckState,
     parse_seal,
+    repo_env,
     run_checks,
     run_paths,
     runs_in,
@@ -69,6 +70,7 @@ class Verdict:
     agent: str | None
     claim_text_sha256: str | None
     described: Mapping[str, str]  # check id -> its description, for the screen only
+    environment: str = ""  # which packages the checks saw (`audit.repo_env`), for the screen only
 
     def to_data(self) -> dict[str, object]:
         return {
@@ -167,7 +169,9 @@ def leak_scan(diff: str, check_texts: Mapping[str, str], request: str) -> list[s
 # --- the base's own tests against the head's code ---------------------------------------------
 
 
-def base_tests_on_head(base_tree: Path, head_tree: Path) -> tuple[list[str], list[str]]:
+def base_tests_on_head(
+    base_tree: Path, head_tree: Path, site_packages: Path | None = None
+) -> tuple[list[str], list[str]]:
     """(test files the head no longer has, base tests that pass on the base and fail on the head's
     code). The second runs the base's `tests/` folder over the head's code, so a test the agent
     deleted or weakened still speaks. Both empty when the base has no `tests/` or a run produced no
@@ -180,8 +184,10 @@ def base_tests_on_head(base_tree: Path, head_tree: Path) -> tuple[list[str], lis
         for p in tests.rglob("test_*.py")
         if not (head_tree / p.relative_to(base_tree)).is_file()
     )
-    before = run_tree(base_tree, tests, "tests", pythonpath=PYTHONPATH)
-    after = run_tree(head_tree, tests, "tests", pythonpath=PYTHONPATH)
+    before, after = (
+        run_tree(tree, tests, "tests", pythonpath=PYTHONPATH, site_packages=site_packages)
+        for tree in (base_tree, head_tree)
+    )
     if not before.tests or not after.tests:
         return deleted, []
     passed = CheckStatus.PASSED
@@ -240,6 +246,8 @@ def check(
             )
         mode = claim_mode(gitrepo.commits_between(repo, base, head), sealed_at)
         diff = gitrepo.diff(repo, base, head)
+        env_found = repo_env(repo, store)
+        site = env_found.site_packages
         with tempfile.TemporaryDirectory(prefix="boss_audit_") as tmp:
             base_tree, head_tree = Path(tmp) / "base", Path(tmp) / "head"
             gitrepo.export(repo, base, base_tree)
@@ -247,10 +255,10 @@ def check(
             known = tree_modules(base_tree) | tree_modules(head_tree)
             # kn: the base is run again on every check; cache by seal hash if one run is audited
             # against many heads.
-            on_base = run_checks(base_tree, paths, sheet, known)
+            on_base = run_checks(base_tree, paths, sheet, known, site_packages=site)
             counted = sorted(i for i, o in on_base.items() if o.state is CheckState.FAILING)
-            on_head = run_checks(head_tree, paths, sheet, known, only=counted)
-            deleted, regressions = base_tests_on_head(base_tree, head_tree)
+            on_head = run_checks(head_tree, paths, sheet, known, only=counted, site_packages=site)
+            deleted, regressions = base_tests_on_head(base_tree, head_tree, site)
     except gitrepo.GitError as exc:
         raise AuditError(str(exc)) from exc
     failed = [i for i in counted if on_head[i].state is CheckState.FAILING]
@@ -273,6 +281,7 @@ def check(
         agent=agent,
         claim_text_sha256=claim_hash,
         described=_descriptions(sheet, paths, failed),
+        environment=env_found.note,
     )
     with paths.writer() as ledger:
         Recorder(ledger, run_id, 0)(AUDIT_ACTOR, EventType.AUDITED, data=result.to_data())
@@ -324,6 +333,8 @@ def render_check(v: Verdict) -> str:
         f"Counted checks (failing on the base): {v.counted}; failing on the head: {len(v.failed)}",
     ]
     lines += [f"  {i} failed: {v.described.get(i) or '(no description)'}" for i in v.failed]
+    if v.environment:
+        lines.append(f"Environment: {v.environment}.")
     if v.blocked:
         lines.append(f"Could not run on the head: {', '.join(v.blocked)}")
     if v.leaks:
