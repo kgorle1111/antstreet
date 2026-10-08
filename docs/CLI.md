@@ -340,16 +340,16 @@ characters, and a request line over 1,048,576 characters is refused.
 
 ## `boss audit plan`
 
-`boss audit plan --repo REPO --request FILE --base REF [--held-out N] [--boss-model MODEL]`. Seals
+`boss audit plan --request FILE [--repo REPO] [--base REF] [--held-out N] [--boss-model MODEL]`. Seals
 checks for a change request before the change is looked at, so that a commit an agent makes later
 can be tested against them. It asks the boss for checks once, runs them on the base commit, shows
 you every check and what it does there, and asks whether to approve. It never writes to `REPO`.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--repo` | required | The git checkout to audit: the folder that holds `.git`. |
+| `--repo` | `.` | The git checkout to audit: the folder that holds `.git`. |
 | `--request` | required | A text file with the change request, up to 64 KiB, not starting with `-`. |
-| `--base` | required | The branch, tag or full commit hash the change is made from. A revision expression (`HEAD~1`, `a..b`, `x:path`) is refused. |
+| `--base` | `HEAD` | The branch, tag or full commit hash the change is made from: `HEAD` as it is before the agent starts. A revision expression (`HEAD~1`, `a..b`, `x:path`) is refused. |
 | `--held-out` | `0` | Checks an examiner writes as well, from the request and the names the checks import, 0 to 8; 0 is off. You read and approve them with the rest. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
 
@@ -396,15 +396,15 @@ you every check and what it does there, and asks whether to approve. It never wr
 
 ## `boss audit check`
 
-`boss audit check RUN --head REF [--repo REPO] [--claim done|none] [--claim-text FILE] [--agent LABEL]`.
+`boss audit check [RUN] [--head REF] [--repo REPO] [--claim done|none] [--claim-text FILE] [--agent LABEL]`.
 Runs the sealed checks of audit run `RUN` on a commit and writes the gate's verdict to its ledger as a signed
 `audited` event.
 
-Argument: `run`, the id `boss audit plan` printed.
+Argument: `run`, the id `boss audit plan` printed. Default: the latest run in the store.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--head` | required | The branch, tag or full commit hash to audit. |
+| `--head` | `HEAD` | The branch, tag or full commit hash to audit. |
 | `--repo` | `.` | The git checkout that holds the head and the sealed base. |
 | `--claim` | `none` | What the agent said of its own work: `done`, or `none`. Only a claim of `done` can be refuted. v1 does not read the agent's words to decide this. |
 | `--claim-text` | none | A file with the agent's own words, up to 64 KiB. Kept as a SHA-256 only. |

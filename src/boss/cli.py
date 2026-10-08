@@ -335,9 +335,16 @@ def _audit_parser(sub: Any) -> None:
     plan = steps.add_parser(
         "plan", help="write and seal checks for a request, from a base commit alone"
     )
-    plan.add_argument("--repo", required=True, help="the git checkout to audit (not modified)")
+    plan.add_argument(
+        "--repo", default=".", help="the git checkout to audit, not modified (default: .)"
+    )
     plan.add_argument("--request", required=True, help="a text file holding the change request")
-    plan.add_argument("--base", required=True, help="the branch, tag or commit before the change")
+    plan.add_argument(
+        "--base",
+        default="HEAD",
+        help="the branch, tag or commit before the change (default: HEAD, as it is before the "
+        "agent starts)",
+    )
     plan.add_argument(
         "--held-out",
         type=_held_out_arg,
@@ -349,8 +356,12 @@ def _audit_parser(sub: Any) -> None:
     check = steps.add_parser(
         "check", help="run a run's sealed checks on a commit and record the gate's verdict"
     )
-    check.add_argument("run", help="the audit run id that `boss audit plan` printed")
-    check.add_argument("--head", required=True, help="the branch, tag or commit to audit")
+    check.add_argument(
+        "run", nargs="?", help="the run id `boss audit plan` printed (default: the latest)"
+    )
+    check.add_argument(
+        "--head", default="HEAD", help="the branch, tag or commit to audit (default: HEAD)"
+    )
     check.add_argument("--repo", default=".", help="the git checkout holding the head (default: .)")
     check.add_argument(
         "--claim",
@@ -1202,14 +1213,17 @@ def _audit_plan(
         f"Sealed audit run {done.run_id}: {done.counted} of {done.total} checks fail on the base "
         f"and will be counted.\nSeal: {done.seal}\nStore: {store}\n"
         "Record the seal where the agent cannot change it, and keep the store out of the agent's "
-        f"reach. Then: boss audit check {done.run_id} --head REF --claim done"
+        "reach. When the agent says it is done, in the repo: "
+        f"boss audit check {done.run_id} --claim done (the head defaults to HEAD)"
     )
     return EXIT_OK
 
 
 def _audit_check(args: argparse.Namespace, store: Path, say: Say) -> int:
+    # Only an omitted run means the latest; one given, even empty, is checked as given.
+    run = audit_report.run_ids(store, None, every=False)[0] if args.run is None else args.run
     verdict = audit_check.check(
-        args.run,
+        run,
         args.head,
         repo=Path(args.repo),
         store=store,

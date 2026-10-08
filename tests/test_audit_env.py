@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from audit_support import DRAFT, RIGHT_SLUG, WRONG_SLUG, Audit, branch, later, write
+from audit_support import DRAFT, RIGHT_SLUG, WRONG_SLUG, Audit, branch, git, later, write
 from sandbox_support import working_sandbox
 
 import boss.audit as audit_module
@@ -114,6 +114,16 @@ def test_a_hostile_venv_cannot_run_startup_hooks_write_outside_or_flip_the_verdi
     code, said = audit.check(audit.run_id(), "good", "--claim", "done")
     assert code == 0 and "Verdict: UNREFUTED" in said, said
     assert list(outside.iterdir()) == []
+
+
+@needs_sandbox
+def test_the_check_after_a_plan_defaults_to_the_latest_run_and_to_head(tmp_path):
+    audit = sealed_with(tmp_path, venv=True)
+    assert audit.plan()[0] == 0
+    good = branch(audit.repo, "good", {"slug.py": RIGHT_SLUG}, later())
+    git(audit.repo, "checkout", "-q", "good")
+    code, said = audit.run("check", "--repo", str(audit.repo), "--claim", "done")
+    assert code == 0 and "Verdict: UNREFUTED" in said and f"head {good[:12]}" in said, said
 
 
 # --- what is found, and what is refused --------------------------------------------------------
