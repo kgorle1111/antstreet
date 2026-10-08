@@ -23,6 +23,7 @@ const label = (c: (typeof grid)[number]) =>
     </div>
     <div class="problem-figure">
       <div class="stage grain grid-stage">
+        <p class="scan-label" aria-hidden="true"><span class="scan-swatch"></span>HIDDEN CHECKS</p>
         <div class="world">
           <div class="layer grid-layer" data-p="1">
             <div class="cells" id="cells" role="group" aria-label="77 runs, one button per run" aria-describedby="cells-help">
@@ -37,7 +38,7 @@ const label = (c: (typeof grid)[number]) =>
                 />
               ))}
             </div>
-            <div class="scanner" aria-hidden="true"><span>HIDDEN CHECKS</span></div>
+            <div class="scanner" aria-hidden="true"></div>
           </div>
         </div>
       </div>
@@ -71,6 +72,7 @@ const label = (c: (typeof grid)[number]) =>
 </section>
 
 <style>
+  .problem { padding-top: clamp(40px, 5vw, 64px); }
   .problem-grid { display: grid; gap: 28px; grid-template-areas: "head" "fig" "b1"; }
   .problem-head { grid-area: head; } .problem-figure { grid-area: fig; } .problem-b1 { grid-area: b1; }
   @media (min-width: 960px) { .problem-grid { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); grid-template-areas: "head fig" "b1 fig"; column-gap: 56px; row-gap: 0; align-items: start; } }
@@ -113,7 +115,10 @@ const label = (c: (typeof grid)[number]) =>
   .cell[aria-current="true"] { outline: 3px solid var(--focus); outline-offset: 2px; }
 
   .scanner { position: absolute; left: -6px; right: -6px; top: 0; height: 6px; background: var(--yellow); border-radius: 3px; z-index: 2; display: none; box-shadow: 0 0 0 2px var(--navy); }
-  .scanner span { position: absolute; right: 0; top: -34px; font: 500 13px/1 var(--mono); letter-spacing: 0.06em; background: var(--yellow); color: var(--navy); padding: 6px 8px; border-radius: 6px; }
+  /* The label lives in the stage's own header strip, above the grid, so it never covers a cell. */
+  .scan-label { display: none; position: relative; z-index: 2; margin: 0 0 34px; align-items: center; gap: 8px; font: 500 13px/1 var(--mono); letter-spacing: 0.06em; color: var(--ink); }
+  .scan-swatch { width: 22px; height: 6px; border-radius: 3px; background: var(--yellow); box-shadow: 0 0 0 2px var(--navy); }
+  :global(.m) .scan-label { display: flex; }
 
   .legend { list-style: none; padding: 0; margin: 16px 0 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 15px; color: var(--mute); }
   .legend li { display: flex; align-items: center; gap: 8px; }
