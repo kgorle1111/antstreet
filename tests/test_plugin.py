@@ -264,6 +264,10 @@ APPROVES = [
     "ANTSTREET APPROVE",
     "antstreet $(echo approve)",
     "sh -c 'antstreet approve'",
+    # the investor's ruling on a dispute goes through `approve` too, so it is denied the same way
+    "boss approve r1 --dispute c05 --ruling drop",
+    "uvx antstreet approve r1 --dispute c05 --ruling keep",
+    "uv run boss approve --ruling keep --dispute c05",
 ]
 ALLOWED = [
     "uvx antstreet status",
@@ -287,6 +291,7 @@ def test_the_guard_denies_every_way_of_running_approve(command):
     assert decision["hookEventName"] == "PreToolUse"
     assert decision["permissionDecision"] == "deny"
     assert "! uvx antstreet approve RUN --sheet VALUE" in decision["permissionDecisionReason"]
+    assert "approve RUN --dispute CHECK --ruling drop|keep" in decision["permissionDecisionReason"]
     assert decision["permissionDecisionReason"] in done.stderr
 
 
