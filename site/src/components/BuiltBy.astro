@@ -45,7 +45,11 @@ const stats: { id: Id; label: string; count: number; fmt: "plus" | "pct" | "int"
   .stats { list-style: none; padding: 0; margin: 32px 0 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
   .stat { border-top: 3px solid var(--ink); padding-top: 14px; }
   .stat-main { display: flex; flex-direction: column; }
-  .num { font-size: clamp(40px, 5vw, 56px); line-height: 1; font-variant-numeric: tabular-nums; }
+  .num { position: relative; font-size: clamp(40px, 5vw, 56px); line-height: 1; font-variant-numeric: tabular-nums; }
+  /* while counting, the real text keeps its place (and stays in the page text) but is drawn
+     transparent under the aria-hidden copy */
+  .num:global(.counting) { color: transparent; }
+  .num :global(.num-anim) { position: absolute; left: 0; top: 0; color: var(--ink); white-space: nowrap; }
   .label { font-family: var(--display); font-weight: 600; font-size: 18px; margin-top: 6px; }
   .meta { margin-top: 32px; max-width: 70ch; color: var(--mute); }
   .meta a { color: var(--ink); }

@@ -1,15 +1,15 @@
 // 5.2 The 77: a scanner bar crosses the grid and each false pass it crosses turns into a diamond;
-// a FLIP sort brings the 29 to the front; B1 enters only once everything is still.
+// a FLIP sort brings the 29 to the front. B1 and its caveat are HUD text: always on screen, never
+// moved, never gated by the animation.
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { E, lineIn, lineOut } from "./rig";
+import { E } from "./rig";
 
 export function problemMotion(section: HTMLElement) {
   const cells = [...section.querySelectorAll<HTMLButtonElement>(".cell")];
   const layer = section.querySelector<HTMLElement>(".grid-layer")!;
   const grid = section.querySelector<HTMLElement>(".cells")!;
   const scanner = section.querySelector<HTMLElement>(".scanner")!;
-  const b1 = section.querySelector<HTMLElement>(".b1-block")!;
   const fails = cells.filter((c) => c.dataset.fp);
 
   // FLIP: the document order is the sorted order; every cell starts at its original slot.
@@ -24,26 +24,18 @@ export function problemMotion(section: HTMLElement) {
   measure();
   const from = (axis: 0 | 1) => (k: number, c: HTMLElement) => slots[Number(c.dataset.cell)][axis] - slots[k][axis];
   fails.forEach((c) => c.classList.remove("is-fail"));
-  gsap.set(b1, { autoAlpha: 0 });
   scanner.style.display = "block";
 
   const follow = { k: 1 };
-  let tl: gsap.core.Timeline;
-  let shown = false;
   const update = () => {
     const bar = Number(gsap.getProperty(scanner, "y"));
     fails.forEach((c, i) => c.classList.toggle("is-fail", bar >= rowMid[i]));
+    // the camera follows the bar at 0.12x; the 34 px under the label covers its largest travel (0.06·H)
     gsap.set(layer, { y: -0.12 * follow.k * (bar - H / 2) });
-    const still = Boolean(tl) && tl.progress() >= 0.999;
-    if (still !== shown) {
-      shown = still;
-      if (still) lineIn(b1);
-      else lineOut(b1);
-    }
   };
 
   const sortSpan = 24 + 0.4 * (cells.length - 1); // frames: each move takes 24, they start 0.4 apart
-  tl = gsap.timeline({ paused: true, onUpdate: () => update() });
+  const tl = gsap.timeline({ paused: true, onUpdate: () => update() });
   tl.fromTo(scanner, { y: -8 }, { y: () => H + 2, duration: 2, ease: E.inOut }, 0);
   tl.to(scanner, { autoAlpha: 0, duration: 0.05, ease: "none" }, 2);
   tl.to(follow, { k: 0, duration: 0.3, ease: E.inOut }, 2);

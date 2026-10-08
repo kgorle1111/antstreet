@@ -114,7 +114,7 @@ const widths = [210, 160, 230, 180, 200, 150];
     </div>
     <ol class="how-captions hud">
       {steps.map((s, i) => (
-        <li class="how-cap" data-step={s.id}>
+        <li class="how-cap" data-step={s.id} data-sequenced="how">
           <span class="how-n" aria-hidden="true">{["a", "b", "c", "d"][i]}</span>
           <span class="how-t">{s.text}</span>
         </li>

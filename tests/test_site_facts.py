@@ -279,3 +279,15 @@ def test_the_banned_list_catches_what_it_should():
     for h in hits:
         assert any(re.search(p, h, re.I) for p in BANNED), h
     assert not any(re.search(p, "an approved check, verify it", re.I) for p in BANNED)
+
+
+def test_the_counters_ship_their_final_numbers_in_the_html(page):
+    """Screen readers, crawlers and link previews read the source number, never a 0 to animate."""
+    html, _ = page
+    counter = r'<span class="num[^"]*"[^>]*data-count="(\d+)"[^>]*>([^<]*)</span>'
+    counters = re.findall(counter, html)
+    assert len(counters) == 5
+    for count, text in counters:
+        assert int(re.sub(r"\D", "", text)) == int(count), (count, text)
+    for fid in ("tests", "coverage", "threats", "decisions", "experiments"):
+        assert f">{FACTS[fid]['value']}</span>" in html, fid

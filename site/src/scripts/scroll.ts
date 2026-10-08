@@ -22,25 +22,45 @@ export function scroll() {
   if (problem) problemMotion(problem);
   how();
 
-  // results: rise 24 px and fade in, 80 ms apart, then still
-  const cards = gsap.utils.toArray<HTMLElement>("#no .no-card");
-  gsap.set(cards, { autoAlpha: 0, y: 24 });
-  ScrollTrigger.batch(cards, { start: "top 90%", once: true, onEnter: (els) => gsap.to(els, { autoAlpha: 1, y: 0, duration: 0.6, ease: E.outExpo, stagger: 0.08 }) });
+  // Reveals never make content visible: every element is visible by default and stays visible if
+  // its reveal never fires. A reveal starts only when an IntersectionObserver sees the element on
+  // screen, so no trigger position can be stale (pins, fonts, Lenis).
+  const onSight = (els: Element[], enter: (el: HTMLElement, i: number) => void) => {
+    let batch = 0;
+    const io = new IntersectionObserver((entries) => {
+      entries.filter((e) => e.isIntersecting).forEach((e) => {
+        io.unobserve(e.target);
+        enter(e.target as HTMLElement, batch++);
+      });
+      batch = 0;
+    }, { rootMargin: "0px 0px -8% 0px" });
+    els.forEach((el) => io.observe(el));
+  };
 
-  // counters land exactly on the source number
-  document.querySelectorAll<HTMLElement>("#built-by [data-count]").forEach((el) => {
-    const final = el.textContent!;
+  // results: rise 24 px and fade in, 80 ms apart, then still
+  onSight(gsap.utils.toArray<HTMLElement>("#no .no-card"), (el, i) =>
+    gsap.from(el, { y: 24, autoAlpha: 0, duration: 0.6, ease: E.outExpo, delay: i * 0.08, clearProps: "all" }),
+  );
+
+  // counters: the real number never leaves the page text; the count-up is an aria-hidden copy
+  // drawn over it, removed when it lands exactly on the source number
+  onSight([...document.querySelectorAll<HTMLElement>("#built-by [data-count]")], (el) => {
     const to = Number(el.dataset.count);
     const fmt = (n: number) => ({ plus: `${Math.round(n).toLocaleString("en-US")}+`, pct: `${Math.round(n)}%`, int: `${Math.round(n)}` })[el.dataset.fmt as "plus"];
+    const shadow = document.createElement("span");
+    shadow.className = "num-anim";
+    shadow.setAttribute("aria-hidden", "true");
+    el.append(shadow);
+    el.classList.add("counting");
     const o = { n: 0 };
-    el.textContent = fmt(0);
+    shadow.textContent = fmt(0);
     gsap.to(o, {
       n: to, duration: 0.9, ease: E.outExpo,
-      scrollTrigger: { trigger: el, start: "top 90%", once: true },
-      onUpdate: () => { el.textContent = fmt(o.n); },
-      onComplete: () => { el.textContent = final; },
+      onUpdate: () => { shadow.textContent = fmt(o.n); },
+      onComplete: () => { shadow.remove(); el.classList.remove("counting"); },
     });
   });
+  document.fonts.ready.then(() => ScrollTrigger.refresh());
   if (document.readyState === "complete") ScrollTrigger.refresh();
   else addEventListener("load", () => ScrollTrigger.refresh());
 }
