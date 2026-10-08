@@ -33,3 +33,9 @@ def test_every_non_python_runtime_file_is_in_the_wheel(wheel_names):
 def test_nothing_from_the_repo_outside_the_package_is_in_the_wheel(wheel_names):
     leaked = [n for n in wheel_names if n.startswith(NOT_SHIPPED)]
     assert not leaked, f"leaked into the wheel: {leaked[:5]}"
+
+
+def test_the_wheel_ships_antstreet_and_the_boss_alias(wheel_names):
+    assert {"antstreet/__init__.py", "antstreet/cli.py", "boss/__init__.py"} <= wheel_names
+    alias = {n for n in wheel_names if n.startswith("boss/") and not n.endswith("/")}
+    assert alias == {"boss/__init__.py"}  # the alias is one file; the code is only in antstreet/

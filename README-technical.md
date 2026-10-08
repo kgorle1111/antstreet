@@ -354,11 +354,12 @@ asking you; only `/antstreet:fund` may also run `fund` and `resume`. No grant in
 Three hooks run as you. At session start, if `uvx` is missing, one prints the one command that
 installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. Before each
 Bash, Monitor or PowerShell call, one denies any command that runs `antstreet approve` or
-`boss approve` (through `uvx`, `uv run`, `python -m boss.cli`, an installed script, env prefixes,
-`;`, `&&`, `|`, subshells or quotes) and tells the agent to ask you to type it. When the agent
-stops, in a project with runs under `.boss/runs/`, the last runs `uvx antstreet status`, which
-checks the latest ledger's hash chain and signatures offline. A failure is shown to you; it never
-blocks the agent. In any other project the first and last are silent.
+`boss approve` (through `uvx`, `uv run`, `python -m antstreet.cli` or `boss.cli`, an installed
+script, env prefixes, `;`, `&&`, `|`, subshells or quotes) and tells the agent to ask you to type
+it. When the agent stops, in a project with runs under `.boss/runs/`, the last runs
+`uvx antstreet status`, which checks the latest ledger's hash chain and signatures offline. A
+failure is shown to you; it never blocks the agent. In any other project the first and last are
+silent.
 
 What the approve guard does not do: it reads the command's words, so a command that builds the
 word at run time (a variable, `xargs`, a script file) gets past it, and a command that only

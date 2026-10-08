@@ -41,9 +41,10 @@ dev = [
 requires = ["uv_build>=0.8,<0.12"]
 build-backend = "uv_build"
 
-# The import name is `antstreet` (backlog B100).
+# The import name is `antstreet` (backlog B100); `boss` is a thin alias of it (src/boss/__init__.py)
+# so old imports and `python -m boss.X` keep working.
 [tool.uv.build-backend]
-module-name = "antstreet"
+module-name = ["antstreet", "boss"]
 
 [tool.ruff]
 target-version = "py312"
@@ -57,7 +58,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src/antstreet"]
+files = ["src/antstreet", "src/boss"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -70,7 +71,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src/antstreet"]
+source = ["src/antstreet", "src/boss"]
 branch = true
 
 [tool.coverage.report]

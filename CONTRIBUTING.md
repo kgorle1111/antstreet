@@ -163,9 +163,9 @@ running any.
 Owner only; nothing here runs in CI.
 
 1. Bump `version` in `pyproject.toml` and move the `CHANGELOG.md` entries under it.
-2. `uv build` writes the sdist and wheel to `dist/`. The wheel must hold `boss/prompts/*.md`
-   (`tests/test_packaging.py` checks this) and the sdist only `src/antstreet`, `README.md`, `LICENSE`
-   and `pyproject.toml`.
+2. `uv build` writes the sdist and wheel to `dist/`. The wheel must hold `antstreet/prompts/*.md`
+   and the `boss` alias package (`tests/test_packaging.py` checks both) and the sdist only
+   `src/antstreet`, `src/boss`, `README.md`, `LICENSE` and `pyproject.toml`.
 3. Check the wheel in a clean place, from the repository root:
    `wheel="$PWD/$(ls dist/*.whl)"; cd "$(mktemp -d)" && uv venv && uv pip install "$wheel" &&
    .venv/bin/antstreet --version`, or `uvx --from dist/*.whl antstreet --help`.
