@@ -174,6 +174,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Changed
 
+- The import package is `antstreet`; `import boss` and `python -m boss.X` still work as an alias
+  of the same modules. The `boss` command, `.boss/` and existing ledgers are unchanged (B100).
 - The product is now AntStreet: the package is `antstreet`, with an `antstreet` command beside `boss` (the module stays `boss`), new hero art and mascots; licence settled as Apache-2.0 (B39).
 - README and EVIDENCE give the blinded 35-task result: firm 64 of 105, single 62 of 105, not shown
   to differ, at 2.4 times the cost per delivered task; the old 69% against 63% is not comparable.
