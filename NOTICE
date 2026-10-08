@@ -1,0 +1,21 @@
+AntStreet
+Copyright 2026 Kannishk Naidu Gorle
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The Python package (src/antstreet) bundles no third-party code.
+
+The project site (site/) is built from these third-party components. None of them is part of the
+Python package, and none is distributed except inside the built site.
+
+- GSAP 3 with ScrollTrigger and CustomEase (https://gsap.com), the site's animation library.
+  GSAP Standard "No Charge" License: https://gsap.com/standard-license
+  Free to use, including commercially. It is not an OSI-approved open-source licence: it may not
+  be used in a tool that competes with Webflow's visual animation builder, which the site is not.
+- Lenis (https://github.com/darkroomengineering/lenis), smooth scrolling. MIT License.
+- Astro (https://astro.build), the site generator. MIT License. Build-time only.
+- Fonts, subsetted and self-hosted in site/public/fonts/, all under the SIL Open Font License 1.1
+  (https://openfontlicense.org):
+  - Bricolage Grotesque, Copyright 2022 The Bricolage Grotesque Project Authors
+  - JetBrains Mono, Copyright 2020 The JetBrains Mono Project Authors
+  - Noto Sans Arabic (the Arabic-Indic digits only), Copyright 2022 The Noto Project Authors

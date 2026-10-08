@@ -561,3 +561,9 @@ task are in [CONTRIBUTING.md](CONTRIBUTING.md). To report a security problem, se
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+The project site in `site/` is built with npm packages that are never part of the Python package.
+One of them, GSAP (the site's animation library), is under the GSAP Standard License: free to use,
+including commercially, but not an OSI open-source licence. The site's fonts are under the SIL Open
+Font License. Both are listed in [NOTICE](NOTICE). To work on the site: `cd site && npm ci
+--ignore-scripts && npm run build && npx playwright test` (Node 22).
