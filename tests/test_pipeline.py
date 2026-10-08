@@ -1062,7 +1062,7 @@ def test_every_way_the_firm_accepts_a_yes_is_a_yes_here(fx, answer):
     assert out.code == EXIT_OK and len(approvals(fx)) == 2
 
 
-@pytest.mark.parametrize("answer", ["n", "no", "", "maybe", EOFError])
+@pytest.mark.parametrize("answer", ["n", "no", "", "maybe"])  # EOF is nobody's no: see below
 def test_anything_but_a_yes_is_a_no_and_the_findings_stay_in_the_report(fx, answer):
     critic_finds(fx, finding())
     out = fx.fund("--roles", "critic", answers={"Add these": answer})
@@ -1126,16 +1126,20 @@ def test_review_cycles_zero_reports_the_findings_and_asks_nothing(fx):
 
 def test_input_ending_at_the_question_is_not_the_investors_no(fx):
     critic_finds(fx, finding())
-    fx.fund("--roles", "critic", answers={"Add these": EOFError})
+    out = fx.fund("--roles", "critic", answers={"Add these": EOFError})
+    assert "No fix round. The findings are in the report only." in out.text
     [ruling] = fx.events(EventType.RULED)
     assert ruling.actor == "boss" and ruling.data["reason"].startswith("input ended")
+    assert "sig" not in ruling.data  # only the investor's own events are signed with their key
     assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
 
 
 def test_settled_counts_the_investors_no_old_ledgers_and_the_boss_skip_alike():
     def cycle(actor: str, **data: str) -> list[Event]:
-        call = Event("r", 0, "role:critic", EventType.ROLE_CALL, {"role": "critic", "verified": 1})
-        return [call, Event("r", 0, actor, EventType.RULED, {"ruling": "declined", **data})]
+        call = Event(
+            "r", 0, "role:critic", EventType.ROLE_CALL, data={"role": "critic", "verified": 1}
+        )
+        return [call, Event("r", 0, actor, EventType.RULED, data={"ruling": "declined", **data})]
 
     assert pipeline._settled(cycle("investor")) == 1  # a ledger written before the boss's skip
     assert pipeline._settled(cycle("boss", reason="review-cycles 0")) == 1

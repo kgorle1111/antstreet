@@ -632,6 +632,7 @@ class Pipeline:
         try:
             answer = self.ask(question).strip().lower()
         except EOFError:  # nobody is there to approve it; Ctrl-C is an interruption, not a no
+            self.say("No fix round. The findings are in the report only.")
             self._remove(checks)
             return "input ended before the investor answered"
         except KeyboardInterrupt:  # the files were written for a sheet nobody approved
