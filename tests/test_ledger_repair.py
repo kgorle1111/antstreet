@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from boss.ledger import (
+from antstreet.ledger import (
     Event,
     EventType,
     LedgerCorruptError,

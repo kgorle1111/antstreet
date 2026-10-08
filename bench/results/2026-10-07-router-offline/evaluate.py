@@ -19,8 +19,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from boss import routing
-from boss.termsheet import TermSheet
+from antstreet import routing
+from antstreet.termsheet import TermSheet
 
 SETS = ("blind-orig17", "blind-new18", "new18", "e3-base", "e3-par")
 SONNET_RATIO = 3  # budget.py's price ratio: a Sonnet attempt on the same tokens costs 3x Haiku's

@@ -6,9 +6,9 @@ import tomllib
 import pytest
 from docs_support import ROOT, original_tasks, read
 
-from boss import cli, gate, limits
-from boss.bench.tasks import load_tasks, task_set_hash
-from boss.ledger import EventType
+from antstreet import cli, gate, limits
+from antstreet.bench.tasks import load_tasks, task_set_hash
+from antstreet.ledger import EventType
 
 DOC = ROOT / "CHANGELOG.md"
 ALLOWED = {"Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"}

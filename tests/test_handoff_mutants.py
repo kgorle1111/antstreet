@@ -1,4 +1,4 @@
-"""Tests added after mutation-checking boss.handoff: each one fails on a specific single-line
+"""Tests added after mutation-checking antstreet.handoff: each one fails on a specific single-line
 mutant that tests/test_handoff.py let through (the mutant is named in each docstring)."""
 
 import os
@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from boss.errors import Outcome
-from boss.gate import CheckResult, CheckStatus
-from boss.handoff import PREVIOUS_DIR, failure_notes, prepare_workspace
-from boss.rule import Decision, SliceRecord, Verdict
+from antstreet.errors import Outcome
+from antstreet.gate import CheckResult, CheckStatus
+from antstreet.handoff import PREVIOUS_DIR, failure_notes, prepare_workspace
+from antstreet.rule import Decision, SliceRecord, Verdict
 
 VERDICT = Verdict(Decision.FIRE, "no new passing check in 2 slices")
 HISTORY = [SliceRecord(1, 1000, Outcome.COMPLETED, "continuing", frozenset())]

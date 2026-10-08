@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from changed_tasks import CACHE_ENV, VALIDATOR_FILES, validate_cached, validation_key
 
-from boss.bench.tasks import BenchTask
+from antstreet.bench.tasks import BenchTask
 
 REAL = Path(__file__).resolve().parent.parent
 

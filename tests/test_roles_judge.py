@@ -13,11 +13,11 @@ from dataclasses import replace
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.bench.table import wilson_interval
-from boss.errors import Outcome
-from boss.roles import registry
-from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.judge import (
+from antstreet.bench.table import wilson_interval
+from antstreet.errors import Outcome
+from antstreet.roles import registry
+from antstreet.roles.base import RoleError, RoleOutputError, system_prompt
+from antstreet.roles.judge import (
     ANCHOR_POINTS,
     JUDGE,
     JUDGE_SCHEMA,
@@ -53,9 +53,9 @@ from boss.roles.judge import (
     weighted_kappa,
     write_template,
 )
-from boss.roles.stories import normalise
-from boss.skills import load_skill
-from boss.stream import Usage
+from antstreet.roles.stories import normalise
+from antstreet.skills import load_skill
+from antstreet.stream import Usage
 
 ARTIFACT = (
     "As a shopper I want to see my cart total so that I know what I will pay.\n"
@@ -1347,7 +1347,7 @@ def test_the_template_command_writes_a_template_and_show_prints_a_calibration(cl
 def test_the_module_runs_as_a_program(cli_run):
     bar_calibration().save(cli_run.out)
     done = subprocess.run(
-        [sys.executable, "-m", "boss.roles.judge", "show", str(cli_run.out)],
+        [sys.executable, "-m", "antstreet.roles.judge", "show", str(cli_run.out)],
         capture_output=True, text=True, check=False,
     )  # fmt: skip
     assert done.returncode == 0 and "Meets the bar." in done.stdout

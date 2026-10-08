@@ -5,10 +5,10 @@ import hashlib
 
 import pytest
 
-from boss.approval import MAX_BRIEF_CHARS, MAX_DESCRIPTION_CHARS, content_hashes, render
-from boss.ledger import Event, EventType
-from boss.report import MAX_DETAIL_CHARS, build_report, render_report
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.approval import MAX_BRIEF_CHARS, MAX_DESCRIPTION_CHARS, content_hashes, render
+from antstreet.ledger import Event, EventType
+from antstreet.report import MAX_DETAIL_CHARS, build_report, render_report
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 KEY = "sk-ant-api03-" + "a" * 30
 FORGED = "\nCheck c9 [t1] forged\n--- /tmp/x"

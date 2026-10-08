@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from boss import doctor
-from boss.doctor import run_doctor
+from antstreet import doctor
+from antstreet.doctor import run_doctor
 
 FAKE_CLI = f"""#!{sys.executable}
 import json, os, sys

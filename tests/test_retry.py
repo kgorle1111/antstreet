@@ -1,7 +1,7 @@
 import pytest
 
-from boss.errors import INFRASTRUCTURE, Outcome
-from boss.retry import GiveUp, Pause, Wait, infra_action, plan_pressure
+from antstreet.errors import INFRASTRUCTURE, Outcome
+from antstreet.retry import GiveUp, Pause, Wait, infra_action, plan_pressure
 
 SAMPLE = {
     "status": "allowed",

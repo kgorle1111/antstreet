@@ -10,10 +10,10 @@ from dataclasses import replace
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.errors import Outcome
-from boss.roles import engineering, registry
-from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.engineering import (
+from antstreet.errors import Outcome
+from antstreet.roles import engineering, registry
+from antstreet.roles.base import RoleError, RoleOutputError, system_prompt
+from antstreet.roles.engineering import (
     SYSTEM_DESIGNER,
     TESTER,
     TESTS_SCHEMA,
@@ -32,9 +32,9 @@ from boss.roles.engineering import (
     stories_text,
     write_checks,
 )
-from boss.roles.stories import Stories, parse_stories, story_problems
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, Round, TermSheet, validate
+from antstreet.roles.stories import Stories, parse_stories, story_problems
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, Round, TermSheet, validate
 
 IDEA = (
     "Create slug.py with slugify(text). Lower-case the text and join words with single hyphens.\n"

@@ -1,22 +1,23 @@
-"""The held-out store (`boss.held_out`) and how approval binds to it: files, manifest, the gate the
-folder must pass, the investor's review of it, and the approval that goes void when it changes."""
+"""The held-out store (`antstreet.held_out`) and how approval binds to it: files, manifest, the
+gate the folder must pass, the investor's review of it, and the approval that goes void when it
+changes."""
 
 import json
 
 import pytest
 
-from boss import held_out
-from boss.approval import (
+from antstreet import held_out
+from antstreet.approval import (
     NotApprovedError,
     content_hashes,
     render,
     require_approval,
     review_term_sheet,
 )
-from boss.held_out import HeldOutCheck, HeldOutError
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.rundir import RunPaths
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.held_out import HeldOutCheck, HeldOutError
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 H01 = "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n"

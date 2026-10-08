@@ -3,10 +3,10 @@ ledger can produce, and nothing new for a run that never asked."""
 
 import pytest
 
-from boss.held_out import EXAMINER_ACTOR
-from boss.ledger import Event, EventType
-from boss.report import build_report, render_report
-from boss.roles.examiner import EXAMINER
+from antstreet.held_out import EXAMINER_ACTOR
+from antstreet.ledger import Event, EventType
+from antstreet.report import build_report, render_report
+from antstreet.roles.examiner import EXAMINER
 
 HASHES = {"manifest.json": "0" * 64, "test_h01.py": "1" * 64, "test_h02.py": "2" * 64,
           "test_h03.py": "3" * 64}  # fmt: skip

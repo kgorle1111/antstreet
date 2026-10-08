@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from boss.errors import INFRASTRUCTURE, Outcome
-from boss.rule import Decision, FiringPolicy, SliceRecord, Verdict, decide
+from antstreet.errors import INFRASTRUCTURE, Outcome
+from antstreet.rule import Decision, FiringPolicy, SliceRecord, Verdict, decide
 
 CHECKS = frozenset({"a", "b", "c"})
 POLICY = FiringPolicy(stall_slices=2, max_slices=6)

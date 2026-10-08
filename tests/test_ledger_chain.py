@@ -13,7 +13,7 @@ import threading
 
 import pytest
 
-from boss.ledger import (
+from antstreet.ledger import (
     GENESIS,
     Event,
     EventType,

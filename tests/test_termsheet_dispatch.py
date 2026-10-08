@@ -5,16 +5,16 @@ import random
 
 import pytest
 
-from boss.approval import (
+from antstreet.approval import (
     NotApprovedError,
     content_hashes,
     render,
     require_approval,
     review_term_sheet,
 )
-from boss.dispatch import DispatchPolicy, DispatchView, RunLevel, plan_cascade, plan_dispatch
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
+from antstreet.dispatch import DispatchPolicy, DispatchView, RunLevel, plan_cascade, plan_dispatch
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
 
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 POLICY = DispatchPolicy("sonnet", 100_000)

@@ -13,15 +13,15 @@ import sys
 
 # module key -> (mutmut name glob, focused test files)
 TARGETS: dict[str, tuple[str, list[str]]] = {
-    "errors": ("boss.errors.*", ["test_errors", "test_errors_malformed"]),
-    "rule": ("boss.rule.*", ["test_rule"]),
-    "budget": ("boss.budget.*", ["test_budget"]),
+    "errors": ("antstreet.errors.*", ["test_errors", "test_errors_malformed"]),
+    "rule": ("antstreet.rule.*", ["test_rule"]),
+    "budget": ("antstreet.budget.*", ["test_budget"]),
     "gate": (
-        "boss.gate.*",
+        "antstreet.gate.*",
         ["test_gate", "test_gate_edges", "test_gate_forgery", "test_gate_tree"],
     ),
     "ledger": (
-        "boss.ledger.*",
+        "antstreet.ledger.*",
         [
             "test_ledger",
             "test_ledger_chain",
@@ -31,12 +31,12 @@ TARGETS: dict[str, tuple[str, list[str]]] = {
             "test_signing",
         ],
     ),
-    "signing": ("boss.signing.*", ["test_signing", "test_ledger_anchor"]),
-    "firm": ("boss.firm.*", ["test_firm", "test_firm_held_out", "test_firm_simulation"]),
-    "judge": ("boss.roles.judge.*", ["test_roles_judge", "test_calibration_set"]),
-    "table": ("boss.bench.table.*", ["test_bench_table", "test_bench_table_edges"]),
-    "kpi": ("boss.bench.kpi.*", ["test_bench_kpi", "test_bench_infra_exclusion"]),
-    "paired": ("boss.bench.paired.*", ["test_bench_paired"]),
+    "signing": ("antstreet.signing.*", ["test_signing", "test_ledger_anchor"]),
+    "firm": ("antstreet.firm.*", ["test_firm", "test_firm_held_out", "test_firm_simulation"]),
+    "judge": ("antstreet.roles.judge.*", ["test_roles_judge", "test_calibration_set"]),
+    "table": ("antstreet.bench.table.*", ["test_bench_table", "test_bench_table_edges"]),
+    "kpi": ("antstreet.bench.kpi.*", ["test_bench_kpi", "test_bench_infra_exclusion"]),
+    "paired": ("antstreet.bench.paired.*", ["test_bench_paired"]),
 }
 
 

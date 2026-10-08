@@ -25,9 +25,9 @@ import pytest
 from gate_forgers import NONCE_READER
 from sandbox_support import working_sandbox
 
-from boss.gate import Check, CheckStatus, run_gate
-from boss.sandbox import SandboxMode, python_readable
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, validate
+from antstreet.gate import Check, CheckStatus, run_gate
+from antstreet.sandbox import SandboxMode, python_readable
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, validate
 
 TOOL = working_sandbox()
 requires_sandbox = pytest.mark.skipif(TOOL is None, reason="no working OS sandbox on this machine")

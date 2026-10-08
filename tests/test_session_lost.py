@@ -14,16 +14,16 @@ from uuid import uuid4
 
 import pytest
 
-from boss.approval import content_hashes
-from boss.errors import Outcome
-from boss.firm import FirmConfig, run_firm
-from boss.gate import run_gate
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.rule import FiringPolicy
-from boss.rundir import RunPaths
-from boss.runner import run_slice
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import SliceSpec
+from antstreet.approval import content_hashes
+from antstreet.errors import Outcome
+from antstreet.firm import FirmConfig, run_firm
+from antstreet.gate import run_gate
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.rule import FiringPolicy
+from antstreet.rundir import RunPaths
+from antstreet.runner import run_slice
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.worker import SliceSpec
 
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 GOOD = "def reverse(s):\\n    return s[::-1]\\n"

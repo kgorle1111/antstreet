@@ -22,15 +22,15 @@ from skills_support import (
     users,
 )
 
-from boss import cli, firm, pipeline
-from boss.boss import load_prompt
-from boss.firm import FirmConfig, FirmReport
-from boss.roles import builders, org, registry
-from boss.roles.base import DEFAULT_ROLE_CAP_MICROS, DEPARTMENTS, RoleSpec
-from boss.roles.builders import PROFILES, WorkerProfile, builder_system_prompt, profile
-from boss.rundir import RunPaths
-from boss.skills import MAX_SKILL_CHARS, SkillError, all_skill_ids, load_skill, parse_skill
-from boss.termsheet import Task
+from antstreet import cli, firm, pipeline
+from antstreet.boss import load_prompt
+from antstreet.firm import FirmConfig, FirmReport
+from antstreet.roles import builders, org, registry
+from antstreet.roles.base import DEFAULT_ROLE_CAP_MICROS, DEPARTMENTS, RoleSpec
+from antstreet.roles.builders import PROFILES, WorkerProfile, builder_system_prompt, profile
+from antstreet.rundir import RunPaths
+from antstreet.skills import MAX_SKILL_CHARS, SkillError, all_skill_ids, load_skill, parse_skill
+from antstreet.termsheet import Task
 
 DOC = DOCS / "ROLES.md"
 HEADING = "How `boss fund --roles` reaches each role"
@@ -118,7 +118,7 @@ def test_the_document_lists_each_specialist_role_once_with_the_stage_the_pipelin
     assert "advise=advise" in inspect.getsource(cli._run)
     assert "pipe.advisor(" in inspect.getsource(cli._build)
     assert "pipe.examine(" in inspect.getsource(cli._fund)  # the examiner, with --held-out
-    assert "`render_org`" in text and "python -m boss.roles.org" in text
+    assert "`render_org`" in text and "python -m antstreet.roles.org" in text
 
 
 def test_the_three_things_table_states_what_the_code_enforces(text):
@@ -126,7 +126,7 @@ def test_the_three_things_table_states_what_the_code_enforces(text):
     assert set(row) == {
         "What it is", "Defined in", "Tools", "Produces", "Paid for", "On by default",
     }  # fmt: skip
-    assert "src/boss/roles/builders.py" in row["Defined in"][2]
+    assert "src/antstreet/roles/builders.py" in row["Defined in"][2]
     assert FirmConfig().profile is None  # no profile unless `--profile` names one
     assert "--profile" in row["On by default"][2] and "generalist" not in row["On by default"][2]
     assert RoleSpec("aa", "quality", "boss", "p", "g", "term_sheet_v1.md").default_on is False
@@ -248,7 +248,7 @@ def test_a_role_built_by_the_steps_forms_a_tree_under_the_boss_and_is_off():
 
 
 def test_a_module_that_defines_specs_is_collected_and_one_that_does_not_is_ignored(monkeypatch):
-    import boss.roles as package
+    import antstreet.roles as package
 
     spec = RoleSpec(**fields())
     modules = {"designer": types.SimpleNamespace(SPECS=(spec,)), "builders": builders}
@@ -268,7 +268,7 @@ def test_a_module_that_defines_specs_is_collected_and_one_that_does_not_is_ignor
 
 def test_the_command_the_document_gives_prints_the_organisation():
     run = subprocess.run(
-        [sys.executable, "-m", "boss.roles.org"], cwd=ROOT, capture_output=True, text=True
+        [sys.executable, "-m", "antstreet.roles.org"], cwd=ROOT, capture_output=True, text=True
     )
     assert run.returncode == 0, run.stderr
     assert run.stdout.startswith("investor") and "generalist" in run.stdout
@@ -285,14 +285,14 @@ def test_the_functions_the_document_names_exist(text):
 def _imports_of_roles(path) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(ast.parse(read(path))):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("boss.roles"):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("antstreet.roles"):
             found |= {f"{node.module}.{alias.name}" for alias in node.names}
     return found
 
 
 def test_what_is_not_built_is_still_not_built(text):
     body = section(text, "Not built")
-    live = read(ROOT / "src" / "boss" / "firm.py")
+    live = read(ROOT / "src" / "antstreet" / "firm.py")
     # A profile is chosen once for the whole run, by the investor: the loop uses it when set.
     assert "return builder_system_prompt(profile, BUILDER_PROMPT)" in live
     assert "if profile is None:" in live and FirmConfig().profile is None
@@ -300,7 +300,7 @@ def test_what_is_not_built_is_still_not_built(text):
     assert '"profile": self.config.profile' in live  # every `hired` event names it
     # Nothing assigns a profile to a task: a task has no such field, the boss's draft has none.
     assert "profile" not in {f.name for f in dataclasses.fields(Task)}
-    assert "profile" not in read(ROOT / "src" / "boss" / "boss.py")
+    assert "profile" not in read(ROOT / "src" / "antstreet" / "boss.py")
     assert "Nothing assigns a profile to a task" in body
     assert "Nothing assigns a profile to a task" in body
 
@@ -315,13 +315,13 @@ def test_roles_are_reached_only_through_the_pipeline_and_only_when_named(text):
     # Only pipeline.py calls a role. The loop and the command import no role function: they take
     # the registry, the profiles, the organisation chart and the builder prompt, nothing else.
     allowed = {
-        "boss.roles.registry",
-        "boss.roles.builders.PROFILES",
-        "boss.roles.builders.builder_system_prompt",
-        "boss.roles.org.org_chart",
-        "boss.roles.org.render_org",
+        "antstreet.roles.registry",
+        "antstreet.roles.builders.PROFILES",
+        "antstreet.roles.builders.builder_system_prompt",
+        "antstreet.roles.org.org_chart",
+        "antstreet.roles.org.render_org",
     }
-    src = ROOT / "src" / "boss"
+    src = ROOT / "src" / "antstreet"
     for module in sorted(src.glob("*.py")):
         if module.name != "pipeline.py":
             assert _imports_of_roles(module) <= allowed, f"{module.name} now imports a role"
@@ -333,7 +333,7 @@ def test_roles_are_reached_only_through_the_pipeline_and_only_when_named(text):
         assert function in called, f"pipeline.py no longer calls {function}"
     assert "judge_artifact" in called
     assert "No role is on unless `--roles` names it" in body
-    assert "`src/boss/pipeline.py` books their spend" in body
+    assert "`src/antstreet/pipeline.py` books their spend" in body
     # Off unless named: no spec is on, the option defaults to none, and with no roles every part
     # of the pipeline does nothing and writes nothing.
     assert not any(spec.default_on for spec in registry().values())

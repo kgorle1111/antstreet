@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from boss.stream import StreamReader, Usage
+from antstreet.stream import StreamReader, Usage
 
 
 def reader(*events: object) -> StreamReader:

@@ -1,9 +1,10 @@
 #!/bin/sh
 # PreToolUse (Bash, Monitor, PowerShell): deny any call that runs `antstreet approve` / `boss
-# approve`, in any wrapper (uvx, uv run, python -m boss.cli, env prefixes, `;` `&&` `|` `$(...)`,
-# quotes, backslashes). Approving the term sheet, and ruling on a worker's dispute of a check
-# (`approve --dispute`), are the investor's acts; the agent being checked must not do either. The
-# user's own `!` commands skip PreToolUse, which is how the human approves and rules.
+# approve`, in any wrapper (uvx, uv run, python -m antstreet.cli or boss.cli, env prefixes, `;`
+# `&&` `|` `$(...)`, quotes, backslashes). Approving the term sheet, and ruling on a worker's
+# dispute of a check (`approve --dispute`), are the investor's acts; the agent being checked must
+# not do either. The user's own `!` commands skip PreToolUse, which is how the human approves and
+# rules.
 #
 # It reads the whole hook input instead of parsing out tool_input.command: jq is not on every
 # machine and python3 on macOS can be an install stub, and a hook that cannot run fails open. The
@@ -22,8 +23,8 @@ END {
     for (i = 1; i <= n; i++) {
         w = word[i]
         sub(/(@|==|~=|>=).*$/, "", w)       # antstreet@latest, antstreet==0.1
-        # a bare name, an installed script or the module; not any path ending in boss (the cwd)
-        if (w ~ /^(antstreet|boss|boss\.cli)$/ || w ~ /(bin\/(antstreet|boss)|boss\/cli\.py)$/)
+        # a bare name, an installed script or either module name; not a path ending in boss (the cwd)
+        if (w ~ /^(antstreet|boss)(\.cli)?$/ || w ~ /(bin\/(antstreet|boss)|(antstreet|boss)\/cli\.py)$/)
             program = 1
         else if (program && word[i] == "approve")
             exit 1

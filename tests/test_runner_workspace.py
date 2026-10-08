@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.runner import WorkspaceError, check_workspace
+from antstreet.runner import WorkspaceError, check_workspace
 
 
 def test_a_clean_workspace_passes(tmp_path: Path):

@@ -9,14 +9,14 @@ from test_cli import boss
 from test_firm import BAD, C01, C02, C03, GOOD, events_of, run, sheet, step
 from test_firm_dispatch import ModelScript, hired
 
-from boss import dispatch
-from boss.cli import EXIT_OK, EXIT_USAGE
-from boss.dispatch import DispatchPolicy, plan_cascade
-from boss.errors import Outcome
-from boss.firm import FirmConfig
-from boss.ledger import EventType, read_events
-from boss.rundir import RunPaths
-from boss.termsheet import Round
+from antstreet import dispatch
+from antstreet.cli import EXIT_OK, EXIT_USAGE
+from antstreet.dispatch import DispatchPolicy, plan_cascade
+from antstreet.errors import Outcome
+from antstreet.firm import FirmConfig
+from antstreet.ledger import EventType, read_events
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import Round
 
 CONFIG = FirmConfig(dispatch=True, cascade=True, max_tier="opus")
 
@@ -141,7 +141,7 @@ def test_the_cap_and_the_run_budget_still_bound_the_ladder(paths):
     worker = ModelScript(*[step(BAD, cost=300_000)] * 8)
     s = cascade_sheet(budget=1_300_000)
     run(paths, worker, s, config=config)
-    from boss import budget
+    from antstreet import budget
 
     spent = budget.round_spend(read_events(paths.ledger), 1).cost_micros
     assert spent <= 1_300_000  # the round's money, not the ladder, is the limit

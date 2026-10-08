@@ -6,8 +6,8 @@ import random
 
 import pytest
 
-from boss import context
-from boss.context import (
+from antstreet import context
+from antstreet.context import (
     DROP_ORDER,
     BundleTooBig,
     Handoff,
@@ -19,10 +19,10 @@ from boss.context import (
     verify,
     write_prompt,
 )
-from boss.gate import CheckResult, CheckStatus
-from boss.ledger import Event, EventType
-from boss.rundir import RunPaths
-from boss.termsheet import CheckSpec, Dispatch, Round, Task, TermSheet
+from antstreet.gate import CheckResult, CheckStatus
+from antstreet.ledger import Event, EventType
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import CheckSpec, Dispatch, Round, Task, TermSheet
 
 C_REV = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 C_UP = (

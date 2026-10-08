@@ -2,7 +2,7 @@
 
 import pytest
 
-from boss.kpi import (
+from antstreet.kpi import (
     built,
     held_out_graded,
     investor_questions,
@@ -10,7 +10,7 @@ from boss.kpi import (
     single_said_done,
     span_seconds,
 )
-from boss.ledger import Event, EventType
+from antstreet.ledger import Event, EventType
 
 
 def ev(actor: str, event: EventType, ts: str = "2026-10-02T10:00:00+00:00", **data) -> Event:

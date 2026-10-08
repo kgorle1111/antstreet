@@ -5,8 +5,8 @@ import json
 import pytest
 from test_boss_draft import FAKE_CLI, RECORDED
 
-from boss import spec
-from boss.boss import (
+from antstreet import spec
+from antstreet.boss import (
     DRAFT_SCHEMA,
     MAX_CHECKS,
     MAX_CHECKS_WITH_RULES,

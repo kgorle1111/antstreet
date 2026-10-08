@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError, validate
 
 GOOD_CHECK = "from rev import reverse\n\ndef test_reverses():\n    assert reverse('ab') == 'ba'\n"
 

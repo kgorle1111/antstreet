@@ -21,17 +21,17 @@ from test_firm import (
     step,
 )
 
-from boss import context, dispatch, held_out
-from boss.approval import content_hashes
-from boss.dispatch import DispatchPolicy, plan_dispatch
-from boss.errors import Outcome
-from boss.firm import FirmConfig
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.report import build_report, render_report
-from boss.rule import FiringPolicy
-from boss.rundir import RunPaths
-from boss.termsheet import Round
-from boss.worker import (
+from antstreet import context, dispatch, held_out
+from antstreet.approval import content_hashes
+from antstreet.dispatch import DispatchPolicy, plan_dispatch
+from antstreet.errors import Outcome
+from antstreet.firm import FirmConfig
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.report import build_report, render_report
+from antstreet.rule import FiringPolicy
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import Round
+from antstreet.worker import (
     SCHEMA_TOOL,
     WORKER_TOOLS,
     ModelMismatchError,

@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.bench import drafts
-from boss.bench.drafts import (
+from antstreet.bench import drafts
+from antstreet.bench.drafts import (
     FAILED,
     INVALID,
     SCORED,
@@ -19,10 +19,10 @@ from boss.bench.drafts import (
     settings_for,
     summarize,
 )
-from boss.bench.results import CellResult, cell_dir
-from boss.bench.score import DraftScore
-from boss.bench.tasks import BenchTask, load_task, load_tasks, task_set_hash
-from boss.boss import load_prompt
+from antstreet.bench.results import CellResult, cell_dir
+from antstreet.bench.score import DraftScore
+from antstreet.bench.tasks import BenchTask, load_task, load_tasks, task_set_hash
+from antstreet.boss import load_prompt
 
 REAL_TASKS = Path(__file__).parent.parent / "bench" / "tasks"
 
@@ -522,7 +522,7 @@ def test_a_saved_draft_survives_a_round_trip_including_unknown_cost(tmp_path):
         assert DraftCell.load(tmp_path / "draft.json") == original
 
 
-# --- scoring what boss.bench.run already saved ----------------------------------------------------
+# --- scoring what antstreet.bench.run already saved -------------------------------------------
 
 
 def save_firm_cell(results: Path, task: str, rep: int, checks: dict[str, str] | None, arm="firm"):

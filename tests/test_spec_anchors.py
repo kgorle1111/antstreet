@@ -1,11 +1,11 @@
-"""boss.spec anchors: what a test of a rule must contain, and whether a check contains it."""
+"""antstreet.spec anchors: what a test of a rule must contain, and whether a check contains it."""
 
 import time
 
 import pytest
 
-from boss import spec
-from boss.spec import Anchor, extract_anchors, facts, missing, present
+from antstreet import spec
+from antstreet.spec import Anchor, extract_anchors, facts, missing, present
 
 
 def a(text: str) -> list[tuple[str, str]]:

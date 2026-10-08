@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.boss import (
+from antstreet.boss import (
     DRAFT_SCHEMA,
     MAX_CHECKS,
     BossError,
@@ -17,7 +17,7 @@ from boss.boss import (
     draft_term_sheet,
     load_prompt,
 )
-from boss.errors import Outcome
+from antstreet.errors import Outcome
 
 RECORDED = json.loads(
     (Path(__file__).parent / "fixtures" / "json_boss_schema_call_2.1.285.json").read_text()

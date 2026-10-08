@@ -3,10 +3,10 @@ that matter, and the real registry, whatever it holds when the test runs (empty 
 
 import pytest
 
-from boss.roles import org, registry
-from boss.roles.base import DEPARTMENTS, RoleSpec
-from boss.roles.builders import PROFILES, WorkerProfile
-from boss.roles.org import OrgError, OrgNode, org_chart, org_problems, render_org
+from antstreet.roles import org, registry
+from antstreet.roles.base import DEPARTMENTS, RoleSpec
+from antstreet.roles.builders import PROFILES, WorkerProfile
+from antstreet.roles.org import OrgError, OrgNode, org_chart, org_problems, render_org
 
 
 def role(name, reports_to="boss", department="quality", **over) -> RoleSpec:

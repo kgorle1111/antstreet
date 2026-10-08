@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.stream import StreamReader, Usage
+from antstreet.stream import StreamReader, Usage
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

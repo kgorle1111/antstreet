@@ -1,7 +1,7 @@
 import pytest
 
-from boss.errors import Outcome
-from boss.retry import Pause, Wait, infra_action, plan_pressure
+from antstreet.errors import Outcome
+from antstreet.retry import Pause, Wait, infra_action, plan_pressure
 
 
 def windows(**named: tuple[float, float]) -> dict:

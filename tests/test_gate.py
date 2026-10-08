@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from boss.gate import Check, CheckStatus, GateError, run_gate
-from boss.sandbox import SandboxMode
+from antstreet.gate import Check, CheckStatus, GateError, run_gate
+from antstreet.sandbox import SandboxMode
 
 CHECK = """
 from rev import reverse

@@ -1,7 +1,7 @@
 import pytest
 
-from boss.ledger import Billing, Event, EventType, total, totals_by
-from boss.report import build_report, dollars, render_report
+from antstreet.ledger import Billing, Event, EventType, total, totals_by
+from antstreet.report import build_report, dollars, render_report
 
 
 def ev(actor, event, round=1, **fields) -> Event:

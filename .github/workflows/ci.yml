@@ -84,7 +84,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .task-cache
-          key: task-validation-${{ runner.os }}-${{ hashFiles('bench/tasks/**', 'bench/tasks-multi/**', 'src/boss/bench/tasks.py', 'src/boss/gate.py', 'src/boss/sandbox.py', 'src/boss/_gate_plugin.py', 'uv.lock', 'pyproject.toml') }}
+          key: task-validation-${{ runner.os }}-${{ hashFiles('bench/tasks/**', 'bench/tasks-multi/**', 'src/antstreet/bench/tasks.py', 'src/antstreet/gate.py', 'src/antstreet/sandbox.py', 'src/antstreet/_gate_plugin.py', 'uv.lock', 'pyproject.toml') }}
           restore-keys: task-validation-${{ runner.os }}-
 
       # --locked fails if uv.lock is out of date, so CI installs exactly what was tested locally.
@@ -101,7 +101,7 @@ jobs:
         run: uv run mypy
 
       # No model calls and no secrets: the live test is skipped unless BOSS_LIVE=1.
-      # The coverage floor (line + branch over src/boss) is 2 points below the 98.58% measured
+      # The coverage floor (line + branch over src/antstreet) is 2 points below the 98.58% measured
       # when the gate was added, rounded down: 96. That leaves room for normal work and still
       # catches a real drop. Only ever raise it: when total coverage settles 2+ points above it,
       # move it up to (total - 2).

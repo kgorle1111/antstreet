@@ -48,7 +48,7 @@ def expected_default(action) -> str | None:
     """How a document writes an argparse option's default; None when it is not a value to check."""
     import argparse
 
-    from boss import cli
+    from antstreet import cli
 
     if action.required:
         return "required"
@@ -140,7 +140,7 @@ def run_cli(
 ):
     """Run `boss <argv>` in a fresh project folder. Returns (exit code, the run folder or None,
     everything printed). `broken` makes the fake worker write a wrong product."""
-    from boss.cli import main
+    from antstreet.cli import main
 
     project = folder / "project"
     project.mkdir(parents=True, exist_ok=True)
@@ -168,7 +168,7 @@ def original_tasks() -> list:
     files, and so their hash, are unchanged by the tasks added since."""
     import json
 
-    from boss.bench.tasks import load_tasks
+    from antstreet.bench.tasks import load_tasks
 
     results = ROOT / "bench" / "results" / "2026-09-30-final3" / "results.jsonl"
     ran = {json.loads(line)["task"] for line in results.read_text().splitlines()}

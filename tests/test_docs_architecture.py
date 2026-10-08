@@ -8,7 +8,7 @@ import re
 import pytest
 from docs_support import DOCS, ROOT, code_spans, money, read, section, table
 
-from boss import (
+from antstreet import (
     audit,
     boss,
     budget,
@@ -23,11 +23,11 @@ from boss import (
     runner,
     worker,
 )
-from boss.bench import run as bench_run
-from boss.ledger import Event, EventType
+from antstreet.bench import run as bench_run
+from antstreet.ledger import Event, EventType
 
 DOC = DOCS / "ARCHITECTURE.md"
-SRC = ROOT / "src" / "boss"
+SRC = ROOT / "src" / "antstreet"
 
 
 @pytest.fixture(scope="module")
@@ -45,10 +45,10 @@ def test_every_module_is_in_the_module_map_and_every_mapped_module_exists(text):
     assert len(mapped) == len(set(mapped)), "a module is listed twice"
     real = module_files()
     assert set(mapped) - real == set(), (
-        f"named in the map but not in src/boss: {set(mapped) - real}"
+        f"named in the map but not in src/antstreet: {set(mapped) - real}"
     )
     assert real - set(mapped) == set(), (
-        f"in src/boss but missing from the map: {real - set(mapped)}"
+        f"in src/antstreet but missing from the map: {real - set(mapped)}"
     )
 
 
@@ -104,7 +104,7 @@ def test_the_control_flow_table_names_only_real_events_and_every_loop_event(text
 
 def _resolve(dotted: str) -> object:
     module, *path = dotted.split(".")
-    obj: object = importlib.import_module(f"boss.{module}")
+    obj: object = importlib.import_module(f"antstreet.{module}")
     for part in path:
         obj = getattr(obj, part)
     return obj
@@ -148,7 +148,7 @@ def test_the_empty_workspace_timeout_is_thirty_seconds(text):
 
 
 def _uses(name: str) -> list[str]:
-    """Files under src/boss that mention EventType.<name>, not counting the enum itself."""
+    """Files under src/antstreet that mention EventType.<name>, not counting the enum itself."""
     return sorted(
         p.relative_to(SRC).as_posix()
         for p in SRC.rglob("*.py")

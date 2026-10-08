@@ -1,4 +1,4 @@
-"""`boss.gitrepo`: git treated as hostile input. A repository whose config names programs never
+"""`antstreet.gitrepo`: git treated as hostile input. A repository whose config names programs never
 runs them, a ref that looks like an option never reaches git, and an export touches nothing."""
 
 import io
@@ -12,8 +12,16 @@ from pathlib import Path
 
 import pytest
 
-from boss import gitrepo
-from boss.gitrepo import GitError, commits_between, diff, export, is_ancestor, is_clean, resolve
+from antstreet import gitrepo
+from antstreet.gitrepo import (
+    GitError,
+    commits_between,
+    diff,
+    export,
+    is_ancestor,
+    is_clean,
+    resolve,
+)
 
 PLAIN_ENV = {
     "PATH": os.environ.get("PATH", "/usr/bin:/bin"),

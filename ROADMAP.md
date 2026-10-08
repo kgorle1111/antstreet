@@ -58,8 +58,8 @@ Being built, each in its own pull request.
   at about 1.56x the cost per delivered task. The pre-registered comparison is not shown
   (+0.0952 [-0.0000, +0.1905]). The judge stays out of pass/fail until its 40-case calibration set
   is labelled; tests decide.
-- **The Python module renamed** from `boss` to `antstreet`, with `boss` kept as an alias so
-  nothing breaks (B100).
+- **The Python module renamed** from `boss` to `antstreet` (B100). The `boss` command, `.boss/`
+  run folders and existing ledgers keep working.
 
 ## Next
 

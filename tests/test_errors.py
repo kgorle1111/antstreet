@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.errors import INFRASTRUCTURE, Outcome, RunSignals, classify
+from antstreet.errors import INFRASTRUCTURE, Outcome, RunSignals, classify
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.gate import OUTPUT_TAIL_CHARS, Check, CheckStatus, GateError, _verdict, run_gate
+from antstreet.gate import OUTPUT_TAIL_CHARS, Check, CheckStatus, GateError, _verdict, run_gate
 
 PASSING = "def test_ok():\n    assert True\n"
 

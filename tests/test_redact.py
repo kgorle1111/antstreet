@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.redact import MASK, redact, safe_text
+from antstreet.redact import MASK, redact, safe_text
 
 # Fake values shaped like real credentials. None of these are live.
 SAMPLES = {

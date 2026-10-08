@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from boss.stream import StreamReader
-from boss.worker import (
+from antstreet.stream import StreamReader
+from antstreet.worker import (
     SCHEMA_TOOL,
     WORKER_TOOLS,
     IsolationError,

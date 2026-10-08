@@ -1,7 +1,7 @@
-from boss.errors import Outcome
-from boss.ledger import Event, EventType
-from boss.rule import SliceRecord
-from boss.state import fired_workers, run_state, slice_history, worker_tasks
+from antstreet.errors import Outcome
+from antstreet.ledger import Event, EventType
+from antstreet.rule import SliceRecord
+from antstreet.state import fired_workers, run_state, slice_history, worker_tasks
 
 
 def ev(actor, event, **fields) -> Event:

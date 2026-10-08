@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from boss import dispatch, firm
-from boss.approval import content_hashes
-from boss.dispatch import (
+from antstreet import dispatch, firm
+from antstreet.approval import content_hashes
+from antstreet.dispatch import (
     DispatchPolicy,
     DispatchView,
     RunLevel,
@@ -18,7 +18,7 @@ from boss.dispatch import (
     route_of,
     route_text,
 )
-from boss.termsheet import CheckSpec, Dispatch, Round, Task, TermSheet, TermSheetError
+from antstreet.termsheet import CheckSpec, Dispatch, Round, Task, TermSheet, TermSheetError
 
 POLICY = DispatchPolicy("sonnet", 100_000)
 

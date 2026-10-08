@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from boss.roles.stories import (
+from antstreet.roles.stories import (
     MAX_CRITERIA,
     MAX_STORIES,
     STORIES_SCHEMA,
@@ -185,7 +185,7 @@ def test_a_fragment_is_a_normalised_piece_of_the_normalised_idea(quote, expected
 
 
 def test_the_shared_quote_helpers_agree_with_the_story_gate():
-    from boss.roles.stories import MIN_SOURCE_CHARS, fragment_problem, is_quote_of
+    from antstreet.roles.stories import MIN_SOURCE_CHARS, fragment_problem, is_quote_of
 
     good, short, invented = "join words with single hyphens", "hyphens", "strip every emoji first"
     assert is_quote_of(good, IDEA) and fragment_problem(good, IDEA) is None
@@ -223,7 +223,7 @@ MARKDOWN_IDEA = (
     ],
 )
 def test_a_quote_may_drop_or_change_the_ideas_backticks_and_quote_marks(quote):
-    from boss.roles.stories import MIN_SOURCE_CHARS, is_fragment
+    from antstreet.roles.stories import MIN_SOURCE_CHARS, is_fragment
 
     assert is_fragment(quote, MARKDOWN_IDEA, min_chars=MIN_SOURCE_CHARS)
 
@@ -238,13 +238,13 @@ def test_a_quote_may_drop_or_change_the_ideas_backticks_and_quote_marks(quote):
     ],
 )
 def test_a_changed_word_or_number_is_still_not_a_fragment(quote):
-    from boss.roles.stories import is_fragment
+    from antstreet.roles.stories import is_fragment
 
     assert not is_fragment(quote, MARKDOWN_IDEA)
 
 
 def test_a_quote_may_elide_text_when_every_piece_is_word_for_word_and_in_order():
-    from boss.roles.stories import is_fragment, quote_pieces
+    from antstreet.roles.stories import is_fragment, quote_pieces
 
     elided = "a space before the quote makes the field unquoted ... are errors"
     assert quote_pieces(elided) == [

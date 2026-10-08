@@ -105,7 +105,7 @@ def test_the_late_hook_control_is_claimed_only_with_its_tests(rows):
     row = next(r for r in rows if r["id"] == "T21")
     assert "tests/test_runner_isolation_late.py::" in row["tests"]
     assert "checked once" not in row["status"]
-    source = (ROOT / "src" / "boss" / "runner.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "antstreet" / "runner.py").read_text(encoding="utf-8")
     assert "reader.hook_events" in source and "require_isolation(reader.init" in source
 
 
@@ -119,13 +119,13 @@ def test_the_ledger_row_says_resume_repairs_a_torn_tail_and_the_code_does(rows):
     )
     callers = [
         p.name
-        for p in (ROOT / "src" / "boss").rglob("*.py")
+        for p in (ROOT / "src" / "antstreet").rglob("*.py")
         if p.name != "ledger.py" and "repair_torn_tail" in p.read_text(encoding="utf-8")
     ]
     assert callers == ["cli.py"], "the only caller is `boss resume`: update T28 if that changes"
     # The repair comes before the first read of the ledger, in `_resume_run` (`_resume` finds
     # the run and turns a held lock into a message).
-    tree = ast.parse((ROOT / "src" / "boss" / "cli.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "src" / "antstreet" / "cli.py").read_text(encoding="utf-8"))
     resume = next(
         n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_resume_run"
     )

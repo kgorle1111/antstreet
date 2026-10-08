@@ -15,12 +15,12 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT
 
-from boss import pipeline
-from boss.boss import load_prompt
-from boss.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
-from boss.firm import FirmConfig
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.pipeline import (
+from antstreet import pipeline
+from antstreet.boss import load_prompt
+from antstreet.cli import EXIT_FAILED, EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main
+from antstreet.firm import FirmConfig
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.pipeline import (
     BY_OPTION,
     Pipeline,
     RolesError,
@@ -29,11 +29,11 @@ from boss.pipeline import (
     parse_roles,
     recorded_setup,
 )
-from boss.roles import registry
-from boss.roles.base import system_prompt
-from boss.roles.judge import Calibration, CaseResult, judge_identity, load_rubric
-from boss.rundir import RunPaths
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError
+from antstreet.roles import registry
+from antstreet.roles.base import system_prompt
+from antstreet.roles.judge import Calibration, CaseResult, judge_identity, load_rubric
+from antstreet.rundir import RunPaths
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError
 
 IDEA = (
     "Write rev.py with a function reverse(s) that returns the string s reversed. "
@@ -1825,7 +1825,7 @@ def test_an_amended_sheet_that_does_not_validate_is_not_offered(fx, monkeypatch)
     def refuse(sheet, checks_dir, policy=None):
         raise TermSheetError(["the rounds do not add up"])
 
-    monkeypatch.setattr("boss.pipeline.validate", refuse)
+    monkeypatch.setattr("antstreet.pipeline.validate", refuse)
     critic_finds(fx, finding())
     out = fx.fund("--roles", "critic")
     assert out.code == EXIT_OK and asked(out, "Add these") == []

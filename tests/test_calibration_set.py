@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from boss.roles.judge import MIN_CASES, all_rubric_ids, load_rubric, parse_cases
+from antstreet.roles.judge import MIN_CASES, all_rubric_ids, load_rubric, parse_cases
 
 ROOT = Path(__file__).resolve().parents[1] / "bench" / "calibration"
-USED_BY_PIPELINE = ("stories", "usage")  # the rubrics boss.pipeline judges with
+USED_BY_PIPELINE = ("stories", "usage")  # the rubrics antstreet.pipeline judges with
 
 
 def raw_lines(rubric_id: str) -> list[str]:

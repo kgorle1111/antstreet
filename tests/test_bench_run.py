@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT
 
-from boss.bench.results import CellResult, cell_dir, load_results
-from boss.bench.run import main, run_cell
-from boss.bench.tasks import load_task, load_tasks, task_set_hash
-from boss.ledger import EventType, read_events
+from antstreet.bench.results import CellResult, cell_dir, load_results
+from antstreet.bench.run import main, run_cell
+from antstreet.bench.tasks import load_task, load_tasks, task_set_hash
+from antstreet.ledger import EventType, read_events
 
 TASK = load_task(Path(__file__).parent.parent / "bench" / "tasks" / "slugify")
 REFERENCE = (TASK.reference_dir / "slugify.py").read_text()
@@ -355,8 +355,8 @@ def test_the_single_arm_cleans_the_workers_words_like_the_firm_arm(bench):
 
 
 def test_a_run_paused_for_the_plan_limit_is_an_infrastructure_outcome():
-    from boss.bench.run import _outcome
-    from boss.ledger import Event
+    from antstreet.bench.run import _outcome
+    from antstreet.ledger import Event
 
     def ev(kind, actor="worker:w1", **data):
         return Event(run="r", round=1, actor=actor, event=kind, data=data)
@@ -369,13 +369,13 @@ def test_a_run_paused_for_the_plan_limit_is_an_infrastructure_outcome():
 
 # B71: a cell the environment cut off is excluded whatever its product scored.
 def test_runner_records_infrastructure_even_when_the_product_passed(bench, monkeypatch):
-    monkeypatch.setattr("boss.bench.run._outcome", lambda events: "usage_limit")
+    monkeypatch.setattr("antstreet.bench.run._outcome", lambda events: "usage_limit")
     result = bench("single")
     assert result.passed and result.failure_class == "infrastructure" and not result.counted
 
 
 def test_runner_records_infrastructure_for_a_prefixed_outcome_that_passed(bench, monkeypatch):
-    monkeypatch.setattr("boss.bench.run._outcome", lambda events: "boss:login")
+    monkeypatch.setattr("antstreet.bench.run._outcome", lambda events: "boss:login")
     result = bench("firm")
     assert result.passed and result.failure_class == "infrastructure"
 

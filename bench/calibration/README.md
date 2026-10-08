@@ -41,7 +41,7 @@ You can also edit the number in the file by hand. Do not edit the file after you
 This spends money. It makes 20 calls per rubric. Each call is capped at $0.15, so at most $3 per
 rubric. First look at the calls and the ceiling, with no calls made:
 
-    uv run python -m boss.roles.judge calibrate --cases bench/calibration/stories/cases.jsonl --out <project>/.boss/calibration/stories.json --dry-run
+    uv run python -m antstreet.roles.judge calibrate --cases bench/calibration/stories/cases.jsonl --out <project>/.boss/calibration/stories.json --dry-run
 
 Then run it for real: the same command without `--dry-run`. Do the same for `usage`.
 
@@ -50,7 +50,7 @@ Then run it for real: the same command without `--dry-run`. Do the same for `usa
   `mkdir -p <project>/.boss/calibration`. `--out` must not already exist.
 - `--model` defaults to `haiku`. Use the model the pipeline judges with. A calibration only
   applies to the same rubric version, model, prompt and skills it was run with.
-- `python -m boss.roles.judge show <file>` prints the result again without any call.
+- `python -m antstreet.roles.judge show <file>` prints the result again without any call.
 
 ## What counts as agreeing
 

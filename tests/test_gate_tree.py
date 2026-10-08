@@ -2,7 +2,7 @@
 
 import pytest
 
-from boss.gate import CheckStatus, GateError, run_tree
+from antstreet.gate import CheckStatus, GateError, run_tree
 
 PASSED, FAILED = CheckStatus.PASSED, CheckStatus.FAILED
 SUITE = """import pytest

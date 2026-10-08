@@ -5,7 +5,7 @@ import itertools
 
 import pytest
 
-from boss.errors import Outcome, RunSignals, classify
+from antstreet.errors import Outcome, RunSignals, classify
 
 GOOD = {"type": "result", "subtype": "success", "is_error": False}
 FAILED = GOOD | {"is_error": True}

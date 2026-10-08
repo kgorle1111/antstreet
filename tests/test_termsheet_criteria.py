@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from boss.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet, TermSheetError
 
 # Produced by the code as it was BEFORE CheckSpec had a `criteria` field.
 BEFORE = """{

@@ -6,8 +6,8 @@ import tomllib
 import pytest
 from docs_support import DOCS, ROOT, read, section, table
 
-from boss import doctor, gate, limits, worker
-from boss.sandbox import SandboxMode
+from antstreet import doctor, gate, limits, worker
+from antstreet.sandbox import SandboxMode
 
 DOC = ROOT / "SECURITY.md"
 THREAT_MODEL = DOCS / "THREAT_MODEL.md"
