@@ -7,13 +7,15 @@ recorded decision, not by editing what was approved.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from boss.ledger import Event, EventType
 from boss.redact import safe_text
 
 DROPPED, KEPT, UNBLOCKED, DECLINED = "dropped", "kept", "unblocked", "declined"
 MAX_NOTE_CHARS = 1_000
+# The `stopped` reason of a run that met a dispute with nobody at a terminal to rule on it.
+RULING_AWAITED = "awaiting the investor's ruling on a dispute"
 
 Ask = Callable[[str], str]
 
@@ -61,6 +63,39 @@ def ruled(events: Sequence[Event], ruling: str) -> frozenset[str]:
         for e in events
         if _is_ruling(e) and e.data.get("ruling") == ruling and "check" in e.data
     )
+
+
+def awaited(events: Sequence[Event]) -> list[dict[str, str]]:
+    """The disputes the run stopped on since it was last resumed, less those already ruled: each
+    {task, check, worker}. Parallel tasks can each stop on theirs in one wave, so every such stop
+    since the resume counts."""
+    pending: list[object] = []
+    for e in events:
+        if e.event is EventType.STOPPED and e.actor == "boss":
+            if e.data.get("reason") == RULING_AWAITED:
+                pending += list(e.data.get("disputes") or ())
+        elif e.event is EventType.RESUMED and e.actor == "investor":
+            pending = []
+    settled = ruled(events, KEPT) | ruled(events, DROPPED)
+    return [
+        {k: str(d.get(k, "")) for k in ("task", "check", "worker")}
+        for d in pending
+        if isinstance(d, dict) and d.get("check") and d["check"] not in settled
+    ]
+
+
+def how_to_rule(run: str, disputes: Sequence[Mapping[str, str]]) -> str:
+    """The commands only the investor runs to rule on each waiting dispute, then to go on."""
+    lines = [f"\nRun {run} is {RULING_AWAITED}. To rule, run this yourself, one line per check:"]
+    for d in disputes:
+        check = d["check"]
+        lines.append(f"  boss approve {run} --dispute {check} --ruling drop   (drop {check})")
+        lines.append(f"  boss approve {run} --dispute {check} --ruling keep   (it must pass)")
+    lines.append(
+        "In Claude Code, type it with the `!` prefix: the ruling is yours, never the agent's. "
+        f"Then continue with `boss resume {run}`."
+    )
+    return "\n".join(lines)
 
 
 def notes_since(

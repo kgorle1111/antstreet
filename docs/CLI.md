@@ -117,11 +117,17 @@ When a disputed check or a blocked worker needs you, the run asks (`boss resume`
   is on one line, at most 1000 characters, and goes into the worker's next brief.
 - Anything else, or end of input, sets the task aside for the rest of the run. Your rulings are
   ledger events (`ruled`); the approved term sheet and checks are not edited.
+- With no terminal to ask on (Claude Code's Bash tool, a pipe), a dispute is not asked and the
+  task is not set aside: the run stops (exit 4) with the dispute pending, recorded as a `stopped`
+  event, and prints the `boss approve RUN --dispute CHECK --ruling drop|keep` lines that rule on
+  it. Rule on each, then `boss resume RUN` goes on from your rulings.
 
 ## `boss approve`
 
-`boss approve [--dir DIR] [--sheet VALUE] [RUN]`. Approves a term sheet that `boss fund` left
-waiting because it had no terminal to ask on. Spends nothing; `boss resume` then builds it.
+`boss approve [--dir DIR] [--sheet VALUE | --dispute CHECK --ruling drop|keep] [RUN]`.
+Approves a term sheet that `boss fund` left waiting because it had no terminal to ask on, or
+rules on a dispute a run stopped on for the same reason. Spends nothing; `boss resume` then
+builds it.
 
 Argument: `run`, a run id. Default: the latest run in the folder.
 
@@ -129,6 +135,8 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 |---|---|---|
 | `--dir` | `.` | Project folder. |
 | `--sheet` | none | The 16-character value printed with the term sheet you read. Without it, `approve` prints the term sheet as it is on disk now, every check, the roles' notes and that value, and writes nothing. |
+| `--dispute` | none | A check whose dispute the run stopped on, with no terminal to ask on. Needs `--ruling`; not with `--sheet`. |
+| `--ruling` | none | With `--dispute`: `drop` (the check is no longer run or counted) or `keep` (the worker must make it pass). |
 
 - With `--sheet`, the term sheet and checks on disk are validated and rendered again, and the
   approval is recorded only if that text is exactly the one the value names (its SHA-256, first 16
@@ -140,6 +148,10 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   `approved_by_investor: true`.
 - Refused with exit 1, writing nothing: no run found; a run `fund` did not leave waiting, or one
   already approved; a damaged ledger; a ledger another process is writing.
+- With `--dispute CHECK --ruling drop|keep`, it records your ruling on a dispute the run stopped
+  on: the same signed `ruled` event a ruling at the question writes. Refused with exit 1, writing
+  nothing, unless the run's latest stop waits on that check and it is not ruled yet; exit 2 when
+  `--dispute` and `--ruling` are not given together, or come with `--sheet`.
 - It is your act, not an agent's. From Claude Code, type it yourself with the `!` prefix, and do
   not grant it to the agent: an agent running as you can run any command you can.
 
@@ -464,7 +476,7 @@ Argument: `run`, an audit run id. Default: the latest.
 | `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, a run still awaiting approval, or the approval no longer matches. `approve`: no run waiting for an approval, a sheet changed since it was shown, or a damaged or busy ledger. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `verify`: no runs, or a run id that does not exist. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
 | `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
-| `4` | `fund`: there was no terminal to ask on, so the drafted term sheet waits for `boss approve`. Nothing was funded. |
+| `4` | No terminal to ask on. `fund`: the drafted term sheet waits for `boss approve`; nothing was funded. `fund` or `resume`: a worker's dispute of a check waits for `boss approve --dispute`. |
 | `130` | `fund`, `resume`, `audit plan`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 
 A ledger with a damaged line makes `report` and `status` fail with an error that names the file
