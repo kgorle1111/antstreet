@@ -35,7 +35,8 @@ def test_nothing_from_the_repo_outside_the_package_is_in_the_wheel(wheel_names):
     assert not leaked, f"leaked into the wheel: {leaked[:5]}"
 
 
-def test_the_wheel_ships_antstreet_and_the_boss_alias(wheel_names):
-    assert {"antstreet/__init__.py", "antstreet/cli.py", "boss/__init__.py"} <= wheel_names
-    alias = {n for n in wheel_names if n.startswith("boss/") and not n.endswith("/")}
-    assert alias == {"boss/__init__.py"}  # the alias is one file; the code is only in antstreet/
+def test_the_wheel_ships_antstreet_and_no_top_level_boss(wheel_names):
+    # a top-level `boss` would clash with the unrelated `boss` package on PyPI
+    assert {"antstreet/__init__.py", "antstreet/cli.py"} <= wheel_names
+    top_level = {n.split("/")[0] for n in wheel_names if not n.startswith("antstreet-")}
+    assert top_level == {"antstreet"}

@@ -1,5 +1,8 @@
 # Pre-registration: where a firm should beat one agent
 
+Commands recorded before 2026-10-08 use the old module name; run them with
+`python -m antstreet...` instead of `python -m boss...`.
+
 Written 2026-10-03, before any of these runs. The hypotheses, arms, metrics, sample sizes and
 decision rules below are fixed; a change after a run starts is recorded here with its date and
 reason, and the run it affects is reported under both rules. Why these five and not others:

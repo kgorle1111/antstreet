@@ -1,9 +1,7 @@
-"""The import package is `antstreet`; `boss` is its old name and must keep working as an alias that
-is the same module objects (never a second copy), from imports, `python -m boss.X`, the approve
-guard, and ledgers written before the rename."""
+"""The import package is `antstreet`, and there is no `boss` import package (it would clash with
+`boss` on PyPI). What users already have keeps working: the `boss` command is still denied
+approval by the guard in every module form, and ledgers written before the rename verify."""
 
-import importlib
-import importlib.util
 import os
 import shutil
 import subprocess
@@ -15,8 +13,6 @@ from test_plugin import _guard
 
 import antstreet
 import antstreet.cli
-import antstreet.ledger
-import antstreet.roles
 from antstreet import signing
 from antstreet.ledger import EventType, read_events
 
@@ -33,73 +29,21 @@ def py(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_boss_is_the_antstreet_package_and_its_modules():
-    import boss.bench.run
-    import boss.ledger
-    import boss.roles
-    from boss.cli import main
-
-    import antstreet.bench.run
-    import boss
-
-    assert boss is antstreet
-    assert boss.ledger is antstreet.ledger
-    assert boss.bench.run is antstreet.bench.run
-    assert main is antstreet.cli.main
-    assert boss.roles.registry is antstreet.roles.registry  # module state is shared, not copied
-    assert sys.modules["boss.ledger"] is antstreet.ledger
-    assert antstreet.ledger.__name__ == antstreet.ledger.__spec__.name == "antstreet.ledger"
+def test_there_is_no_boss_import_package():
+    # `boss` on PyPI is someone else's package; shipping one of ours would clash with it.
+    for code in ("import boss", "import boss.cli"):
+        done = py("-c", code)
+        assert done.returncode == 1 and "ModuleNotFoundError: No module named 'boss'" in done.stderr
+    assert py("-m", "boss.cli", "--version").returncode == 1
+    assert not (ROOT / "src" / "boss").exists()
 
 
-@pytest.mark.parametrize("first", ["boss", "antstreet"])
-def test_either_name_first_in_a_fresh_interpreter_gives_one_copy_of_each_module(first):
-    other = "antstreet" if first == "boss" else "boss"
-    code = (
-        f"import sys, {first}.ledger, {first}.roles.org, {other}.ledger, {other}.roles.org\n"
-        f"assert {first}.ledger is {other}.ledger and {first}.roles.org is {other}.roles.org\n"
-        "dupes = [n for n, m in sys.modules.items() if m is not None\n"
-        "         and n.split('.')[0] in ('boss', 'antstreet')\n"
-        "         and not m.__name__.startswith('antstreet')]\n"
-        "assert not dupes, dupes\n"
-        "print('one copy')"
-    )
-    done = py("-c", code)
-    assert (done.returncode, done.stdout.strip()) == (0, "one copy"), done.stderr
+def test_python_m_antstreet_cli_runs():
+    done = py("-m", "antstreet.cli", "--version")
+    assert (done.returncode, done.stdout.strip()) == (0, f"boss {antstreet.__version__}")
 
 
-def test_an_unknown_boss_submodule_is_not_found():
-    import boss  # noqa: F401  (installs the alias)
-
-    assert importlib.util.find_spec("boss.no_such_module") is None
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("boss.no_such_module")
-
-
-@pytest.mark.parametrize(
-    "args",
-    [["cli", "--version"], ["roles.org"]],
-    ids=["cli --version", "roles.org"],
-)
-def test_python_m_boss_runs_what_python_m_antstreet_runs(args):
-    module, *rest = args
-    old = py("-m", f"boss.{module}", *rest)
-    new = py("-m", f"antstreet.{module}", *rest)
-    assert old.returncode == new.returncode == 0, (old.stderr, new.stderr)
-    assert old.stdout == new.stdout and old.stdout.strip()
-
-
-def test_python_m_boss_gets_the_real_code_and_file():
-    import boss  # noqa: F401  (installs the alias)
-
-    # runpy asks the finder in a fresh process, where `boss.cli` is not imported yet
-    [alias] = [f for f in sys.meta_path if type(f).__module__ == "boss"]
-    spec = alias.find_spec("boss.cli")
-    assert spec is not None and spec.origin == antstreet.cli.__file__
-    code = spec.loader.get_code("boss.cli")  # what runpy executes as __main__
-    assert code is not None and code.co_filename == antstreet.cli.__file__
-
-
-def test_nothing_in_antstreet_imports_the_alias():
+def test_nothing_in_antstreet_imports_the_old_name():
     offenders = [
         p.relative_to(ROOT).as_posix()
         for p in (ROOT / "src" / "antstreet").rglob("*.py")

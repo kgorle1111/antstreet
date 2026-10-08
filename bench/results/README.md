@@ -1,5 +1,8 @@
 # Benchmark results
 
+Commands recorded before 2026-10-08 use the old module name; run them with
+`python -m antstreet...` instead of `python -m boss...`.
+
 One folder per run: `table.md` (what `python -m antstreet.bench.table` printed) and `results.jsonl`
 (every cell's `result.json`, one per line); the later folders hold a write-up (`README.md`), and
 `2026-10-03-blind35` also a `table.md`. Raw ledgers, worker logs and products stay on the
