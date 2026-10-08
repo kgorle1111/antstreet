@@ -1,7 +1,7 @@
 # AntStreet
 
 `antstreet` and `boss` are the same command; `boss` is the bull you talk to. The Python package
-is still named `boss`.
+is `antstreet`.
 
 **Coding agents say "done" when it is not. AntStreet makes "done" something you can verify.**
 
