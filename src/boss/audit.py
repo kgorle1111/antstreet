@@ -30,7 +30,15 @@ from boss import gitrepo, held_out
 from boss.approval import content_hashes, review_term_sheet
 from boss.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from boss.budget import RESERVE_MICROS
-from boss.gate import Check, CheckResult, CheckStatus, missing_modules, run_gate
+from boss.gate import (
+    Check,
+    CheckResult,
+    CheckStatus,
+    missing_modules,
+    run_gate,
+    sandbox_available,
+    secret_paths,
+)
 from boss.ledger import EventType
 from boss.pipeline import Pipeline, Setup
 from boss.redact import safe_text
@@ -51,6 +59,7 @@ MAX_REQUEST_BYTES = 64 * 1024
 MAX_SURFACE_CHARS = 30_000
 MAX_SURFACE_FILES = 300
 MAX_PARSE_BYTES = 256 * 1024
+VENV = ".venv"  # where `uv sync` and `python -m venv .venv` put a repo's environment
 _SKIPPED_DIRS = frozenset({"__pycache__", "node_modules", ".venv", "venv", "build", "dist"})
 _SEAL = re.compile(r"audit seal: base=([0-9a-f]{40}|[0-9a-f]{64}) request_sha256=([0-9a-f]{64})\Z")
 
@@ -76,6 +85,12 @@ class Observed:
 class Seal:
     base: str  # the commit the checks were written against
     request_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class RepoEnv:
+    site_packages: Path | None  # resolved; None: checks see the standard library and pytest only
+    note: str  # one line for the screen: which packages the checks see, or why not the repo's
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +219,63 @@ def _def(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     return f"{kind} {node.name}({ast.unparse(node.args)}){returns}"
 
 
+# --- the repo's own environment ----------------------------------------------------------------
+
+
+def repo_env(repo: Path, store: Path) -> RepoEnv:
+    """The site-packages of `repo`'s own `.venv`, for the checks to import from. Found, never made:
+    nothing is installed. It is the repo's code (an agent that worked there could have written it),
+    so it is used only when an OS sandbox will run the checks, only if it is inside the repo and
+    away from every secret, and only as an import path: the gate never runs its interpreter, its
+    `.pth` files or its `sitecustomize`. It must be for the Python that runs the checks, or a
+    compiled module would fail to load and be read as a failing check."""
+    root = Path(repo).resolve()
+    tag = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    fix = (
+        f"run `uv sync` (or `python3 -m venv .venv` and install the project into it) in {root} "
+        f"with Python {tag.removeprefix('python')}, then run this again"
+    )
+    venv = root / VENV
+    if not (venv / "pyvenv.cfg").is_file():
+        return RepoEnv(
+            None,
+            f"{root} has no {VENV}, so the checks see the standard library and pytest only, and "
+            f"a check that imports a third-party module is blocked. To give them the repo's "
+            f"dependencies, {fix}",
+        )
+    site = venv / "lib" / tag / "site-packages"
+    if not site.is_dir():
+        found = sorted(p.parent.name for p in (venv / "lib").glob("python*/site-packages"))
+        return RepoEnv(
+            None,
+            f"the repo's {VENV} is for {', '.join(found) or 'no Python this can read'}, not the "
+            f"{tag} that runs the checks, so it is not used and a check that imports a "
+            f"third-party module is blocked. To use it, {fix}",
+        )
+    real = site.resolve()
+    secrets_near = (*secret_paths(real), Path(store).resolve())
+    if not real.is_relative_to(root) or any(
+        real.is_relative_to(s) or s.is_relative_to(real) for s in secrets_near
+    ):
+        return RepoEnv(
+            None,
+            f"the repo's {VENV} site-packages resolves to {real}, outside the repo or next to the "
+            "audit store, so it is not used and a check that imports a third-party module is "
+            f"blocked. Recreate it: {fix}",
+        )
+    if not sandbox_available():
+        return RepoEnv(
+            None,
+            f"the repo's {VENV} is not used: its packages are the repo's code and run only inside "
+            "an OS sandbox, which this machine has not got (`boss doctor` says why), so a check "
+            "that imports a third-party module is blocked",
+        )
+    return RepoEnv(
+        real,
+        f"the repo's own {VENV} ({tag}), read-only inside the sandbox; nothing was installed",
+    )
+
+
 # --- reading a check's result -----------------------------------------------------------------
 
 
@@ -223,6 +295,7 @@ def run_checks(
     sheet: TermSheet,
     known: frozenset[str],
     only: Collection[str] | None = None,
+    site_packages: Path | None = None,
 ) -> dict[str, Observed]:
     """Every sealed check (the visible ones, then any held-out), or just those in `only`, against
     a copy of `tree`.
@@ -237,11 +310,14 @@ def run_checks(
         return [c for c in checks if only is None or c.id in only]
 
     results: list[CheckResult] = run_gate(
-        tree, paths.checks, wanted(sheet.gate_checks()), pythonpath=PYTHONPATH
-    )
+        tree, paths.checks, wanted(sheet.gate_checks()), pythonpath=PYTHONPATH,
+        site_packages=site_packages,
+    )  # fmt: skip
     held = wanted([h.to_check() for h in held_out.load(paths.held_out)])
     if held:
-        results += run_gate(tree, paths.held_out, held, pythonpath=PYTHONPATH)
+        results += run_gate(
+            tree, paths.held_out, held, pythonpath=PYTHONPATH, site_packages=site_packages
+        )
     return {r.check_id: observe(r, known, sheet.idea) for r in results}
 
 
@@ -338,8 +414,13 @@ def plan(
             ask, say,
         )  # fmt: skip
         held = held_out_n > 0 and pipe.examine(sheet, held_out_n, RESERVE_MICROS)
+        env_found = repo_env(repo, store)
+        say(f"Environment: {env_found.note}.")
         say("Running the checks on the base...")
-        observed = run_checks(base_tree, paths, sheet, tree_modules(base_tree))
+        observed = run_checks(
+            base_tree, paths, sheet, tree_modules(base_tree),
+            site_packages=env_found.site_packages,
+        )  # fmt: skip
         approved = review_term_sheet(
             sheet, paths.checks, paths.root, ledger, run_id, ask=ask, say=say,
             notes=[_notes(sheet, paths, observed)],

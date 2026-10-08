@@ -44,9 +44,17 @@ _COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", "
 # untrusted ideas are supported; the planned runner is in docs/SANDBOX.md.
 _PLUGIN_SOURCE = Path(__file__).with_name("_gate_plugin.py")
 _PROOF_MAX_BYTES = 512  # a proof is "<n> <n> <64 hex>"; never read more of a file the check wrote
-_BOOTSTRAP = (  # not `-m pytest`: the plugin folder joins sys.path, the workspace still does not
-    "import sys; sys.path.insert(0, sys.argv[1]); import pytest\n"
-    "sys.exit(pytest.main(sys.argv[2:]))"
+# Not `-m pytest`: the plugin folder joins sys.path first, the workspace still does not. A repo's
+# own site-packages joins last, after pytest is imported, and never through `site`: its `.pth` files
+# and `sitecustomize` never run, and it cannot shadow pytest or the plugin. An empty argument adds
+# nothing (an empty entry on sys.path would be the working folder, the workspace).
+_BOOTSTRAP = (
+    "import sys\n"
+    "first, last = sys.argv[1:3]\n"
+    "if first: sys.path.insert(0, first)\n"
+    "import pytest\n"
+    "if last: sys.path.append(last)\n"
+    "sys.exit(pytest.main(sys.argv[3:]))"
 )
 DEFAULT_PYTHONPATH = ("ws",)
 
@@ -109,10 +117,33 @@ def secret_paths(*anchors: Path) -> tuple[Path, ...]:
     return tuple(found)
 
 
-def _wrap(tool: Sandbox, cmd: list[str], tmp: Path, *anchors: Path) -> list[str]:
-    return tool.wrap(
-        cmd, writable=tmp.resolve(), readable=python_readable(), hidden=secret_paths(*anchors)
-    )
+def _wrap(tool: Sandbox, cmd: list[str], tmp: Path, site: Path | None, *anchors: Path) -> list[str]:
+    readable = (*python_readable(), *([site] if site else []))
+    return tool.wrap(cmd, writable=tmp.resolve(), readable=readable, hidden=secret_paths(*anchors))
+
+
+def sandbox_available() -> bool:
+    """Whether a check run now, under `BOSS_GATE_SANDBOX`, would be inside an OS sandbox."""
+    try:
+        return select(sandbox_mode(os.environ)) is not None
+    except SandboxUnavailable:
+        return False
+
+
+def _site_arg(site: Path | None, tool: Sandbox | None) -> str:
+    """The bootstrap's last argument. A repo's site-packages is its own code: it is only ever
+    imported inside a sandbox, never on the host."""
+    if site is None:
+        return ""
+    if tool is None:
+        raise GateError(
+            f"refusing to import the repo's packages from {site} without an OS sandbox; "
+            "run on a machine where `boss doctor` finds one"
+        )
+    text = os.fspath(site)
+    if not os.path.isabs(text) or not site.is_dir() or not text.isprintable():
+        raise GateError(f"site-packages {text!r} is not an absolute, existing folder")
+    return text
 
 
 def run_gate(
@@ -122,12 +153,15 @@ def run_gate(
     timeout_s: float = DEFAULT_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
     pythonpath: Sequence[str] = DEFAULT_PYTHONPATH,
+    site_packages: Path | None = None,
 ) -> list[CheckResult]:
     """Run every check against a fresh copy of `workspace`. The original is never modified.
 
     `sandbox=None` defers to `BOSS_GATE_SANDBOX`, then to AUTO: the one place the variable is read.
     `pythonpath` is what the check can import from, as folders inside the copy: `ws` is the
-    workspace itself, `ws/src` a src-layout package folder. See `_ini`.
+    workspace itself, `ws/src` a src-layout package folder. See `_ini`. `site_packages` is a
+    repo's own installed packages, importable by the check after everything else (`_BOOTSTRAP`);
+    it needs a sandbox, which can read it and nothing else of the repo's environment.
     """
     mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
@@ -141,8 +175,9 @@ def run_gate(
         tool = select(mode) if checks else None
     except SandboxUnavailable as exc:
         raise GateError(str(exc)) from exc
+    site = _site_arg(site_packages, tool) if checks else ""
     runs = zip(checks, sources, strict=True)
-    return [_run_one(workspace, c, src, timeout_s, tool, ini) for c, src in runs]
+    return [_run_one(workspace, c, src, timeout_s, tool, ini, site) for c, src in runs]
 
 
 def _ini(pythonpath: Sequence[str]) -> str:
@@ -173,7 +208,13 @@ def _check_source(checks_dir: Path, check: Check) -> Path:
 
 
 def _run_one(
-    workspace: Path, check: Check, src: Path, timeout_s: float, tool: Sandbox | None, ini: str
+    workspace: Path,
+    check: Check,
+    src: Path,
+    timeout_s: float,
+    tool: Sandbox | None,
+    ini: str,
+    site: str = "",
 ) -> CheckResult:
     with tempfile.TemporaryDirectory(prefix="boss_gate_") as tmp_name:
         tmp = Path(tmp_name)
@@ -191,12 +232,12 @@ def _run_one(
             _PLUGIN_SOURCE.read_text().replace("@NONCE@", nonce).replace("@PROOF@", str(proof))
         )
         cmd = [
-            sys.executable, "-I", "-B", "-c", _BOOTSTRAP, str(tmp / "plugin"), str(target),
+            sys.executable, "-I", "-B", "-c", _BOOTSTRAP, str(tmp / "plugin"), site, str(target),
             "-c", str(tmp / "pytest.ini"), "--rootdir", str(tmp), "-p", "no:cacheprovider",
             "-p", plugin, f"--junitxml={report}", "-q", "--no-header",
         ]  # fmt: skip
         if tool is not None:
-            cmd = _wrap(tool, cmd, tmp, workspace, src)
+            cmd = _wrap(tool, cmd, tmp, Path(site) if site else None, workspace, src)
         start = time.monotonic()
         exit_code, output, timed_out = _run_bounded(cmd, tmp / "ws", _env(tmp), timeout_s)
         duration = time.monotonic() - start
@@ -213,17 +254,17 @@ def _run_one(
 
 
 def _pytest_cmd(
-    tmp: Path, args: list[str], report: Path, tool: Sandbox | None, *anchors: Path
+    tmp: Path, args: list[str], report: Path, tool: Sandbox | None, site: str, *anchors: Path
 ) -> list[str]:
     # Whole-tree runs (imported benchmark tasks) only: no signed proof, so a product written to
     # fake its own test results can (T12). A single check goes through `run_gate`'s plugin path.
     cmd = [
-        sys.executable, "-I", "-B", "-m", "pytest", *args,
+        sys.executable, "-I", "-B", "-c", _BOOTSTRAP, "", site, *args,
         "-c", str(tmp / "pytest.ini"), "--rootdir", str(tmp), "-p", "no:cacheprovider",
         f"--junitxml={report}", "-q", "--no-header",
     ]  # fmt: skip
     if tool is not None:
-        cmd = _wrap(tool, cmd, tmp, *anchors)
+        cmd = _wrap(tool, cmd, tmp, Path(site) if site else None, *anchors)
     return cmd
 
 
@@ -335,13 +376,14 @@ def run_tree(
     timeout_s: float = TREE_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
     pythonpath: Sequence[str] = DEFAULT_PYTHONPATH,
+    site_packages: Path | None = None,
 ) -> TreeResult:
     """Run a whole pytest tree against a copy of `workspace`; the original is never modified.
 
     `tree` is copied to `test_path` inside the copy, replacing anything the product put there, and
     `support` (harness-owned files, e.g. a shim for a third-party import) is laid over the copy's
-    root. `pythonpath` is as for `run_gate`. A test passes only when it ran and was neither failed,
-    errored nor skipped. Collection errors do not stop the run
+    root. `pythonpath` and `site_packages` are as for `run_gate`. A test passes only when it ran
+    and was neither failed, errored nor skipped. Collection errors do not stop the run
     (`--continue-on-collection-errors`). Without a clean exit there may be no report at all (a
     timeout, a crash); then `tests` is empty and `detail` says why.
     """
@@ -360,6 +402,7 @@ def run_tree(
         tool = select(mode)
     except SandboxUnavailable as exc:
         raise GateError(str(exc)) from exc
+    site = _site_arg(site_packages, tool)
     with tempfile.TemporaryDirectory(prefix="boss_gate_") as tmp_name:
         # Resolved: pytest resolves it too, and walks up from a package to the rootdir by path.
         tmp = Path(tmp_name).resolve()
@@ -380,7 +423,7 @@ def run_tree(
         args = [str(rel), "--continue-on-collection-errors", "-o", "junit_family=xunit1"]
         start = time.monotonic()
         exit_code, output, timed_out = _run_bounded(
-            _pytest_cmd(tmp, args, report, tool, workspace, tree), ws, _env(tmp), timeout_s
+            _pytest_cmd(tmp, args, report, tool, site, workspace, tree), ws, _env(tmp), timeout_s
         )
         duration = time.monotonic() - start
         tail, sandboxed = output[-OUTPUT_TAIL_CHARS:], tool is not None
