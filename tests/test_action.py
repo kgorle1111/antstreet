@@ -9,7 +9,7 @@ import pytest
 import yaml
 from docs_support import ROOT
 
-from boss import cli
+from antstreet import cli
 
 ACTION = yaml.safe_load((ROOT / "action.yml").read_text(encoding="utf-8"))
 STEPS = ACTION["runs"]["steps"]

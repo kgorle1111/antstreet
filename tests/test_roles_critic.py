@@ -7,12 +7,12 @@ import sys
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-import boss.roles.critic as critic
-from boss.errors import Outcome
-from boss.gate import Check, CheckResult, CheckStatus, GateError, run_gate
-from boss.roles import registry
-from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.critic import (
+import antstreet.roles.critic as critic
+from antstreet.errors import Outcome
+from antstreet.gate import Check, CheckResult, CheckStatus, GateError, run_gate
+from antstreet.roles import registry
+from antstreet.roles.base import RoleError, RoleOutputError, system_prompt
+from antstreet.roles.critic import (
     CRITIC_SCHEMA,
     MAX_FINDINGS,
     MAX_PRODUCT_CHARS,
@@ -24,10 +24,10 @@ from boss.roles.critic import (
     review_product,
     write_check_files,
 )
-from boss.sandbox import SandboxMode
-from boss.skills import MAX_SKILL_CHARS, load_skill
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, check_file_problems
+from antstreet.sandbox import SandboxMode
+from antstreet.skills import MAX_SKILL_CHARS, load_skill
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, check_file_problems
 
 IDEA = (
     "Create `rev.py` (standard library only) with one function `reverse_words(s: str) -> str`.\n"
@@ -611,7 +611,7 @@ def test_reproduced_means_exit_one_with_a_counted_failure_and_no_import_error(gi
 
 
 def test_the_critic_has_room_above_what_e4_showed_it_needs():
-    from boss.roles.critic import SPECS
+    from antstreet.roles.critic import SPECS
 
     # E4's completed critic calls reached $0.149 and its capped ones were cut off near $0.17.
     assert SPECS[0].cap_micros >= 300_000

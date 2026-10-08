@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from boss.errors import Outcome
-from boss.ledger import Event, EventType, total
-from boss.rundir import slice_end_fields
-from boss.runner import SliceRun
-from boss.state import run_state
-from boss.stream import StreamReader, Usage
+from antstreet.errors import Outcome
+from antstreet.ledger import Event, EventType, total
+from antstreet.rundir import slice_end_fields
+from antstreet.runner import SliceRun
+from antstreet.state import run_state
+from antstreet.stream import StreamReader, Usage
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ZERO = (0, 0, 0)

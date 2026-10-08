@@ -1,5 +1,5 @@
-"""boss.bench.spec_eval: the offline evaluation's arithmetic, on small hand-made fixtures, and its
-guards against stale labels and a moved goalpost."""
+"""antstreet.bench.spec_eval: the offline evaluation's arithmetic, on small hand-made fixtures, and
+its guards against stale labels and a moved goalpost."""
 
 import json
 import re
@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from boss import spec
-from boss.bench import spec_eval as ev
-from boss.bench.tasks import load_task, load_tasks
+from antstreet import spec
+from antstreet.bench import spec_eval as ev
+from antstreet.bench.tasks import load_task, load_tasks
 
 ROOT = Path(__file__).parent.parent
 TASKS = ROOT / "bench" / "tasks"

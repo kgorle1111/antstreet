@@ -7,8 +7,8 @@ import sys
 import pytest
 from boss_init import BOSS_INIT
 
-import boss.cli as cli_module
-from boss.cli import (
+import antstreet.cli as cli_module
+from antstreet.cli import (
     EXIT_FAILED,
     EXIT_INCOMPLETE,
     EXIT_INTERRUPTED,
@@ -17,7 +17,7 @@ from boss.cli import (
     LOGIN_FIX,
     main,
 )
-from boss.ledger import EventType, LedgerWriter, read_events, total
+from antstreet.ledger import EventType, LedgerWriter, read_events, total
 
 CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 DRAFT = {

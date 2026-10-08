@@ -8,20 +8,20 @@ import time
 
 import pytest
 
-from boss.approval import NotApprovedError, content_hashes
-from boss.boss import load_prompt
-from boss.errors import Outcome
-from boss.firm import FirmConfig, run_firm
-from boss.gate import run_gate
-from boss.ledger import Event, EventType, LedgerWriter, read_events, total
-from boss.limits import RunLimits
-from boss.report import build_report, render_report
-from boss.rule import FiringPolicy
-from boss.rundir import RunPaths
-from boss.runner import SliceRun
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import IsolationError
+from antstreet.approval import NotApprovedError, content_hashes
+from antstreet.boss import load_prompt
+from antstreet.errors import Outcome
+from antstreet.firm import FirmConfig, run_firm
+from antstreet.gate import run_gate
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events, total
+from antstreet.limits import RunLimits
+from antstreet.report import build_report, render_report
+from antstreet.rule import FiringPolicy
+from antstreet.rundir import RunPaths
+from antstreet.runner import SliceRun
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.worker import IsolationError
 
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 C02 = "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n"
@@ -1036,7 +1036,7 @@ def test_the_configuration_is_recorded_once_and_used_when_none_is_given(paths):
 
 
 def test_a_recorded_configuration_survives_the_round_trip_through_the_ledger():
-    from boss.firm import config_data, config_from_data
+    from antstreet.firm import config_data, config_from_data
 
     config = FirmConfig(
         model="sonnet",
@@ -1054,7 +1054,7 @@ def test_a_recorded_configuration_survives_the_round_trip_through_the_ledger():
     [("haiku", 100_000), ("sonnet", 300_000), ("opus", 500_000), ("z", 100_000)],
 )
 def test_the_reserve_default_follows_the_model_and_an_explicit_one_wins(model, micros):
-    from boss.firm import config_data, config_from_data
+    from antstreet.firm import config_data, config_from_data
 
     config = FirmConfig(model=model)
     assert config.reserve_micros == micros
@@ -1205,7 +1205,7 @@ def test_only_the_investors_ruling_counts(paths):
 
 
 def run_firm_state(paths, s):
-    from boss.state import run_state
+    from antstreet.state import run_state
 
     return run_state(read_events(paths.ledger), [t.id for t in s.tasks])
 
@@ -1518,7 +1518,7 @@ def test_a_worker_gets_the_bare_builder_prompt_unless_a_profile_is_chosen(paths)
 
 
 def test_a_chosen_profile_adds_its_skills_to_every_slice_and_is_recorded(paths):
-    from boss.roles.builders import builder_system_prompt
+    from antstreet.roles.builders import builder_system_prompt
 
     worker = Script(step(HALF), step(GOOD, "done"))
     run(paths, worker, config=FirmConfig(profile="backend_engineer"))

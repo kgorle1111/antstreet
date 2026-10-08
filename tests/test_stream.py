@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from boss.errors import Outcome, classify
-from boss.stream import StreamReader, Usage
+from antstreet.errors import Outcome, classify
+from antstreet.stream import StreamReader, Usage
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

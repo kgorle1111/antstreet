@@ -5,10 +5,10 @@ import dataclasses
 
 import pytest
 
-from boss import firm
-from boss.boss import load_prompt
-from boss.roles import builders, registry
-from boss.roles.builders import (
+from antstreet import firm
+from antstreet.boss import load_prompt
+from antstreet.roles import builders, registry
+from antstreet.roles.builders import (
     DEFAULT_BASE_PROMPT,
     DEFAULT_PROFILE,
     PROFILES,
@@ -16,8 +16,8 @@ from boss.roles.builders import (
     builder_system_prompt,
     profile,
 )
-from boss.skills import all_skill_ids, load_skill
-from boss.worker import MAX_DISPUTE_REASON_CHARS, MAX_REASON_CHARS, STATUS_SCHEMA
+from antstreet.skills import all_skill_ids, load_skill
+from antstreet.worker import MAX_DISPUTE_REASON_CHARS, MAX_REASON_CHARS, STATUS_SCHEMA
 
 EXPECTED = ("generalist", "backend_engineer", "ai_engineer", "test_engineer", "refactorer")
 

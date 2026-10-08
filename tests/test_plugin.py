@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from boss import cli
+from antstreet import cli
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / ".claude-plugin"

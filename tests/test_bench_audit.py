@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.bench import audit as audit_module
-from boss.bench.audit import (
+from antstreet.bench import audit as audit_module
+from antstreet.bench.audit import (
     AUDITED,
     FAILED,
     REJECTED,
@@ -25,13 +25,13 @@ from boss.bench.audit import (
     summarize,
     support,
 )
-from boss.bench.drafts import DraftCell
-from boss.bench.results import CellResult, cell_dir
-from boss.bench.score import DraftScore
-from boss.bench.table import wilson_interval
-from boss.bench.tasks import load_task, load_tasks
-from boss.roles.advisory import Advice, Audit, Verdict
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.bench.drafts import DraftCell
+from antstreet.bench.results import CellResult, cell_dir
+from antstreet.bench.score import DraftScore
+from antstreet.bench.table import wilson_interval
+from antstreet.bench.tasks import load_task, load_tasks
+from antstreet.roles.advisory import Advice, Audit, Verdict
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 REFERENCE = "# REFERENCE-MARKER\ndef f(x):\n    return x + 1\n"
 MUTANT = "# MUTANT-MARKER\ndef f(x):\n    return x\n"
@@ -208,8 +208,8 @@ def write_checks(folder: Path, codes: list[str]) -> None:
 
 
 def make_firm_results(root: Path, cells: dict[tuple[str, int], list[str] | None]) -> Path:
-    """A `boss.bench.run` folder: each firm cell has a run with checks and a term sheet, or (None)
-    a run that never drafted."""
+    """An `antstreet.bench.run` folder: each firm cell has a run with checks and a term sheet, or
+    (None) a run that never drafted."""
     for (task, rep), codes in cells.items():
         folder = cell_dir(root, task, "firm", rep)
         CellResult(
@@ -233,7 +233,7 @@ def make_firm_results(root: Path, cells: dict[tuple[str, int], list[str] | None]
 
 
 def make_drafts_results(root: Path, cells: dict[tuple[str, int], tuple[str, list[str]]]) -> Path:
-    """A `boss.bench.drafts` folder: (status, check codes) per cell; no term sheet is saved."""
+    """A `antstreet.bench.drafts` folder: (status, check codes) per cell; no term sheet is saved."""
     for (task, rep), (status, codes) in cells.items():
         folder = root / task / f"rep{rep}"
         write_checks(folder / "checks", codes)

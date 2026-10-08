@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench.results import RESULT_FILE, CellResult, cell_dir
-from boss.bench.table import (
+from antstreet.bench.results import RESULT_FILE, CellResult, cell_dir
+from antstreet.bench.table import (
     MIXED_WARNING,
     main,
     per_task,

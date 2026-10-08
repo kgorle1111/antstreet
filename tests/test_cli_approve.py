@@ -11,11 +11,11 @@ import pytest
 from test_cli import DRAFT, FAKE_CLAUDE
 from test_cli_spec import CITING, IDEA
 
-from boss.approval import content_hashes
-from boss.cli import AWAITING, EXIT_AWAITING, EXIT_FAILED, EXIT_OK, main
-from boss.ledger import EventType, read_events
-from boss.signing import SIG_KEY
-from boss.termsheet import TermSheet
+from antstreet.approval import content_hashes
+from antstreet.cli import AWAITING, EXIT_AWAITING, EXIT_FAILED, EXIT_OK, main
+from antstreet.ledger import EventType, read_events
+from antstreet.signing import SIG_KEY
+from antstreet.termsheet import TermSheet
 
 
 class Stdin(io.StringIO):

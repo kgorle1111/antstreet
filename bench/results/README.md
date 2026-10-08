@@ -1,6 +1,9 @@
 # Benchmark results
 
-One folder per run: `table.md` (what `python -m boss.bench.table` printed) and `results.jsonl`
+Commands recorded before 2026-10-08 use the old module name; run them with
+`python -m antstreet...` instead of `python -m boss...`.
+
+One folder per run: `table.md` (what `python -m antstreet.bench.table` printed) and `results.jsonl`
 (every cell's `result.json`, one per line); the later folders hold a write-up (`README.md`), and
 `2026-10-03-blind35` also a `table.md`. Raw ledgers, worker logs and products stay on the
 machine that ran them (`bench/results/raw/`, git-ignored): they hold absolute paths.
@@ -49,7 +52,7 @@ Costs are the CLI's client-side estimates. Model: Haiku. Budget: $0.40 per cell.
 
 ## Draft quality (scored without worker runs)
 
-`python -m boss.bench.drafts --score-existing` on the boss's drafts from two runs:
+`python -m antstreet.bench.drafts --score-existing` on the boss's drafts from two runs:
 
 | Drafts from | Wrong checks | Drafts with a wrong check | Known-wrong implementations caught |
 |---|---|---|---|

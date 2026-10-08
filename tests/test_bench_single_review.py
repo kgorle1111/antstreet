@@ -9,8 +9,8 @@ import pytest
 from docs_support import ROOT
 from test_bench_run import REFERENCE, SHALLOW, TASK, bench  # noqa: F401
 
-from boss.bench.results import ARMS, cell_dir, load_results
-from boss.bench.run import (
+from antstreet.bench.results import ARMS, cell_dir, load_results
+from antstreet.bench.run import (
     BUILD_SHARE,
     DEFAULT_ARMS,
     SELF_REVIEW_PROMPT,
@@ -18,8 +18,8 @@ from boss.bench.run import (
     main,
     slice_caps,
 )
-from boss.boss import load_prompt
-from boss.ledger import EventType, read_events
+from antstreet.boss import load_prompt
+from antstreet.ledger import EventType, read_events
 
 
 def flag(argv, name):
@@ -137,6 +137,6 @@ def test_the_method_note_states_the_split_and_the_arm_is_listed_everywhere_arms_
     assert (
         f"{share}% of the cell budget, split {build}% to the build and {100 - build}% to" in method
     )
-    assert "`src/boss/prompts/self_review_v1.md`" in method
+    assert "`src/antstreet/prompts/self_review_v1.md`" in method
     assert "single-review" in ARMS and "single-review" not in DEFAULT_ARMS
     assert "`single-review`" in (ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")

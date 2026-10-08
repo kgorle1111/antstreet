@@ -2,15 +2,15 @@ import json
 
 import pytest
 
-from boss.approval import (
+from antstreet.approval import (
     NotApprovedError,
     content_hashes,
     render,
     require_approval,
     review_term_sheet,
 )
-from boss.ledger import Event, EventType, LedgerWriter, read_events
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 
 C01 = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 C02 = "from rev import reverse\n\ndef test_empty():\n    assert reverse('') == ''\n"
@@ -151,8 +151,8 @@ def test_render_shows_the_brief_and_every_check_in_full(run):
 
 
 def test_advisory_notes_are_shown_under_the_sheet_and_change_nothing_that_is_approved(tmp_path):
-    from boss.approval import content_hashes, review_term_sheet
-    from boss.ledger import LedgerWriter, read_events
+    from antstreet.approval import content_hashes, review_term_sheet
+    from antstreet.ledger import LedgerWriter, read_events
 
     checks = tmp_path / "checks"
     checks.mkdir()

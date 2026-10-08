@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench import score as score_module
-from boss.bench.score import DraftScore, count_wrong_checks, draft_checks, score_draft
-from boss.bench.tasks import BenchTask, load_task
-from boss.gate import Check
+from antstreet.bench import score as score_module
+from antstreet.bench.score import DraftScore, count_wrong_checks, draft_checks, score_draft
+from antstreet.bench.tasks import BenchTask, load_task
+from antstreet.gate import Check
 
 TASKS = Path(__file__).parent.parent / "bench" / "tasks"
 

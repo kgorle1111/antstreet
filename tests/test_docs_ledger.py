@@ -15,22 +15,22 @@ from dataclasses import fields
 import pytest
 from docs_support import DOCS, ROOT, code_spans, fake_claude, read, run_cli, section, table
 
-from boss import budget, held_out, pipeline, state
-from boss.approval import content_hashes
-from boss.dispatch import DispatchPolicy, plan_cascade, plan_dispatch
-from boss.errors import Outcome
-from boss.firm import FirmConfig, run_firm
-from boss.gate import run_gate
-from boss.ledger import LEDGER_VERSION, Billing, Event, EventType, LedgerWriter, read_events
-from boss.limits import RunLimits
-from boss.roles import examiner, registry
-from boss.roles.base import RoleSpec, ledger_fields
-from boss.roles.examiner import run_examiner
-from boss.rundir import RunPaths
-from boss.runner import SliceRun
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import IsolationError, ModelMismatchError
+from antstreet import budget, held_out, pipeline, state
+from antstreet.approval import content_hashes
+from antstreet.dispatch import DispatchPolicy, plan_cascade, plan_dispatch
+from antstreet.errors import Outcome
+from antstreet.firm import FirmConfig, run_firm
+from antstreet.gate import run_gate
+from antstreet.ledger import LEDGER_VERSION, Billing, Event, EventType, LedgerWriter, read_events
+from antstreet.limits import RunLimits
+from antstreet.roles import examiner, registry
+from antstreet.roles.base import RoleSpec, ledger_fields
+from antstreet.roles.examiner import run_examiner
+from antstreet.rundir import RunPaths
+from antstreet.runner import SliceRun
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.worker import IsolationError, ModelMismatchError
 
 # The module-scoped `produced` fixture runs ~20 whole runs (over two minutes). Under xdist each
 # worker that received one of these tests would build its own copy, so the module is pinned to one
@@ -38,7 +38,7 @@ from boss.worker import IsolationError, ModelMismatchError
 pytestmark = pytest.mark.xdist_group("docs-ledger")
 
 DOC = DOCS / "LEDGER.md"
-SRC = ROOT / "src" / "boss"
+SRC = ROOT / "src" / "antstreet"
 
 # --- scripted firm: the pattern of tests/test_firm.py, copied on purpose ---------------------
 
@@ -219,7 +219,7 @@ def cli_awaiting_events(tmp_path):
     import sys
     from unittest import mock
 
-    from boss.cli import main
+    from antstreet.cli import main
 
     project = tmp_path / "project"
     project.mkdir(parents=True, exist_ok=True)

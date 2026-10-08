@@ -4,24 +4,24 @@ these tests pin what is in it, in what order, and that nothing in it can pose as
 import uuid
 from pathlib import Path
 
-from boss.briefs import (
+from antstreet.briefs import (
     FEEDBACK_TAIL_CHARS,
     continuation_prompt,
     predecessor_disputes_note,
     task_prompt,
 )
-from boss.errors import Outcome
-from boss.gate import CheckResult, CheckStatus
-from boss.rundir import (
+from antstreet.errors import Outcome
+from antstreet.gate import CheckResult, CheckStatus
+from antstreet.rundir import (
     MAX_DENIAL_REASON_CHARS,
     MAX_DENIAL_REASONS,
     denial_reasons,
     slice_end_fields,
 )
-from boss.runner import SliceRun
-from boss.stream import StreamReader, Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import SliceSpec
+from antstreet.runner import SliceRun
+from antstreet.stream import StreamReader, Usage
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.worker import SliceSpec
 
 IDEA = "Create rev.py with reverse(s).\n\nreverse('') must return ''.\nNever raise on None."
 
@@ -217,7 +217,7 @@ def test_a_refusal_reason_is_bounded_masked_distinct_and_never_trusted_for_its_t
 
 
 def test_a_note_about_added_checks_shows_their_code_and_only_theirs(tmp_path):
-    from boss.briefs import added_checks_note, check_sections
+    from antstreet.briefs import added_checks_note, check_sections
 
     s = sheet()
     directory = checks_dir(tmp_path)

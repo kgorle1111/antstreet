@@ -5,7 +5,7 @@ import dataclasses
 import pytest
 from docs_support import ROOT, captured_parser
 
-from boss.bench.paired import (
+from antstreet.bench.paired import (
     KPIS,
     MIN_TASKS,
     bootstrap_interval,
@@ -14,7 +14,7 @@ from boss.bench.paired import (
     render,
     task_values,
 )
-from boss.bench.results import CellResult, cell_dir
+from antstreet.bench.results import CellResult, cell_dir
 
 
 def cell(task, arm="firm", rep=1, *, ok=True, cost=0, secs=1.0, visible=None, infra=False, h="h"):
@@ -257,7 +257,7 @@ def test_every_option_and_kpi_is_documented_where_the_docs_say_it():
     cli = (
         (ROOT / "docs" / "CLI.md")
         .read_text(encoding="utf-8")
-        .split("`python -m boss.bench.paired`")[1]
+        .split("`python -m antstreet.bench.paired`")[1]
     )
     cli = cli.split("\n## ")[0]
     options = {s for a in captured_parser(main)._actions for s in a.option_strings} - {
@@ -325,7 +325,7 @@ def test_a_comparison_of_like_with_like_is_not_warned_about(tmp_path, capsys):
 
 
 def _paired(kpi):
-    from boss.bench.paired import Paired
+    from antstreet.bench.paired import Paired
 
     return Paired("firm", "single", kpi, "h", 8, 1.5, 0.25, 2.0, 10, 3, 1, 2)
 
@@ -363,7 +363,7 @@ def test_the_command_line_defaults_and_options_are_the_documented_ones(tmp_path,
 
 def test_the_parser_names_its_command_and_describes_itself():
     parser = captured_parser(main)
-    assert parser.prog == "python -m boss.bench.paired" and parser.description
+    assert parser.prog == "python -m antstreet.bench.paired" and parser.description
 
 
 def test_cost_per_delivery_says_so_when_unknown_costs_were_counted_as_zero():

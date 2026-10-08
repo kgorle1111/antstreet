@@ -6,9 +6,9 @@ import json
 import pytest
 from test_cli import DRAFT, FAKE_CLAUDE
 
-from boss import spec
-from boss.cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE, main
-from boss.ledger import EventType, read_events
+from antstreet import spec
+from antstreet.cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE, main
+from antstreet.ledger import EventType, read_events
 
 IDEA = "Reverse a string.\n\n1. reverse('ab') returns 'ba'.\n2. A non-string raises `TypeError`."
 CITING = {

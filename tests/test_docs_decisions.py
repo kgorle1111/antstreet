@@ -172,7 +172,7 @@ def test_probe_figures_quoted_in_the_log_match_the_recorded_fixtures(text):
 
 
 def test_the_defaults_quoted_in_the_log_are_the_defaults_in_the_code(text):
-    from boss import budget, limits, rule
+    from antstreet import budget, limits, rule
 
     entries = {e["id"]: " ".join(e.values()) for e in parse(text)}
     policy, run_limits = rule.FiringPolicy(), limits.RunLimits()

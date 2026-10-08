@@ -11,7 +11,7 @@ whole organisation").
 | | Role | Worker profile | Skill |
 |---|---|---|---|
 | What it is | One structured model call | A builder: the same worker with a chosen list of skills | A versioned Markdown file |
-| Defined in | `src/boss/roles/<name>.py`, as `SPECS` | `src/boss/roles/builders.py`, as `PROFILES` | `src/boss/skills/<owner>/<name>.md` |
+| Defined in | `src/antstreet/roles/<name>.py`, as `SPECS` | `src/antstreet/roles/builders.py`, as `PROFILES` | `src/antstreet/skills/<owner>/<name>.md` |
 | Tools | None | `Read`, `Write`, `Edit` in its own folder; no shell | Not applicable |
 | Produces | Data that must pass its gate | Files that the gate's checks run against | Text appended to a system prompt |
 | Paid for | A capped call, booked as a `role_call` event | Capped slices, like any worker | Its characters, on every call that loads it |
@@ -23,7 +23,7 @@ whole organisation").
   JSON schema. A role that needs to touch files is a worker, not a role.
 - **A gate.** `RoleSpec.gate` is one line naming the deterministic check its output must pass
   before anything uses it. A role drafts; code decides.
-- **Metered.** A call's spend is booked by whoever calls the role (`src/boss/pipeline.py`), as a
+- **Metered.** A call's spend is booked by whoever calls the role (`src/antstreet/pipeline.py`), as a
   `role_call` event under the actor `role:<name>` (`ledger_fields` builds the fields). The call has a cap of `cap_micros`
   (150,000 micro-dollars, $0.15, unless the spec says otherwise; the critic has $0.40).
 - **Off by default.** `default_on` is `False` until a measurement says the role earns its cost.
@@ -52,11 +52,11 @@ first need its 40-case calibration set labelled and agreeing with a person, and 
 - The check auditor is the worked example (D26). It exists as a role and is off, because nobody has
   measured that it pays for one more model call in every run.
 - The tools that measure a role are in the repository and cost money to run, so each has a dry run:
-  `src/boss/bench/drafts.py` (`python -m boss.bench.drafts`) scores the checks the boss drafts, and
+  `src/antstreet/bench/drafts.py` (`python -m antstreet.bench.drafts`) scores the checks the boss drafts, and
   with `--prompt staged` it scores the product manager, designer and tester in place of the
-  boss's one call; `src/boss/bench/audit.py` (`python -m boss.bench.audit`) scores the
-  check auditor's flags against the reference solution; `src/boss/roles/judge.py`
-  (`python -m boss.roles.judge calibrate`) compares the judge's scores with a person's on about
+  boss's one call; `src/antstreet/bench/audit.py` (`python -m antstreet.bench.audit`) scores the
+  check auditor's flags against the reference solution; `src/antstreet/roles/judge.py`
+  (`python -m antstreet.roles.judge calibrate`) compares the judge's scores with a person's on about
   twenty artifacts.
 - A judge's scores are labelled `uncalibrated` until that comparison meets its bar, and
   `require_calibrated` refuses to hand an uncalibrated one to code that would act on it.
@@ -72,7 +72,7 @@ says how many to ask for (0 is off, up to 8), and `boss fund` has no option for 
 - **What it sees.** The investor's idea, and the public names the product must expose: the paths
   each task owns, the modules and names the visible check files import, and the names the task
   briefs state: in backticks, or in prose as a call shape (`reverse(s)`) or a `*.py` file name
-  (`public_names` in `src/boss/roles/examiner.py`). Names only; a test file named in a brief is
+  (`public_names` in `src/antstreet/roles/examiner.py`). Names only; a test file named in a brief is
   left out.
 - **What it never sees.** A visible check's body, description or file name. Independence from the
   checks the workers are graded on is the point, so `tests/test_roles_examiner.py::test_no_visible_check_body_description_or_file_name_reaches_the_examiner`
@@ -154,13 +154,13 @@ no task calls a model.
 ## Add a skill
 
 1. Pick the owner folder: `builder` when every profile should carry it, otherwise the folder named
-   for the one profile or role that uses it. The file is `src/boss/skills/<owner>/<name>.md`; the
+   for the one profile or role that uses it. The file is `src/antstreet/skills/<owner>/<name>.md`; the
    name is lowercase letters, digits and dashes, and the skill id is `<owner>/<name>`.
 2. Start the file with a header between `---` lines holding exactly `name` (the file's name),
    `version` (a whole number, 1 or more) and `description`.
 3. Write the body: one idea, imperative, under 4,000 characters, no filler phrase. Name the failure
    it answers in the table above.
-4. Name the id in the `skills` of a profile in `src/boss/roles/builders.py` or of a role. A skill
+4. Name the id in the `skills` of a profile in `src/antstreet/roles/builders.py` or of a role. A skill
    nobody names fails `tests/test_skills_quality.py::test_every_shipped_skill_is_used_and_every_skill_named_exists`.
 5. Keep that profile's skills at 10,000 characters or fewer in total:
    `tests/test_skills_quality.py::test_the_skills_of_any_one_role_or_profile_stay_under_the_combined_limit`.
@@ -172,10 +172,10 @@ from the old text in a ledger gets a new name.
 ## Add a worker profile
 
 1. Add a `WorkerProfile(name, purpose, skills, suited_to)` to `PROFILES` in
-   `src/boss/roles/builders.py`. The name is lower_snake_case; `purpose` and `suited_to` are one line
+   `src/antstreet/roles/builders.py`. The name is lower_snake_case; `purpose` and `suited_to` are one line
    each, and `suited_to` says what has not been measured.
 2. Start `skills` with the generalist's six, then the profile's own, which live in
-   `src/boss/skills/<profile name>/`.
+   `src/antstreet/skills/<profile name>/`.
 3. Add a row to the profile table above and to the skill table for each new skill.
 4. Run `uv run pytest tests/test_roles_builders.py tests/test_docs_roles.py`.
    `tests/test_roles_builders.py::test_a_skill_in_a_profiles_own_folder_belongs_to_that_profile_alone`
@@ -186,24 +186,24 @@ An unknown profile name is an error that lists the known ones:
 
 ## Add a role
 
-1. Create `src/boss/roles/<name>.py` that defines `SPECS`, a tuple of `RoleSpec`. `registry()` in
-   `src/boss/roles/__init__.py` collects every module there: nothing else is registered.
+1. Create `src/antstreet/roles/<name>.py` that defines `SPECS`, a tuple of `RoleSpec`. `registry()` in
+   `src/antstreet/roles/__init__.py` collects every module there: nothing else is registered.
 2. Fill the spec: `name` lower_snake_case; `department` and `reports_to` as above; a one-line
-   `purpose`; a one-line `gate`; `prompt`, a versioned file in `src/boss/prompts/`; `skills`;
+   `purpose`; a one-line `gate`; `prompt`, a versioned file in `src/antstreet/prompts/`; `skills`;
    `cap_micros`; and `default_on=False`.
 3. Write the gate as code, and a test that it rejects bad output. A role whose gate has never been
    seen to fail is not finished.
 4. Run `uv run pytest tests/test_roles_org.py tests/test_roles_base.py`: the roles must form a tree
    under the boss (`org_problems`), and skills the role names must exist.
-5. Look at it with `uv run python -m boss.roles.org`.
+5. Look at it with `uv run python -m antstreet.roles.org`.
 6. Leave `default_on` `False` until a measurement says otherwise.
 
 ## See the whole organisation
 
-- `uv run python -m boss.roles.org` prints the firm as it is defined now: the investor, the boss,
+- `uv run python -m antstreet.roles.org` prints the firm as it is defined now: the investor, the boss,
   the departments, each role and each profile, with its purpose, gate, skills and whether it is on
   by default.
-- The code is in `src/boss/roles/org.py`: `org_chart(registry, profiles)` builds the tree,
+- The code is in `src/antstreet/roles/org.py`: `org_chart(registry, profiles)` builds the tree,
   `org_problems(registry)` lists a missing parent, a cycle, a self-report or a reserved name, and
   `render_org` draws it. A role that reports to another role hangs under it; every other role hangs
   under its department.
@@ -213,7 +213,7 @@ An unknown profile name is an error that lists the known ones:
 
 `boss fund --roles a,b,c` (or `--roles all`) names the roles to run. With no `--roles` nothing
 below happens, and the run, its ledger and its output are what they were before roles existed.
-`src/boss/pipeline.py` is the one module that calls a role's function. Every role call uses the
+`src/antstreet/pipeline.py` is the one module that calls a role's function. Every role call uses the
 boss's model (`--boss-model`) and thinking setting (`--boss-thinking`), and they are recorded on
 the `started` event, so `boss resume` calls roles the same way.
 
@@ -275,9 +275,9 @@ the `started` event, so `boss resume` calls roles the same way.
 
 - No role is on unless `--roles` names it. The roles return data and usage to their caller and write
   nothing, except the examiner's `run_examiner`, which books its own call and stores its checks;
-  for every other role, `src/boss/pipeline.py` books their spend. The examiner is chosen with
+  for every other role, `src/antstreet/pipeline.py` books their spend. The examiner is chosen with
   `--held-out N`, not with `--roles` (`--roles examiner` is refused and names the option).
-  `src/boss/firm.py` and `src/boss/cli.py` import only `registry`, `PROFILES`, `org_chart`,
+  `src/antstreet/firm.py` and `src/antstreet/cli.py` import only `registry`, `PROFILES`, `org_chart`,
   `render_org` and `builder_system_prompt` from the roles package.
 - Nothing assigns a profile to a task but the investor's own choice. The investor picks one for the
   run; the boss does not pick one, and a task has no profile field of its own. Under

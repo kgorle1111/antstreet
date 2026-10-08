@@ -22,6 +22,9 @@ status.
 
 On `main`, pre-release (not on PyPI yet). Each item links the pull request that landed it.
 
+- **One name everywhere**: the Python module is now `antstreet`; the `boss` command, `.boss/` run
+  folders and existing ledgers keep working ([#65](https://github.com/kgorle1111/antstreet/pull/65)).
+
 **Audit any agent's "done"**
 - **`antstreet audit`**: seal checks for a change request before any agent starts, then test its
   commit against them, with a signed verdict ([#9](https://github.com/kgorle1111/antstreet/pull/9)).
@@ -73,10 +76,8 @@ On `main`, pre-release (not on PyPI yet). Each item links the pull request that 
 
 ## Now
 
-In progress or up next, each in its own pull request.
+Up next, each in its own pull request. Nothing in this section is built yet.
 
-- **The Python module renamed** from `boss` to `antstreet` (B100). The `boss` command, `.boss/`
-  run folders and existing ledgers keep working.
 - **`antstreet` on PyPI**, so nothing needs a clone (B41).
 - **Check strength**: shows which checks would catch a broken change. Each sealed check is run
   against deliberately broken copies of the changed code (mutation testing); a check that passes

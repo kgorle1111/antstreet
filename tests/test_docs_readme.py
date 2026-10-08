@@ -13,9 +13,9 @@ from docs_support import (
     table,
 )
 
-from boss import budget, cli, worker
-from boss.bench.tasks import load_tasks
-from boss.ledger import EventType, read_events, total
+from antstreet import budget, cli, worker
+from antstreet.bench.tasks import load_tasks
+from antstreet.ledger import EventType, read_events, total
 
 README = ROOT / "README-technical.md"
 LINKED = [

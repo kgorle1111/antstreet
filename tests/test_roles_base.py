@@ -7,10 +7,10 @@ import sys
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.errors import Outcome
-from boss.ledger import Billing, Event, EventType
-from boss.roles import registry
-from boss.roles.base import (
+from antstreet.errors import Outcome
+from antstreet.ledger import Billing, Event, EventType
+from antstreet.roles import registry
+from antstreet.roles.base import (
     DEPARTMENTS,
     RoleError,
     RoleOutputError,
@@ -19,8 +19,8 @@ from boss.roles.base import (
     ledger_fields,
     system_prompt,
 )
-from boss.skills import MAX_SKILL_CHARS, SkillError, all_skill_ids, load_skill, parse_skill
-from boss.stream import Usage
+from antstreet.skills import MAX_SKILL_CHARS, SkillError, all_skill_ids, load_skill, parse_skill
+from antstreet.stream import Usage
 
 SCHEMA = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
 FAKE = f"""#!{sys.executable}
@@ -214,7 +214,7 @@ def test_the_registry_collects_every_module_and_refuses_two_roles_with_one_name(
     found = registry()
     for name, role in found.items():
         assert role.name == name and role.actor == f"role:{name}"
-    import boss.roles as package
+    import antstreet.roles as package
 
     fake = type("M", (), {"SPECS": (spec(name="dup"), spec(name="dup"))})
     monkeypatch.setattr(

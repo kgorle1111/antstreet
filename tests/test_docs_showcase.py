@@ -255,7 +255,7 @@ def test_the_demo_shows_only_strings_a_real_run_prints(tmp_path):
         elif line.startswith("[a]pprove"):
             prompt = "[a]pprove, [r]eject, or [e]dit files and re-check? "
             assert line == prompt + "a" and f'ask("{prompt}")' in read(
-                ROOT / "src/boss/approval.py"
+                ROOT / "src/antstreet/approval.py"
             )
         else:
             assert line.strip() in printed, f"the demo shows output a run does not print: {line!r}"

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from changed_tasks import select, validate_cached
 
-from boss.bench.tasks import TaskError, load_task, load_tasks, task_set_hash, validate_task
+from antstreet.bench.tasks import TaskError, load_task, load_tasks, task_set_hash, validate_task
 
 TASKS = Path(__file__).parent.parent / "bench" / "tasks"
 

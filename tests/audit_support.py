@@ -15,7 +15,7 @@ from pathlib import Path
 
 from boss_init import BOSS_INIT
 
-from boss.cli import main
+from antstreet.cli import main
 
 REQUEST = (
     "Make slugify in slug.py collapse every run of characters other than letters and digits into "
@@ -226,7 +226,7 @@ class Audit:
 
 def short_timeout_for_hangs(monkeypatch) -> None:
     """Gate runs of a tree whose slug.py sleeps time out after 3s; every other run is unchanged."""
-    import boss.audit as audit_module
+    import antstreet.audit as audit_module
 
     real = audit_module.run_gate
 

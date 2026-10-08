@@ -1,7 +1,7 @@
 """The KPIs section of `boss report`: figures from the ledger, "not recorded" where it is silent."""
 
-from boss.ledger import Event, EventType
-from boss.report import build_report, render_report
+from antstreet.ledger import Event, EventType
+from antstreet.report import build_report, render_report
 
 
 def ev(actor: str, event: EventType, ts: str = "2026-10-02T10:00:00+00:00", **fields) -> Event:

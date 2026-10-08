@@ -5,8 +5,8 @@ import json
 
 from test_bench_drafts import SOUND, cell, draft_of, env  # noqa: F401  (env is a fixture)
 
-from boss.bench import drafts
-from boss.bench.drafts import INVALID, SCORED, DraftCell, settings_for
+from antstreet.bench import drafts
+from antstreet.bench.drafts import INVALID, SCORED, DraftCell, settings_for
 
 
 def cited(draft, *rules):

@@ -5,8 +5,8 @@ import pathlib
 
 import pytest
 
-from boss import cli
-from boss.roles import registry
+from antstreet import cli
+from antstreet.roles import registry
 
 SRC = pathlib.Path(cli.__file__).parent
 

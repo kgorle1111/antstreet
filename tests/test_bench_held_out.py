@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench import run as bench_run
-from boss.bench.results import CellResult, cell_dir, load_results
-from boss.bench.run import _held_out_counts, main, run_cell
-from boss.bench.tasks import load_task
-from boss.ledger import Event, EventType, LedgerWriter
+from antstreet.bench import run as bench_run
+from antstreet.bench.results import CellResult, cell_dir, load_results
+from antstreet.bench.run import _held_out_counts, main, run_cell
+from antstreet.bench.tasks import load_task
+from antstreet.ledger import Event, EventType, LedgerWriter
 
 TASK = load_task(Path(__file__).parent.parent / "bench" / "tasks" / "slugify")
 SOUND = (

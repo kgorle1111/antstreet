@@ -8,8 +8,8 @@ import json
 import pytest
 from test_approval_spec import EMPTY, IDEA, TYPE_OK, approve
 
-from boss import spec
-from boss.ledger import (
+from antstreet import spec
+from antstreet.ledger import (
     GENESIS,
     Event,
     EventType,
@@ -18,7 +18,7 @@ from boss.ledger import (
     audited,
     read_events,
 )
-from boss.rundir import RunPaths
+from antstreet.rundir import RunPaths
 
 VERDICT = {"base": "a" * 40, "head": "b" * 40, "verdict": "unrefuted", "claim": "done"}
 

@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench.kpi import kpi_card
-from boss.bench.paired import compare
-from boss.bench.results import INFRA_OUTCOMES, CellResult
-from boss.bench.table import per_task, summarize
+from antstreet.bench.kpi import kpi_card
+from antstreet.bench.paired import compare
+from antstreet.bench.results import INFRA_OUTCOMES, CellResult
+from antstreet.bench.table import per_task, summarize
 
 PASS = {"a": "passed", "b": "passed"}
 

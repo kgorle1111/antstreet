@@ -7,11 +7,11 @@ from uuid import uuid4
 import pytest
 from test_firm import C01, C02, C03, GOOD, Script, run, sheet, step
 
-from boss.firm import FirmConfig, config_data, config_from_data, started_config
-from boss.ledger import read_events
-from boss.rundir import RunPaths
-from boss.runner import run_slice
-from boss.worker import SCHEMA_TOOL, WORKER_TOOLS, SliceSpec, worker_env
+from antstreet.firm import FirmConfig, config_data, config_from_data, started_config
+from antstreet.ledger import read_events
+from antstreet.rundir import RunPaths
+from antstreet.runner import run_slice
+from antstreet.worker import SCHEMA_TOOL, WORKER_TOOLS, SliceSpec, worker_env
 
 # Reports the MAX_THINKING_TOKENS it was started with, as the reason in its status.
 FAKE_CLI = f"""#!{sys.executable}

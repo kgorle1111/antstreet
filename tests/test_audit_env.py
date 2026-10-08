@@ -8,10 +8,10 @@ import pytest
 from audit_support import DRAFT, RIGHT_SLUG, WRONG_SLUG, Audit, branch, git, later, write
 from sandbox_support import working_sandbox
 
-import boss.audit as audit_module
-from boss.audit import repo_env
-from boss.gate import Check, GateError, run_gate
-from boss.sandbox import SandboxMode
+import antstreet.audit as audit_module
+from antstreet.audit import repo_env
+from antstreet.gate import Check, GateError, run_gate
+from antstreet.sandbox import SandboxMode
 
 TOOL = working_sandbox()
 needs_sandbox = pytest.mark.skipif(TOOL is None, reason="no working OS sandbox on this machine")

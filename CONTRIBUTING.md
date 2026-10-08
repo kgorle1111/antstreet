@@ -26,7 +26,7 @@ uv run pytest                      # the quick run: no model calls, one worker p
 uv run pytest -m "slow or not slow"   # everything except the serial `sigint` tests (what CI runs)
 uv run pytest -n 0 -m sigint       # the Ctrl-C tests, one process
 uv run pytest tests/test_rule.py   # one file
-uv run pytest --cov --cov-report=term-missing   # with line and branch coverage of src/boss
+uv run pytest --cov --cov-report=term-missing   # with line and branch coverage of src/antstreet
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
@@ -68,7 +68,7 @@ uv run mypy
   (`tests/test_ci_selection.py` proves it). `BOSS_TEST_TIMEOUT_S=N` ends the process, with every
   thread's stack on stderr, when a single test runs longer than N seconds.
 - CI runs `uv sync --locked`, `uv run ruff check .`,
-  `uv run ruff format --check .`, `uv run mypy` (strict, over `src/boss`) and two pytest runs:
+  `uv run ruff format --check .`, `uv run mypy` (strict, over `src/antstreet`) and two pytest runs:
   `uv run pytest -n auto --dist loadgroup -m "not sigint" --cov --cov-report= --durations=30`, then
   `uv run pytest -n 0 -m sigint --cov --cov-append --cov-report= || [ $? -eq 5 ]` (5 is "nothing collected", normal for a shard with no such test), which adds to the first run's
   coverage data. Both pass their own `-m`, so the `slow` tests run. On Linux the suite is split
@@ -93,7 +93,7 @@ a time and reruns the tests; a "survivor" is a change no test caught.
   `ledger`, `signing`, `firm`, `judge`, `table`, `kpi`, `paired`). The script gives mutmut only that
   module's test files; mutmut's own full-suite pass is about 5000 tests and fails on the docs tests.
 - List what survived: `uv run python scripts/mutate.py errors --results`; show one change with
-  `uv run mutmut show boss.errors.x_classify__mutmut_16`.
+  `uv run mutmut show antstreet.errors.x_classify__mutmut_16`.
 - Classify each survivor: a real test gap (add the smallest test that kills it), an equivalent
   change (no behaviour differs), or defensive code that cannot be reached. A timeout means the change
   made the code hang, which counts as caught.
@@ -112,7 +112,7 @@ a time and reruns the tests; a "survivor" is a change no test caught.
   tests `tests/test_docs_*.py` and `tests/test_threat_model.py` tell you what drifted.
 - **No new dependency without discussion.** The only runtime dependency is `pytest`, because the
   gate runs checks with it. Use the standard library first.
-- **Prompts are versioned files** under `src/boss/prompts/`, named `<name>_v<N>.md`. A change to
+- **Prompts are versioned files** under `src/antstreet/prompts/`, named `<name>_v<N>.md`. A change to
   what a prompt says is a new file with the next number and a change to the constant that names it,
   so a ledger's `hired` events always say which prompt ran. Measure a prompt change with the
   benchmark before claiming it helps.
@@ -128,7 +128,7 @@ a time and reruns the tests; a "survivor" is a change no test caught.
 
 ## Add a benchmark task
 
-A task is a folder `bench/tasks/<id>/`. The rules are enforced by `boss.bench.tasks`, and
+A task is a folder `bench/tasks/<id>/`. The rules are enforced by `antstreet.bench.tasks`, and
 `tests/test_bench_tasks.py::test_every_shipped_task_is_valid` checks every task in the folder.
 
 1. Choose an `<id>`: lowercase letters, digits and dashes, and the same as the folder name.
@@ -144,7 +144,7 @@ A task is a folder `bench/tasks/<id>/`. The rules are enforced by `boss.bench.ta
    (the same module files). Each is standard-library-only, imports, and fails at least one hidden
    check (a wrong solution that passes them all is not wrong). Name it for its bug: lowercase
    letters, digits and underscores. The first line of each file is a comment saying what is wrong.
-   Mutants score the boss's checks (`python -m boss.bench.drafts`); no arm ever sees one, and they
+   Mutants score the boss's checks (`python -m antstreet.bench.drafts`); no arm ever sees one, and they
    are not in the task set hash.
 7. Every hidden check must fail on an empty workspace and pass on the reference, and every mutant
    must fail one. Check that with `uv run pytest tests/test_bench_tasks.py` and
@@ -155,7 +155,7 @@ A task is a folder `bench/tasks/<id>/`. The rules are enforced by `boss.bench.ta
    warns when they are mixed.
 
 Real runs are described in [bench/METHOD.md](bench/METHOD.md) and cost money:
-`uv run python -m boss.bench.run --dry-run --out /tmp/bench --budget 0.40` lists the cells without
+`uv run python -m antstreet.bench.run --dry-run --out /tmp/bench --budget 0.40` lists the cells without
 running any.
 
 ## Release
@@ -163,9 +163,9 @@ running any.
 Owner only; nothing here runs in CI.
 
 1. Bump `version` in `pyproject.toml` and move the `CHANGELOG.md` entries under it.
-2. `uv build` writes the sdist and wheel to `dist/`. The wheel must hold `boss/prompts/*.md`
-   (`tests/test_packaging.py` checks this) and the sdist only `src/boss`, `README.md`, `LICENSE`
-   and `pyproject.toml`.
+2. `uv build` writes the sdist and wheel to `dist/`. The wheel must hold `antstreet/prompts/*.md`
+   and no top-level `boss` package (`tests/test_packaging.py` checks both) and the sdist only
+   `src/antstreet`, `README.md`, `LICENSE` and `pyproject.toml`.
 3. Check the wheel in a clean place, from the repository root:
    `wheel="$PWD/$(ls dist/*.whl)"; cd "$(mktemp -d)" && uv venv && uv pip install "$wheel" &&
    .venv/bin/antstreet --version`, or `uvx --from dist/*.whl antstreet --help`.

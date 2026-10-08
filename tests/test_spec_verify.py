@@ -1,10 +1,10 @@
-"""boss.spec.verify and render_report on hand-made drafts: a claim is reported beside what the
+"""antstreet.spec.verify and render_report on hand-made drafts: a claim is reported beside what the
 claiming checks contain, and an unverifiable claim is never counted as verified."""
 
 import pytest
 
-from boss import spec
-from boss.spec import MAX_RULES_PER_CHECK, draft_gaps, render_report, split, verify
+from antstreet import spec
+from antstreet.spec import MAX_RULES_PER_CHECK, draft_gaps, render_report, split, verify
 
 IDEA = (
     "Create `t.py` with `f(x)`.\n\n"

@@ -10,11 +10,11 @@ import pytest
 from boss_init import BOSS_INIT_LINE
 from sandbox_support import working_sandbox
 
-from boss.errors import Outcome
-from boss.gate import OUTPUT_TAIL_CHARS, Check, CheckResult, CheckStatus, GateError, run_gate
-from boss.roles import delivery, registry
-from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.delivery import (
+from antstreet.errors import Outcome
+from antstreet.gate import OUTPUT_TAIL_CHARS, Check, CheckResult, CheckStatus, GateError, run_gate
+from antstreet.roles import delivery, registry
+from antstreet.roles.base import RoleError, RoleOutputError, system_prompt
+from antstreet.roles.delivery import (
     DEMO_SCHEMA,
     MAX_CODE_CHARS,
     MAX_OUTPUT_BYTES,
@@ -26,9 +26,9 @@ from boss.roles.delivery import (
     render_usage,
     write_demo,
 )
-from boss.sandbox import SandboxMode
-from boss.skills import MAX_SKILL_CHARS, load_skill
-from boss.stream import Usage
+from antstreet.sandbox import SandboxMode
+from antstreet.skills import MAX_SKILL_CHARS, load_skill
+from antstreet.stream import Usage
 
 FAKE = f"""#!{sys.executable}
 import json, os, sys

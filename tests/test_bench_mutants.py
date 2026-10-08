@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench import tasks as bench_tasks
-from boss.bench.tasks import (
+from antstreet.bench import tasks as bench_tasks
+from antstreet.bench.tasks import (
     MIN_MUTANTS,
     TaskError,
     gate_problems,

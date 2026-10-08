@@ -56,10 +56,10 @@ CACHE_ENV = "BOSS_TASK_CACHE"  # a folder of one empty file per task validation 
 VALIDATOR_FILES = (
     "uv.lock",
     "pyproject.toml",
-    "src/boss/bench/tasks.py",
-    "src/boss/gate.py",
-    "src/boss/sandbox.py",
-    "src/boss/_gate_plugin.py",
+    "src/antstreet/bench/tasks.py",
+    "src/antstreet/gate.py",
+    "src/antstreet/sandbox.py",
+    "src/antstreet/_gate_plugin.py",
 )
 
 

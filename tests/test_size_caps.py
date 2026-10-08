@@ -7,16 +7,16 @@ from uuid import uuid4
 
 import pytest
 
-from boss.approval import content_hashes
-from boss.errors import Outcome
-from boss.firm import FirmConfig, run_firm
-from boss.ledger import Event, EventType, LedgerWriter, read_events, total
-from boss.limits import RunLimits
-from boss.rundir import RunPaths, WorkspaceTooBig, workspace_bytes
-from boss.runner import LOG_CUT, SliceRun, run_slice
-from boss.stream import Usage
-from boss.termsheet import CheckSpec, Round, Task, TermSheet
-from boss.worker import SliceSpec
+from antstreet.approval import content_hashes
+from antstreet.errors import Outcome
+from antstreet.firm import FirmConfig, run_firm
+from antstreet.ledger import Event, EventType, LedgerWriter, read_events, total
+from antstreet.limits import RunLimits
+from antstreet.rundir import RunPaths, WorkspaceTooBig, workspace_bytes
+from antstreet.runner import LOG_CUT, SliceRun, run_slice
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
+from antstreet.worker import SliceSpec
 
 CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
 SHEET = TermSheet(

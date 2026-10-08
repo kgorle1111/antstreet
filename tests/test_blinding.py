@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-SRC = Path(__file__).resolve().parent.parent / "src" / "boss"
+SRC = Path(__file__).resolve().parent.parent / "src" / "antstreet"
 GIVEN_TO_MODELS = sorted(
     [*(SRC / "prompts").glob("*.md"), *(SRC / "skills").rglob("*.md"), *(SRC / "rubrics").glob("*")]
 )

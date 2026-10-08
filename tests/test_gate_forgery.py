@@ -10,8 +10,8 @@ from pathlib import Path
 import gate_forgers as forge
 import pytest
 
-from boss.gate import Check, CheckResult, CheckStatus, run_gate
-from boss.sandbox import SandboxMode, detect
+from antstreet.gate import Check, CheckResult, CheckStatus, run_gate
+from antstreet.sandbox import SandboxMode, detect
 
 FIXTURE = "import pytest\n@pytest.fixture\ndef boom():\n"
 NO_PROOF = "exit 0 but the gate's pytest plugin left no valid proof of a clean session"

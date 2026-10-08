@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT_LINE
 
-from boss.boss import load_prompt
-from boss.roles import registry
-from boss.roles.advisory import (
+from antstreet.boss import load_prompt
+from antstreet.roles import registry
+from antstreet.roles.advisory import (
     ADVICE_SCHEMA,
     AUDITOR,
     CONSULTANT,
@@ -29,11 +29,11 @@ from boss.roles.advisory import (
     render_audit,
     render_verdict,
 )
-from boss.roles.base import RoleError, RoleOutputError, system_prompt
-from boss.roles.stories import MIN_SOURCE_CHARS, is_fragment
-from boss.skills import MAX_SKILL_CHARS, load_skill
-from boss.stream import Usage
-from boss.termsheet import CheckSpec
+from antstreet.roles.base import RoleError, RoleOutputError, system_prompt
+from antstreet.roles.stories import MIN_SOURCE_CHARS, is_fragment
+from antstreet.skills import MAX_SKILL_CHARS, load_skill
+from antstreet.stream import Usage
+from antstreet.termsheet import CheckSpec
 
 SLUGIFY_IDEA = (Path(__file__).parent.parent / "bench/tasks/slugify/idea.md").read_text()
 IDEA = (

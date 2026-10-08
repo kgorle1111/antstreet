@@ -3,8 +3,8 @@ from uuid import UUID
 
 import pytest
 
-from boss.ledger import Billing
-from boss.worker import (
+from antstreet.ledger import Billing
+from antstreet.worker import (
     MAX_DISPUTE_REASON_CHARS,
     MAX_MODEL_ID_CHARS,
     MAX_REASON_CHARS,

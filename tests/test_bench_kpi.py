@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench import kpi
-from boss.bench.kpi import KpiCard, build_columns, kpi_card, main, render_cards
-from boss.bench.results import CellResult, cell_dir, load_results
-from boss.bench.table import wilson_interval
-from boss.ledger import Event, EventType, LedgerWriter
+from antstreet.bench import kpi
+from antstreet.bench.kpi import KpiCard, build_columns, kpi_card, main, render_cards
+from antstreet.bench.results import CellResult, cell_dir, load_results
+from antstreet.bench.table import wilson_interval
+from antstreet.ledger import Event, EventType, LedgerWriter
 
 PASS = {"a": "passed", "b": "passed"}
 FAIL = {"a": "passed", "b": "failed"}
@@ -549,7 +549,7 @@ def test_the_command_says_no_results_found_and_prints_the_table_without_extra_ne
 
 def _forged_firm_cell(root: Path) -> Path:
     """A firm cell whose run was signed, with a `check_result passed` appended without the key."""
-    from boss.rundir import RunPaths
+    from antstreet.rundir import RunPaths
 
     run = RunPaths(root / ".boss" / "runs" / "r1")
     with run.writer() as ledger:

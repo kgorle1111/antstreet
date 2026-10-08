@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from boss.bench.replay import (
+from antstreet.bench.replay import (
     CLOSING,
     WorkerReplay,
     main,
@@ -12,9 +12,9 @@ from boss.bench.replay import (
     replay_runs,
     replay_worker,
 )
-from boss.errors import Outcome
-from boss.ledger import Event, EventType, LedgerWriter
-from boss.rule import Decision, FiringPolicy, SliceRecord, Verdict, decide
+from antstreet.errors import Outcome
+from antstreet.ledger import Event, EventType, LedgerWriter
+from antstreet.rule import Decision, FiringPolicy, SliceRecord, Verdict, decide
 
 STALL2 = FiringPolicy(stall_slices=2, max_slices=6)
 

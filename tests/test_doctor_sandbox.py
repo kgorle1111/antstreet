@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from boss import doctor
-from boss.doctor import DoctorCheck, render_doctor, run_doctor
-from boss.sandbox import Sandbox, detect
+from antstreet import doctor
+from antstreet.doctor import DoctorCheck, render_doctor, run_doctor
+from antstreet.sandbox import Sandbox, detect
 
 FAKE_CLI = f"""#!{sys.executable}
 import sys
