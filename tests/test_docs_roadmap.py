@@ -10,7 +10,7 @@ ROADMAP = ROOT / "ROADMAP.md"
 
 def test_the_roadmap_exists_and_the_readme_links_it():
     assert ROADMAP.is_file()
-    readme = section(read(ROOT / "README.md"), "🗺️ Roadmap (planned, not built)")
+    readme = section(read(ROOT / "README.md"), "🗺️ Where it's going (planned, not built)")
     assert "[ROADMAP.md](ROADMAP.md)" in readme
 
 

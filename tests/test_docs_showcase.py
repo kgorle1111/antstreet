@@ -7,7 +7,7 @@ import sys
 import xml.dom.minidom
 
 import pytest
-from docs_support import DOCS, ROOT, read, run_cli
+from docs_support import DOCS, ROOT, read, run_cli, section, table
 
 README = ROOT / "README.md"
 ASSETS = ROOT / "docs" / "assets"
@@ -99,9 +99,9 @@ def test_the_test_count_floor_is_true():
         check=True,
     ).stdout
     collected = int(re.search(r"(\d+) tests? collected", out).group(1))  # type: ignore[union-attr]
-    assert collected >= 5000
+    assert collected >= 5700
     body = read(README)
-    assert "tests-5000%2B-brightgreen" in body and "**5,000+ tests**" in body
+    assert "tests-5700%2B-brightgreen" in body and "**5,700+ tests**" in body
 
 
 def test_the_engineering_figures_are_the_repos(text):
@@ -114,8 +114,8 @@ def test_the_engineering_figures_are_the_repos(text):
     assert len(threats) == 71 and "A threat model with 71 rows" in text
     decisions = re.findall(r"^### D\d+:", read(DOCS / "DECISIONS.md"), re.M)
     assert len(decisions) == 46 and "**46 recorded design decisions**" in text
-    experiments = re.findall(r"^## E\d+\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
-    assert len(experiments) == 6 and "six experiments fixed before any run" in text
+    experiments = re.findall(r"^## E\d+b?\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
+    assert len(experiments) == 7 and "**7 pre-registered experiments**" in text
     assert "macOS seatbelt; Linux `bwrap`, run and required in CI" in text
     assert "Python 3.12+" in text and "python-3.12%2B" in text
     assert "license-Apache--2.0" in text
@@ -127,16 +127,18 @@ def test_the_engineering_figures_are_the_repos(text):
 def test_the_showcase_has_its_sections():
     heads = re.findall(r"^## (.+)$", read(README), re.M)
     assert [h.split(" ", 1)[1] for h in heads] == [
-        "The one-minute pitch",
+        "In three steps",
         "See it run",
         "The problem",
-        'We measure, and we publish the "no"',
         "How it flows",
         "Why it is different",
-        "How it's engineered",
         "Quickstart",
+        'We measure, and we publish the "no"',
+        "How it's engineered",
+        "Built by",
+        "Advanced and experimental: `antstreet fund`",
         "Status and honest limits",
-        "Roadmap (planned, not built)",
+        "Where it's going (planned, not built)",
         "Contributing",
         "License",
     ]
@@ -144,7 +146,14 @@ def test_the_showcase_has_its_sections():
 
 
 @pytest.mark.parametrize(
-    "name", ["hero.svg", "demo.svg", "mascot-pig.svg", "mascot-bull.svg", "mascot-ant.svg"]
+    "name",
+    [
+        "hero.svg",
+        "demo.svg",
+        "mascot-pig.svg",
+        "mascot-bull.svg",
+        "mascot-ant.svg",
+    ],
 )
 def test_each_svg_is_well_formed_small_and_scriptless(name):
     path = ASSETS / name
@@ -162,6 +171,72 @@ def test_the_name_is_one_plain_text_element_in_the_hero():
     hero = read(ASSETS / "hero.svg")
     assert len(re.findall(r">AntStreet</text>", hero)) == 1
     assert "Your AI agents get paid when the checks pass." in hero
+
+
+def test_the_audit_comes_first_and_fund_is_labelled_experimental():
+    body = read(README)
+    head = " ".join(body[: body.index("## 🎬")].split())
+    assert (
+        "AntStreet checks your AI coding agent's work against tests it never saw, so \"all tests "
+        'pass" actually means something.' in head
+    )
+    assert "like a student who writes their own exam" in head and "answer key" in head
+    assert body.index("antstreet audit plan") < body.index("antstreet fund")
+    fund = " ".join(section(body, "🧰 Advanced and experimental: `antstreet fund`").split())
+    assert "**not shown to build better than a single agent**, at about 2.4 times the cost" in fund
+    assert "uvx antstreet" not in body, "not on PyPI yet: uvx antstreet does not resolve"
+    assert "python -m boss" not in body and "python -m antstreet" not in body
+
+
+def test_the_e4b_and_experiment_figures_are_the_write_ups(text):
+    e4b = " ".join(read(ROOT / "bench/results/2026-10-07-e4b-critic/README.md").split())
+    for fact in ("+0.0952 [-0.0000, +0.1905]", "Delivery 74/105 (70%) against 61% (self-review)",
+                 "19 of 80 cells that passed every visible check (24%)", "(1.56x)"):  # fmt: skip
+        assert fact in e4b, f"the E4b write-up lost: {fact}"
+    for phrase in (
+        "delivered 74 of 105 (70%) against 61% for self-review",
+        "with the fewest false passes (24%), at about 1.56x the cost per delivered task",
+        "+0.0952 [-0.0000, +0.1905]",
+    ):
+        assert phrase in text, f"README lost: {phrase}"
+    rows = {
+        r[0]: r[2]
+        for r in table(section(read(ROOT / "ROADMAP.md"), "Experiments: we publish the no"))
+    }
+    ran = {k for k, status in rows.items() if status.startswith("**Not shown")}
+    assert ran == {"E1", "E3", "E4", "E4b"}
+    assert not any(s.startswith("**Shown") for s in rows.values())
+    assert "Four have run. **None has shown its benefit, and every one is published.**" in text
+
+
+def test_the_audit_output_shown_is_what_a_real_audit_prints(tmp_path):
+    from audit_support import WRONG_SLUG, Audit, branch, later
+
+    audit = Audit(tmp_path)
+    code, planned = audit.run("plan", "--request", str(audit.request), "--repo", str(audit.repo))
+    assert code == 0
+    branch(audit.repo, "agent", {"slug.py": WRONG_SLUG}, later())
+    code, checked = audit.check(audit.run_id(), "agent", "--claim", "done")
+    assert code == 3
+    printed = re.sub(r"\d{8}T\d{6}Z-[0-9a-f]{6}", "<run>", planned + "\n" + checked)
+    printed = re.sub(r"\b[0-9a-f]{64}\b", "<sha256>", printed)
+    body = section(read(README), "🎬 See it run")
+    shown = body.split("```text\n", 1)[1].split("```", 1)[0].splitlines()
+    assert shown[0] == "$ antstreet audit plan --request ~/req.txt"
+    assert "$ antstreet audit check --claim done" in shown
+    real = [t for t in shown if t.strip() and not t.startswith(("$", "#"))]
+    assert len(real) >= 15
+    prompt = "[a]pprove, [r]eject, or [e]dit files and re-check? "
+    sources = " ".join(read(p) for p in (ROOT / "src").rglob("approval.py"))
+    for line in real:
+        if line.startswith("[a]pprove"):
+            assert line == prompt + "a" and f'ask("{prompt}")' in sources
+        else:
+            assert line in printed, f"the audit demo shows output a run does not print: {line!r}"
+    assert "Verdict: REFUTED (claim: done, pre-registered)" in real
+    assert "This is the output of a test-suite run with a fake model, abridged" in " ".join(
+        body.split()
+    )
 
 
 def test_the_demo_shows_only_strings_a_real_run_prints(tmp_path):
