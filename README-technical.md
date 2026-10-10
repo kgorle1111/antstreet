@@ -359,7 +359,7 @@ asking you; only `/antstreet:fund` may also run `fund` and `resume`. No grant in
 Four hooks run as you. At session start, if `uvx` is missing, one prints the one command that
 installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. Before each
 Bash, Monitor or PowerShell call, one denies any command that runs `antstreet approve` or
-`antstreet approve` (through `uvx`, `uv run`, `python -m antstreet.cli`, an installed
+`boss approve` (through `uvx`, `uv run`, `python -m antstreet.cli`, an installed
 script, env prefixes, `;`, `&&`, `|`, subshells or quotes) and tells the agent to ask you to type
 it. When the agent stops, in a project with runs under `.boss/runs/`, the last runs
 `uvx antstreet status`, which checks the latest ledger's hash chain and signatures offline. A
