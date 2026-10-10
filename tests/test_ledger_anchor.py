@@ -278,7 +278,7 @@ def test_an_older_run_with_no_anchor_is_refused_until_the_investor_adopts_it(run
         ledger.append(boss_call())
         ledger.append(old)
         ledger.append(boss_call(2))
-    refused(run, r"3 of 3 lines are unsigned .* `boss verify r1 --adopt-unsigned`")
+    refused(run, r"3 of 3 lines are unsigned .* `antstreet verify r1 --adopt-unsigned`")
     assert adopt_unsigned(run.ledger, run.investor_key) == 3
     assert len(run.events()) == 3 and adopt_unsigned(run.ledger, run.investor_key) == 0
     # a run that has not been approved yet: boss calls only, and no key at all

@@ -59,7 +59,7 @@ class CellResult:
     outcome: str  # the worker's outcome, or why no worker ran
     failure_class: str | None  # None when every hidden check passed
     duration_s: float
-    firm_args: str = ""  # extra `boss fund` options the firm arm ran with, e.g. "--rounds 3"
+    firm_args: str = ""  # extra `antstreet fund` options the firm arm ran with, e.g. "--rounds 3"
     # Firm only: boss-written checks that the task's reference solution fails. Such a check
     # demands something the idea does not; None when not measured (older results, single arm).
     wrong_checks: int | None = None

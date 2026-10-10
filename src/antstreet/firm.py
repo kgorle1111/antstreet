@@ -105,13 +105,14 @@ class FirmConfig:
     # How many held-out checks the examiner was asked for (0 turns the feature off). The checks
     # themselves are in the run folder and in the investor's approval; this records the request,
     # so the report can say when it was not met.
-    # The examiner runs before the approval (`boss fund --held-out N`), so the loop only grades
+    # The examiner runs before the approval (`antstreet fund --held-out N`), so the loop only grades
     # what was approved.
     held_out: int = 0
     # The CLI's thinking budget for every worker slice (MAX_THINKING_TOKENS); 0 turns thinking
     # off. None leaves the CLI's own default.
     thinking_tokens: int | None = None
-    # Per-task dispatch (`boss fund --dispatch rules`): each task's own model and effort from the
+    # Per-task dispatch (`antstreet fund --dispatch rules`): each task's own model and effort from
+    # the
     # term sheet, a step up for a worker the gate fired, and a record of which model really ran.
     # Off, a run is what it has always been.
     dispatch: bool = False
@@ -220,7 +221,7 @@ class _Firm:
     cancel: threading.Event  # set on Ctrl-C so slices running in other threads stop
     advise: Advise | None  # an opinion to show the investor before a dispute is ruled on
     # Nobody is at a terminal to rule (no TTY): a dispute stops the run pending, for
-    # `boss approve --dispute`, instead of reading end of input as "set the task aside".
+    # `antstreet approve --dispute`, instead of reading end of input as "set the task aside".
     unattended: bool = False
 
     def events(self) -> list[Event]:
@@ -723,12 +724,12 @@ class _Firm:
             if len(workers) >= limit:
                 return (
                     f"cascade: all {limit} rungs failed their checks; the investor decides "
-                    "(raise the budget or edit the term sheet, then `boss resume`)"
+                    "(raise the budget or edit the term sheet, then `antstreet resume`)"
                 )
             return (
                 "cascade: the last worker was not fired on the gate's evidence, or the next rung "
                 "is not funded in the round; the investor decides (top up the round, then "
-                "`boss resume`)"
+                "`antstreet resume`)"
             )
         if len(workers) < limit:
             return "one agent: no stronger worker to hire"

@@ -1,4 +1,5 @@
-"""`boss audit report`: verdicts per run, the false-pass rate and interval, modes kept apart."""
+"""`antstreet audit report`: verdicts per run, the false-pass rate and interval, modes kept
+apart."""
 
 from datetime import timedelta
 

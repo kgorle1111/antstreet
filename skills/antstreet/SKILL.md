@@ -15,7 +15,7 @@ This skill only reads what a run recorded:
 - `uvx antstreet doctor`: checks this machine can run AntStreet. No model call.
 
 To start a run, tell the user to use `/antstreet:fund <idea>`: it drafts the term sheet, the user
-approves it themselves, and then it builds. Never run `antstreet approve` (or `boss approve`) in
+approves it themselves, and then it builds. Never run `antstreet approve` (or `antstreet approve`) in
 any form: approval is the investor's act, and this plugin's hook denies it. When a run is waiting
 for approval, tell the user to type `! uvx antstreet approve RUN --sheet VALUE` with the values
 `fund` printed. Do not run `fund`, `resume`, `topup`, `audit` or `doctor --live` from this skill:
