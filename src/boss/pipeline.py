@@ -690,13 +690,21 @@ class Pipeline:
     def _proposed(self, sheet: TermSheet, review: Review) -> list[CheckSpec]:
         """A check file for each verified finding that a task owns and that fails on an empty
         workspace (as every approved check must). A finding that does not qualify is dropped, with
-        a line saying why."""
+        a line saying why. A task set aside stays set aside, so no worker would ever see its check:
+        funding a fix for it would buy nothing."""
         specs: list[CheckSpec] = []
+        state = run_state(self._events(), [t.id for t in sheet.tasks])
         for f in review.verified:
             task = _owner(sheet, f)
             if task is None:
                 self.say(
                     f"Finding not proposed ({f.claim}): no task owns the module its test imports."
+                )
+                continue
+            if state.tasks[task].abandoned:
+                self.say(
+                    f"Finding not proposed ({f.claim}): its task {task} was set aside, so no "
+                    "worker would work on it."
                 )
                 continue
             one = Review((f,), (), ())

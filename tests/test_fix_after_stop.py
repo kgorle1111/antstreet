@@ -97,6 +97,20 @@ def test_with_held_out_checks_the_top_up_approval_covers_them_and_the_worker_run
     assert product_verdicts(fx) == {"c01": "passed", "c02": "passed"}
 
 
+def test_a_finding_whose_task_was_set_aside_is_not_offered_so_nothing_is_topped_up(fx):
+    """A task set aside stays set aside: a top-up for its checks would reopen a round with no
+    task to work on, so the round would close again with the investor's yes spent on nothing."""
+    fx.set("worker", BAD | {"status": "blocked", "reason": "stuck"})
+    fx.set("critic", ok({"findings": [finding()]}))
+    out = fx.fund("--roles", "critic", "--fix-after-stop", answers={"Task": "s"})
+    assert out.code == EXIT_INCOMPLETE and f"Critic verified a finding (high): {CLAIM}" in out.text
+    assert "its task t1 was set aside" in out.text and asked(out, "Add these") == []
+    assert fx.events(EventType.TOPPED_UP) == [] and len(approvals(fx)) == 1
+    [ruling] = fx.events(EventType.RULED)
+    assert ruling.actor == "investor" and ruling.data["ruling"] == "declined"
+    assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
+
+
 def test_the_reopened_round_never_spends_past_its_budget_and_the_top_up(fx):
     locked_then_fixed(fx, fixes=False)  # the fix never lands: the round spends all it may
     out = fx.fund(*EARLY, "--fix-after-stop", "--no-firing")
