@@ -161,12 +161,14 @@ Added 2026-10-10, after E4b's result and before any E4c run.
 - **Why.** In E4b, 9 of the 29 cells with a verified critic finding got no fix round: round 1
   closed below its unlock threshold and the code offered nothing after that stop
   (`ops/e4/e4b-declined-trace-2026-10-08.md`). The critic found real bugs nobody fixed.
-- **Change, and only this change.** `antstreet fund --fix-after-stop` (commit 7458b55, PR #80):
-  when the run ended only because a round closed locked, verified findings are offered as checks
-  and the investor's yes tops up that round by the fix budget, which reopens it. Every other stop
-  is unchanged. The run uses E4b's code state (`bench/e4b-runner`, 1a9b9e1: 4ba91ad + the $0.40
-  critic cap + the 900 s critic limit) with 7458b55 applied; a run from a later main (builder_v5)
-  is not E4c.
+- **Change, and only this change.** `antstreet fund --fix-after-stop` (PR #80: commit 7458b55 and
+  its review fixes 15c06ad and 6447e6e): when the run ended only because a round closed locked,
+  verified findings are offered as checks and the investor's yes tops up that round by the fix
+  budget, which reopens it; a finding whose task was set aside is not offered. Every other stop is
+  unchanged. The run uses E4b's code state (`bench/e4b-runner`, 1a9b9e1: 4ba91ad + the $0.40
+  critic cap + the 900 s critic limit) with those three commits ported to it, on branch
+  `bench/e4c-runner` (the write-up records its SHA); a run from a later main (builder_v5) is not
+  E4c.
 - **Arm.** firm on blind35, 35 tasks x 3 reps, Haiku boss and workers, `--budget 0.40
   --firm-args "--slice 0.20 --roles critic --fix-budget 0.30 --fix-after-stop"`, fresh in its own
   `--out` (`bench/results/raw/e4c-critic-fix-after-stop`). E4's self-review cells and E4b's cells
