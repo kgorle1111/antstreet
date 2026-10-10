@@ -126,7 +126,7 @@ antstreet audit report                     # every verdict, and the false-pass r
 ```
 
 Or run `antstreet audit` on its own: it does whichever step comes next for the repo, seal or check.
-After the verdict it also runs a check-strength pass, which flags counted checks that survive
+Beside the verdict it also runs a check-strength pass, which flags counted checks that survive
 deliberately broken copies of your changed lines as weak. That is advice only and never changes the
 verdict; `--no-strength` skips it.
 
