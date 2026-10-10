@@ -24,10 +24,14 @@ No model call is made. Nothing here is a paid run.
 
 ## Criteria
 
+The P1 run used this file as of commit c53720d (sha256 0ffd531a415a2378, the hash its report
+names). Later edits (a0b56ed and the O2 wording below) only say who wrote the labels; no criterion
+changed.
+
 | Step | Question | Pass when |
 |---|---|---|
 | O1 | Is the splitter sound? | Every property holds on 100% of the 59 ideas and of their numbering-stripped copies (offsets reproduce the text, rules ordered and disjoint, no empty rule), and the sentence count is at most 40 in at least 95% of the ideas |
-| O2 | Are the labels trustworthy? | Reported: the automatic proposer's top-1 agreement with the final hand labels. If under 70%, every file was hand-labelled (it was) and the proposer is not used |
+| O2 | Are the labels trustworthy? | Reported: the automatic proposer's top-1 agreement with the final hand labels. If under 70%, every file was labelled one by one, not taken from the proposer (it was, by Claude, not a human: see Labels above), and the proposer is not used |
 | O3 recall | Does the free verifier find the known omissions? | At least 60% of the 15 known-omission cells (9 of 15) have at least one flagged rule that is a rule of one of their failing hidden checks |
 | O3 burden | Is the list short enough to read? | Median flagged rules per draft is at most 4 |
 | O4 | Is anchor-present predictive of killing? | Over (draft, rule, mutant) triples where the rule has an anchor and the mutant violates the rule: kill rate with all anchors present minus kill rate with an anchor missing is at least 25 points, with at least 40 triples on each side |
