@@ -856,6 +856,14 @@ def _gate_file(paths: RunPaths, chosen: bool) -> Path | None:
     return paths.coverage if chosen else None
 
 
+def _spec_chosen(waited: Mapping[str, Any], rules: Path) -> bool:
+    """Whether the stop awaiting approval was made with `--spec`: from its signed `spec` key,
+    never from the file being there, so a deleted rule list refuses the approval instead of
+    dropping the coverage view. A stop written before the key existed falls back to the file."""
+    chosen = waited.get("spec")
+    return chosen is True if "spec" in waited else rules.is_file()
+
+
 def _unattended(ask: Ask) -> bool:
     """Nobody is at a terminal to answer: the real `input` on a stdin that is not a TTY."""
     return ask is input and not (sys.stdin and sys.stdin.isatty())
@@ -886,6 +894,7 @@ def _await_approval(
         "untested": dict(waivers),
         "notes": list(plan.notes),
         "coverage": gated,
+        "spec": spec_shown is not None,
     }
     record("boss", EventType.STOPPED, data=data)
     _show_pending(paths, run, view, spec_shown, plan.notes, pipe.say)
@@ -968,7 +977,14 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
                 review = "critic" if "critic" in setup.roles else "off"
                 level = dispatching.RunLevel(setup.model, review, config.held_out, config.parallel)
                 view = dispatching.DispatchView(policy, level, config.policy.stall_slices, {})
-            rules = paths.rules if paths.rules.is_file() else None
+            rules = paths.rules if _spec_chosen(waited, paths.rules) else None
+            if rules is not None and not rules.is_file():
+                say(
+                    f"Not approved: {rules.name} is missing, and this run was started with --spec, "
+                    "so its rule coverage cannot be shown; start again with `antstreet fund "
+                    "--spec`. Nothing was written."
+                )
+                return EXIT_FAILED
             spec_shown = spec_view(paths.rules, paths.checks, waivers, gate) if rules else None
             if args.sheet is None:
                 kept = notes if isinstance(notes, list) else []

@@ -816,6 +816,7 @@ Example:
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
 | `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `antstreet approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
 | `coverage` | bool | The run was started with `--coverage`, so `antstreet approve` shows the COVERAGE GATE from `coverage.json`, and refuses when that file is missing or unreadable rather than show the sheet without it. Only on a stop awaiting approval. |
+| `spec` | bool | The run was started with `--spec` (or `--coverage`), so `antstreet approve` shows the rule coverage from `rules.json`, and refuses when that file is missing rather than show the sheet without it. Only on a stop awaiting approval; on one written before this key existed, `rules.json` being there decides. |
 | `notes` | list | The roles' notes on the draft, shown under the term sheet by `antstreet approve` (for an audit, what each check does on the base, shown by `antstreet audit approve`). They bind nothing. Only on a stop awaiting approval. |
 | `questions` | list | The boss's yes/no questions, as shown, in order. Only on an audit's stop awaiting the investor's answers. |
 | `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
