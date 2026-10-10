@@ -1,23 +1,21 @@
 ---
 import { ROADMAP_URL } from "../data/links";
 
-// From ROADMAP.md, "Now" and "Next". Nothing here is built yet.
+// From ROADMAP.md, "Now" and "Next". Only unbuilt items belong here.
 const now = [
-  ["antstreet on PyPI", "so nothing needs a clone."],
-  ["Check strength", "each sealed check runs against deliberately broken copies of the changed code; a check that passes them all is flagged as weak."],
-  ["Approval as a few yes/no questions", "you answer where the request is ambiguous, and your answers become checks or waivers, signed like any approval."],
+  ["antstreet on PyPI", "so nothing needs a clone. Publishing is imminent, not done."],
+  ["CI export", "carry a sealed run to CI so the GitHub Action needs no manual step."],
 ];
 const next = [
-  ["A one-command, zero-install audit", "uvx antstreet audit in any Python repo, once the package is on PyPI."],
-  ["A Claude Code Stop hook", "runs audit check when the agent says it is done."],
-  ["CI export", "carry a sealed run to CI so the GitHub Action needs no manual step."],
   ["First run", "a short --help, a timed fresh-machine run in the README, a first-run guide."],
+  ["Live eval of approval questions", "decides whether the opt-in yes/no questions stay opt-in."],
 ];
+const built = "Already built: a one-command audit (antstreet audit) with a Claude Code Stop hook, and check strength, which flags checks that pass deliberately broken copies of the changed code. See the roadmap for the full shipped list.";
 ---
 <section id="next" class="section next" aria-labelledby="next-h">
   <div class="wrap">
     <p class="eyebrow">Roadmap</p>
-    <h2 id="next-h">What comes next. Nothing below is built yet.</h2>
+    <h2 id="next-h">Up next. Only unbuilt items are listed.</h2>
     <div class="cols">
       <div>
         <h3 class="col-h">Now</h3>
@@ -33,6 +31,7 @@ const next = [
         <p>A repeatable, pre-registered measurement of how often AI-written checks pass while hidden checks fail. Method first, results when they exist.</p>
       </aside>
     </div>
+    <p class="built">{built}</p>
     <p class="more"><a href={ROADMAP_URL}>The full roadmap</a></p>
   </div>
 </section>
@@ -45,5 +44,6 @@ const next = [
   .report { border: 2px dashed var(--ink); border-radius: 16px; padding: 22px; align-self: start; }
   .report h3 { font-size: 24px; margin: 10px 0 8px; }
   .soon { display: inline-block; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; background: var(--yellow); color: var(--navy); padding: 4px 10px; border-radius: 999px; }
+  .built { margin-top: 24px; }
   .more { margin-top: 24px; font-weight: 700; }
 </style>
