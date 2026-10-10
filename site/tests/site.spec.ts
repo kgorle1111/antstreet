@@ -104,11 +104,12 @@ test("motion: the hook ends level and still, smooth scroll on desktop, pins exis
 });
 
 for (const motion of MOTIONS) {
-  test(`layout shift is 0 (${motion})`, async ({ page }) => {
+  // Under 0.001: Linux CI fonts give a sub-pixel shift (2e-5 measured); "good" CLS is < 0.1.
+  test(`layout shift is under 0.001 (${motion})`, async ({ page }) => {
     await open(page, { motion });
     for (let y = 0; y < 6; y++) { await page.mouse.wheel(0, 900); await page.waitForTimeout(150); }
     await page.waitForTimeout(800);
-    expect(await page.evaluate(() => (window as any).__cls)).toBe(0);
+    expect(await page.evaluate(() => (window as any).__cls)).toBeLessThan(0.001);
   });
 }
 
