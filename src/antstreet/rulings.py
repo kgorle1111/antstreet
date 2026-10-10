@@ -89,11 +89,11 @@ def how_to_rule(run: str, disputes: Sequence[Mapping[str, str]]) -> str:
     lines = [f"\nRun {run} is {RULING_AWAITED}. To rule, run this yourself, one line per check:"]
     for d in disputes:
         check = d["check"]
-        lines.append(f"  boss approve {run} --dispute {check} --ruling drop   (drop {check})")
-        lines.append(f"  boss approve {run} --dispute {check} --ruling keep   (it must pass)")
+        lines.append(f"  antstreet approve {run} --dispute {check} --ruling drop   (drop {check})")
+        lines.append(f"  antstreet approve {run} --dispute {check} --ruling keep   (it must pass)")
     lines.append(
         "In Claude Code, type it with the `!` prefix: the ruling is yours, never the agent's. "
-        f"Then continue with `boss resume {run}`."
+        f"Then continue with `antstreet resume {run}`."
     )
     return "\n".join(lines)
 

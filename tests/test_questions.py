@@ -1,5 +1,6 @@
-"""The spec-gap questions: guards on the model's output, `boss audit plan --questions` at a
-terminal, and the same plan with no terminal, answered and approved with `boss audit approve`."""
+"""The spec-gap questions: guards on the model's output, `antstreet audit plan --questions` at a
+terminal, and the same plan with no terminal, answered and approved with
+`antstreet audit approve`."""
 
 import json
 import re
@@ -179,7 +180,7 @@ def test_no_terminal_prints_the_questions_and_the_investor_answers_then_approves
                             str(audit.request), "--questions")  # fmt: skip
     run = audit.run_id()
     assert code == cli.EXIT_AWAITING and "awaiting the investor's answers" in said
-    assert f"boss audit approve {run} --answers y,y,y" in said and "Q3. Should" in said
+    assert f"antstreet audit approve {run} --answers y,y,y" in said and "Q3. Should" in said
     assert MARKER not in said and not ruled(audit)
 
     # the sheet cannot be approved before the answers, and a wrong count writes nothing
@@ -191,7 +192,7 @@ def test_no_terminal_prints_the_questions_and_the_investor_answers_then_approves
                             "--repo", str(audit.repo))  # fmt: skip
     assert code == cli.EXIT_AWAITING and MARKER in said  # the full sheet, to approve
     assert [r.data["answer"] for r in ruled(audit)] == ["yes", "no", "skip"]
-    digest = re.search(rf"boss audit approve {run} --sheet ([0-9a-f]{{16}})", said).group(1)
+    digest = re.search(rf"antstreet audit approve {run} --sheet ([0-9a-f]{{16}})", said).group(1)
     assert unattended(monkeypatch, audit, "approve", run, "--answers", "y,n,s")[0] == 1  # once
 
     code, said = unattended(monkeypatch, audit, "approve", run, "--sheet", digest)

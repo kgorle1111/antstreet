@@ -77,5 +77,5 @@ def test_the_configured_budget_is_recorded_on_started_and_reaches_every_slice(pa
     worker = Script(step(GOOD, "done"))
     run(paths, worker, sheet(), config=FirmConfig(thinking_tokens=2000))
     assert [s.thinking_tokens for s in worker.specs] == [2000]
-    # `boss resume` takes the configuration back from the `started` event.
+    # `antstreet resume` takes the configuration back from the `started` event.
     assert started_config(read_events(paths.ledger)) == FirmConfig(thinking_tokens=2000)

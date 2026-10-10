@@ -137,7 +137,7 @@ def test_unparsable_auth_status(cli, env, cwd):
 def test_logged_in_without_live_is_reported_not_verified(cli, env, cwd):
     check = by_name(run_doctor(env, cwd, executable=cli))["login"]
     assert check.ok
-    assert "reported, not verified" in check.detail and "boss doctor --live" in check.detail
+    assert "reported, not verified" in check.detail and "antstreet doctor --live" in check.detail
     assert not Path(env["FAKE_ARGV_LOG"]).exists()  # no live call was made
 
 

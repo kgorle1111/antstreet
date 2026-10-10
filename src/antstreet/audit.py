@@ -1,9 +1,9 @@
-"""`boss audit plan`: seal checks for a change request before anyone's work is looked at.
+"""`antstreet audit plan`: seal checks for a change request before anyone's work is looked at.
 
 The audit store lives outside the repository (`~/.boss-audit`, or `$BOSS_AUDIT_HOME`): the checks
 are not in the audited repo, in an agent's prompt or in its working folder. The store has the layout
 of a project (`<store>/.boss/runs/<id>`, `<store>/.boss/investor.key`), so the run's ledger, the
-investor's signed approval and the signed `audited` events are the machinery `boss fund` has.
+investor's signed approval and the signed `audited` events are the machinery `antstreet fund` has.
 
 The checks are written from the request and the base's public surface alone (paths, names and
 signatures, no bodies), so they cannot be fitted to a change. This module also holds what `plan`
@@ -69,7 +69,7 @@ MAX_PARSE_BYTES = 256 * 1024
 VENV = ".venv"  # where `uv sync` and `python -m venv .venv` put a repo's environment
 _SKIPPED_DIRS = frozenset({"__pycache__", "node_modules", ".venv", "venv", "build", "dist"})
 AWAITING_ANSWERS = "awaiting the investor's answers"  # `stopped` reasons of a plan with no
-AWAITING_APPROVAL = "awaiting the investor's approval"  # terminal, until `boss audit approve`
+AWAITING_APPROVAL = "awaiting the investor's approval"  # terminal, until `antstreet audit approve`
 _SEAL = re.compile(r"audit seal: base=([0-9a-f]{40}|[0-9a-f]{64}) request_sha256=([0-9a-f]{64})\Z")
 
 
@@ -107,12 +107,12 @@ class PlanResult:
     run_id: str
     seal: str
     counted: int | None  # checks failing at the base: the ones a verdict can rest on
-    total: int | None  # None when approved later by `boss audit approve` (shown then, not now)
+    total: int | None  # None when approved later by `antstreet audit approve` (shown then, not now)
 
 
 @dataclass(frozen=True, slots=True)
 class Waiting:
-    """A plan with nobody at a terminal: it waits for `boss audit approve`. `text` says how."""
+    """A plan with nobody at a terminal: it waits for `antstreet audit approve`. `text` says how."""
 
     run_id: str
     text: str
@@ -149,7 +149,9 @@ def request_hash(request: str) -> str:
 def parse_seal(sheet: TermSheet) -> Seal:
     match = _SEAL.fullmatch(sheet.tasks[0].brief) if len(sheet.tasks) == 1 else None
     if match is None:
-        raise AuditError("this run's term sheet is not an audit seal: `boss audit plan` made none")
+        raise AuditError(
+            "this run's term sheet is not an audit seal: `antstreet audit plan` made none"
+        )
     seal = Seal(match.group(1), match.group(2))
     if request_hash(sheet.idea) != seal.request_sha256:
         raise AuditError("the request in the term sheet is not the one the seal records")
@@ -284,7 +286,8 @@ def repo_env(repo: Path, store: Path) -> RepoEnv:
         return RepoEnv(
             None,
             f"the repo's {VENV} is not used: its packages are the repo's code and run only inside "
-            "an OS sandbox, which this machine has not got (`boss doctor` says why), so a check "
+            "an OS sandbox, which this machine has not got (`antstreet doctor` says why), so a "
+            "check "
             "that imports a third-party module is blocked",
         )
     return RepoEnv(
@@ -381,7 +384,7 @@ def plan(
     (`antstreet.questions`); each answer adds a check or records a waiver before the sheet is
     shown, folded. Not `attended` (no terminal): nothing is read from stdin, which another program
     could fill; the run stops awaiting the investor's answers or approval (`Waiting`), and
-    `boss audit approve` carries on."""
+    `antstreet audit approve` carries on."""
     repo = Path(repo).resolve()
     store = Path(store)
     if store.resolve().is_relative_to(repo):
@@ -529,9 +532,9 @@ def how_to_answer(run_id: str, asked: Sequence[questions.Question]) -> str:
         f"Run {run_id} is {AWAITING_ANSWERS}. The boss asks about rules the request leaves "
         f"open:\n{questions.render(asked)}\nAnswer each yourself, in order, y, n or s (skip): a "
         "yes or a no adds the check drafted for that answer, a skip records a waiver. For "
-        f"example:\n  boss audit approve {run_id} --answers {example}\nIn Claude Code, type it "
-        "with the `!` prefix: the answers are yours, never the agent's. The term sheet is shown "
-        "next, for your approval."
+        f"example:\n  antstreet audit approve {run_id} --answers {example}\nIn Claude Code, "
+        "type it with the `!` prefix: the answers are yours, never the agent's. The term sheet "
+        "is shown next, for your approval."
     )
 
 
@@ -542,7 +545,7 @@ def how_to_approve(paths: RunPaths, run_id: str, notes: Sequence[str]) -> str:
     return "\n".join([
         text, *notes,
         f"\nRun {run_id} is {AWAITING_APPROVAL}. Read the term sheet and every check above; to "
-        f"approve exactly that, run this yourself:\n  boss audit approve {run_id} --sheet "
+        f"approve exactly that, run this yourself:\n  antstreet audit approve {run_id} --sheet "
         f"{shown_digest(text)}\nIn Claude Code, type it with the `!` prefix: the approval is "
         "yours, never the agent's.",
     ])  # fmt: skip
@@ -568,8 +571,8 @@ def carry_on(
     answers: str | None,
     digest: str | None,
 ) -> PlanResult | Waiting:
-    """`boss audit approve`: show what a plan waits for, record the investor's answers (then run
-    the checks on the base and wait for the approval), or approve the sheet shown with `digest`.
+    """`antstreet audit approve`: show what a plan waits for, record the investor's answers (then
+    run the checks on the base and wait for the approval), or approve the sheet shown with `digest`.
     AuditError, with nothing written, when the run is not waiting for that."""
     paths = run_paths(store, run_id)
     if not run_id or not (paths.root / "ledger.jsonl").is_file():

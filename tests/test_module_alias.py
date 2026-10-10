@@ -40,7 +40,7 @@ def test_there_is_no_boss_import_package():
 
 def test_python_m_antstreet_cli_runs():
     done = py("-m", "antstreet.cli", "--version")
-    assert (done.returncode, done.stdout.strip()) == (0, f"boss {antstreet.__version__}")
+    assert (done.returncode, done.stdout.strip()) == (0, f"antstreet {antstreet.__version__}")
 
 
 def test_nothing_in_antstreet_imports_the_old_name():

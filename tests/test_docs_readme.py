@@ -105,7 +105,7 @@ def test_the_options_table_agrees_with_the_fund_parser(text):
         defaults = [d.strip().lstrip("$") for d in row[2].split(",")]
         assert len(named) == len(defaults), f"{row[0]}: one default per option"
         for option, shown in zip(named, defaults, strict=True):
-            assert option in real, f"README names {option}, which boss fund does not have"
+            assert option in real, f"README names {option}, which antstreet fund does not have"
             want = expected_default(real[option])
             assert want is None or shown == want.lstrip("$"), (
                 f"{option}: README {shown}, code {want}"
@@ -139,7 +139,7 @@ def test_the_exit_codes_stated_are_the_constants(text):
 
 def test_every_command_is_shown_in_the_readme(text):
     for name in cli._parser()._subparsers._group_actions[0].choices:
-        assert f"boss {name}" in text, f"the README never shows `boss {name}`"
+        assert f"antstreet {name}" in text, f"the README never shows `antstreet {name}`"
 
 
 def test_the_benchmark_figures_agree_with_the_blinded_runs_table_and_the_task_count(text):

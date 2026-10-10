@@ -292,7 +292,7 @@ def pending(
 
 
 def shown_digest(text: str) -> str:
-    """What `boss approve --sheet` takes: short enough to type, and it names one shown text."""
+    """What `antstreet approve --sheet` takes: short enough to type, and it names one shown text."""
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
@@ -308,7 +308,7 @@ def approve_shown(
     spec_shown: SpecView | None = None,
     rules_path: Path | None = None,
 ) -> TermSheet:
-    """The investor's approval of a sheet read earlier, outside any question (`boss approve`).
+    """The investor's approval of a sheet read earlier, outside any question (`antstreet approve`).
     `digest` is the `shown_digest` of the text they read; anything changed since then is a
     different text, so NotApprovedError, and nothing is written. TermSheetError or
     `spec.SpecError` when the sheet on disk cannot be approved at all."""

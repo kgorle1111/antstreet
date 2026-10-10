@@ -1,6 +1,7 @@
 """KPI figures read from one run's ledger, and nothing else (never from model text).
 
-Shared by `boss report` (one run) and `antstreet.bench.kpi` (many cells), so a run's figure and the
+Shared by `antstreet report` (one run) and `antstreet.bench.kpi` (many cells), so a run's figure
+and the
 benchmark's figure for the same run are the same count.
 """
 

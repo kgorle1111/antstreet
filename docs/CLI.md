@@ -8,24 +8,24 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [LEDGER.md](LEDGER.md), [ROLES.md](
 
 Every command also accepts `-h` and `--help`.
 
-## `boss`
+## `antstreet`
 
-`boss [--version] <command> ...` where the command is `fund`, `approve`, `resume`, `topup`, `report`,
+`antstreet [--version] <command> ...` where the command is `fund`, `approve`, `resume`, `topup`, `report`,
 `status`, `verify`, `roles`, `doctor`, `mcp` or `audit` (which has three steps of its own: `audit plan`, `audit check`
 and `audit report`).
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--version` | off | Print `boss <version>` and exit 0. |
+| `--version` | off | Print `antstreet <version>` and exit 0. |
 
 - A command is required. Without one, argparse prints usage and exits 2.
 - Commands run against a project folder (`--dir`). Runs are stored under `<dir>/.boss/runs/`.
-  `boss audit` is the exception: it audits a git repository you name and keeps its runs in the
-  audit store (see `boss audit plan`).
+  `antstreet audit` is the exception: it audits a git repository you name and keeps its runs in the
+  audit store (see `antstreet audit plan`).
 
-## `boss fund`
+## `antstreet fund`
 
-`boss fund [options] IDEA`. Drafts a term sheet, asks you to approve it, then builds the idea.
+`antstreet fund [options] IDEA`. Drafts a term sheet, asks you to approve it, then builds the idea.
 
 Argument: `idea`, what to build, in plain words.
 
@@ -35,7 +35,7 @@ Argument: `idea`, what to build, in plain words.
 - `--rounds`, `--max-tasks`, `--max-slices` and `--stall-slices` must be whole numbers of 1 or
   more. `--max-minutes` must be a positive number. `--boss-thinking` must be a whole number. Any
   other value is a usage error (exit 2) before anything is spent.
-- Ctrl-C after approval, while workers are running, stops the run, prints `boss resume <id>` and
+- Ctrl-C after approval, while workers are running, stops the run, prints `antstreet resume <id>` and
   exits 130. Nothing already recorded is lost. Ctrl-C earlier, while the boss or a role is being
   called, ends the run with a message and exit 130: nothing was funded, what the calls so far cost
   is on the ledger, and there is nothing to resume. Ctrl-C at the approval question counts as
@@ -44,7 +44,7 @@ Argument: `idea`, what to build, in plain words.
   `fund` does not ask. It prints the term sheet, every check and the roles' notes, keeps the
   paid-for draft unapproved, records the run's configuration (`started`) and a `stopped` event
   with the reason `awaiting the investor's approval`, prints the one command that approves
-  exactly that text (`boss approve RUN --sheet VALUE`), and exits 4. No worker is hired. Before
+  exactly that text (`antstreet approve RUN --sheet VALUE`), and exits 4. No worker is hired. Before
   this, end of input at the question was a rejection, after the draft was already paid for.
 - The dispatch options are checked before anything is spent (exit 2): `--max-tier` needs `--dispatch
   rules` or `cascade`; with either, `--model` must be `haiku`, `sonnet` or `opus` (or a full id of
@@ -66,10 +66,10 @@ Argument: `idea`, what to build, in plain words.
 | `--slice` | `$0.10` | Dollars a worker may spend in one slice, before the gate looks again. At least $0.005; a smaller slice is never funded (exit 2). |
 | `--reserve` | by `--model` | Dollars held back from every slice cap: what one response can cost past the cap. `$0.10` for `haiku` and any model not recognised, `$0.30` for `sonnet`, `$0.50` for `opus` (a name that contains the family). An explicit value wins and is recorded on `started`. |
 | `--max-tasks` | `1` | Most tasks the boss may split the work into. Above 1 the multi-task prompt is used. |
-| `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `boss roles` lists each profile's skills. |
-| `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `boss resume` keeps it. |
+| `--profile` | none | Worker profile: one of `generalist`, `backend_engineer`, `ai_engineer`, `test_engineer`, `refactorer`. Its skills are added to the worker's prompt. Without it the worker gets the bare builder prompt. `antstreet roles` lists each profile's skills. |
+| `--worker-thinking` | none | Thinking tokens per worker slice; 0 turns thinking off. Unset keeps the CLI's own default. Recorded on `started`, so `antstreet resume` keeps it. |
 | `--held-out` | `0` | Held-out checks to ask the examiner for, 0 to 8; 0 is off. The examiner sees the idea and the names the product must expose, never a visible check. You read and approve its checks with the term sheet; no worker is shown them; the finished product must pass them too. Its call is paid from round 1's budget, and is skipped (and said) when round 1 could not then fund a worker slice. See `docs/ROLES.md`. |
-| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D43 to D45 in `docs/DECISIONS.md`. `cascade`: `rules` plus a ladder per task, `haiku`, `sonnet`, `opus`, then `opus` once more at one effort step higher (every rung but the last at effort `off`, the last at `default`), then you are asked. Each rung is climbed only after the gate fired the one before for no progress or a slice limit, and each gets the previous worker's findings in its brief. The tier a task starts on is chosen per task kind (files owned and checks, bucketed) as the one with the lowest expected cost, from the attempts recorded in this project's own earlier runs (`boss routing` shows how); below 5 attempts of a kind and tier a fixed prior is used and the table says `prior` instead of `measured, n=...`. The table shows each task's kind, where its start came from, the ladder after it, and a worst case that prices every rung. A task with no check is refused: the gate is the only verifier. See D46 in `docs/DECISIONS.md`. |
+| `--dispatch` | `off` | `off`: every worker runs on `--model`, as always. `rules`: the term sheet shows a route and one dispatch row per task (agent, model, effort, what happens if its worker is fired, context size, slice cap) and a worst case in dollars; you can edit `route` and each task's `dispatch` in `term_sheet.json` with `[e]dit`, and what you approve is hashed with the rest of the sheet. A worker the gate fired for no progress or a slice limit is replaced one tier up (once per task); no other event changes a model. Every slice records the hash of the exact text the worker was given and the model the CLI says it ran, and a model other than the one launched stops the run. See D43 to D45 in `docs/DECISIONS.md`. `cascade`: `rules` plus a ladder per task, `haiku`, `sonnet`, `opus`, then `opus` once more at one effort step higher (every rung but the last at effort `off`, the last at `default`), then you are asked. Each rung is climbed only after the gate fired the one before for no progress or a slice limit, and each gets the previous worker's findings in its brief. The tier a task starts on is chosen per task kind (files owned and checks, bucketed) as the one with the lowest expected cost, from the attempts recorded in this project's own earlier runs (`antstreet routing` shows how); below 5 attempts of a kind and tier a fixed prior is used and the table says `prior` instead of `measured, n=...`. The table shows each task's kind, where its start came from, the ladder after it, and a worst case that prices every rung. A task with no check is refused: the gate is the only verifier. See D46 in `docs/DECISIONS.md`. |
 | `--max-tier` | none | With `--dispatch rules` or `cascade`: the dearest model dispatch may use, `haiku`, `sonnet` or `opus`. Without it dispatch stays at `sonnet`. A sheet that names a dearer tier, in the first plan or in an edit, is refused before it can be approved and again before anyone is hired. |
 | `--spec` | off | The boss's checks must cite the rules of your idea, which code cuts out of your own sentences and numbers R01, R02, ...; each check names the 1 to 5 rules it tests, and the boss may list rules it leaves untested, with a reason. Before you approve you see the coverage, uncovered rules first, then claims a check cannot be testing (the check does not contain a non-ASCII string, the exception, the size or the type the rule names), then the boss's waivers; literals and list items are shown apart and not scored. The rule list is saved as `rules.json`, hashed in your approval, and a coverage summary is recorded in it. One task only (`--max-tasks 1`), not with the staged draft (`--roles system_designer,tester`). Refused before any spend when the idea has more than 40 numbered items or paragraphs, or no sentence stating a behaviour. |
 | `--parallel` | `1` | Tasks to work on at once. A task still has one worker at a time, and at most two in all (the first and one replacement). Slices that run together each leave room for the reserve of every earlier one, so a small round funds fewer at once. Only useful with `--max-tasks` above 1. |
@@ -79,7 +79,7 @@ Argument: `idea`, what to build, in plain words.
 | `--no-firing` | off | Keep funding stalled workers. A worker is still fired at the slice limit. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
 | `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. Roles use it too. |
-| `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `boss roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
+| `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `antstreet roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
 | `--review-cycles` | `1` | Times the critic may review the finished product and offer a fix round. With 0 the critic still runs and its findings are shown, but you are asked nothing. |
 | `--fix-budget` | two slices plus one reserve | Dollars for a fix round after the critic's findings: `$0.30` with the default slice and reserve. At least one reserve plus $0.005. |
 
@@ -94,7 +94,7 @@ What it asks you:
   once per review cycle and only when the critic has verified findings and the run did not end
   early. It shows each proposed check and its code first. `y`, `yes`, `a` and `approve` are yes;
   anything else, and end of input, is no. Ctrl-C ends the command with exit 130 and is not an answer:
-  `boss resume` asks the critic again and puts the question again. When a round of the sheet never
+  `antstreet resume` asks the critic again and puts the question again. When a round of the sheet never
   opened, the fix round takes its place and that round follows it.
 
 Limits that are not options: a run stops at 60 slices or 16 workers, when spend passes the sum of
@@ -108,7 +108,7 @@ one, rather than a round below one reserve plus $0.005. The plan is checked agai
 before approval; if a round is still below that, the run stops (exit 1) with the draft paid for
 and nobody hired.
 
-When a disputed check or a blocked worker needs you, the run asks (`boss resume` asks the same):
+When a disputed check or a blocked worker needs you, the run asks (`antstreet resume` asks the same):
 
 - `[d]rop the check / [k]eep it (the worker must satisfy it) / [s]et the task aside`, once per
   check a worker disputes. Drop: the check is no longer run or counted. Keep: the worker must make
@@ -119,14 +119,14 @@ When a disputed check or a blocked worker needs you, the run asks (`boss resume`
   ledger events (`ruled`); the approved term sheet and checks are not edited.
 - With no terminal to ask on (Claude Code's Bash tool, a pipe), a dispute is not asked and the
   task is not set aside: the run stops (exit 4) with the dispute pending, recorded as a `stopped`
-  event, and prints the `boss approve RUN --dispute CHECK --ruling drop|keep` lines that rule on
-  it. Rule on each, then `boss resume RUN` goes on from your rulings.
+  event, and prints the `antstreet approve RUN --dispute CHECK --ruling drop|keep` lines that rule on
+  it. Rule on each, then `antstreet resume RUN` goes on from your rulings.
 
-## `boss approve`
+## `antstreet approve`
 
-`boss approve [--dir DIR] [--sheet VALUE | --dispute CHECK --ruling drop|keep] [RUN]`.
-Approves a term sheet that `boss fund` left waiting because it had no terminal to ask on, or
-rules on a dispute a run stopped on for the same reason. Spends nothing; `boss resume` then
+`antstreet approve [--dir DIR] [--sheet VALUE | --dispute CHECK --ruling drop|keep] [RUN]`.
+Approves a term sheet that `antstreet fund` left waiting because it had no terminal to ask on, or
+rules on a dispute a run stopped on for the same reason. Spends nothing; `antstreet resume` then
 builds it.
 
 Argument: `run`, a run id. Default: the latest run in the folder.
@@ -141,7 +141,7 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 - With `--sheet`, the term sheet and checks on disk are validated and rendered again, and the
   approval is recorded only if that text is exactly the one the value names (its SHA-256, first 16
   hex characters). A sheet, check, held-out check or rule list changed since it was shown, or a
-  mistyped value, is refused (exit 1) and nothing is written. Read it again with `boss approve
+  mistyped value, is refused (exit 1) and nothing is written. Read it again with `antstreet approve
   RUN` and approve what is there now.
 - The approval is the same signed `approved` event an approval at the question writes, plus
   `shown_sha256`, the full hash of the text approved. `term_sheet.json` gets
@@ -155,9 +155,9 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 - It is your act, not an agent's. From Claude Code, type it yourself with the `!` prefix, and do
   not grant it to the agent: an agent running as you can run any command you can.
 
-## `boss resume`
+## `antstreet resume`
 
-`boss resume [--dir DIR] [RUN]`. Continues a run from its ledger: one that was interrupted (exit
+`antstreet resume [--dir DIR] [RUN]`. Continues a run from its ledger: one that was interrupted (exit
 130), paused, stopped, or ended early.
 
 Argument: `run`, a run id. Default: the latest run in the folder.
@@ -165,8 +165,8 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
-| `--review-cycles` | `1` | As for `boss fund`. |
-| `--fix-budget` | two slices plus one reserve | As for `boss fund`; the slice and reserve are the run's own. |
+| `--review-cycles` | `1` | As for `antstreet fund`. |
+| `--fix-budget` | two slices plus one reserve | As for `antstreet fund`; the slice and reserve are the run's own. |
 
 - It reads `term_sheet.json` and the configuration recorded when the run started, so a resumed
   run keeps its own slice, reserve, firing and limit settings. There are no options to change them.
@@ -175,7 +175,7 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   stop can stop again at once. The wall-clock limit (`--max-minutes`) counts from the start of
   each `resume`, so a resumed run gets the whole time again.
 - An interrupted round continues. A round that closed below its unlock threshold stays locked
-  until you reopen it with `boss topup`. A task that was set aside stays set aside.
+  until you reopen it with `antstreet topup`. A task that was set aside stays set aside.
 - A slice that started and never ended is charged to its round at its cap. If the last slice was
   never gated, or a firing or a question to you was owed, it is done first.
 - The roles are the ones recorded when the run started. Their first stage (stories, staged draft,
@@ -184,20 +184,20 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   `resume` of a finished run adds nothing.
 - On a run that already finished it changes nothing and prints the report.
 - Refused with exit 1, spending nothing: no run found; no usable `term_sheet.json`; a damaged
-  ledger; the run never got as far as hiring (start again with `boss fund`); the run is still
-  awaiting your approval (`boss approve RUN`); the term sheet or a check no longer matches your
+  ledger; the run never got as far as hiring (start again with `antstreet fund`); the run is still
+  awaiting your approval (`antstreet approve RUN`); the term sheet or a check no longer matches your
   approval.
 - A ledger whose last line was cut by a hard kill is repaired first: the cut line is removed and
   `resume` prints it. A ledger damaged anywhere else is refused.
-- If another `boss` process is still writing the run's ledger, `resume` says so and exits 1.
+- If another `antstreet` process is still writing the run's ledger, `resume` says so and exits 1.
   Nothing is changed, not even a cut-off last line.
-- Exit codes are those of `boss fund`.
+- Exit codes are those of `antstreet fund`.
 
-## `boss topup`
+## `antstreet topup`
 
-`boss topup [--dir DIR] [RUN] --round N --amount D`. Adds money to one round of an existing run:
+`antstreet topup [--dir DIR] [RUN] --round N --amount D`. Adds money to one round of an existing run:
 you pay more for the same term sheet. It records one `topped_up` event (actor `investor`, the round,
-`micros`) and spends nothing itself; `boss resume` continues the run.
+`micros`) and spends nothing itself; `antstreet resume` continues the run.
 
 Argument: `run`, a run id. Default: the latest run in the folder.
 
@@ -211,7 +211,7 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   grows with it. The command prints the new budget and what is left, and says so when that is
   still less than a slice needs (the reserve plus the smallest slice).
 - A round that closed below its unlock threshold (its budget ran out, or too few checks passed)
-  stays locked on `boss resume` until you top it up. A top-up recorded after the lock reopens that
+  stays locked on `antstreet resume` until you top it up. A top-up recorded after the lock reopens that
   round: the loop funds it again, with no new approval, and closes it again when it ends. A round
   whose lock was already lifted by an earlier top-up needs another one to be reopened a second
   time. A top-up of a round that is open, or not yet opened, only adds to its budget.
@@ -222,14 +222,14 @@ Argument: `run`, a run id. Default: the latest run in the folder.
   never be spent).
 - Refused with exit 1, writing nothing: no run found; no usable `term_sheet.json`; a damaged
   ledger. A ledger whose last line was cut by a hard kill is repaired first, as `resume` does.
-- If another `boss` process is still writing the run's ledger, `topup` says so and exits 1.
+- If another `antstreet` process is still writing the run's ledger, `topup` says so and exits 1.
   Nothing is changed, not even a cut-off last line.
 - There is no upper limit on `--amount`: check the figure, `0.20` is twenty cents.
 - Exit 0 once the event is written.
 
-## `boss report`
+## `antstreet report`
 
-`boss report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39).
+`antstreet report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39).
 
 A **KPIs** section follows the spend. All of it comes from the ledger: `Delivered` (every check
 passes on the assembled product, or NO, or "not recorded" for a ledger with no product verdict),
@@ -250,20 +250,20 @@ the command exits 1.
 |---|---|---|
 | `--dir` | `.` | Project folder. |
 
-## `boss status`
+## `antstreet status`
 
-`boss status [--dir DIR] [--json] [RUN]`. Prints one line: the last event, checks passing, estimated spend.
+`antstreet status [--dir DIR] [--json] [RUN]`. Prints one line: the last event, checks passing, estimated spend.
 
 Argument: `run`, as for `report`.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder. |
-| `--json` | off | Print one JSON object instead, for tools such as the Claude Code approve pane: `run`, `awaiting` (true while `boss fund` left the term sheet waiting for `boss approve`), `last_actor`, `last_event`, `checks_passed`, `checks_total`, `spend_micros`, `unknown_cost_events`. The exit codes are the same; a refusal (no run, a damaged ledger) is still a plain line. |
+| `--json` | off | Print one JSON object instead, for tools such as the Claude Code approve pane: `run`, `awaiting` (true while `antstreet fund` left the term sheet waiting for `antstreet approve`), `last_actor`, `last_event`, `checks_passed`, `checks_total`, `spend_micros`, `unknown_cost_events`. The exit codes are the same; a refusal (no run, a damaged ledger) is still a plain line. |
 
-## `boss verify`
+## `antstreet verify`
 
-`boss verify [--dir DIR] [--adopt-unsigned] [RUN]`. Checks a run's integrity and nothing else: the
+`antstreet verify [--dir DIR] [--adopt-unsigned] [RUN]`. Checks a run's integrity and nothing else: the
 ledger's hash chain, its line and investor signatures, and every saved worker prompt against the
 hash its `slice_start` recorded. Offline, no model call. Prints one line when everything holds,
 otherwise one line per problem. Argument: `run`, as for `report`; a run id that is not a folder
@@ -280,9 +280,9 @@ nothing for a run that already has an anchor (`docs/LEDGER.md`).
 | `--dir` | `.` | Project folder. |
 | `--adopt-unsigned` | off | Vouch for a run with unsigned lines and no anchor as it is now. |
 
-## `boss roles`
+## `antstreet roles`
 
-`boss roles [--dir DIR]`. Prints the organisation as a tree: the investor, the boss, then the
+`antstreet roles [--dir DIR]`. Prints the organisation as a tree: the investor, the boss, then the
 departments, and under them each role and each worker profile with its purpose, its gate, its
 skills, and whether it is on by default. Every specialist role is marked `off by default`. See
 [ROLES.md](ROLES.md).
@@ -293,9 +293,9 @@ skills, and whether it is on by default. Every specialist role is marked `off by
 
 It reads the code only. It makes no model call, reads no run and writes nothing. Exit 0.
 
-## `boss routing`
+## `antstreet routing`
 
-`boss routing [--dir DIR] [--max-tier TIER]`. Prints what `--dispatch cascade` would choose for this
+`antstreet routing [--dir DIR] [--max-tier TIER]`. Prints what `--dispatch cascade` would choose for this
 project: for each task kind and tier, the attempts recorded, the verified-fail rate and the mean
 cost per attempt, whether the chooser uses that data (`measured, n=...`) or the prior, and the start
 tier it picks per kind and why. A run counts only if the investor key vouches for its ledger, its
@@ -309,9 +309,9 @@ reason. Without a key, nothing is read.
 
 It makes no model call and writes nothing. Exit 0.
 
-## `boss doctor`
+## `antstreet doctor`
 
-`boss doctor [--dir DIR] [--live]`. Checks what a run needs and prints a fix line for each failure.
+`antstreet doctor [--dir DIR] [--live]`. Checks what a run needs and prints a fix line for each failure.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -333,9 +333,9 @@ the file appears, when the worker did not start isolated, or when the call could
 worker did not try the write, it passes with a warning (`inconclusive`) and the exit code stays 0:
 run `--live` again. The other checks make no paid call. The two costs are the CLI's estimates.
 
-## `boss mcp`
+## `antstreet mcp`
 
-`boss mcp [--dir DIR]`. Serves the project's runs read-only to an MCP client: one JSON-RPC 2.0
+`antstreet mcp [--dir DIR]`. Serves the project's runs read-only to an MCP client: one JSON-RPC 2.0
 message per line on stdin and stdout, until stdin closes (exit 0). It answers the `initialize`
 handshake (protocol 2025-11-25 and earlier) and `server/discover` (2026-07-28).
 
@@ -350,9 +350,9 @@ none makes a model call. A `run` argument must be one word of letters, digits, `
 starting with a letter or digit, and one of the project's runs. A tool result is cut at 60,000
 characters, and a request line over 1,048,576 characters is refused.
 
-## `boss audit plan`
+## `antstreet audit plan`
 
-`boss audit plan --request FILE [--repo REPO] [--base REF] [--held-out N] [--boss-model MODEL] [--questions]`. Seals
+`antstreet audit plan --request FILE [--repo REPO] [--base REF] [--held-out N] [--boss-model MODEL] [--questions]`. Seals
 checks for a change request before the change is looked at, so that a commit an agent makes later
 can be tested against them. It asks the boss for checks once, runs them on the base commit, shows
 you every check and what it does there, and asks whether to approve. It never writes to `REPO`.
@@ -387,7 +387,7 @@ you every check and what it does there, and asks whether to approve. It never wr
   `sitecustomize` do not run, and it cannot replace pytest or the gate's plugin. The output's
   `Environment:` line says which was used, or why not and what to run (`uv sync`). Without it, a
   check that imports a third-party module is **cannot run here**.
-- You approve or reject as for `boss fund`; the approval is signed with the audit store's investor
+- You approve or reject as for `antstreet fund`; the approval is signed with the audit store's investor
   key. The sheet's budget figure is a placeholder: the audit funds no worker.
 - **Questions** (`--questions`). Each answer is a signed `ruled` event (`ruling` `answered`) in the
   run's ledger, written before the approval; the checks an answer adds are hashed by the approval
@@ -396,15 +396,15 @@ you every check and what it does there, and asks whether to approve. It never wr
   yes/no question and both of its checks parse, define a test and fail on an empty workspace. A
   failed questions call is booked and the plan goes on without questions. The questions, the
   answers and the checks stay in the audit store; nothing of them is written to the repo.
-- **No terminal.** When stdin is not a terminal, `boss audit plan` reads nothing from it: another
+- **No terminal.** When stdin is not a terminal, `antstreet audit plan` reads nothing from it: another
   program could have filled it. It stops with exit 4 and prints what it waits for: the questions
-  (with `--questions`) and the `boss audit approve RUN --answers ...` command, or the term sheet in
-  full and the `boss audit approve RUN --sheet VALUE` command. Before this, such a plan read end of
+  (with `--questions`) and the `antstreet audit approve RUN --answers ...` command, or the term sheet in
+  full and the `antstreet audit approve RUN --sheet VALUE` command. Before this, such a plan read end of
   input as a rejection.
 - The base commit and the request's SHA-256 are in the one synthetic task's brief, so they are inside
   the hash your approval covers: editing either, a check, or a held-out file voids it.
 - Prints the run id and the **seal**, one SHA-256 over the approved term sheet, every check file and
-  every held-out file. Record the seal somewhere the agent cannot change; `boss audit check` writes
+  every held-out file. Record the seal somewhere the agent cannot change; `antstreet audit check` writes
   it into every verdict.
 - The **audit store** is `$BOSS_AUDIT_HOME`, or `~/.boss-audit` when it is unset. It is laid out like
   a project: `.boss/runs/<id>/` holds `ledger.jsonl`, `term_sheet.json`, `checks/` and, with
@@ -417,16 +417,16 @@ you every check and what it does there, and asks whether to approve. It never wr
 - The draft's cost is a `boss_call` event with `purpose` `audit_checks`, the questions' one with
   `purpose` `spec_gaps`; the examiner's is a `role_call`.
 - Exit 0 when sealed. Exit 1 when you reject, the boss's output is unusable, or a refusal above.
-  Exit 4 with no terminal: the run waits for `boss audit approve`. Exit 130 on Ctrl-C.
+  Exit 4 with no terminal: the run waits for `antstreet audit approve`. Exit 130 on Ctrl-C.
 
-## `boss audit approve`
+## `antstreet audit approve`
 
-`boss audit approve [RUN] [--answers A,B,...] [--sheet VALUE] [--repo REPO]`. Carries on an audit
+`antstreet audit approve [RUN] [--answers A,B,...] [--sheet VALUE] [--repo REPO]`. Carries on an audit
 plan made with no terminal. Run it yourself: the answers and the approval are the investor's, never
 the audited agent's (in Claude Code, with the `!` prefix; the plugin's hook denies the agent any
 `approve`).
 
-Argument: `run`, the id `boss audit plan` printed. Default: the latest run in the store.
+Argument: `run`, the id `antstreet audit plan` printed. Default: the latest run in the store.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -441,13 +441,13 @@ Argument: `run`, the id `boss audit plan` printed. Default: the latest run in th
 - Exit 0 when sealed, 4 after the answers (the run now waits for the approval), 1 as above, 2 for
   both `--answers` and `--sheet` at once.
 
-## `boss audit check`
+## `antstreet audit check`
 
-`boss audit check [RUN] [--head REF] [--repo REPO] [--claim done|none] [--claim-text FILE] [--agent LABEL]`.
+`antstreet audit check [RUN] [--head REF] [--repo REPO] [--claim done|none] [--claim-text FILE] [--agent LABEL]`.
 Runs the sealed checks of audit run `RUN` on a commit and writes the gate's verdict to its ledger as a signed
 `audited` event.
 
-Argument: `run`, the id `boss audit plan` printed. Default: the latest run in the store.
+Argument: `run`, the id `antstreet audit plan` printed. Default: the latest run in the store.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -485,16 +485,16 @@ Argument: `run`, the id `boss audit plan` printed. Default: the latest run in th
   against the head's code. It lists base test files the head no longer has, and base tests that
   pass on the base and fail on the head's code, so a test the agent deleted or weakened still speaks.
   A request that changes behaviour breaks old tests honestly, so these are for you to read.
-- The checks see the same environment as in `boss audit plan`, found again in `--repo` (its
+- The checks see the same environment as in `antstreet audit plan`, found again in `--repo` (its
   `.venv`), for the base and the head alike; the `Environment:` line says which.
 - The output names failing checks by id and description, never by code.
 - The `audited` event is written only after all of the above, signed with the store's key.
 - Exit 0 for `unrefuted` and `no_claim`. Exit 3 for `refuted` and `inconclusive`. Exit 1 for any
   refusal above. Exit 2 for a bad option.
 
-## `boss audit report`
+## `antstreet audit report`
 
-`boss audit report [RUN] [--all] [--agent LABEL]`. Prints each run's verdicts and the false-pass
+`antstreet audit report [RUN] [--all] [--agent LABEL]`. Prints each run's verdicts and the false-pass
 rate. Reads only `audited` events the gate wrote and the store's key vouches for: a ledger with a
 forged or edited one makes the command fail, so part of the store is never reported on.
 
@@ -515,16 +515,16 @@ Argument: `run`, an audit run id. Default: the latest.
 - Exit 0, also when there are no verdicts yet. Exit 1 for an unknown run, an empty store, or a ledger
   that does not verify.
 
-## Exit codes of `boss`
+## Exit codes of `antstreet`
 
 | Code | Meaning |
 |---|---|
 | `0` | `fund`, `resume`: every check passed. `approve`: the term sheet was shown, or approved. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`, `audit approve`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
 | `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, a run still awaiting approval, or the approval no longer matches. `approve`: no run waiting for an approval, a sheet changed since it was shown, or a damaged or busy ledger. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `verify`: no runs, or a run id that does not exist. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
-| `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
-| `4` | No terminal to ask on. `fund`: the drafted term sheet waits for `boss approve`; nothing was funded. `fund` or `resume`: a worker's dispute of a check waits for `boss approve --dispute`. `audit plan`, `audit approve --answers`: the run waits for `boss audit approve`. |
-| `130` | `fund`, `resume`, `audit plan`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
+| `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `antstreet resume` command. |
+| `4` | No terminal to ask on. `fund`: the drafted term sheet waits for `antstreet approve`; nothing was funded. `fund` or `resume`: a worker's dispute of a check waits for `antstreet approve --dispute`. `audit plan`, `audit approve --answers`: the run waits for `antstreet audit approve`. |
+| `130` | `fund`, `resume`, `audit plan`: interrupted with Ctrl-C. Continue with `antstreet resume` (before the term sheet is approved there is nothing to resume; run `antstreet fund` again). |
 
 A ledger with a damaged line makes `report` and `status` fail with an error that names the file
 and line.
@@ -549,8 +549,8 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 | `--model` | `haiku` | Worker model, both arms. |
 | `--boss-model` | `haiku` | Boss model, firm arm. |
 | `--only` | all tasks | Task ids to run. |
-| `--firm-args` | none | Extra `boss fund` options for the firm arm, in one quoted string. Recorded in every result. |
-| `--held-out` | `0` | Held-out checks for the firm arm to ask the examiner for, 0 to 8; 0 is off. It adds `--held-out N` to the firm arm's `boss fund` and records `held_out_passed`, `held_out_total` and `held_out_wrong` (held-out checks the task's reference solution fails, as `wrong_checks` does for the visible ones; the table shows it only when measured) in each firm result. The single arm ignores it. |
+| `--firm-args` | none | Extra `antstreet fund` options for the firm arm, in one quoted string. Recorded in every result. |
+| `--held-out` | `0` | Held-out checks for the firm arm to ask the examiner for, 0 to 8; 0 is off. It adds `--held-out N` to the firm arm's `antstreet fund` and records `held_out_passed`, `held_out_total` and `held_out_wrong` (held-out checks the task's reference solution fails, as `wrong_checks` does for the visible ones; the table shows it only when measured) in each firm result. The single arm ignores it. |
 | `--jobs` | `2` | Cells to run at once. |
 | `--dry-run` | off | Print the cells and the task set hash, then exit. |
 
@@ -731,7 +731,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 
 | Variable | Read by | Meaning |
 |---|---|---|
-| `BOSS_CLAUDE_BIN` | `boss fund`, `boss resume`, `boss doctor`, `bench.run`, `bench.drafts`, `bench.audit`, `roles.judge` | Path or name of the `claude` executable. Default `claude`. Not passed on to children. |
+| `BOSS_CLAUDE_BIN` | `antstreet fund`, `antstreet resume`, `antstreet doctor`, `bench.run`, `bench.drafts`, `bench.audit`, `roles.judge` | Path or name of the `claude` executable. Default `claude`. Not passed on to children. |
 | `ANTHROPIC_API_KEY` | every command that calls the CLI | If set and non-empty: billing is `api`, the CLI runs with `--bare` instead of `--safe-mode`, and the key is passed to the CLI and masked in logs. The `--bare` mode is not verified against the real CLI. |
 | `HOME` | worker and boss calls | Passed on so the CLI finds its login. |
 | `PATH` | worker and boss calls | Passed on so the CLI can start. |
@@ -739,9 +739,9 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `LANG` | worker and boss calls | Passed on. |
 | `TMPDIR` | worker and boss calls | Passed on. |
 | `CLAUDE_CONFIG_DIR` | worker and boss calls | Passed on so the CLI finds its login. |
-| `BOSS_GATE_SANDBOX` | `boss doctor`, the gate (so `boss fund`, `boss resume` and the benchmarks) | `auto` (default): run each check inside an OS sandbox when the platform has a working one, else unsandboxed. `require`: refuse to run a check without one. `off`: never. Any other value is an error. See [SANDBOX.md](SANDBOX.md). |
-| `MAX_THINKING_TOKENS` | the `claude` CLI | Set by `boss fund` for the boss's call when `--boss-thinking` is given. Never taken from your environment. |
-| `BOSS_AUDIT_HOME` | `boss audit plan`, `check`, `report` | The folder that holds the audit store. Default `~/.boss-audit`, under the `HOME` the command sees. A store inside the audited repo is refused. |
+| `BOSS_GATE_SANDBOX` | `antstreet doctor`, the gate (so `antstreet fund`, `antstreet resume` and the benchmarks) | `auto` (default): run each check inside an OS sandbox when the platform has a working one, else unsandboxed. `require`: refuse to run a check without one. `off`: never. Any other value is an error. See [SANDBOX.md](SANDBOX.md). |
+| `MAX_THINKING_TOKENS` | the `claude` CLI | Set by `antstreet fund` for the boss's call when `--boss-thinking` is given. Never taken from your environment. |
+| `BOSS_AUDIT_HOME` | `antstreet audit plan`, `check`, `report` | The folder that holds the audit store. Default `~/.boss-audit`, under the `HOME` the command sees. A store inside the audited repo is refused. |
 | `BOSS_LIVE` | `tests/test_end_to_end.py` only | `1` enables the one test that makes a real model call. |
 
 - Nothing else from your environment reaches a worker or boss process. The gate builds its own
@@ -752,7 +752,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 
 ## Run folder
 
-`boss fund` creates `.boss/runs/<id>/`, where `<id>` looks like `20260930T101500Z-3fa9c1`
+`antstreet fund` creates `.boss/runs/<id>/`, where `<id>` looks like `20260930T101500Z-3fa9c1`
 (UTC time, then six hex digits). `.boss/` is ignored by git.
 
 | Path | What it holds |
@@ -764,7 +764,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `logs/<worker>.jsonl` | The worker's raw stream, with secrets masked. |
 | `logs/<worker>-s<N>.prompt.txt` | Under `--dispatch rules`: the exact text of slice N, its system prompt, a NUL byte and its user prompt. Its SHA-256 is on the slice's `slice_start`. |
 | `product/` | The built files, assembled from each task's best worker at the end of a run. |
-| `report.md` | The board report, saved when `boss fund` or `boss resume` finishes. |
+| `report.md` | The board report, saved when `antstreet fund` or `antstreet resume` finishes. |
 | `stories.json` | The product manager's stories, when that role ran. |
 | `critic-N/` | Scratch for the critic's Nth review: `critic_checks/` holds the tests it wrote, including the ones that were not verified. |
 | `demo/` | `demo.py` and `USAGE.md` as installed in `product/`. Kept because `product/` is rebuilt on every run, and a `resume` copies them back. |
@@ -772,9 +772,9 @@ Exit codes: `0`; `1` when the file cannot be read.
 
 A run started with `--spec` also has `rules.json`, the rule list of its idea. A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
 never inside a workspace or `product/`) and, if the examiner's output was refused,
-`examiner_refused.json`; `boss fund --held-out N` creates them. `workspaces/`, `logs/` and `product/`
+`examiner_refused.json`; `antstreet fund --held-out N` creates them. `workspaces/`, `logs/` and `product/`
 exist only once a worker has been hired. `report.md` is
-written by `fund` and `resume`; `boss report` prints it again from the ledger without writing.
+written by `fund` and `resume`; `antstreet report` prints it again from the ledger without writing.
 
 ## Benchmark cell folder
 
@@ -786,7 +786,7 @@ written by `fund` and `resume`; `boss report` prints it again from the ledger wi
 | `ledger.jsonl` | single | The single agent's events. |
 | `workspace/` | single | The single agent's files, scored by the hidden checks. |
 | `logs/solo.jsonl` | single | The single agent's raw stream. |
-| `transcript.txt` | firm | What `boss fund` printed. |
+| `transcript.txt` | firm | What `antstreet fund` printed. |
 | `.boss/runs/<id>/` | firm | A complete run folder, as above. Its `product/` is scored. |
 
 A `single-review` cell holds the same files as a `single` cell; its ledger and stream have two slices.

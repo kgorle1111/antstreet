@@ -1,5 +1,5 @@
 """A small git repository, a fake `claude` that plays the boss and the examiner, and a way to run
-`boss audit` against them. Not a test module.
+`antstreet audit` against them. Not a test module.
 
 The repository holds `slug.py` (`slugify` lower-cases; `shout` upper-cases) and a `tests/` folder.
 The request asks `slugify` to collapse runs of symbols into one hyphen and trim the ends. The fake
@@ -167,7 +167,7 @@ def branch(repo: Path, name: str, files: dict[str, str | None], when: datetime) 
 
 
 class Audit:
-    """`boss audit` run against a fake boss, with the store under a throwaway home."""
+    """`antstreet audit` run against a fake boss, with the store under a throwaway home."""
 
     def __init__(self, folder: Path) -> None:
         self.folder = folder

@@ -1,4 +1,4 @@
-"""`boss doctor --live` asks one real worker to write outside its folder. These tests play the
+"""`antstreet doctor --live` asks one real worker to write outside its folder. These tests play the
 CLI: one that refuses the write, one that lets it through, and one whose worker never tries."""
 
 import sys
@@ -82,7 +82,7 @@ def test_a_refused_write_passes_the_canary(doctor):
 def test_a_write_that_lands_outside_the_folder_fails_the_doctor(doctor):
     check = doctor("escaped")["worker path rules"]
     assert not check.ok and "OUTSIDE its folder" in check.detail
-    assert "do not run boss with this CLI version" in check.fix
+    assert "do not run antstreet with this CLI version" in check.fix
 
 
 def test_a_worker_that_never_tries_is_inconclusive_not_a_pass(doctor):

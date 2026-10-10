@@ -1,4 +1,5 @@
-"""`boss audit check`: run sealed checks against a head commit and write the gate's signed verdict.
+"""`antstreet audit check`: run sealed checks against a head commit and write the gate's signed
+verdict.
 
 Nothing here trusts the audited repository or the agent that worked in it. The ledger, the approval
 signature and the check files are verified first; `head` must descend from the sealed base; both
@@ -52,7 +53,7 @@ _AGENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:@/+-]{0,63}\Z")
 
 @dataclass(frozen=True, slots=True)
 class Verdict:
-    """What one `boss audit check` found. `to_data` is the `audited` event's `data`."""
+    """What one `antstreet audit check` found. `to_data` is the `audited` event's `data`."""
 
     run: str
     base: str
@@ -291,7 +292,7 @@ def check(
 def _find(store: Path, run_id: str) -> RunPaths:
     if not _RUN_ID.fullmatch(run_id) or run_id not in runs_in(store):
         raise AuditError(
-            f"no audit run {run_id!r} under {store}; `boss audit report --all` lists them"
+            f"no audit run {run_id!r} under {store}; `antstreet audit report --all` lists them"
         )
     return run_paths(store, run_id)
 

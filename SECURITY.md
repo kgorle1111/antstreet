@@ -23,7 +23,7 @@ The full list of threats, controls and the test behind each is in
 - **Checks run in an OS sandbox where the platform has one.** On macOS: no network, writes only in
   the check's own temp folder, reads only that folder and the Python installation. It is tested on
   macOS only ([docs/SANDBOX.md](docs/SANDBOX.md)). `BOSS_GATE_SANDBOX=require` refuses to run a
-  check without one; the default runs unsandboxed when no tool works, and `boss doctor` says so.
+  check without one; the default runs unsandboxed when no tool works, and `antstreet doctor` says so.
 - **Spend is bounded twice.** A reserve is held back from every slice cap, and hard limits stop a
   run at 60 slices, 16 workers, or spend past its rounds' budgets plus one reserve each. A slice
   that reported no cost, or never ended, is charged at its cap.
@@ -74,5 +74,5 @@ Risks accepted in the threat model, with what would change each:
 |---|---|
 | 0.0.1 (not released; the `main` branch) | Fixes land on `main` only |
 
-`boss` needs Python 3.12 or newer and the `claude` CLI 2.1.277 or newer. `boss doctor` and the
+`boss` needs Python 3.12 or newer and the `claude` CLI 2.1.277 or newer. `antstreet doctor` and the
 check on every worker's start refuse an older CLI.

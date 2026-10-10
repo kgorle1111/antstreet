@@ -373,7 +373,8 @@ def script_stage_1(fx, *, stories=STORIES, design_out=None, tests=None, audit=("
 
 # --- no roles: today's run, exactly -------------------------------------------------------------
 
-# What `boss fund` printed before roles existed, captured from that code with the same fake, the run
+# What `antstreet fund` printed before roles existed, captured from that code with the same fake,
+# the run
 # id and the project folder replaced by placeholders.
 TODAYS_OUTPUT = f"""Run RUN: drafting the term sheet...
 TERM SHEET
@@ -1082,7 +1083,7 @@ def test_anything_but_a_yes_is_a_no_and_the_findings_stay_in_the_report(fx, answ
 def test_ctrl_c_at_the_question_leaves_the_cycle_open_and_a_resume_offers_the_findings_again(fx):
     critic_finds(fx, finding())
     out = fx.fund("--roles", "critic", answers={"Add these": KeyboardInterrupt})
-    assert out.code == EXIT_INTERRUPTED and "continue with `boss resume" in out.text
+    assert out.code == EXIT_INTERRUPTED and "continue with `antstreet resume" in out.text
     assert len(approvals(fx)) == 1 and len(fx.role_calls("critic")) == 1
     assert fx.events(EventType.RULED) == []  # no answer was given, so none is recorded
     assert sorted(p.name for p in (fx.run_dir / "checks").iterdir()) == ["test_c01.py"]
@@ -1910,7 +1911,7 @@ def test_ctrl_c_while_a_call_runs_before_approval_ends_the_run_cleanly(fx, who):
     out = fx.fund("--roles", roles)
     assert out.code == EXIT_INTERRUPTED
     assert "Interrupted before the term sheet was approved. Nothing was funded" in out.text
-    assert "Start again with `boss fund`." in out.text and "Traceback" not in out.text
+    assert "Start again with `antstreet fund`." in out.text and "Traceback" not in out.text
     events = fx.events()
     assert [e.actor for e in events if e.event is EventType.ROLE_CALL] == ["role:product_manager"]
     assert (events[-1].actor, events[-1].event) == ("investor", EventType.STOPPED)

@@ -1,4 +1,5 @@
-"""`boss audit` with the repo's own `.venv`: its packages reach the checks, inside the sandbox only,
+"""`antstreet audit` with the repo's own `.venv`: its packages reach the checks, inside the sandbox
+only,
 and its startup hooks (`.pth`, `sitecustomize`) never run."""
 
 import sys
