@@ -368,6 +368,31 @@ def test_a_login_failure_stops_the_live_run_unscored(tmp_path, monkeypatch, caps
     assert "Stopped, not scored" in said and "Recall" not in said and not out.exists()
 
 
+def test_only_registered_stops_stop_the_run_and_the_stop_reports_its_spend(
+    tmp_path, monkeypatch, capsys
+):
+    # SG1 registers login and usage-limit failures as stops; an API error scores as missed
+    from antstreet import boss
+    from antstreet.bench import spec_gaps
+    from antstreet.errors import Outcome
+    from antstreet.stream import Usage
+
+    def fail(idea, *args, **kwargs):
+        outcome = Outcome.API_ERROR if idea == "a" else Outcome.LOGIN
+        raise boss.BossError("boss call failed", outcome, Usage(250_000, 0, 0, 0))
+
+    monkeypatch.setattr(spec_gaps.boss, "draft_term_sheet", fail)
+    monkeypatch.setattr(spec_gaps.Case, "idea", lambda self, tasks=None: self.id)
+    cases = tmp_path / "cases.json"
+    base = {"task": "t", "rule": "r", "source": "s", "match": ["x"]}
+    cases.write_text(json.dumps({"cases": [{"id": "a", **base}, {"id": "b", **base}]}))
+    out = tmp_path / "out.json"
+    args = ["--cases", str(cases), "live", "--yes-spend", "--out", str(out)]
+    assert spec_gaps.main(args, environ={"PATH": "/usr/bin"}) == 3
+    said = capsys.readouterr().out
+    assert "Stopped, not scored: b:" in said and "Spent $0.5000 (measured) before the stop" in said
+
+
 def test_the_estimate_counts_the_draft_call_and_is_near_the_first_measured_spend():
     from antstreet.bench import spec_gaps
 

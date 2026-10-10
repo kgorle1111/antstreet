@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from antstreet import boss, questions
-from antstreet.errors import INFRASTRUCTURE
+from antstreet.errors import Outcome
 from antstreet.worker import CLI, EXECUTABLE_VAR, worker_env
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -106,8 +106,17 @@ def estimate(cases: Sequence[Case], tasks: Path = TASKS) -> tuple[int, int, floa
     return tokens_in, tokens_out, usd
 
 
+# SG1 registers only these as stops (bench/PREREG.md); any other failed call scores as missed.
+STOPS = frozenset({Outcome.LOGIN, Outcome.USAGE_LIMIT})
+
+
 class InfrastructureStop(Exception):
-    """A call failed for a reason that is not the model's (login, a limit): stop, never score."""
+    """A login or usage-limit failure: stop, never score. Carries the spend so far."""
+
+    def __init__(self, message: str, spent: int, unknown: bool) -> None:
+        super().__init__(message)
+        self.spent = spent
+        self.unknown = unknown
 
 
 def live(
@@ -147,8 +156,8 @@ def live(
                 add(usage.cost_micros)
             except boss.BossError as exc:
                 add(exc.usage.cost_micros)
-                if exc.outcome in INFRASTRUCTURE:  # login, limits: not the model's answer
-                    raise InfrastructureStop(f"{case.id}: {exc}") from exc
+                if exc.outcome in STOPS:
+                    raise InfrastructureStop(f"{case.id}: {exc}", spent, unknown) from exc
                 print(f"{case.id}: {exc}", file=sys.stderr)
                 asked = []
         found[case.id] = [q.text for q in asked]
@@ -192,7 +201,11 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
             executable=environ.get(EXECUTABLE_VAR, CLI),
         )
     except InfrastructureStop as exc:
-        print(f"Stopped, not scored: {exc}. Fix the cause and run again; nothing was saved.")
+        kind = "at least; a call reported no cost" if exc.unknown else "measured"
+        print(
+            f"Stopped, not scored: {exc}. Spent ${exc.spent / 1_000_000:.4f} ({kind}) before the "
+            "stop. Fix the cause and run again; nothing was saved."
+        )
         return 3
     args.out.write_text(json.dumps(found, indent=1, ensure_ascii=False), encoding="utf-8")
     print(report([score(c, found.get(c.id, [])) for c in cases]))
