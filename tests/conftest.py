@@ -22,6 +22,7 @@ SLOW = (
     "tests/test_docs_ledger.py",
     "tests/test_audit_check.py",
     "tests/test_audit_report.py",
+    "tests/test_audit_strength.py",
     "tests/test_docs_contributing.py::test_a_task_built_by_those_steps_validates",
     "tests/test_docs_cli.py::test_a_run_with_roles_holds_the_extra_paths_the_document_lists",
     "tests/test_runner.py::test_a_slice_can_be_stopped_from_another_thread_and_its_cost_is_still_read",
