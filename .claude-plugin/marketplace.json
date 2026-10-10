@@ -6,7 +6,7 @@
     {
       "name": "antstreet",
       "source": "./",
-      "description": "Fund an idea, read the board report and check the ledger of a run, from Claude Code."
+      "description": "Audit an agent's work against sealed checks it never saw, fund a build, and check a run's ledger, from Claude Code."
     }
   ]
 }
