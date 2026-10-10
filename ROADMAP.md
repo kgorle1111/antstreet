@@ -32,6 +32,18 @@ On `main`, pre-release (not on PyPI yet). Each item links the pull request that 
 - **Audits in your repo's own environment**: the checks import your `.venv` packages, read-only
   inside the sandbox, and `audit plan --request FILE` then `audit check --claim done` is all it
   takes inside the repo ([#64](https://github.com/kgorle1111/antstreet/pull/64)).
+- **One command, `antstreet audit`**, does the next step for the repo (seal, or check). A Claude
+  Code Stop hook reports the verdict to you when the agent stops: `notify` by default, `block`
+  opt-in, and it never shows the checks to the agent. It needs `uvx antstreet`, so it works once
+  the package is on PyPI ([#69](https://github.com/kgorle1111/antstreet/pull/69)).
+- **Check strength**: `audit check` runs the counted checks against mutants of the changed lines in
+  the sandbox and flags a check that passes them all as WEAK. It is advisory and never changes the
+  verdict; `--no-strength` skips it ([#71](https://github.com/kgorle1111/antstreet/pull/71)).
+- **Approval as a few yes/no questions**, opt-in (`audit plan --questions`, off by default): you
+  answer where the request leaves a rule open, and your answers become checks or waivers. Its
+  pre-registered live eval did not show it finds unseen gaps (4 of 10 held-out rules against a bar
+  of 5, [results](bench/results/2026-10-10-spec-gaps/README.md)), so it stays opt-in and we do not claim it works better
+  ([#72](https://github.com/kgorle1111/antstreet/pull/72)).
 
 **A gate and a ledger you can trust**
 - **A gate the agent can't talk its way past**: checks run in an OS sandbox outside the agent
@@ -46,6 +58,11 @@ On `main`, pre-release (not on PyPI yet). Each item links the pull request that 
   approve its own checks ([#38](https://github.com/kgorle1111/antstreet/pull/38)), an approve pane
   inside Claude Code ([#46](https://github.com/kgorle1111/antstreet/pull/46)), and disputes that
   wait for your ruling when there is no terminal ([#63](https://github.com/kgorle1111/antstreet/pull/63)).
+- **The agent can't run `antstreet audit` or read the audit store** inside Claude Code: a
+  `PreToolUse` guard and tripwire, not a sandbox, so a determined agent can still get around it
+  ([#75](https://github.com/kgorle1111/antstreet/pull/75)).
+- **Ledger readers wait out a line still being written**, so a reader no longer trips on a
+  half-written last line ([#74](https://github.com/kgorle1111/antstreet/pull/74)).
 
 **Front doors**
 - A [Claude Code plugin](README-technical.md#use-it-from-claude-code)
@@ -76,24 +93,15 @@ On `main`, pre-release (not on PyPI yet). Each item links the pull request that 
 
 ## Now
 
-Up next, each in its own pull request. Nothing in this section is built yet.
+Up next, each in its own pull request.
 
-- **`antstreet` on PyPI**, so nothing needs a clone (B41).
-- **Check strength**: shows which checks would catch a broken change. Each sealed check is run
-  against deliberately broken copies of the changed code (mutation testing); a check that passes
-  them all is flagged as weak before you spend time on it.
-- **Approval as a few yes/no questions**: instead of reading test code, you answer the questions
-  where the request is ambiguous ("Should an empty string raise?"). Your answers become checks or
-  waivers, signed like any approval.
+- **`antstreet` on PyPI**, so nothing needs a clone (B41). Publishing is imminent but not done; the
+  one-command audit and the Stop hook rely on `uvx antstreet`.
+- **CI export** (`audit export`, B78): carry a sealed run to CI so the GitHub Action needs no
+  manual step.
 
 ## Next
 
-- **A one-command, zero-install audit**: `uvx antstreet audit` in any Python repo, once the
-  package is on PyPI.
-- **A Claude Code Stop hook** that runs `audit check` when the agent says it is done, so an
-  in-session "done" gets a verdict from checks it never saw.
-- **CI export** (`audit export`, B78): carry a sealed run to CI so the GitHub Action needs no
-  manual step.
 - **First run**: a short `--help`, a timed fresh-machine run published in the README, a first-run
   guide, and a few good first issues.
 - **Evidence**: a new task-set version that fixes the defects an eval audit found, keeping old

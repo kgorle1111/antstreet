@@ -154,6 +154,106 @@ Added 2026-10-04, before any E6 run.
   dispatch never escalates or an escalated cell never delivers. Needs the owner's yes before any
   spend.
 
+## E4c. The same critic, with a fix round after a locked round
+
+Added 2026-10-10, after E4b's result and before any E4c run.
+
+- **Why.** In E4b, 9 of the 29 cells with a verified critic finding got no fix round: round 1
+  closed below its unlock threshold and the code offered nothing after that stop
+  (`ops/e4/e4b-declined-trace-2026-10-08.md`). The critic found real bugs nobody fixed.
+- **Change, and only this change.** `antstreet fund --fix-after-stop` (PR #80: commit 7458b55 and
+  its review fixes 15c06ad and 6447e6e): when the run ended only because a round closed locked,
+  verified findings are offered as checks and the investor's yes tops up that round by the fix
+  budget, which reopens it; a finding whose task was set aside is not offered. Every other stop is
+  unchanged. The run uses E4b's code state (`bench/e4b-runner`, 1a9b9e1: 4ba91ad + the $0.40
+  critic cap + the 900 s critic limit) with those three commits ported to it, on branch
+  `bench/e4c-runner` (the write-up records its SHA); a run from a later main (builder_v5) is not
+  E4c.
+- **Arm.** firm on blind35, 35 tasks x 3 reps, Haiku boss and workers, `--budget 0.40
+  --firm-args "--slice 0.20 --roles critic --fix-budget 0.30 --fix-after-stop"`, fresh in its own
+  `--out` (`bench/results/raw/e4c-critic-fix-after-stop`). E4's self-review cells and E4b's cells
+  are not rerun.
+- **Primary KPI and decision.** As E4: delivery, paired by task, 10,000 task resamples, seed 0.
+  Shown only if the paired interval of E4c minus E4's self-review lies above 0.
+- **Reported, not decided on.** E4c vs E4b paired delivery (isolates the flag; with ~9/105 cells
+  affected it is underpowered and expected near zero); how many cells the flag fired in and how
+  many of those delivered; cost per assigned cell; critic completion share; time.
+- **Infrastructure.** As E4b: usage-limit and login failures are moved aside and rerun; the run
+  stops after 3 such failures in a row. That stop is a pause: the cause is fixed and the run resumes
+  until every cell is counted. No decision is computed on a partial set; if the cells cannot all be
+  counted, the result is reported as "not run to completion", with no verdict.
+- **Cost.** About $44-48 (E4b averaged about $0.41 a cell; the flag adds at most the $0.30 fix,
+  plus at most one reserve, in the roughly 9 affected cells). Worst case per cell stays at or
+  under E4b's $1.35.
+
+## E9. Checks that cover every rule raise delivery
+
+Added 2026-10-10, before any E9 run. (E7 and E8 are reserved for experiments planned earlier.)
+
+- **Why.** Most failed firm runs failed on a rule the idea states and no check tests
+  (`bench/results/2026-10-02-why-the-firm-loses`, section 2). In blind35 the firm delivered 64/105
+  and the single agent 62/105: +0.019 [-0.076, +0.124], not shown.
+- **Feature.** `antstreet fund --coverage` (PR #82): before any worker is paid, every scored rule of
+  the idea must be cited by a check, and no check may pass on any of three stub products written by
+  code. The boss redrafts with the gaps named, at most 2 more calls, each booked; a redraft is kept
+  only when it has fewer gaps. What is left is shown above the term sheet.
+- **Arms.** All three run fresh from one commit, the `main` commit that merges PR #82 (the write-up
+  records the SHA), on blind35's 35 tasks (the 17 of `blind-orig17` and the 18 of `blind-new18`,
+  listed in `bench/results/2026-10-03-blind35`), 3 reps, Haiku boss and workers, `--budget 0.40`:
+  1. coverage: firm, `--coverage --firm-args "--slice 0.20"`, `--out bench/results/raw/e9-coverage`;
+  2. firm: firm, `--firm-args "--slice 0.20"`, `--out bench/results/raw/e9-firm`;
+  3. single: `--out bench/results/raw/e9-single`.
+  blind35's saved cells are not reused: `main` has moved since `e203f65` (`builder_v5.md` among
+  other changes), so only same-commit arms isolate `--coverage`.
+- **Primary KPI and decision.** Delivery, paired by task, 10,000 task resamples, seed 0. `--coverage`
+  is shown to help only if the paired interval of coverage minus firm lies above 0.
+- **Second decision, named now.** The firm with coverage is shown to beat the single agent only if
+  the paired interval of coverage minus single lies above 0. It is a separate claim; a pass on one
+  is never reported as a pass on the other.
+- **Reported, not decided on.** firm minus single (does today's firm differ from blind35's
+  +0.019?); false-pass rate per arm; in how many cells the boss redrafted, and the rule gaps and weak
+  checks left at approval; cost per assigned cell; time.
+- **Infrastructure.** As E4b: usage-limit and login failures are moved aside and rerun; the run
+  stops after 3 such failures in a row. That stop is a pause: the cause is fixed and the run resumes
+  until every cell is counted. No decision is computed on a partial set; if the cells cannot all be
+  counted, the result is reported as "not run to completion", with no verdict.
+- **Cost.** About $55-65: coverage $25-35 (blind35's firm averaged $0.21 a cell, about $23 for 105,
+  plus at most two Haiku boss redrafts a cell; the stub runs cost nothing), firm about $23, single
+  about $9 (blind35's single averaged $0.088). Worst case $0.40 a cell, $126 in all.
+
+## SG1. Spec-gap questions surface rules the drafted checks miss
+
+Added 2026-10-10, before any live run of it. A component eval, not a firm-against-single arm, so
+it takes an SG id and the shared paired test above does not apply.
+
+- **Claim.** After the boss drafts its checks, one more call (`antstreet.questions`, prompt
+  `spec_gaps_v1.md`) asks the investor at most 5 yes/no questions, and at least one of them is
+  about a rule the idea states that the drafted checks would miss.
+- **Sets.** *Known*: `bench/spec_gaps/cases.json`, 10 rules the boss's checks missed in a
+  false-pass cell of `2026-10-03-false-pass-audit`. The prompt names their gap classes (non-ASCII,
+  result types, iterators), so this measures recall on known gaps only. *Held out*:
+  `bench/spec_gaps/heldout.json`, about 10 rules quoted from `bench/tasks/*/idea.md`, chosen
+  before any held-out run and without reading model output, outside the classes the prompt names
+  and outside the known set.
+- **Fixed.** Prompt frozen at `spec_gaps_v1`; no prompt change is made on any held-out result.
+  Model: the default boss model (`haiku`). One live run per case
+  (`python -m antstreet.bench.spec_gaps --cases <set> live --yes-spend --out <file>`), which drafts checks as
+  `boss fund` does, then asks. A case whose call fails for the model's own reasons scores as
+  missed; a login or usage-limit failure stops the run and is reported, not scored.
+- **Primary metric.** Held-out recall: the share of held-out cases whose rule is surfaced by at
+  least one question, hand-checked. A question surfaces a rule when its answer decides the rule's
+  behaviour for some input the rule covers. The regex scorer (`score`) is reported beside it with
+  every disagreement listed; where they differ, the hand check decides. Reported, not decided on:
+  known-set recall, and the share of cases whose questions are at most 5 and all yes/no. 95%
+  Wilson intervals for each proportion.
+- **Decision.** "Useful beyond known gaps" only if held-out hand-checked recall is at least 5 of
+  10 (50%). Below that: "not shown". Known-set recall is not evidence of generalisation, whatever
+  it is.
+- **Limits fixed now.** About 10 cases a set, one model, one run per case, so a Wilson interval
+  at 5/10 is about [24%, 76%]; only a large effect can be told from chance. Each case's checks are
+  a fresh draft, not the draft of the original false-pass cell.
+- **Cost.** About $0.30 a set by `estimate`; owner approved about $2-3 in all; stop above $4.
+
 ## Not tested, and why
 
 Debate, personas and extra roles (product manager, consultant, demo writer, judge) show no gain at
@@ -201,3 +301,8 @@ equal compute in the literature. They stay off by default and are not claimed to
   `cost_per_delivery`.
 - 2026-10-07: added E4b (the critic with a $0.40 cap), after E4's result and before any E4b run.
 - 2026-10-07, before any E4b result was read: the critic call's time limit rises from 300 s to 900 s for E4b. In the first 7 E4b cells, 4 critic calls hit the 300 s limit (E4 had 1 in 105), so with the $0.40 cap the time limit, not the critic, would have decided them. Those 7 cells are set aside unread and E4b restarts from zero with both changes; everything else is unchanged.
+- 2026-10-10: added E4c (the E4b critic with --fix-after-stop), before any E4c run.
+- 2026-10-10: added E9 (the firm with `--coverage` against a same-commit firm and single agent), before any E9 run.
+- 2026-10-10: added SG1 (spec-gap questions, known and held-out sets), before any live run of it.
+- 2026-10-10, after the SG1 runs: the "about $0.30 a set" cost line was 6 times low (measured $1.72 a set, thinking tokens were not counted); `estimate` is corrected. Nothing else in SG1 changed; the result is in `bench/results/2026-10-10-spec-gaps/README.md`.
+- 2026-10-10, after the SG1 runs, wording only: the registered `live` command lacked the `--out <file>` the runner requires (the runs passed it), and the code now stops only on the registered login and usage-limit failures (any other failed call scores as missed, as registered; no SG1 call failed that way). No rule or bar changed.

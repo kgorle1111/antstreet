@@ -86,7 +86,7 @@ def test_the_criteria_in_the_code_are_the_criteria_that_were_written_down_first(
         r"At least \d+% of the 15 known-omission cells",
         r"Median flagged rules per draft is at most \d+",
         r"is at least \d+ points, with at least \d+ triples",
-        r"If under \d+%, every file was hand-labelled",
+        r"If under \d+%, every file was labelled one by one",
     ):
         assert re.search(pattern, text, re.I), pattern
     assert f"at most {ev.MAX_SENTENCES}" in text and f"{ev.SENTENCE_SHARE:.0%}" in text

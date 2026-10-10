@@ -592,13 +592,15 @@ def test_topup_too_small_for_a_slice_says_so(boss):
 
 def test_topup_names_the_run_it_is_given_not_only_the_latest(boss):
     locked_run(boss)
-    first = boss.runs()[0].name
+    [first] = boss.runs()
     wrong_product(boss)
     boss("fund", "Reverse a string.", "--budget", "0.108")
-    assert len(boss.runs()) == 2
-    assert boss("topup", first, "--round", "1", "--amount", "0.20")[0] == EXIT_OK
-    assert events_of_run(boss, 0)[-1].event is EventType.TOPPED_UP
-    assert events_of_run(boss, 1)[-1].event is not EventType.TOPPED_UP
+    # Run ids sort by second, then a random suffix: two runs in one second can sort either way,
+    # so each run is read by its own path, never by its place in the listing.
+    [second] = [r for r in boss.runs() if r != first]
+    assert boss("topup", first.name, "--round", "1", "--amount", "0.20")[0] == EXIT_OK
+    assert read_events(first / "ledger.jsonl")[-1].event is EventType.TOPPED_UP
+    assert read_events(second / "ledger.jsonl")[-1].event is not EventType.TOPPED_UP
 
 
 def test_topup_lands_on_the_round_it_names(boss):

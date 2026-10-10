@@ -125,6 +125,11 @@ antstreet audit check --claim done         # the latest sealed run, against HEAD
 antstreet audit report                     # every verdict, and the false-pass rate
 ```
 
+Or run `antstreet audit` on its own: it does whichever step comes next for the repo, seal or check.
+Beside the verdict it also runs a check-strength pass, which flags counted checks that survive
+deliberately broken copies of your changed lines as weak. That is advice only and never changes the
+verdict; `--no-strength` skips it.
+
 `audit plan` makes one model call (Haiku by default) to draft the checks. The checks run with your
 repo's own `.venv` packages, read-only inside the sandbox; nothing is installed. Every option:
 [docs/CLI.md](docs/CLI.md).
@@ -166,7 +171,7 @@ Built like something you would be happy to inherit.
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
 - **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
-- **7 pre-registered experiments**, with every change to the plan dated
+- **9 pre-registered experiments**, with every change to the plan dated
   ([bench/PREREG.md](bench/PREREG.md)).
 - **46 recorded design decisions**, including what was rejected and why
   ([DECISIONS.md](docs/DECISIONS.md)).
@@ -222,17 +227,20 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 
 ## 🗺️ Where it's going (planned, not built)
 
-Recently shipped: audits that run in your repo's own environment
-([#64](https://github.com/kgorle1111/antstreet/pull/64)), the E4b result
-([#58](https://github.com/kgorle1111/antstreet/pull/58)), optional roles out of beta
-([#60](https://github.com/kgorle1111/antstreet/pull/60)), and a ledger that never signs an
-automatic decision in your name ([#61](https://github.com/kgorle1111/antstreet/pull/61)).
+Recently shipped: **one command**, `antstreet audit`, which does the next step (seal or check) and
+powers a Claude Code Stop hook that reports the verdict to you when the agent stops
+([#69](https://github.com/kgorle1111/antstreet/pull/69)); **check strength**, which runs the counted checks against deliberately broken copies of
+the changed lines and flags a check that passes them all as weak, as advice that never changes the
+verdict ([#71](https://github.com/kgorle1111/antstreet/pull/71)); and opt-in **approval as a few yes/no questions**
+(`audit plan --questions`; its live eval did not show it finds unseen gaps: 4 of 10 held-out rules, [results](bench/results/2026-10-10-spec-gaps/README.md))
+([#72](https://github.com/kgorle1111/antstreet/pull/72)). Inside Claude Code, a guard blocks the agent from running `antstreet audit` or reading the
+audit store; it is a tripwire, not isolation or a sandbox, and a determined agent can get around
+it ([#75](https://github.com/kgorle1111/antstreet/pull/75)).
 
-Next: **check strength**, which shows which checks would catch a broken change; **approval as a
-few yes/no questions** instead of reading test code; a **one-command, zero-install audit**; a
-**Claude Code Stop hook** that audits the agent's "done" before the session ends; and **CI export**
-for the GitHub Action. Planned after that: the **Agent Honesty Report**, a pre-registered public
-measurement of how often coding agents pass their own tests while hidden checks fail.
+Next: **`antstreet` on PyPI** (imminent, not published yet), which the Stop hook and a zero-install
+`uvx` audit wait on, and **CI export** for the GitHub Action, then a first-run guide. Planned after
+that: the **Agent Honesty Report**, a pre-registered public measurement of how often coding agents
+pass their own tests while hidden checks fail.
 
 The full plan, every experiment and what we will not do: [ROADMAP.md](ROADMAP.md).
 

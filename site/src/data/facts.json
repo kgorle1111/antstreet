@@ -254,14 +254,14 @@
     ]
   },
   "experiments": {
-    "value": "7",
-    "wording": "7 pre-registered experiments",
+    "value": "9",
+    "wording": "9 pre-registered experiments",
     "caveat": "Four have run; none has shown its benefit.",
     "sources": [
       {
         "path": "bench/PREREG.md",
-        "count": "^## E\\d+b?\\. ",
-        "equals": 7
+        "count": "^## E\\d+[a-z]?\\. ",
+        "equals": 9
       },
       {
         "path": "README.md",

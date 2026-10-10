@@ -55,7 +55,7 @@ Argument: `idea`, what to build, in plain words.
   set `"route": "firm"` on a one-file sheet; `"one_agent"` on a sheet with several files is refused.
 - `--roles` is checked before anything is spent. An unknown name, or a role without the roles it
   needs, is a usage error (exit 2) that says what to change. `--fix-budget` below one reserve plus
-  $0.005 is refused the same way.
+  $0.005 is refused the same way, and so is `--fix-after-stop` without `--roles critic`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -83,6 +83,7 @@ Argument: `idea`, what to build, in plain words.
 | `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `antstreet roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
 | `--review-cycles` | `1` | Times the critic may review the finished product and offer a fix round. With 0 the critic still runs and its findings are shown, but you are asked nothing. |
 | `--fix-budget` | two slices plus one reserve | Dollars for a fix round after the critic's findings: `$0.30` with the default slice and reserve. At least one reserve plus $0.005. |
+| `--fix-after-stop` | off | Needs `--roles critic`. When the run ended only because a round closed below its unlock threshold (no limit, pause, stop or awaited ruling), the critic's findings are still offered: a yes adds the checks and records the fix money as your `topped_up` of that round, which reopens it; no round is added. A finding of a task that was set aside is not offered: the reopened round would have no worker for it. Every other stop still offers nothing. Recorded on the run, so `resume` keeps it. |
 
 What it asks you:
 
@@ -406,7 +407,7 @@ you every check and what it does there, and asks whether to approve. It never wr
 | `--base` | `HEAD` | The branch, tag or full commit hash the change is made from: `HEAD` as it is before the agent starts. A revision expression (`HEAD~1`, `a..b`, `x:path`) is refused. |
 | `--held-out` | `0` | Checks an examiner writes as well, from the request and the names the checks import, 0 to 8; 0 is off. You read and approve them with the rest. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
-| `--questions` | off | After the draft, one more boss call (`src/antstreet/prompts/spec_gaps_v1.md`) lists up to 5 rules the request leaves open, or states but no check tests, as yes/no questions, each with a check drafted for either answer. You answer `y`, `n` or `s`: a yes or a no adds that answer's check to the term sheet before it runs on the base, a skip records a waiver. The checks are then shown folded, one line each with its file's SHA-256; `v` prints them in full. Off by default until its live eval has run (`python -m antstreet.bench.spec_gaps`). |
+| `--questions` | off | After the draft, one more boss call (`src/antstreet/prompts/spec_gaps_v1.md`) lists up to 5 rules the request leaves open, or states but no check tests, as yes/no questions, each with a check drafted for either answer. You answer `y`, `n` or `s`: a yes or a no adds that answer's check to the term sheet before it runs on the base, a skip records a waiver. The checks are then shown folded, one line each with its file's SHA-256; `v` prints them in full. Off by default. Its live eval (`python -m antstreet.bench.spec_gaps`) ran 2026-10-10: it surfaced 4 of 10 held-out rules against a bar of 5, "not shown", see `bench/results/2026-10-10-spec-gaps/README.md`. |
 
 - Refused with exit 1, before anything is written: a working tree that is not clean (a staged or
   modified file, or an untracked one that is not ignored); a ref that is not a plain name or hash; an

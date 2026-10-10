@@ -151,7 +151,7 @@ The verdict is `refuted`, `unrefuted`, `inconclusive` or `no_claim`. `unrefuted`
 sealed checks catch only what they test. The agent never sees the checks, and the verdict is
 signed. Full rules: [docs/CLI.md](docs/CLI.md).
 
-`--questions` (off by default until its live eval has run) turns most of the reading into a few
+`--questions` (off by default; its live eval surfaced 4 of 10 held-out rules, below its pre-registered bar of 5) turns most of the reading into a few
 yes/no questions about rules the request leaves open ("Should slugify('') raise ValueError?"):
 each answer adds the check drafted for it, or records a waiver, and the check list is shown folded.
 With no terminal, `plan` waits for `antstreet audit approve RUN --answers ...` and then `--sheet VALUE`,
@@ -301,6 +301,7 @@ Useful options for `antstreet fund` (every option is in [docs/CLI.md](docs/CLI.m
 | `--profile NAME` | Add a worker profile's skills to the builder prompt; `antstreet roles` lists them | none |
 | `--roles A,B` | Run specialist roles around the build (stories, staged draft, audit, consultant, critic, demo, judge); `all` turns on every role. The critic is the one to try (see [ROLES.md](docs/ROLES.md)) | none |
 | `--review-cycles N`, `--fix-budget D` | Critic reviews of the product that may lead to a fix round you approve; dollars for that round | 1, two slices and a reserve |
+| `--fix-after-stop` | Offer the critic's fix round even when the run ended at a round locked below its unlock threshold; your yes tops that round up, which reopens it | off |
 
 ```bash
 uv run antstreet resume    # continue the latest run: interrupted, paused or stopped

@@ -1,0 +1,61 @@
+{
+ "bigdecimal-nonascii": [
+  "Should add('٣', '1') raise ValueError for a non-ASCII digit?",
+  "Should multiply('', '3') raise ValueError like add does?",
+  "Should compare('99999999999999999999', '99999999999999999998') return 1 for very large numbers differing only in the last digit?"
+ ],
+ "bigdecimal-compare-scale": [
+  "Should add('٣', '5') raise ValueError?",
+  "Should multiply('5', '1.') raise ValueError?",
+  "Should add('007', '003') return '10'?"
+ ],
+ "calc-nonascii": [
+  "Should evaluate handle chains of 100 unary minus operators (e.g., 100 consecutive minus signs before a literal) without exceeding Python's recursion limit?",
+  "Should evaluate('1 / -2') return -0.5, with the unary minus binding to the divisor rather than the dividend?",
+  "Should evaluate('(1)(2)') raise ValueError, since there is no implicit multiplication between consecutive expressions?",
+  "Should evaluate(1.5), evaluate(b'1'), and evaluate([1]) all raise ValueError for non-string arguments, matching the behavior for int and None?"
+ ],
+ "calc-long-chain": [
+  "Should evaluate('1 / 0 +') raise ValueError rather than ZeroDivisionError?",
+  "Must evaluate() handle 50 levels of nested parentheses like (((...((1))...)))?",
+  "Must evaluate() handle 2000 additions without hitting Python's recursion limit?",
+  "Must evaluate() handle 100 consecutive unary operators like ---...--3?"
+ ],
+ "duration-minus-space": [
+  "Should parse_duration('1_0s') raise ValueError?",
+  "Should parse_duration('1٣s') with a non-ASCII digit raise ValueError?",
+  "Should parse_duration('- 1h') raise ValueError?",
+  "Does parse_duration('1.5ms') equal 0.0015?"
+ ],
+ "jsonpointer-no-sharing": [
+  "Should resolve treat numeric string keys like '0' as literal dict keys, not as list indices?",
+  "Should resolve raise KeyError when minus (-) appears in a non-final token position on a list?",
+  "Should resolve raise KeyError for non-ASCII digit characters like '٣' in list indices?",
+  "Should resolve access a dict using empty string as a literal key via the pointer '/'?",
+  "Should resolve return the exact object reference from the document, not a copy?"
+ ],
+ "semver-nonascii": [
+  "Should parse('1.2.3-ü') raise ValueError?",
+  "Should compare(123, '1.2.3') raise ValueError?",
+  "Should compare('1.0.0-a-', '1.0.0-a0') return -1?"
+ ],
+ "semver-sort-invalid": [
+  "Should parse() reject identifiers containing non-ASCII characters such as 'é'?",
+  "Should compare('1.0.0-A', '1.0.0-a') return -1 (uppercase 'A' before lowercase 'a' in ASCII order)?",
+  "Should parse('1.0.0--') accept a prerelease identifier consisting only of a single '-' character?",
+  "Should parse() reject non-ASCII digits like '٣' (Arabic-Indic digit three) in version numbers?"
+ ],
+ "tokenbucket-float": [
+  "Does allow() work without arguments, defaulting to cost=1?",
+  "Does wait_time() work without arguments, defaulting to cost=1?",
+  "Should allow(100.0) return True when available tokens equal capacity?",
+  "Should allow(0.3) succeed when bucket has 1.0 tokens available?"
+ ],
+ "toposort-generators": [
+  "Should toposort({'a': ['b'], 'b': ['a']}) raise CycleError?",
+  "Should layers({}) return []?",
+  "Should toposort({'a': [], 'b': (x for x in ['a'])}) return ['a', 'b']?",
+  "Should layers({'a': ['b']}) return [['b'], ['a']]?",
+  "Should toposort leave a list passed as a dependency value unchanged?"
+ ]
+}

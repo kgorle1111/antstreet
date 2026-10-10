@@ -27,16 +27,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from antstreet import boss, questions
+from antstreet.errors import Outcome
 from antstreet.worker import CLI, EXECUTABLE_VAR, worker_env
 
 ROOT = Path(__file__).resolve().parents[3]
 CASES = ROOT / "bench" / "spec_gaps" / "cases.json"
 TASKS = ROOT / "bench" / "tasks"
 CHARS_PER_TOKEN = 4  # a rough English/code ratio; the live run prints the measured cost
-# Output per call, guessed from live drafts (3-8 checks of a few lines each) and the questions'
-# shape (5 questions, two short checks each). The live run prints the measured figure.
-DRAFT_OUT_TOKENS = 2_000
-QUESTIONS_OUT_TOKENS = 2_500
+# Output-equivalent tokens per call (thinking included), set so the estimate matches the first
+# live run (2026-10-10: $1.72 for 10 cases; the draft is about $0.10 of each case's $0.17, as in
+# 2026-09-30-drafts-and-audit). The first guess, 2,000 and 2,500, was 6 times low.
+DRAFT_OUT_TOKENS = 20_000
+QUESTIONS_OUT_TOKENS = 14_000
 CLI_OVERHEAD_TOKENS = 1_500  # the claude CLI's own framing per call, a guess
 # Claude Haiku 4.5, first-party API, USD per million tokens (claude-api skill table, 2026-10-06).
 PRICE_IN, PRICE_OUT = 1.00, 5.00
@@ -96,12 +98,25 @@ def estimate(cases: Sequence[Case], tasks: Path = TASKS) -> tuple[int, int, floa
     tokens_in = tokens_out = 0
     for case in cases:
         idea = len(case.idea(tasks))
-        drafted = DRAFT_OUT_TOKENS * CHARS_PER_TOKEN  # the questions call reads the drafted checks
+        drafted = 2_000 * CHARS_PER_TOKEN  # the questions call reads the checks, not the thinking
         tokens_in += (draft_prompt + idea) // CHARS_PER_TOKEN + CLI_OVERHEAD_TOKENS
         tokens_in += (gaps_prompt + idea + drafted) // CHARS_PER_TOKEN + CLI_OVERHEAD_TOKENS
         tokens_out += DRAFT_OUT_TOKENS + QUESTIONS_OUT_TOKENS
     usd = (tokens_in * PRICE_IN + tokens_out * PRICE_OUT) / 1_000_000
     return tokens_in, tokens_out, usd
+
+
+# SG1 registers only these as stops (bench/PREREG.md); any other failed call scores as missed.
+STOPS = frozenset({Outcome.LOGIN, Outcome.USAGE_LIMIT})
+
+
+class InfrastructureStop(Exception):
+    """A login or usage-limit failure: stop, never score. Carries the spend so far."""
+
+    def __init__(self, message: str, spent: int, unknown: bool) -> None:
+        super().__init__(message)
+        self.spent = spent
+        self.unknown = unknown
 
 
 def live(
@@ -141,6 +156,8 @@ def live(
                 add(usage.cost_micros)
             except boss.BossError as exc:
                 add(exc.usage.cost_micros)
+                if exc.outcome in STOPS:
+                    raise InfrastructureStop(f"{case.id}: {exc}", spent, unknown) from exc
                 print(f"{case.id}: {exc}", file=sys.stderr)
                 asked = []
         found[case.id] = [q.text for q in asked]
@@ -176,12 +193,20 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
         print("Not run: `live` makes real model calls. Add --yes-spend to run it.")
         return 2
     environ = dict(environ if environ is not None else os.environ)
-    found, spent, unknown = live(
-        cases,
-        env=worker_env(environ),
-        model=args.model,
-        executable=environ.get(EXECUTABLE_VAR, CLI),
-    )
+    try:
+        found, spent, unknown = live(
+            cases,
+            env=worker_env(environ),
+            model=args.model,
+            executable=environ.get(EXECUTABLE_VAR, CLI),
+        )
+    except InfrastructureStop as exc:
+        kind = "at least; a call reported no cost" if exc.unknown else "measured"
+        print(
+            f"Stopped, not scored: {exc}. Spent ${exc.spent / 1_000_000:.4f} ({kind}) before the "
+            "stop. Fix the cause and run again; nothing was saved."
+        )
+        return 3
     args.out.write_text(json.dumps(found, indent=1, ensure_ascii=False), encoding="utf-8")
     print(report([score(c, found.get(c.id, [])) for c in cases]))
     kind = "at least; a call reported no cost" if unknown else "measured"

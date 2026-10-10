@@ -1,0 +1,75 @@
+{
+  "about": "Held-out cases for the spec-gap questions (SG1 in bench/PREREG.md). Each is a rule quoted from a task's idea.md (path:line in `source`), chosen on 2026-10-10 before any held-out run and without reading model output. None is in cases.json, none is from a task cases.json uses, and none is in a gap class spec_gaps_v1.md names (edges, non-ASCII, result types, invalid input, iterators, shared objects): they are ordering, tie-break, parsing and date rules. A case is surfaced when any question matches one of its `match` patterns (Python regex, case-insensitive); the hand check in the write-up decides.",
+  "cases": [
+    {
+      "id": "moneysplit-largest-fraction",
+      "task": "moneysplit",
+      "rule": "The shares with the largest fractional part of the exact proportion get the extra cents first, one cent each; if two shares have exactly equal fractional parts, the one earlier in the list goes first.",
+      "source": "bench/tasks/moneysplit/idea.md:11-13",
+      "match": ["fraction", "largest remainder", "left-?over", "extra cents?", "remaining cents?", "\\b3\\.33|6\\.67"]
+    },
+    {
+      "id": "multisort-missing-last",
+      "task": "multisort",
+      "rule": "For every key, in ascending and in descending order alike, records that are missing the field come after all the records that have it.",
+      "source": "bench/tasks/multisort/idea.md:15-17",
+      "match": ["missing", "absent", "lacks?", "without (the|a|that) (field|key)", "\\bNone\\b.*(last|after|end|first|before|sort|order)", "(last|after|end|first|before).*\\bNone\\b"]
+    },
+    {
+      "id": "intervals-touching-merge",
+      "task": "intervals",
+      "rule": "Overlapping intervals are merged, and so are touching ones: `(1, 3)` and `(3, 5)` become `(1, 5)`.",
+      "source": "bench/tasks/intervals/idea.md:15-16",
+      "match": ["touch", "adjacent", "abut", "\\(1, ?3\\).*\\(3, ?5\\)", "(share|same) (an? )?(end|endpoint|boundary|bound)"]
+    },
+    {
+      "id": "lrucache-read-no-extend",
+      "task": "lrucache",
+      "rule": "Reading an entry with `get` or `in` does not extend its life; only `put` on the same key does.",
+      "source": "bench/tasks/lrucache/idea.md:20-21",
+      "match": ["\\bget\\b.*(extend|reset|refresh|renew|restart|prolong)", "(extend|reset|refresh|renew|restart|prolong).*\\b(get|read|access|lookup)", "(read|access|lookup|contains|membership).*(extend|reset|refresh|renew|restart|prolong)"]
+    },
+    {
+      "id": "cronnext-dom-or-dow",
+      "task": "cronnext",
+      "rule": "if neither field is written exactly as `*`, a day matches when it satisfies either of them (the way classic cron works), so `0 0 13 * 5` fires on every 13th and on every Friday.",
+      "source": "bench/tasks/cronnext/idea.md:25-28",
+      "match": ["either", "13 \\* 5", "friday.*13|13.*friday", "(day[- ]of[- ](the[- ])?month|\\bdom\\b).*(day[- ]of[- ](the[- ])?week|weekday|\\bdow\\b)", "(day[- ]of[- ](the[- ])?week|weekday|\\bdow\\b).*(day[- ]of[- ](the[- ])?month|\\bdom\\b)"]
+    },
+    {
+      "id": "urlquery-plus-space",
+      "task": "urlquery",
+      "rule": "`+` becomes a space ... `%2B` is a literal `+`, not a space.",
+      "source": "bench/tasks/urlquery/idea.md:11",
+      "match": ["plus", "%2b", "\\+.*(space|' ')", "(space|' ').*\\+", "[a-z0-9]\\+[a-z0-9]"]
+    },
+    {
+      "id": "httpheaders-get-joins",
+      "task": "httpheaders",
+      "rule": "`get(name, default=None)` returns the values of all headers with that name joined with `', '` in text order",
+      "source": "bench/tasks/httpheaders/idea.md:25",
+      "match": ["join", "', '", "comma", "\\bget\\b.*(repeated|duplicate|multiple|several|twice|more than one|same name)", "(repeated|duplicate|multiple|several|twice|more than one|same name).*\\bget\\b"]
+    },
+    {
+      "id": "iniparse-no-inline-comment",
+      "task": "iniparse",
+      "rule": "Comments exist only as whole lines: there are no inline comments, so `a = b ; c` has the value `b ; c`.",
+      "source": "bench/tasks/iniparse/idea.md:8",
+      "match": ["inline", "same line", "trailing comment", "(value|after (the )?=).*[;#]", "[;#].*(in|inside|within|part of) (the |a )?value", "= [a-z]+ ?[;#]"]
+    },
+    {
+      "id": "workdays-months-not-chained",
+      "task": "workdays",
+      "rule": "Every `add_months` result is computed directly from `d`, never by chaining one-month steps: Jan 31 plus 2 months is Mar 31",
+      "source": "bench/tasks/workdays/idea.md:14-15",
+      "match": ["chain", "one[- ]month steps?", "mar(ch)? 31", "date\\(\\d{4}, ?3, ?31\\)", "(original|same|starting) day", "directly"]
+    },
+    {
+      "id": "csvline-whitespace-kept",
+      "task": "csvline",
+      "rule": "Whitespace is preserved exactly: `' a , b '` parses to `[\" a \", \" b \"]` ... Nothing is ever stripped.",
+      "source": "bench/tasks/csvline/idea.md:14",
+      "match": ["strip", "(preserve|keep|kept|retain).*(space|whitespace)", "(space|whitespace).*(preserve|keep|kept|retain|unchanged|as is)", "(leading|trailing|surrounding) (spaces?|whitespace)", "' a |\" a "]
+    }
+  ]
+}

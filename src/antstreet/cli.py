@@ -295,6 +295,12 @@ def _parser() -> argparse.ArgumentParser:
         "one to try); see `antstreet roles`",
     )
     _review_options(fund)
+    fund.add_argument(
+        "--fix-after-stop",
+        action="store_true",
+        help="let the critic's fix round reopen a round that closed below its unlock threshold, "
+        "as your top-up of it; needs --roles critic (default: off)",
+    )
 
     for name, text in (
         ("resume", "continue an interrupted, paused or stopped run from its ledger"),
@@ -601,6 +607,9 @@ def _fund(
     if args.fix_budget is not None and args.fix_budget < needed:
         say(_fix_budget_refusal(needed, reserve))
         return EXIT_USAGE
+    if args.fix_after_stop and "critic" not in roles:
+        say("--fix-after-stop needs --roles critic: only the critic's findings make a fix round.")
+        return EXIT_USAGE
     rules: spec.Split | None = None
     if args.spec or args.coverage:
         refusal = _spec_refusal(args, roles)
@@ -719,7 +728,7 @@ def _fund(
 
         policy = _dispatch_policy(args)
         pipe = Pipeline(
-            Setup(roles, args.boss_model, args.boss_thinking),
+            Setup(roles, args.boss_model, args.boss_thinking, args.fix_after_stop),
             project, paths, ledger, run_id, env, executable, ask, say, policy,
         )  # fmt: skip
         try:
@@ -847,6 +856,14 @@ def _gate_file(paths: RunPaths, chosen: bool) -> Path | None:
     return paths.coverage if chosen else None
 
 
+def _spec_chosen(waited: Mapping[str, Any], rules: Path) -> bool:
+    """Whether the stop awaiting approval was made with `--spec`: from its signed `spec` key,
+    never from the file being there, so a deleted rule list refuses the approval instead of
+    dropping the coverage view. A stop written before the key existed falls back to the file."""
+    chosen = waited.get("spec")
+    return chosen is True if "spec" in waited else rules.is_file()
+
+
 def _unattended(ask: Ask) -> bool:
     """Nobody is at a terminal to answer: the real `input` on a stdin that is not a TTY."""
     return ask is input and not (sys.stdin and sys.stdin.isatty())
@@ -877,6 +894,7 @@ def _await_approval(
         "untested": dict(waivers),
         "notes": list(plan.notes),
         "coverage": gated,
+        "spec": spec_shown is not None,
     }
     record("boss", EventType.STOPPED, data=data)
     _show_pending(paths, run, view, spec_shown, plan.notes, pipe.say)
@@ -959,7 +977,14 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
                 review = "critic" if "critic" in setup.roles else "off"
                 level = dispatching.RunLevel(setup.model, review, config.held_out, config.parallel)
                 view = dispatching.DispatchView(policy, level, config.policy.stall_slices, {})
-            rules = paths.rules if paths.rules.is_file() else None
+            rules = paths.rules if _spec_chosen(waited, paths.rules) else None
+            if rules is not None and not rules.is_file():
+                say(
+                    f"Not approved: {rules.name} is missing, and this run was started with --spec, "
+                    "so its rule coverage cannot be shown; start again with `antstreet fund "
+                    "--spec`. Nothing was written."
+                )
+                return EXIT_FAILED
             spec_shown = spec_view(paths.rules, paths.checks, waivers, gate) if rules else None
             if args.sheet is None:
                 kept = notes if isinstance(notes, list) else []

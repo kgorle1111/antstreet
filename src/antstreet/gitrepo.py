@@ -199,6 +199,20 @@ def _objects_dir(gitdir: Path) -> Path:
     return gitdir / "objects"
 
 
+def _never_committed(gitdir: Path | None, root: Path) -> bool:
+    """No commit reachable from a ref and no commit object at all: a brand-new repo. A deleted
+    branch or other lost history leaves unreachable commits that `fsck` still finds, so those
+    keep the general message (and a hint to recover rather than start over). Only runs on this
+    error path, so fsck's cost on a large repo does not matter."""
+    if _run(["rev-list", "-n", "1", "--all"], gitdir=gitdir, cwd=root)[1]:
+        return False
+    _, found = _run(
+        ["fsck", "--unreachable", "--no-reflogs", "--no-progress"],
+        gitdir=gitdir, cwd=root, ok=(0, 1, 2),
+    )  # fmt: skip
+    return not any(line.split()[1:2] == [b"commit"] for line in found.splitlines())
+
+
 def resolve(repo: Path, ref: str) -> str:
     """The commit hash `ref` names. `ref` must be a branch, tag or hash: revision expressions
     (`HEAD~1`, `a..b`, `x:path`, `@{u}`) fail `check-ref-format` and are refused."""
@@ -225,6 +239,13 @@ def resolve(repo: Path, ref: str) -> str:
     )  # fmt: skip
     sha = out.decode("ascii", "replace").strip()
     if not _HEX.fullmatch(sha):
+        if ref == "HEAD" and _never_committed(gitdir, root):
+            raise _fail(  # a brand-new repo: the first thing a new user often hits
+                "reading HEAD",
+                "this repo has no commits yet",
+                "committing your code first (`git add -A && git commit -m start`), then run this "
+                "again",
+            )
         raise _fail(
             "reading a ref", f"{_show(ref)} names no commit in this repo", "`git branch -a`"
         )
