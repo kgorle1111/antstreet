@@ -114,8 +114,8 @@ def test_the_engineering_figures_are_the_repos(text):
     assert len(threats) == 71 and "A threat model with 71 rows" in text
     decisions = re.findall(r"^### D\d+:", read(DOCS / "DECISIONS.md"), re.M)
     assert len(decisions) == 46 and "**46 recorded design decisions**" in text
-    experiments = re.findall(r"^## E\d+b?\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
-    assert len(experiments) == 7 and "**7 pre-registered experiments**" in text
+    experiments = re.findall(r"^## E\d+[a-z]?\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
+    assert len(experiments) == 9 and "**9 pre-registered experiments**" in text
     assert "macOS seatbelt; Linux `bwrap`, run and required in CI" in text
     assert "Python 3.12+" in text and "python-3.12%2B" in text
     assert "license-Apache--2.0" in text
