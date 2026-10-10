@@ -12,7 +12,7 @@ Every command also accepts `-h` and `--help`.
 
 `antstreet [--version] <command> ...` where the command is `fund`, `approve`, `resume`, `topup`, `report`,
 `status`, `verify`, `roles`, `doctor`, `mcp` or `audit` (which has three steps of its own: `audit plan`, `audit check`
-and `audit report`).
+and `audit report`, and with no step does the next one).
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -350,6 +350,47 @@ none makes a model call. A `run` argument must be one word of letters, digits, `
 starting with a letter or digit, and one of the project's runs. A tool result is cut at 60,000
 characters, and a request line over 1,048,576 characters is refused.
 
+## `antstreet audit`
+
+`antstreet audit [--repo REPO] [--request FILE]`, with no step, does the next step for the repo, using
+the code of `plan` and `check` below unchanged:
+
+1. It looks for a sealed run that covers `HEAD`: the newest approved run in the audit store whose
+   sealed base is `HEAD` or an ancestor of it and, when there is a request (below), that sealed
+   that request. Picking reads the term sheets only; `check` verifies the ledger and the approval
+   before it trusts the run.
+2. No such run: it says so and runs `antstreet audit plan` with the request and base `HEAD` (you approve
+   as usual). Without a request it seals nothing and exits 1, saying how to give one.
+3. A run whose base is `HEAD`: nothing to check yet. It says so and exits 0.
+4. A run whose base is behind `HEAD`: it runs `antstreet audit check RUN --head HEAD --claim done` and
+   exits as that does.
+
+Each case ends with the next command to run. The request is `--request FILE` or, without it,
+`.antstreet/request.md` in the repo when that file exists. It is never the last commit message: at
+plan time `HEAD` is the base, so its message describes work already done. `plan` needs a clean
+tree, so commit the request file (or ignore it) first. A new request text seals a new run; the same
+text finds its run. Without a request, it checks the newest run that covers `HEAD` and says which run and which
+sealed request that is, so a verdict for a different change is never silent. To audit a branch, a run other than the newest, or with `--claim none`, use the
+steps.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--repo` | `.` | The git checkout. |
+| `--request` | none | The change request to seal checks for, when no run covers `HEAD`. |
+| `--stop-hook` | none | `notify` or `block`. For the Claude Code plugin's Stop hook (`hooks/audit-check.sh`); see below. |
+
+With `--stop-hook` it never seals, never reads a request and never asks. It prints nothing and
+exits 0 when `REPO` is not a git checkout, when no run covers `HEAD`, when `HEAD` is the base, or
+when the hook already checked this commit. Otherwise it runs `check` on `HEAD` with `--claim done`
+and agent label `claude-code-stop`, and prints one line of JSON for Claude Code: a `systemMessage`
+for you with the verdict, the number of counted checks that failed, a note when the working tree
+has uncommitted changes (only the commit is checked) and the `antstreet audit report` command. With
+`block` and a `refuted` verdict it adds `"decision": "block"` and a `reason` the agent reads:
+`N of M sealed checks failed; the human has the details`. No check id, description or code is
+printed in either mode, so the agent being audited learns nothing of what the checks test. Any
+error after a run is picked prints nothing and exits 1; the hook script turns that into a generic
+notice. A step with `--stop-hook` is a usage error (exit 2).
+
 ## `antstreet audit plan`
 
 `antstreet audit plan --request FILE [--repo REPO] [--base REF] [--held-out N] [--boss-model MODEL] [--questions]`. Seals
@@ -532,8 +573,8 @@ Argument: `run`, an audit run id. Default: the latest.
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `approve`: the term sheet was shown, or approved. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`, `audit approve`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
-| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, a run still awaiting approval, or the approval no longer matches. `approve`: no run waiting for an approval, a sheet changed since it was shown, or a damaged or busy ledger. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
+| `0` | `fund`, `resume`: every check passed. `approve`: the term sheet was shown, or approved. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`, `audit approve`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. `audit` with no step: as the step it ran, or nothing to check yet; with `--stop-hook`, every case but an error. |
+| `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, a run still awaiting approval, or the approval no longer matches. `approve`: no run waiting for an approval, a sheet changed since it was shown, or a damaged or busy ledger. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely; with no step, no run covers `HEAD` and there is no request; with `--stop-hook`, any error after a run was picked. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `verify`: no runs, or a run id that does not exist. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
 | `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `antstreet resume` command. |
 | `4` | No terminal to ask on. `fund`: the drafted term sheet waits for `antstreet approve`; nothing was funded. `fund` or `resume`: a worker's dispute of a check waits for `antstreet approve --dispute`. `audit plan`, `audit approve --answers`: the run waits for `antstreet audit approve`. |

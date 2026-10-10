@@ -22,6 +22,16 @@
       "title": "antstreet command",
       "description": "How the approve pane runs the CLI, split on spaces (default: uvx antstreet).",
       "default": "uvx antstreet"
+    },
+    "audit_on_refuted": {
+      "type": "string",
+      "title": "On a refuted audit",
+      "description": "When the Stop hook's audit of HEAD is refuted: notify tells only you (default); block also keeps the agent working, telling it how many sealed checks failed but never which.",
+      "default": "notify",
+      "options": [
+        "notify",
+        "block"
+      ]
     }
   }
 }

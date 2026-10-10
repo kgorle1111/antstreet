@@ -36,6 +36,7 @@ from antstreet import (
     audit,
     audit_check,
     audit_report,
+    gitrepo,
     held_out,
     mutate,
     routing,
@@ -104,6 +105,7 @@ from antstreet.pipeline import (
     parse_roles,
     recorded_setup,
 )
+from antstreet.redact import safe_text
 from antstreet.report import build_report, dollars, render_report
 from antstreet.roles import registry
 from antstreet.roles.builders import PROFILES
@@ -134,6 +136,9 @@ LOGIN_FIX = (
     "refreshed (with ANTHROPIC_API_KEY set, the key was refused). Run `claude auth login` in a "
     "terminal, check with `antstreet doctor --live`, then run again."
 )
+
+STOP_HOOK_MODES = ("notify", "block")
+STOP_HOOK_AGENT = "claude-code-stop"  # the agent label of the Stop hook's verdicts
 
 Ask = Callable[[str], str]
 Say = Callable[[str], None]
@@ -351,9 +356,27 @@ def _audit_parser(sub: Any) -> None:
     audit_cmd = sub.add_parser(
         "audit",
         help="check someone else's change against checks sealed before it, from a repo's git",
-        description="Seal checks for a change request, then run them on a commit an agent made.",
+        description="Seal checks for a change request, then run them on a commit an agent made. "
+        "With no step, does the next one for the repo: seals checks when no run covers HEAD, "
+        "checks HEAD (claim: done) when a run's base is behind it.",
     )
-    steps = audit_cmd.add_subparsers(dest="audit_command", required=True)
+    # Distinct dests: a step's own --repo and --request must not be overwritten by these.
+    audit_cmd.add_argument(
+        "--repo", dest="next_repo", default=".", help="with no step: the git checkout (default: .)"
+    )
+    audit_cmd.add_argument(
+        "--request",
+        dest="next_request",
+        help=f"with no step: the change request to seal checks for (default: {audit.REQUEST_FILE} "
+        "in the repo, if there is one)",
+    )
+    audit_cmd.add_argument(
+        "--stop-hook",
+        choices=STOP_HOOK_MODES,
+        help="with no step, for the Claude Code plugin's Stop hook: never seals, never shows a "
+        "check, prints the hook's JSON; `block` keeps the agent working on a refuted verdict",
+    )
+    steps = audit_cmd.add_subparsers(dest="audit_command")
     plan = steps.add_parser(
         "plan", help="write and seal checks for a request, from a base commit alone"
     )
@@ -1306,7 +1329,17 @@ def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: 
     that
     does not verify, a head off the base, a hostile repository) is exit 1 with the reason."""
     store = audit.store_root(environ)
+    if args.stop_hook is not None:
+        if args.audit_command is not None:
+            say(
+                f"--stop-hook is for `antstreet audit` with no step, "
+                f"not `audit {args.audit_command}`"
+            )
+            return EXIT_USAGE
+        return _audit_stop_hook(Path(args.next_repo), store, args.stop_hook, say)
     try:
+        if args.audit_command is None:
+            return _audit_next(args, environ, store, ask, say)
         if args.audit_command == "plan":
             return _audit_plan(args, environ, store, ask, say)
         if args.audit_command == "approve":
@@ -1331,6 +1364,120 @@ def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: 
     ) as exc:
         say(f"Stopped: {exc}")
         return EXIT_FAILED
+
+
+def _audit_next(
+    args: argparse.Namespace, environ: Mapping[str, str], store: Path, ask: Ask, say: Say
+) -> int:
+    """`antstreet audit` with no step: plan when no sealed run covers HEAD, else check HEAD."""
+    repo = Path(args.next_repo).resolve()
+    head = gitrepo.resolve(repo, "HEAD")
+    request = audit.find_request(repo, Path(args.next_request) if args.next_request else None)
+    wanted = audit.request_hash(audit.read_request(request)) if request else None
+    found = audit.latest_run(store, repo, head, wanted)
+    if found is None:
+        if request is None:
+            raise audit.AuditError(
+                f"no sealed audit run covers HEAD {head[:12]} of {repo}, and there is no request "
+                f"to seal checks for. Pass --request FILE, or commit the request to "
+                f"{audit.REQUEST_FILE} in the repo, then run `antstreet audit` again"
+            )
+        say(
+            f"No sealed audit run covers HEAD {head[:12]} for the request in {request}, so this "
+            "seals checks for it first (`antstreet audit plan`, base HEAD)."
+        )
+        plan_args = argparse.Namespace(
+            repo=str(repo), request=str(request), base=head, held_out=0, boss_model=DEFAULT_MODEL,
+            questions=False,  # opt-in on `audit plan --questions`; not offered here yet
+        )  # fmt: skip
+        code = _audit_plan(plan_args, environ, store, ask, say)
+        if code == EXIT_OK:
+            say(
+                "Next: let the agent work and commit; when it says done, "
+                "run `antstreet audit` here."
+            )
+        return code
+    run, seal = found
+    if seal.base == head:
+        say(
+            f"Nothing to check: HEAD is still the sealed base {head[:12]} of run {run}.\n"
+            "Next: let the agent work and commit; when it says done, run `antstreet audit` here."
+        )
+        return EXIT_OK
+    say(f"Run {run} sealed base {seal.base[:12]}; HEAD {head[:12]} is past it, so checking HEAD.")
+    if request is None:  # the newest covering run may have been sealed for another change
+        say(
+            f"No request given, so this checks against run {run}, sealed for: "
+            f'"{_sealed_request(store, run)}". If the agent worked on a different change, seal '
+            f"checks for it first: `antstreet audit --request FILE` (or commit "
+            f"{audit.REQUEST_FILE})."
+        )
+    check_args = argparse.Namespace(
+        run=run, head=head, repo=str(repo), claim="done", claim_text=None, agent=None,
+        no_strength=False, max_mutants=mutate.DEFAULT_CAP,
+        strength_timeout=audit_check.STRENGTH_TIMEOUT_S,
+    )  # fmt: skip
+    code = _audit_check(check_args, store, say)
+    say(
+        f"Next: `antstreet audit report {run}` lists every verdict; "
+        "after more commits, `antstreet audit`."
+    )
+    return code
+
+
+def _sealed_request(store: Path, run: str) -> str:
+    """The first line of the request a run sealed, made safe to show (the store is local, but the
+    request text came from a file anyone could have written)."""
+    try:
+        text = (audit.run_paths(store, run).root / "term_sheet.json").read_text(encoding="utf-8")
+        first = TermSheet.from_json(text).idea.strip().splitlines()[0]
+    except (OSError, TermSheetError, IndexError):
+        return "(unreadable)"
+    return safe_text(first, limit=160)
+
+
+def _audit_stop_hook(repo: Path, store: Path, mode: str, say: Say) -> int:
+    """The Stop hook's audit. Silent (exit 0, no output) unless a sealed run covers HEAD, HEAD is
+    past its base and the hook has not audited this commit yet. Never plans, never asks. Prints
+    JSON for Claude Code: a `systemMessage` the user sees and, in `block` mode on a refuted verdict,
+    a `reason` the agent sees. Neither names a check: the agent being audited must not learn what
+    the sealed checks test, or it can fit its change to them. Exit 1 on an error after a run was
+    picked, with nothing printed; the hook script turns that into a generic notice."""
+    try:
+        repo = repo.resolve()
+        head = gitrepo.resolve(repo, "HEAD")
+        found = audit.latest_run(store, repo, head)
+    except (OSError, GitError):
+        return EXIT_OK  # not a git repo with a commit: nothing to audit here
+    if found is None or found[1].base == head:
+        return EXIT_OK
+    run = found[0]
+    try:
+        if any(o.head == head for o in audit_report.collect(store, [run], STOP_HOOK_AGENT)):
+            return EXIT_OK  # already reported for this commit
+        # No check strength here: it never changes the verdict and can outlast the hook's 60 s.
+        verdict = audit_check.check(
+            run, head, repo=repo, store=store, claim="done", agent=STOP_HOOK_AGENT, strength=False
+        )
+        dirty = not gitrepo.is_clean(repo)
+    except Exception:  # noqa: BLE001 - a hook error must never reach the agent or block the user
+        return EXIT_FAILED
+    failed, counted = len(verdict.failed), verdict.counted
+    note = " Uncommitted changes in the working tree were not checked." if dirty else ""
+    message = (
+        f"AntStreet audit of HEAD {head[:12]} (run {run}): {verdict.verdict.upper()}, "
+        f"{failed} of {counted} sealed checks failed.{note} Details for you, not the agent: "
+        f"`antstreet audit report {run}`."
+    )
+    out = {"systemMessage": message}
+    if mode == "block" and verdict.verdict == "refuted":
+        out["decision"] = "block"
+        out["reason"] = (
+            f"{failed} of {counted} sealed checks failed; the human has the details "
+            "(`antstreet audit report`)."
+        )
+    say(json.dumps(out))
+    return EXIT_OK
 
 
 def _audit_plan(

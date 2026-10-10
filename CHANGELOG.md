@@ -10,6 +10,12 @@ what changed for someone using the tool, not which commit did it.
 
 ### Added
 
+- `boss audit` with no step does the next one: seals checks when no run covers `HEAD` (request
+  from `--request` or `.antstreet/request.md`), checks `HEAD` as `done` when a run's base is
+  behind it, and prints the next command.
+- A plugin Stop hook that audits `HEAD` against a sealed run when the agent stops. It tells you
+  the verdict and shows the agent no check; blocking a refuted stop is the opt-in option
+  `audit_on_refuted`.
 - `boss approve RUN [--sheet V]`: approves a term sheet `boss fund` left waiting, only if it is
   exactly the text shown with that value; the signed `approved` event adds `shown_sha256`.
 - `boss status --json`: one JSON object (`run`, `awaiting`, last event, checks, spend) for tools.
