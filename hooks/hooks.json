@@ -1,5 +1,5 @@
 {
-  "description": "AntStreet: say how to get uv when it is missing, keep the agent from approving a term sheet, and check the latest run's ledger when the agent stops.",
+  "description": "AntStreet: say how to get uv when it is missing, keep the agent from approving a term sheet, and when the agent stops, check the latest run's ledger and audit the commit at HEAD against a sealed audit run.",
   "modules": [
     "./approve-pane.tsx"
   ],
@@ -34,6 +34,11 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/ledger-check.sh",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/audit-check.sh",
             "timeout": 60
           }
         ]
