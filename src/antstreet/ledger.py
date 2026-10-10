@@ -8,6 +8,7 @@ import json
 import os
 import re
 import threading
+import time
 from collections.abc import Callable, Hashable, Iterable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field, fields, replace
@@ -331,6 +332,27 @@ def repair_torn_tail(path: Path) -> str | None:
 
 type _Mark = tuple[str, str] | None  # a signed line's (hash of the signed bytes, mac)
 
+_SETTLE_TRIES = 20  # 20 x 5 ms: a torn tail no writer finishes costs a reader 100 ms, then fails
+_SETTLE_WAIT = 0.005
+
+
+def _settled(path: Path) -> bytes:
+    """The file's bytes, re-read briefly while its last line has no newline.
+
+    Readers take no lock, and one `write` is not atomic against a concurrent `read`: Linux makes
+    an append visible a page at a time (CI run 38042874252 read a line cut at byte 4096). A line
+    in flight is whole within microseconds; a torn tail left by a crash never is, and is judged
+    exactly as before once the wait runs out. Only the last read is used, and it is
+    parsed and checked in full, so no state is accepted that a single read would have refused.
+    """
+    data = Path(path).read_bytes()
+    for _ in range(_SETTLE_TRIES):
+        if not data or data.endswith(b"\n"):
+            break
+        time.sleep(_SETTLE_WAIT)
+        data = Path(path).read_bytes()
+    return data
+
 
 def _parse(path: Path) -> tuple[list[Event], list[str], list[_Mark]]:
     """Every event, the hash of every line, and the signature of every signed line."""
@@ -339,7 +361,7 @@ def _parse(path: Path) -> tuple[list[Event], list[str], list[_Mark]]:
     marks: list[_Mark] = []
     expected = GENESIS
     chained = False
-    lines = Path(path).read_bytes().split(b"\n")
+    lines = _settled(path).split(b"\n")
     if lines[-1] == b"":  # the file ends in a newline (or is empty)
         lines.pop()
     for lineno, raw in enumerate(lines, start=1):
