@@ -605,3 +605,16 @@ def test_head_in_a_repo_with_no_commits_says_to_commit_first(tmp_path):
     assert "git add -A && git commit" in str(caught.value)
     with pytest.raises(gitrepo.GitError, match="names no commit"):  # other refs: as before
         gitrepo.resolve(tmp_path, "main")
+
+
+def test_lost_history_keeps_the_general_message_not_commit_first(tmp_path):
+    # a deleted branch leaves a reflog entry: telling that user to make a new root commit is wrong
+    def git(*args):
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+
+    git("init", "-q", "-b", "main")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "a")
+    git("checkout", "-q", "--orphan", "other")
+    git("branch", "-D", "main")
+    with pytest.raises(gitrepo.GitError, match="names no commit"):
+        gitrepo.resolve(tmp_path, "HEAD")
