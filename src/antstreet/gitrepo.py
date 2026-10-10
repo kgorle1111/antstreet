@@ -225,6 +225,13 @@ def resolve(repo: Path, ref: str) -> str:
     )  # fmt: skip
     sha = out.decode("ascii", "replace").strip()
     if not _HEX.fullmatch(sha):
+        if ref == "HEAD" and not _run(["rev-list", "-n", "1", "--all"], gitdir=gitdir, cwd=root)[1]:
+            raise _fail(  # a brand-new repo: the first thing a new user often hits
+                "reading HEAD",
+                "this repo has no commits yet",
+                "committing your code first (`git add -A && git commit -m start`), then run this "
+                "again",
+            )
         raise _fail(
             "reading a ref", f"{_show(ref)} names no commit in this repo", "`git branch -a`"
         )

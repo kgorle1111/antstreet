@@ -287,7 +287,7 @@ def test_is_clean_does_not_write_the_index(two):
 
 
 def test_a_repo_with_no_commit_cannot_be_called_clean(repo):
-    with pytest.raises(GitError, match="names no commit"):
+    with pytest.raises(GitError, match="no commits yet"):
         is_clean(repo)
 
 
@@ -596,3 +596,12 @@ def test_an_oversized_tree_is_refused(two, tmp_path, monkeypatch):
     with pytest.raises(GitError, match="size cap"):
         export(two[0], "main", tmp_path / "out")
     assert not (tmp_path / "out").exists()
+
+
+def test_head_in_a_repo_with_no_commits_says_to_commit_first(tmp_path):
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    with pytest.raises(gitrepo.GitError, match="this repo has no commits yet") as caught:
+        gitrepo.resolve(tmp_path, "HEAD")
+    assert "git add -A && git commit" in str(caught.value)
+    with pytest.raises(gitrepo.GitError, match="names no commit"):  # other refs: as before
+        gitrepo.resolve(tmp_path, "main")
