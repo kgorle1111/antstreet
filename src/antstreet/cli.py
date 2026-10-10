@@ -877,6 +877,7 @@ def _await_approval(
         "untested": dict(waivers),
         "notes": list(plan.notes),
         "coverage": gated,
+        "spec": spec_shown is not None,
     }
     record("boss", EventType.STOPPED, data=data)
     _show_pending(paths, run, view, spec_shown, plan.notes, pipe.say)
@@ -959,7 +960,16 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
                 review = "critic" if "critic" in setup.roles else "off"
                 level = dispatching.RunLevel(setup.model, review, config.held_out, config.parallel)
                 view = dispatching.DispatchView(policy, level, config.policy.stall_slices, {})
-            rules = paths.rules if paths.rules.is_file() else None
+            # From the signed stop, never from the file being there: a deleted rule list must
+            # refuse the approval, not drop the coverage view from what is approved.
+            rules = paths.rules if waited.get("spec") is True else None
+            if rules is not None and not rules.is_file():
+                say(
+                    f"Not approved: {rules.name} is missing, and this run was started with --spec, "
+                    "so its rule coverage cannot be shown; start again with `antstreet fund "
+                    "--spec`. Nothing was written."
+                )
+                return EXIT_FAILED
             spec_shown = spec_view(paths.rules, paths.checks, waivers, gate) if rules else None
             if args.sheet is None:
                 kept = notes if isinstance(notes, list) else []

@@ -8,7 +8,7 @@ import pytest
 from test_cli import DRAFT, FAKE_CLAUDE
 
 from antstreet import spec
-from antstreet.cli import EXIT_FAILED, EXIT_OK, EXIT_USAGE, main
+from antstreet.cli import EXIT_AWAITING, EXIT_FAILED, EXIT_OK, EXIT_USAGE, main
 from antstreet.ledger import EventType, read_events
 
 IDEA = "Reverse a string.\n\n1. reverse('ab') returns 'ba'.\n2. A non-string raises `TypeError`."
@@ -73,6 +73,24 @@ def test_spec_makes_a_run_with_rules_a_coverage_view_and_a_recorded_summary(boss
     term_sheet = json.loads((run_dir / "term_sheet.json").read_text())
     assert term_sheet["checks"][0]["criteria"] == ["R02"]
     assert EventType.ROUND_CLOSED in [e.event for e in events], "the firm ran with the rules bound"
+
+
+def test_a_rule_list_deleted_before_an_unattended_approval_refuses_it(boss, monkeypatch):
+    """The ledger says --spec was chosen, so a missing rules.json refuses, never drops the view."""
+    import antstreet.cli as cli
+
+    run = boss(CITING)
+    monkeypatch.setattr(cli, "_unattended", lambda ask: True)
+    code, output = run("fund", IDEA, "--budget", "0.50", "--spec")
+    assert code == EXIT_AWAITING and "SPEC COVERAGE" in output
+    [run_dir] = run.runs()
+    [value] = {line.split("--sheet ")[1][:16] for line in output.splitlines() if "--sheet " in line}
+    (run_dir / "rules.json").unlink()
+    code, output = run("approve", run_dir.name)
+    assert code == EXIT_FAILED and "rules.json" in output and "--sheet" not in output
+    code, output = run("approve", run_dir.name, "--sheet", value)
+    assert code == EXIT_FAILED and "antstreet fund --spec" in output
+    assert EventType.APPROVED not in [e.event for e in read_events(run_dir / "ledger.jsonl")]
 
 
 def test_without_spec_nothing_about_rules_happens(boss):
