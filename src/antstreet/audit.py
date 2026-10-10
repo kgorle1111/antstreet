@@ -615,15 +615,22 @@ def _answer(
     seal = parse_seal(sheet)
     record = Recorder(ledger, run_id, round=0)
     said: list[str] = []
+    answered: list[dict[str, object]] = []  # each answer's `ruled` data
     with tempfile.TemporaryDirectory(prefix="boss_audit_") as tmp:
         base_tree = Path(tmp) / "base"
-        try:  # before any answer is written: a repo without the base commit changes nothing
+        try:
             gitrepo.export(repo, seal.base, base_tree)
         except gitrepo.GitError as exc:
             raise AuditError(f"{exc} (run this in the audited repo, or pass --repo)") from exc
-        sheet = questions.apply(sheet, asked, given, paths.checks, record)
-        _write_unapproved(paths, sheet)
+        # Only check files are written until the base run is done: if it fails, the sheet and the
+        # ledger still wait for the answers, and answering again rewrites the same files.
+        sheet = questions.apply(
+            sheet, asked, given, paths.checks, lambda _a, _e, data: answered.append(data)
+        )
         observed = _observe_base(repo, store, base_tree, paths, sheet, said.append)
+    _write_unapproved(paths, sheet)
+    for data in answered:
+        record("investor", EventType.RULED, data=data)
     notes = _notes(sheet, paths, observed)
     record("boss", EventType.STOPPED, data={"reason": AWAITING_APPROVAL, "notes": [notes]})
     return Waiting(run_id, "\n".join([*said, how_to_approve(paths, run_id, [notes])]))

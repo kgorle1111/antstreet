@@ -28,7 +28,6 @@ from antstreet.errors import Outcome
 from antstreet.gate import Check
 from antstreet.ledger import EventType
 from antstreet.redact import safe_text
-from antstreet.rundir import Recorder
 from antstreet.stream import Usage
 from antstreet.termsheet import (
     CheckSpec,
@@ -234,7 +233,7 @@ def apply(
     questions: Sequence[Question],
     answers: Sequence[str],
     checks_dir: Path,
-    record: Recorder,
+    record: Callable[..., None],
 ) -> TermSheet:
     """Add the check for each yes or no to the sheet (and its file to `checks_dir`), and write one
     signed `ruled` event per answer. The last round still unlocks only when every check passes."""

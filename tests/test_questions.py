@@ -217,6 +217,30 @@ def test_a_check_edited_after_the_answers_voids_the_shown_value(tmp_path, monkey
     assert unattended(monkeypatch, audit, "approve", run)[0] == cli.EXIT_AWAITING  # still waits
 
 
+def test_answers_whose_base_run_fails_are_not_recorded_and_can_be_given_again(
+    tmp_path, monkeypatch
+):
+    from antstreet import audit as audit_module
+    from antstreet.gate import GateError
+
+    audit = Audit(tmp_path)
+    audit.set_draft(QUESTIONS, "audit_questions.json")
+    plan = ("plan", "--repo", str(audit.repo), "--request", str(audit.request), "--questions")
+    unattended(monkeypatch, audit, *plan)
+    real = audit_module.run_checks
+
+    def broken(*args, **kw):
+        raise GateError("the gate could not start")
+
+    monkeypatch.setattr(audit_module, "run_checks", broken)
+    answer = ("approve", audit.run_id(), "--answers", "y,n,s", "--repo", str(audit.repo))
+    code, said = unattended(monkeypatch, audit, *answer)
+    assert code == 1 and "the gate could not start" in said and not ruled(audit)
+    monkeypatch.setattr(audit_module, "run_checks", real)
+    assert unattended(monkeypatch, audit, *answer)[0] == cli.EXIT_AWAITING
+    assert [r.data.get("added") for r in ruled(audit)] == ["c05", "c06", None]
+
+
 def test_no_terminal_without_questions_waits_for_the_approval_instead_of_rejecting(
     tmp_path, monkeypatch
 ):
