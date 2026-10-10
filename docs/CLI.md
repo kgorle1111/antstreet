@@ -606,6 +606,7 @@ checks. A cell whose `result.json` already exists is skipped, so a run can be re
 | `--only` | all tasks | Task ids to run. |
 | `--firm-args` | none | Extra `antstreet fund` options for the firm arm, in one quoted string. Recorded in every result. |
 | `--held-out` | `0` | Held-out checks for the firm arm to ask the examiner for, 0 to 8; 0 is off. It adds `--held-out N` to the firm arm's `antstreet fund` and records `held_out_passed`, `held_out_total` and `held_out_wrong` (held-out checks the task's reference solution fails, as `wrong_checks` does for the visible ones; the table shows it only when measured) in each firm result. The single arm ignores it. |
+| `--coverage` | off | The firm arm runs `antstreet fund --coverage`: it adds `--coverage` to the firm arm's options, so `firm_args` records it. The single arm ignores it. |
 | `--jobs` | `2` | Cells to run at once. |
 | `--dry-run` | off | Print the cells and the task set hash, then exit. |
 
