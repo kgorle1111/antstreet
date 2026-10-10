@@ -1,4 +1,5 @@
-"""Where `--spec` and `boss audit` meet: one ledger holds a signed approval carrying the coverage
+"""Where `--spec` and `antstreet audit` meet: one ledger holds a signed approval carrying the
+coverage
 summary (`data.spec`) and a signed `audited` verdict. Editing either, or adding a verdict without
 the key, is refused whichever comes first (docs/THREAT_MODEL.md, T54 and T57)."""
 

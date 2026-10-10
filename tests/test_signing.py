@@ -56,7 +56,7 @@ HEX = re.compile(r"[0-9a-f]{64}")
 
 @pytest.fixture
 def project(tmp_path):
-    """A project folder laid out as `boss fund` makes one, with the checks written and a run
+    """A project folder laid out as `antstreet fund` makes one, with the checks written and a run
     folder whose investor key therefore resolves."""
     run = RunPaths(tmp_path / "project" / ".boss" / "runs" / "r1")
     run.checks.mkdir(parents=True)

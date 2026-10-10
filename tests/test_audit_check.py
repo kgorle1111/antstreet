@@ -1,4 +1,4 @@
-"""`boss audit check`: sealed checks run on a head commit, and everything it verifies first."""
+"""`antstreet audit check`: sealed checks run on a head commit, and everything it verifies first."""
 
 import json
 import shutil

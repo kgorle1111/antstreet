@@ -71,7 +71,7 @@ def test_old_python_fails_with_the_found_version_and_a_fix(cli, env, cwd, monkey
     assert (found.ok, found.detail, found.fix) == (
         False,
         "3.11.4, need 3.12 or newer",
-        "run boss with Python 3.12+",
+        "run antstreet with Python 3.12+",
     )
 
 
@@ -85,7 +85,7 @@ def test_non_posix_platform_fails_with_its_name(cli, env, cwd, monkeypatch):
     monkeypatch.setattr(doctor, "os", SimpleNamespace(name="nt", getpid=os.getpid))
     found = check(run_doctor(env, cwd, executable=cli), "platform")
     assert (found.ok, found.detail) == (False, "nt is unsupported")
-    assert found.fix == "run boss on macOS or Linux"
+    assert found.fix == "run antstreet on macOS or Linux"
 
 
 def test_missing_pytest_fails_and_says_why(cli, env, cwd, monkeypatch):

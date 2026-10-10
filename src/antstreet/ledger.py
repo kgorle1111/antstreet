@@ -52,7 +52,7 @@ class EventType(StrEnum):
     STOPPED = "stopped"
     DENIED = "denied"
     ERROR = "error"
-    AUDITED = "audited"  # `boss audit check`: the gate's verdict on someone else's change
+    AUDITED = "audited"  # `antstreet audit check`: the gate's verdict on someone else's change
 
 
 AUDIT_ACTOR = "gate"  # the only actor whose `audited` event counts
@@ -201,7 +201,7 @@ def _end_last_line(fh: IO[str], path: Path) -> None:
 
     A complete event that only lost its newline gets one: nothing is lost, and its hash (what the
     next `prev` is) does not include the newline. A cut-off fragment is refused: a line appended
-    to it is glued on and the file can no longer be repaired, and cutting it is `boss resume`'s
+    to it is glued on and the file can no longer be repaired, and cutting it is `antstreet resume`'s
     decision (`repair_torn_tail`), which tells the investor what it removed.
     """
     data = path.read_bytes()
@@ -212,7 +212,7 @@ def _end_last_line(fh: IO[str], path: Path) -> None:
     except (ValueError, TypeError):
         raise LedgerCorruptError(
             f"{path}: the last line is cut off, so nothing can be appended to it; "
-            "`boss resume` repairs it"
+            "`antstreet resume` repairs it"
         ) from None
     fh.write("\n")
     fh.flush()
@@ -368,12 +368,13 @@ def _unadopted(path: Path, run: str, unsigned: int, lines: int) -> str:
     return (
         f"{path}: {unsigned} of {lines} lines are unsigned and the run has no anchor: either older "
         "than line signing or rewritten without the key. If you know the run is genuine, accept "
-        f"it as it is now with `boss verify {run} --adopt-unsigned`"
+        f"it as it is now with `antstreet verify {run} --adopt-unsigned`"
     )
 
 
 def adopt_unsigned(path: Path, key_path: Path) -> int:
-    """The investor's decision (`boss verify RUN --adopt-unsigned`) to vouch for a run's ledger as
+    """The investor's decision (`antstreet verify RUN --adopt-unsigned`) to vouch for a run's
+    ledger as
     it is now: every check `read_events` makes but the anchor's, then an anchor for the current
     tail, so later reads and appends verify as for any signed run. Returns the unsigned lines it
     adopted; 0, changing nothing, when the run already has an anchor (which must verify). Never

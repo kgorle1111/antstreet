@@ -1,4 +1,4 @@
-"""`boss mcp`: the stdio MCP server is read-only, validates what a client sends, and answers in
+"""`antstreet mcp`: the stdio MCP server is read-only, validates what a client sends, and answers in
 JSON-RPC 2.0, one message per line."""
 
 import io

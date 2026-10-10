@@ -1,14 +1,15 @@
 """The staged flow around the firm's loop: what runs before the term sheet is approved, while a
 dispute is open, and after the workers finish.
 
-Each step is a role the investor chose (`boss fund --roles`). A role drafts and never decides: what
+Each step is a role the investor chose (`antstreet fund --roles`). A role drafts and never decides:
+what
 it writes reaches the investor as a note, and only the investor's answer changes anything. Every
 call is booked as a `role_call` event under the role's actor, at round 0 so that a round's budget
 and the run's spend ceiling stay what the investor funded, whether the call worked or not. A
 failed role is never read as "no findings": the investor is told in one line, the run goes on
 without its output, and the one step that cannot (the staged draft) falls back to the boss.
 
-With no roles chosen every method is a no-op, and the run is the run `boss fund` always was.
+With no roles chosen every method is a no-op, and the run is the run `antstreet fund` always was.
 """
 
 from __future__ import annotations
@@ -128,7 +129,7 @@ def default_fix_budget(config: FirmConfig) -> int:
 @dataclass(frozen=True, slots=True)
 class Setup:
     """The roles a run was started with. Recorded on the run's `started` event so that
-    `boss resume` and the report know them; `FirmConfig` never carries role names."""
+    `antstreet resume` and the report know them; `FirmConfig` never carries role names."""
 
     roles: tuple[str, ...]
     model: str  # the model of every role call: the boss's

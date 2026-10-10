@@ -82,13 +82,13 @@ def _check_python() -> DoctorCheck:
     found = ".".join(map(str, sys.version_info[:3]))
     if sys.version_info >= _MIN_PYTHON:
         return _pass("python", found)
-    return _fail("python", f"{found}, need 3.12 or newer", "run boss with Python 3.12+")
+    return _fail("python", f"{found}, need 3.12 or newer", "run antstreet with Python 3.12+")
 
 
 def _check_platform() -> DoctorCheck:
     if os.name == "posix":
         return _pass("platform", "posix")
-    return _fail("platform", f"{os.name} is unsupported", "run boss on macOS or Linux")
+    return _fail("platform", f"{os.name} is unsupported", "run antstreet on macOS or Linux")
 
 
 def _check_pytest() -> DoctorCheck:
@@ -167,7 +167,9 @@ def _check_login(path: str, env: Mapping[str, str], *, live: bool) -> DoctorChec
         if not state:
             return _fail("login", "not logged in", _LOGIN_FIX)
         if not live:
-            detail = "logged in per `auth status` (reported, not verified; use boss doctor --live)"
+            detail = (
+                "logged in per `auth status` (reported, not verified; use antstreet doctor --live)"
+            )
             return _pass("login", detail)
     return _live_call(path, env, api_key=api_key)
 
@@ -176,7 +178,7 @@ def _check_path_rules(path: str, env: Mapping[str, str]) -> DoctorCheck:
     """One real worker slice that is asked to write outside its folder. The tests pin the flags
     that are passed; only this proves the installed CLI still enforces them."""
     name = "worker path rules"
-    fix = "do not run boss with this CLI version: a worker is not confined to its folder"
+    fix = "do not run antstreet with this CLI version: a worker is not confined to its folder"
     with tempfile.TemporaryDirectory(prefix="boss_canary_") as tmp:
         workspace, outside = Path(tmp) / "workspace", Path(tmp) / "outside"
         workspace.mkdir()
@@ -219,7 +221,7 @@ def _check_writable(cwd: Path) -> DoctorCheck:
         probe.write_text("probe")
         probe.unlink()
     except OSError as exc:
-        fix = f"make {folder} writable (chmod u+w) or run boss from another folder"
+        fix = f"make {folder} writable (chmod u+w) or run antstreet from another folder"
         return _fail("writable folder", f"{folder}: {exc.__class__.__name__}", fix)
     return _pass("writable folder", str(folder))
 

@@ -1,4 +1,5 @@
-"""The benchmark's firm arm with held-out checks: `held_out` reaches `boss fund`, each cell records
+"""The benchmark's firm arm with held-out checks: `held_out` reaches `antstreet fund`, each cell
+records
 how many held-out checks the product passed, and results written before the fields load. The CLI's
 own run is replaced by a stub that writes a run folder, so this needs no fake `claude`."""
 
@@ -47,7 +48,7 @@ def firm_ledger(*, statuses=("passed", "passed", "failed"), written=True, reques
 
 @pytest.fixture
 def stub(tmp_path, monkeypatch):
-    """Replace `boss fund` with a stub that records its argv and writes the run folder the firm
+    """Replace `antstreet fund` with a stub that records its argv and writes the run folder the firm
     arm reads: a ledger from `stub.events` and the reference solution as product/."""
     calls = []
     monkeypatch.setattr(bench_run, "preflight", lambda environ: None)  # no `claude` to ask
