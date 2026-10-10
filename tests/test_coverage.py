@@ -246,6 +246,20 @@ def test_a_damaged_coverage_file_cannot_be_approved(boss, monkeypatch):
     assert code != EXIT_OK and "coverage.json cannot be read" in output
 
 
+def test_a_deleted_coverage_file_cannot_be_approved_unattended(boss, monkeypatch):
+    """The ledger says --coverage was chosen, so a missing file refuses; it never drops the gate."""
+    import antstreet.cli as cli
+
+    run = boss(GAPPY)
+    monkeypatch.setattr(cli, "_unattended", lambda ask: True)
+    code, _ = run("fund", IDEA, "--budget", "0.50", "--coverage")
+    assert code == EXIT_AWAITING
+    (run.run_dir() / "coverage.json").unlink()
+    code, output = run("approve", run.run_dir().name)
+    assert code != EXIT_OK and "coverage.json cannot be read" in output
+    assert "--sheet" not in output, "no gate-less text is offered for approval"
+
+
 def test_the_flag_is_in_the_help_and_off_by_default(capsys):
     with pytest.raises(SystemExit):
         main(["fund", "--help"])

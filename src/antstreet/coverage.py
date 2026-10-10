@@ -179,7 +179,10 @@ def gate_view(
         if not isinstance(saved, dict):
             raise ValueError("not an object")
     except (OSError, ValueError) as exc:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
-        raise spec.SpecError(f"{FILE} cannot be read: {exc}") from exc
+        raise spec.SpecError(
+            f"{FILE} cannot be read ({exc}), and this run was started with --coverage, so its "
+            "gate cannot be shown; start again with `antstreet fund --coverage`"
+        ) from exc
     recorded = saved.get("weak")
     recorded = recorded if isinstance(recorded, dict) else {}
     weak: dict[str, list[str]] = {}

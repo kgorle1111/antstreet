@@ -807,10 +807,12 @@ def _fund(
             cascade=policy is not None and policy.cascade,
         )
         spec_shown = (
-            spec_view(paths.rules, paths.checks, waivers, _gate_file(paths)) if rules else None
+            spec_view(paths.rules, paths.checks, waivers, _gate_file(paths, args.coverage))
+            if rules
+            else None
         )
         if _unattended(ask):  # EOF would reject the draft
-            return _await_approval(pipe, plan, config, view, spec_shown, waivers)
+            return _await_approval(pipe, plan, config, view, spec_shown, waivers, args.coverage)
         try:
             sheet = review_term_sheet(
                 plan.sheet,
@@ -838,9 +840,11 @@ def _fund(
     return _finish(paths, outcome, say)
 
 
-def _gate_file(paths: RunPaths) -> Path | None:
-    """The coverage gate's measurement, for a run started with `--coverage`."""
-    return paths.coverage if paths.coverage.is_file() else None
+def _gate_file(paths: RunPaths, chosen: bool) -> Path | None:
+    """The coverage gate's measurement, for a run started with `--coverage`. Chosen comes from
+    the flag or the ledger, never from the file being there: a deleted file must refuse the
+    approval (`coverage.gate_view` cannot read it), not drop the gate from the view."""
+    return paths.coverage if chosen else None
 
 
 def _unattended(ask: Ask) -> bool:
@@ -855,6 +859,7 @@ def _await_approval(
     view: dispatching.DispatchView | None,
     spec_shown: SpecView | None,
     waivers: Mapping[str, str],
+    gated: bool,
 ) -> int:
     """`fund` with nobody at a terminal to answer: keep the paid-for draft, unapproved, and wait
     for `antstreet approve`, where end of input would have read as a rejection. The configuration
@@ -867,7 +872,12 @@ def _await_approval(
     record = Recorder(pipe.ledger, run, 0)
     started = {"config": config_data(config), "roles": pipe.setup.data()}
     record("boss", EventType.STARTED, data=started)
-    data = {"reason": AWAITING, "untested": dict(waivers), "notes": list(plan.notes)}
+    data = {
+        "reason": AWAITING,
+        "untested": dict(waivers),
+        "notes": list(plan.notes),
+        "coverage": gated,
+    }
     record("boss", EventType.STOPPED, data=data)
     _show_pending(paths, run, view, spec_shown, plan.notes, pipe.say)
     pipe.say("Nothing was funded; only the draft was paid for. Do not run `antstreet fund` again.")
@@ -940,6 +950,7 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
                 return EXIT_FAILED
             waited = [e.data for e in events if e.data.get("reason") == AWAITING][-1]
             untested, notes = waited.get("untested"), waited.get("notes")
+            gate = _gate_file(paths, waited.get("coverage") is True)
             waivers = untested if isinstance(untested, dict) else {}
             setup = recorded_setup(events) or Setup((), DEFAULT_MODEL, None)
             policy = config.dispatch_policy()
@@ -949,9 +960,7 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
                 level = dispatching.RunLevel(setup.model, review, config.held_out, config.parallel)
                 view = dispatching.DispatchView(policy, level, config.policy.stall_slices, {})
             rules = paths.rules if paths.rules.is_file() else None
-            spec_shown = (
-                spec_view(paths.rules, paths.checks, waivers, _gate_file(paths)) if rules else None
-            )
+            spec_shown = spec_view(paths.rules, paths.checks, waivers, gate) if rules else None
             if args.sheet is None:
                 kept = notes if isinstance(notes, list) else []
                 lines = [n for n in kept if isinstance(n, str)]
