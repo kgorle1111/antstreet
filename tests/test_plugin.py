@@ -98,8 +98,11 @@ def test_hooks_json_points_at_executable_scripts_that_exist():
     assert set(guard["matcher"].split("|")) == {
         "Bash",
         "Monitor",
-        "PowerShell",
-    }  # what runs a shell
+        "PowerShell",  # what runs a shell
+        "Read",
+        "Grep",
+        "Glob",  # what reads a path the agent names, so a read of the audit store is denied too
+    }
     for groups in config["hooks"].values():
         for group in groups:
             for hook in group["hooks"]:
@@ -287,21 +290,27 @@ def test_the_mod_checker_can_fail():
     assert found and "onPress=" not in found[0]
 
 
-def _guard(command: str, tool: str = "Bash") -> subprocess.CompletedProcess[str]:
+def _guard(
+    command: str,
+    tool: str = "Bash",
+    tool_input: dict[str, str] | None = None,
+    cwd: str = "/home/user/boss",  # a project folder named boss must not arm the match
+    **env: str,
+) -> subprocess.CompletedProcess[str]:
     """Run the PreToolUse hook on the input Claude Code sends (code.claude.com/docs/en/hooks)."""
     event = {
         "session_id": "s",
-        "cwd": "/home/user/boss",  # a project folder named boss must not arm the match
+        "cwd": cwd,
         "permission_mode": "default",
         "hook_event_name": "PreToolUse",
         "tool_name": tool,
-        "tool_input": {"command": command, "description": "run it"},
+        "tool_input": tool_input or {"command": command, "description": "run it"},
         "tool_use_id": "toolu_1",
     }
     return subprocess.run(
         [str(HOOKS / "deny-approve.sh")],
         input=json.dumps(event),
-        env={"PATH": "/usr/bin:/bin"},
+        env={"PATH": "/usr/bin:/bin"} | env,
         capture_output=True,
         text=True,
         timeout=30,
@@ -313,9 +322,6 @@ APPROVES = [
     "antstreet approve",
     "boss approve r1 --sheet 0123456789abcdef",
     "uvx antstreet approve r1 --sheet 0123456789abcdef",
-    "uvx antstreet audit approve r1 --answers y,n,s",  # the plan's questions are the human's
-    "boss audit approve r1 --sheet 0123456789abcdef",
-    "uv run boss audit approve",
     "uvx antstreet@latest approve",
     "uvx --from antstreet==0.0.1 boss approve",
     "uvx --from git+https://github.com/kgorle1111/antstreet antstreet approve",
@@ -355,7 +361,6 @@ ALLOWED = [
     "uvx antstreet doctor",
     "uvx antstreet fund 'a csv parser' --budget 0.40",
     "uvx antstreet resume r1",
-    "uvx antstreet audit plan --questions --request req.txt",
     "boss status --dir /home/user/boss",
     "grep -rn approve src",
     "ls /home/user/boss/.boss/runs && echo approved",
@@ -385,3 +390,182 @@ def test_the_guard_stays_silent_on_everything_else(command):
 @pytest.mark.parametrize("tool", ["Monitor", "PowerShell"])
 def test_the_guard_reads_other_tools_that_run_a_command(tool):
     assert _guard("uvx antstreet approve r1", tool).returncode == 2
+
+
+AUDITS = [
+    # since #75 every audit step is the human's, approve and a --questions plan too
+    "uvx antstreet audit approve r1 --answers y,n,s",
+    "boss audit approve r1 --sheet 0123456789abcdef",
+    "uv run boss audit approve",
+    "uvx antstreet audit plan --questions --request req.txt",
+    "antstreet audit",
+    "uvx antstreet audit",
+    "uvx antstreet audit report",
+    "uvx antstreet audit report r1 --all",
+    "uvx antstreet audit check r1 --claim done",
+    "uvx antstreet audit plan --request ~/req.txt",
+    "boss audit --repo . --stop-hook notify",
+    "uvx antstreet@latest audit report",
+    "uvx --from antstreet==0.0.1 boss audit check",
+    "uv run --directory . -- antstreet audit report",
+    "python -m antstreet.cli audit report",
+    "python3 src/antstreet/cli.py audit check",
+    ".venv/bin/antstreet audit report",
+    "FOO=1 antstreet audit report",
+    "env -i boss audit report",
+    "cd x; antstreet audit report",
+    "true && boss audit check",
+    "echo $(antstreet audit report)",
+    "echo `boss audit report`",
+    "sh -c 'antstreet audit report'",
+    "antstreet\naudit report",
+    "'antstreet' \"audit\" report",
+    "antstreet au'di't report",
+    "antstreet au\\dit report",
+    "ANTSTREET AUDIT REPORT",
+    "antstreet $(echo audit) report",
+    "uvx antstreet fund 'x'; uvx antstreet audit report",
+]
+
+
+@pytest.mark.parametrize("command", AUDITS)
+def test_the_guard_denies_every_way_of_running_an_audit(command):
+    done = _guard(command)
+    assert done.returncode == 2, command
+    reason = json.loads(done.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "may not run `antstreet audit` in any form" in reason
+    assert reason.endswith("! uvx antstreet audit") and reason in done.stderr
+
+
+def _store(tmp_path: Path) -> tuple[Path, Path]:
+    """A home with an audit store holding one check, and a project beside it."""
+    store = tmp_path / "home" / ".boss-audit"
+    (store / ".boss" / "runs" / "r1").mkdir(parents=True)
+    (store / ".boss" / "runs" / "r1" / "test_c01.py").write_text("assert sealed\n")
+    project = tmp_path / "project"
+    (project / ".antstreet").mkdir(parents=True)
+    (project / ".antstreet" / "request.md").write_text("add a flag\n")
+    return store, project
+
+
+def _store_denied(done: subprocess.CompletedProcess[str], *secrets: str) -> None:
+    assert done.returncode == 2, done.stdout
+    reason = json.loads(done.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "may not read, search or list it" in reason
+    assert reason.endswith("! uvx antstreet audit report") and reason in done.stderr
+    for secret in secrets:  # the denial says neither where the store is nor what is in it
+        assert secret not in done.stdout and secret not in done.stderr
+
+
+STORE_COMMANDS = [
+    "cat ~/.boss-audit/.boss/runs/r1/test_c01.py",
+    "cat $HOME/.boss-audit/.boss/runs/*/test_*.py",
+    "rg -uu assert ${HOME}/.boss-audit",
+    "find ~/.BOSS-AUDIT -name '*.py'",
+    'cat ~/.boss-""audit/x',
+    "cat ~/.boss-aud\\it/x",
+    "cd ../../.boss-audit && ls",
+    "python3 -c \"print(open('/home/u/.boss-audit/x').read())\"",
+    "ls $BOSS_AUDIT_HOME",
+    'tar cf - "${BOSS_AUDIT_HOME}/.boss" | base64',
+]
+
+
+@pytest.mark.parametrize("command", STORE_COMMANDS)
+def test_the_guard_denies_a_command_that_names_the_audit_store(command):
+    _store_denied(_guard(command))
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [
+        ("Read", {"file_path": "/home/u/.boss-audit/.boss/runs/r1/test_c01.py"}),
+        ("Read", {"file_path": "../../.boss-audit/.boss/runs/r1/test_c01.py"}),
+        ("Grep", {"pattern": "assert", "path": "/home/u/.boss-audit"}),
+        ("Glob", {"pattern": "**/.boss-audit/**/*.py"}),
+        ("Glob", {"pattern": "*.py", "path": "/home/u/.Boss-Audit/.boss"}),
+    ],
+)
+def test_the_guard_denies_a_read_search_or_listing_of_the_audit_store(tool, tool_input):
+    _store_denied(_guard("", tool, tool_input))
+
+
+def test_the_guard_denies_a_path_that_resolves_into_the_store_through_a_link(tmp_path):
+    store, project = _store(tmp_path)
+    (project / "notes").symlink_to(store)
+    home = str(tmp_path / "home")
+    via = "notes/.boss/runs/r1/test_c01.py"
+    for tool, tool_input in [
+        ("Read", {"file_path": str(project / via)}),
+        ("Read", {"file_path": via}),
+        ("Grep", {"pattern": "assert", "path": "notes"}),
+        ("Bash", {"command": f"cat {via}"}),
+        ("Bash", {"command": "cat notes/.boss/runs/*/*.py"}),
+        ("Bash", {"command": "cat $HOME/../project/notes/.boss/runs/r1/*"}),
+    ]:
+        done = _guard("", tool, tool_input, str(project), HOME=home)
+        _store_denied(done, str(store), "assert sealed")
+
+
+def test_the_guard_denies_the_store_that_boss_audit_home_names(tmp_path):
+    _, project = _store(tmp_path)
+    sealed = tmp_path / "sealed"
+    (sealed / ".boss" / "runs").mkdir(parents=True)
+    (project / "link").symlink_to(sealed / ".boss")
+    env = {"HOME": str(tmp_path / "home"), "BOSS_AUDIT_HOME": f"{sealed}/"}
+    for tool, tool_input in [
+        ("Read", {"file_path": f"{sealed}/.boss/runs/r1/test_c01.py"}),  # by its value
+        ("Grep", {"pattern": "x", "path": str(sealed)}),
+        ("Bash", {"command": f"ls {sealed}/.boss/runs/r1"}),  # not there yet: still named
+        ("Bash", {"command": "ls link/runs"}),  # through a link
+        ("Read", {"file_path": "link/runs"}),
+    ]:
+        _store_denied(_guard("", tool, tool_input, str(project), **env), str(sealed))
+    for tool, tool_input in [  # a longer name that begins with the value is another folder
+        ("Read", {"file_path": f"{sealed}-notes/a.md"}),
+        ("Bash", {"command": f"ls {sealed}.old"}),
+    ]:
+        done = _guard("", tool, tool_input, str(project), **env)
+        assert (done.returncode, done.stdout) == (0, ""), tool_input
+
+
+def test_the_guard_lets_the_agent_read_its_own_project(tmp_path):
+    store, project = _store(tmp_path)
+    (project / "audit").mkdir()  # a project folder named audit
+    (project / "audit" / "log.py").write_text("x = 1\n")
+    (project / "up").symlink_to(tmp_path)  # a link to the store's grandparent, not into it
+    home = str(tmp_path / "home")
+    for tool, tool_input in [
+        ("Read", {"file_path": str(project / ".antstreet" / "request.md")}),
+        ("Read", {"file_path": ".antstreet/request.md"}),
+        ("Read", {"file_path": "audit/log.py"}),
+        ("Read", {"file_path": "up/project/audit/log.py"}),
+        ("Grep", {"pattern": "antstreet approve|antstreet audit", "path": "."}),  # its docs
+        ("Grep", {"pattern": "BOSS_AUDIT_HOME|boss-audit", "path": "src"}),
+        ("Glob", {"pattern": "audit/**/*.py"}),
+        ("Bash", {"command": "git log --grep audit --oneline"}),
+        ("Bash", {"command": "ls audit && cat audit/log.py"}),
+        ("Bash", {"command": "uvx antstreet fund 'add an audit log' --budget 0.40"}),
+        ("Bash", {"command": "uvx antstreet report r1 && grep -rn audit src"}),
+        ("Bash", {"command": "grep -rn BOSS_AUDIT_HOME src; printenv HOME"}),
+        ("Bash", {"command": "ls ~ $HOME/../project"}),
+    ]:
+        done = _guard("", tool, tool_input, str(project), HOME=home)
+        assert (done.returncode, done.stdout, done.stderr) == (0, "", ""), tool_input
+    assert store.is_dir()
+
+
+def test_the_guard_knows_every_cli_step_that_is_not_audit():
+    """A step the guard does not know is read as a hidden `audit`; a step it lists must exist."""
+    script = (HOOKS / "deny-approve.sh").read_text()
+    listed = re.search(r"step !~ /\^\(([a-z|]+)\)\$/", script)
+    assert listed and set(listed[1].split("|")) == set(subcommands()) - {"audit", "approve"}
+
+
+def test_the_audit_stop_hook_still_audits_with_the_guard_installed(tmp_path):
+    """Hooks are not tool calls, so the guard never sees the Stop hook's own `antstreet audit`."""
+    _a_sealed_run(tmp_path)
+    log = tmp_path / "args"
+    done = _audit_hook(tmp_path, f'echo "$@" > {log}')
+    assert done.returncode == 0 and log.read_text().split()[:2] == ["antstreet", "audit"]
+    assert _guard(f"uvx {log.read_text().strip()}").returncode == 2  # the same call, as a tool

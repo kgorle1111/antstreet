@@ -367,7 +367,13 @@ installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs not
 Bash, Monitor or PowerShell call, one denies any command that runs `antstreet approve` or
 `boss approve` (through `uvx`, `uv run`, `python -m antstreet.cli`, an installed
 script, env prefixes, `;`, `&&`, `|`, subshells or quotes) and tells the agent to ask you to type
-it. When the agent stops, in a project with runs under `.boss/runs/`, the last runs
+it. The same hook denies `antstreet audit` in any form (`plan`, `check`, `report`, or no step):
+sealing is your act, and an audit's output names the sealed checks the agent must not see. Before
+each Bash, Monitor, PowerShell, Read, Grep or Glob call it also denies any input that names the
+audit store (`.boss-audit` in any case, `$BOSS_AUDIT_HOME`, or that variable's value when Claude
+Code's own environment has it) or holds a path that resolves into the store (a symlink, `..`). The
+denial names neither the store's path nor anything in it, and tells the agent to ask you to run
+`! uvx antstreet audit report`. When the agent stops, in a project with runs under `.boss/runs/`, the last runs
 `uvx antstreet status`, which checks the latest ledger's hash chain and signatures offline. A
 failure is shown to you; it never blocks the agent. In any other project the first and that one
 are silent.
@@ -393,6 +399,14 @@ mentions both words (`echo antstreet approve`) is denied. It covers the agent's 
 Code only; any other process running as you can approve, as you can. A Claude Code mod you install
 that handles `tool.check` can override its block. The `--sheet` value binds what is approved to
 the text you read; who approves rests on you.
+
+The audit-store guard is a tripwire against a casual or accidental read, not a sandbox. A path built
+at run time (`d=~/.boss-; cat ${d}audit/...`), a script file, `xargs`, or a recursive search that
+starts above the store (`grep -r x ~`, `find /`) gets past it; it resolves only words that are
+existing paths without a space, and none where `realpath` is missing. It also denies any input
+that merely names the store, such as a commit message about `~/.boss-audit`. The store's real
+boundary is that the agent cannot read it: keep it under another OS user, in a container, or on
+another machine (`docs/THREAT_MODEL.md`, T51).
 
 Running `antstreet` (or the benchmark) from a shell inside a Claude Code session is safe for the
 `claude` processes it starts: each gets only `HOME`, `PATH`, `USER`, `LANG`, `TMPDIR`,

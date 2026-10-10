@@ -15,6 +15,7 @@ import random
 import re
 import stat
 import threading
+import time
 
 import pytest
 
@@ -153,6 +154,40 @@ def test_the_anchor_survives_threads_appending_and_a_reader_racing_them(run):
     lines = lines_of(run)
     found = read_anchor(run.investor_key, load_key(run.investor_key), "r1")
     assert len(lines) == 46 and (found.lines, found.last) == (46, sha(lines[-1]))  # type: ignore[union-attr]
+
+
+def mid_append(run: RunPaths, cut: int) -> bytes:
+    """The ledger as a lock-free reader can find it while the writer is in its sixth `write`: five
+    whole lines, anchored, and the first `cut` bytes of the sixth (CI run 38042874252 saw a line
+    cut at byte 4096, a page boundary). Returns the rest of the sixth line."""
+    lines = ledger_of(run, 6)
+    run.ledger.write_bytes(b"".join(line + b"\n" for line in lines[:5]) + lines[5][:cut])
+    write_anchor(run.investor_key, "r1", 5, sha(lines[4]))
+    return lines[5][cut:] + b"\n"
+
+
+def test_a_reader_waits_out_a_line_the_writer_is_still_writing(run, monkeypatch):
+    rest = mid_append(run, 320)
+    waited = []
+
+    def the_writer_finishes(seconds):
+        waited.append(seconds)
+        with run.ledger.open("ab") as fh:
+            fh.write(rest)
+
+    monkeypatch.setattr(time, "sleep", the_writer_finishes)
+    assert len(run.events()) == 6 and len(waited) == 1
+
+
+def test_a_torn_tail_with_no_writer_finishing_it_is_still_refused(run, monkeypatch):
+    mid_append(run, 320)
+    waited = []
+    monkeypatch.setattr(time, "sleep", waited.append)
+    with pytest.raises(LedgerCorruptError, match=r"ledger.jsonl:6: Unterminated string"):
+        run.events()
+    with pytest.raises(LedgerCorruptError, match=r"ledger.jsonl:6: Unterminated string"):
+        read_events(run.ledger)
+    assert 0 < sum(waited) <= 0.25  # it waits briefly, then fails closed as before
 
 
 # --- a dropped tail and an edited last line are refused ----------------------------------------
