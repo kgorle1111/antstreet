@@ -352,7 +352,7 @@ characters, and a request line over 1,048,576 characters is refused.
 
 ## `boss audit plan`
 
-`boss audit plan --request FILE [--repo REPO] [--base REF] [--held-out N] [--boss-model MODEL]`. Seals
+`boss audit plan --request FILE [--repo REPO] [--base REF] [--held-out N] [--boss-model MODEL] [--questions]`. Seals
 checks for a change request before the change is looked at, so that a commit an agent makes later
 can be tested against them. It asks the boss for checks once, runs them on the base commit, shows
 you every check and what it does there, and asks whether to approve. It never writes to `REPO`.
@@ -364,6 +364,7 @@ you every check and what it does there, and asks whether to approve. It never wr
 | `--base` | `HEAD` | The branch, tag or full commit hash the change is made from: `HEAD` as it is before the agent starts. A revision expression (`HEAD~1`, `a..b`, `x:path`) is refused. |
 | `--held-out` | `0` | Checks an examiner writes as well, from the request and the names the checks import, 0 to 8; 0 is off. You read and approve them with the rest. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
+| `--questions` | off | After the draft, one more boss call (`src/antstreet/prompts/spec_gaps_v1.md`) lists up to 5 rules the request leaves open, or states but no check tests, as yes/no questions, each with a check drafted for either answer. You answer `y`, `n` or `s`: a yes or a no adds that answer's check to the term sheet before it runs on the base, a skip records a waiver. The checks are then shown folded, one line each with its file's SHA-256; `v` prints them in full. Off by default until its live eval has run (`python -m antstreet.bench.spec_gaps`). |
 
 - Refused with exit 1, before anything is written: a working tree that is not clean (a staged or
   modified file, or an untracked one that is not ignored); a ref that is not a plain name or hash; an
@@ -388,6 +389,18 @@ you every check and what it does there, and asks whether to approve. It never wr
   check that imports a third-party module is **cannot run here**.
 - You approve or reject as for `boss fund`; the approval is signed with the audit store's investor
   key. The sheet's budget figure is a placeholder: the audit funds no worker.
+- **Questions** (`--questions`). Each answer is a signed `ruled` event (`ruling` `answered`) in the
+  run's ledger, written before the approval; the checks an answer adds are hashed by the approval
+  like the rest. The question text is the model's: it is cut to one line of 200 characters with
+  secrets masked and control characters made visible, and a question is dropped unless it is a
+  yes/no question and both of its checks parse, define a test and fail on an empty workspace. A
+  failed questions call is booked and the plan goes on without questions. The questions, the
+  answers and the checks stay in the audit store; nothing of them is written to the repo.
+- **No terminal.** When stdin is not a terminal, `boss audit plan` reads nothing from it: another
+  program could have filled it. It stops with exit 4 and prints what it waits for: the questions
+  (with `--questions`) and the `boss audit approve RUN --answers ...` command, or the term sheet in
+  full and the `boss audit approve RUN --sheet VALUE` command. Before this, such a plan read end of
+  input as a rejection.
 - The base commit and the request's SHA-256 are in the one synthetic task's brief, so they are inside
   the hash your approval covers: editing either, a check, or a held-out file voids it.
 - Prints the run id and the **seal**, one SHA-256 over the approved term sheet, every check file and
@@ -401,10 +414,32 @@ you every check and what it does there, and asks whether to approve. It never wr
   works in the repo and reads only what it is given. It does not stop one that runs as the same
   operating-system user and looks in `~/.boss-audit`: that needs another user or a container
   (T51).
-- The draft's cost is a `boss_call` event with `purpose` `audit_checks`; the examiner's is a
-  `role_call`.
+- The draft's cost is a `boss_call` event with `purpose` `audit_checks`, the questions' one with
+  `purpose` `spec_gaps`; the examiner's is a `role_call`.
 - Exit 0 when sealed. Exit 1 when you reject, the boss's output is unusable, or a refusal above.
-  Exit 130 on Ctrl-C.
+  Exit 4 with no terminal: the run waits for `boss audit approve`. Exit 130 on Ctrl-C.
+
+## `boss audit approve`
+
+`boss audit approve [RUN] [--answers A,B,...] [--sheet VALUE] [--repo REPO]`. Carries on an audit
+plan made with no terminal. Run it yourself: the answers and the approval are the investor's, never
+the audited agent's (in Claude Code, with the `!` prefix; the plugin's hook denies the agent any
+`approve`).
+
+Argument: `run`, the id `boss audit plan` printed. Default: the latest run in the store.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--answers` | none | One answer per question, comma-separated, in the order shown: `y`, `n` or `s` (skip). Recorded once; the run then exports the base commit from `--repo`, runs the checks on it, and prints the term sheet in full with the `--sheet` value. |
+| `--sheet` | none | The value printed with the term sheet you read: approves exactly that text and prints the seal. A check or the sheet changed since it was printed means a different text: nothing is approved. |
+| `--repo` | `.` | The audited checkout, used with `--answers` to export the base commit. It is read, never written. |
+
+- Without `--answers` or `--sheet`, prints what the run waits for again.
+- Refused with exit 1, nothing written: a run that is not waiting for the investor; `--sheet` before
+  the questions are answered; `--answers` that are not one valid answer per question, or given
+  twice; a repo without the base commit; a `--sheet` value that is not the text on disk now.
+- Exit 0 when sealed, 4 after the answers (the run now waits for the approval), 1 as above, 2 for
+  both `--answers` and `--sheet` at once.
 
 ## `boss audit check`
 
@@ -484,11 +519,11 @@ Argument: `run`, an audit run id. Default: the latest.
 
 | Code | Meaning |
 |---|---|
-| `0` | `fund`, `resume`: every check passed. `approve`: the term sheet was shown, or approved. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
+| `0` | `fund`, `resume`: every check passed. `approve`: the term sheet was shown, or approved. `topup`, `report`, `status`, `roles`, `doctor`: success. `verify`: the run verifies. `mcp`: stdin closed. `audit plan`, `audit approve`: checks sealed. `audit check`: verdict `unrefuted` or `no_claim`. `audit report`: success. |
 | `1` | `fund`: the boss produced no usable term sheet, you rejected it, a worker did not start isolated (a hook event later in the run counts), or, under `--dispatch rules`, the CLI ran a model other than the one launched. `report`: a saved prompt is missing or does not match its recorded hash. `resume`: nothing to resume, a damaged ledger, a run still awaiting approval, or the approval no longer matches. `approve`: no run waiting for an approval, a sheet changed since it was shown, or a damaged or busy ledger. `topup`: no run, no usable term sheet, a damaged ledger, or a ledger another process is writing. `report`, `status`: no runs, unknown run, or empty ledger. `doctor`: a check failed. `verify`: a damaged or unverifiable ledger, an empty ledger, or a saved prompt that is missing or changed. `audit`: you rejected the checks, or a refusal: a dirty tree, a ref that is not a plain name, a head that does not descend from the base, a ledger, approval, signature or check file that does not verify, or a repository git cannot read safely. |
 | `2` | Usage error: bad or missing arguments, a blank idea, a count that is not a whole number of 1 or more, a slice below $0.005, a budget too small to fund one slice, roles that cannot run together, or a `--fix-budget` too small to fund one slice. `topup`: a round the run does not have, or one that closed unlocked. `verify`: no runs, or a run id that does not exist. `audit`: a bad option, such as a `--claim` that is not `done` or `none`. |
 | `3` | `audit check`: the verdict is `refuted` or `inconclusive`. `fund`, `resume`: the run ended with checks not passing. This includes a run that stopped early (a hard limit, a declined round, a pause, a lost login) and prints `Ended early: <reason>` and the `boss resume` command. |
-| `4` | No terminal to ask on. `fund`: the drafted term sheet waits for `boss approve`; nothing was funded. `fund` or `resume`: a worker's dispute of a check waits for `boss approve --dispute`. |
+| `4` | No terminal to ask on. `fund`: the drafted term sheet waits for `boss approve`; nothing was funded. `fund` or `resume`: a worker's dispute of a check waits for `boss approve --dispute`. `audit plan`, `audit approve --answers`: the run waits for `boss audit approve`. |
 | `130` | `fund`, `resume`, `audit plan`: interrupted with Ctrl-C. Continue with `boss resume` (before the term sheet is approved there is nothing to resume; run `boss fund` again). |
 
 A ledger with a damaged line makes `report` and `status` fail with an error that names the file
