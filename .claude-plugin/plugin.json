@@ -2,7 +2,7 @@
   "name": "antstreet",
   "displayName": "AntStreet",
   "version": "0.0.1",
-  "description": "Fund an idea from Claude Code: you approve the checks first, a sandboxed gate outside the agent decides what passed, and a signed ledger records it.",
+  "description": "Check your coding agent's work against tests it never saw: you approve the checks first, a sandboxed gate outside the agent decides, and a signed ledger records it. Also: fund a budget-capped build.",
   "author": {
     "name": "Kannishk Naidu Gorle"
   },
