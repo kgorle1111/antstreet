@@ -154,6 +154,34 @@ Added 2026-10-04, before any E6 run.
   dispatch never escalates or an escalated cell never delivers. Needs the owner's yes before any
   spend.
 
+## E4c. The same critic, with a fix round after a locked round
+
+Added 2026-10-10, after E4b's result and before any E4c run.
+
+- **Why.** In E4b, 9 of the 29 cells with a verified critic finding got no fix round: round 1
+  closed below its unlock threshold and the code offered nothing after that stop
+  (`ops/e4/e4b-declined-trace-2026-10-08.md`). The critic found real bugs nobody fixed.
+- **Change, and only this change.** `antstreet fund --fix-after-stop` (commit 7458b55, PR #80):
+  when the run ended only because a round closed locked, verified findings are offered as checks
+  and the investor's yes tops up that round by the fix budget, which reopens it. Every other stop
+  is unchanged. The run uses E4b's code state (`bench/e4b-runner`, 1a9b9e1: 4ba91ad + the $0.40
+  critic cap + the 900 s critic limit) with 7458b55 applied; a run from a later main (builder_v5)
+  is not E4c.
+- **Arm.** firm on blind35, 35 tasks x 3 reps, Haiku boss and workers, `--budget 0.40
+  --firm-args "--slice 0.20 --roles critic --fix-budget 0.30 --fix-after-stop"`, fresh in its own
+  `--out` (`bench/results/raw/e4c-critic-fix-after-stop`). E4's self-review cells and E4b's cells
+  are not rerun.
+- **Primary KPI and decision.** As E4: delivery, paired by task, 10,000 task resamples, seed 0.
+  Shown only if the paired interval of E4c minus E4's self-review lies above 0.
+- **Reported, not decided on.** E4c vs E4b paired delivery (isolates the flag; with ~9/105 cells
+  affected it is underpowered and expected near zero); how many cells the flag fired in and how
+  many of those delivered; cost per assigned cell; critic completion share; time.
+- **Infrastructure.** As E4b: usage-limit and login failures are moved aside and rerun; the run
+  stops after 3 such failures in a row.
+- **Cost.** About $44-48 (E4b averaged about $0.41 a cell; the flag adds at most the $0.30 fix,
+  plus at most one reserve, in the roughly 9 affected cells). Worst case per cell stays at or
+  under E4b's $1.35.
+
 ## Not tested, and why
 
 Debate, personas and extra roles (product manager, consultant, demo writer, judge) show no gain at
@@ -201,3 +229,4 @@ equal compute in the literature. They stay off by default and are not claimed to
   `cost_per_delivery`.
 - 2026-10-07: added E4b (the critic with a $0.40 cap), after E4's result and before any E4b run.
 - 2026-10-07, before any E4b result was read: the critic call's time limit rises from 300 s to 900 s for E4b. In the first 7 E4b cells, 4 critic calls hit the 300 s limit (E4 had 1 in 105), so with the $0.40 cap the time limit, not the critic, would have decided them. Those 7 cells are set aside unread and E4b restarts from zero with both changes; everything else is unchanged.
+- 2026-10-10: added E4c (the E4b critic with --fix-after-stop), before any E4c run.
