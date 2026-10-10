@@ -59,6 +59,11 @@ class RunPaths:
         return self.root / "rules.json"
 
     @property
+    def coverage(self) -> Path:
+        """The coverage gate's measurement of a run started with `--coverage`; absent otherwise."""
+        return self.root / "coverage.json"
+
+    @property
     def examiner_refused(self) -> Path:
         return self.root / "examiner_refused.json"
 
