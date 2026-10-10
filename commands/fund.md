@@ -8,7 +8,7 @@ disable-model-invocation: true
 The user wants AntStreet to build this idea: $ARGUMENTS
 
 This needs the `antstreet` version with the `approve` command. Approving the term sheet is the
-user's act, never yours: do not run `antstreet approve` (or `antstreet approve`) in any form. A hook in
+user's act, never yours: do not run `antstreet approve` (or `boss approve`) in any form. A hook in
 this plugin denies it; do not try to get around it.
 
 1. Run `uvx antstreet doctor` exactly as written (no `--live`: that flag makes two paid calls). It

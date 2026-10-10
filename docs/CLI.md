@@ -16,7 +16,7 @@ and `audit report`).
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--version` | off | Print `boss <version>` and exit 0. |
+| `--version` | off | Print `antstreet <version>` and exit 0. |
 
 - A command is required. Without one, argparse prints usage and exits 2.
 - Commands run against a project folder (`--dir`). Runs are stored under `<dir>/.boss/runs/`.
