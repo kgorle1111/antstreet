@@ -167,6 +167,83 @@ def test_stop_reads_the_latest_run_with_status_and_reports_a_failure_without_blo
     assert "did not verify" in bad.stderr and "Stopped: signature" in bad.stderr
 
 
+def _audit_hook(
+    tmp_path: Path, uvx: str | None, stdin: str = "{}", **env: str
+) -> subprocess.CompletedProcess[str]:
+    """`audit-check.sh` with the audit store under `tmp_path/home` and a fake `uvx`."""
+    path = _bin(tmp_path, uvx)
+    (Path(path) / "cat").symlink_to(shutil.which("cat") or "/bin/cat")
+    full = {"PATH": path, "CLAUDE_PROJECT_DIR": str(tmp_path), "HOME": str(tmp_path / "home")}
+    return subprocess.run(
+        [str(HOOKS / "audit-check.sh")], env=full | env, input=stdin, capture_output=True,
+        text=True, timeout=30, check=False,
+    )  # fmt: skip
+
+
+def _a_sealed_run(tmp_path: Path) -> None:
+    (tmp_path / "home" / ".boss-audit" / ".boss" / "runs" / "r1").mkdir(parents=True)
+
+
+def test_the_audit_stop_hook_is_silent_and_runs_nothing_without_a_sealed_run(tmp_path):
+    marker = tmp_path / "ran"
+    done = _audit_hook(tmp_path, f"touch {marker}")
+    assert (done.returncode, done.stdout, done.stderr) == (0, "", "")
+    assert not marker.exists()
+
+
+def test_the_audit_stop_hook_notifies_by_default_and_passes_the_cli_json_through(tmp_path):
+    _a_sealed_run(tmp_path)
+    log = tmp_path / "args"
+    said = '{"systemMessage": "AntStreet audit: REFUTED"}'
+    done = _audit_hook(tmp_path, f"echo \"$@\" > {log}; echo '{said}'")
+    assert (done.returncode, done.stdout.strip(), done.stderr) == (0, said, "")
+    assert log.read_text().split() == [
+        "antstreet", "audit", "--repo", str(tmp_path), "--stop-hook", "notify",
+    ]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("option", "stdin", "mode"),
+    [
+        ("block", '{"stop_hook_active": false}', "block"),
+        ("block", '{"session_id":"s","stop_hook_active":true}', "notify"),  # never block twice
+        ("block", '{"stop_hook_active": true}', "notify"),
+        ("block", '{\n  "stop_hook_active" :\n    true\n}', "notify"),  # any valid JSON layout
+        ("block", '{"stop_hook_active":\t  false}', "block"),
+        ("notify", "{}", "notify"),
+        ("anything else", "{}", "notify"),
+    ],
+)
+def test_blocking_is_opt_in_and_never_twice_in_a_row(tmp_path, option, stdin, mode):
+    _a_sealed_run(tmp_path)
+    log = tmp_path / "args"
+    done = _audit_hook(
+        tmp_path, f'echo "$@" > {log}', stdin, CLAUDE_PLUGIN_OPTION_AUDIT_ON_REFUTED=option
+    )
+    assert done.returncode == 0
+    assert log.read_text().split()[-2:] == ["--stop-hook", mode]
+
+
+def test_an_audit_hook_error_fails_open_with_a_generic_notice_and_none_of_the_cli_output(tmp_path):
+    _a_sealed_run(tmp_path)
+    done = _audit_hook(tmp_path, "echo 'c01 failed: secret check text'; echo boom >&2; exit 1")
+    assert (done.returncode, done.stderr) == (0, "")
+    message = json.loads(done.stdout)
+    assert set(message) == {"systemMessage"} and "did not complete" in message["systemMessage"]
+    assert "c01" not in done.stdout and "boom" not in done.stdout
+
+
+def test_the_audit_stop_hook_is_silent_without_uvx(tmp_path):
+    _a_sealed_run(tmp_path)
+    done = _audit_hook(tmp_path, None)
+    assert (done.returncode, done.stdout, done.stderr) == (0, "", "")
+
+
+def test_the_plugin_option_for_blocking_defaults_to_notify():
+    option = json.loads((PLUGIN / "plugin.json").read_text())["userConfig"]["audit_on_refuted"]
+    assert option["default"] == "notify" and option["options"] == list(cli.STOP_HOOK_MODES)
+
+
 MOD = HOOKS / "approve-pane.tsx"
 APPROVE_CALL = re.compile(r"^.*\bapprove\(\$.*$", re.M)
 
