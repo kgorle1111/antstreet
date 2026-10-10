@@ -293,6 +293,32 @@ def audit_events(tmp_path):
     return read_events(audit.store / ".boss" / "runs" / audit.run_id() / "ledger.jsonl")
 
 
+def audit_questions_events(tmp_path):
+    """`antstreet audit plan --questions` with no terminal, then `antstreet audit approve` twice:
+    the stop awaiting the answers, the investor's `answered` rulings, the stop awaiting the
+    approval."""
+    from audit_support import Audit
+    from test_questions import QUESTIONS
+
+    from antstreet import cli
+
+    audit = Audit(tmp_path)
+    audit.set_draft(QUESTIONS, "audit_questions.json")
+    said: list[str] = []
+
+    def run(*argv):
+        return cli.main(["audit", *argv], ask=None, say=said.append, environ=audit.environ())
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(cli, "_unattended", lambda ask: True)
+        repo = ("--repo", str(audit.repo))
+        assert run("plan", *repo, "--request", str(audit.request), "--questions") == 4
+        assert run("approve", audit.run_id(), "--answers", "y,n,s", *repo) == 4
+        digest = re.findall(r"--sheet ([0-9a-f]{16})", "\n".join(said))[-1]
+        assert run("approve", audit.run_id(), "--sheet", digest) == 0
+    return read_events(audit.store / ".boss" / "runs" / audit.run_id() / "ledger.jsonl")
+
+
 @pytest.fixture(scope="module")
 def produced(tmp_path_factory) -> dict[str, list[Event]]:
     """Every event the code writes across a set of runs that reaches every writer, by type."""
@@ -370,6 +396,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     runs.append(cli_topped_up_events(where("cli-topped-up")))
     runs.append(cli_awaiting_events(where("cli-awaiting")))
     runs.append(audit_events(where("audit")))
+    runs.append(audit_questions_events(where("audit-questions")))
     runs.append(roles_events(where("cli-roles")))
     runs.append(roles_events(where("cli-declined"), fix="n"))
     runs.append(roles_events(where("cli-skipped"), fix=EOFError))  # the boss's skip: ruled.reason
@@ -540,7 +567,9 @@ def test_the_started_config_keys_are_documented_with_their_types(produced, text)
 def test_every_ruling_and_when_its_optional_keys_appear_is_documented(produced, text):
     body = sections(text)["ruled"]
     rulings = {e.data["ruling"] for e in produced["ruled"]}
-    assert rulings == {"dropped", "kept", "unblocked", "declined"}, "a run no longer reaches all"
+    assert rulings == {"dropped", "kept", "unblocked", "declined", "answered"}, (
+        "a run no longer reaches all"
+    )
     for ruling in rulings:
         assert f"`{ruling}`" in body
     for e in produced["ruled"]:
@@ -549,7 +578,10 @@ def test_every_ruling_and_when_its_optional_keys_appear_is_documented(produced, 
         assert ("reason" in e.data) == (e.actor == "boss")
         assert ("check" in e.data) == (e.data["ruling"] in ("dropped", "kept"))
         assert ("note" in e.data) == (e.data["ruling"] == "unblocked")
-        assert ("task" in e.data) == (e.data["ruling"] != "declined")
+        assert ("task" in e.data) == (e.data["ruling"] not in ("declined", "answered"))
+        answered = e.data["ruling"] == "answered"
+        assert ("question" in e.data) == ("answer" in e.data) == answered
+        assert ("added" in e.data) == (answered and e.data["answer"] != "skip")
 
 
 def test_each_example_is_a_valid_line_of_the_right_type_with_the_shape_the_code_writes(

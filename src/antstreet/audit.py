@@ -20,14 +20,21 @@ import re
 import sys
 import tempfile
 import uuid
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from antstreet import gitrepo, held_out
-from antstreet.approval import content_hashes, review_term_sheet
+from antstreet import gitrepo, held_out, questions
+from antstreet.approval import (
+    TERM_SHEET_FILE,
+    approve_shown,
+    content_hashes,
+    pending,
+    review_term_sheet,
+    shown_digest,
+)
 from antstreet.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from antstreet.budget import RESERVE_MICROS
 from antstreet.gate import (
@@ -40,7 +47,7 @@ from antstreet.gate import (
     sandbox_available,
     secret_paths,
 )
-from antstreet.ledger import EventType
+from antstreet.ledger import Event, EventType, LedgerWriter
 from antstreet.pipeline import Pipeline, Setup
 from antstreet.redact import safe_text
 from antstreet.rundir import Recorder, RunPaths
@@ -64,6 +71,8 @@ MAX_PARSE_BYTES = 256 * 1024
 REQUEST_FILE = ".antstreet/request.md"  # where `antstreet audit` with no step looks for the request
 VENV = ".venv"  # where `uv sync` and `python -m venv .venv` put a repo's environment
 _SKIPPED_DIRS = frozenset({"__pycache__", "node_modules", ".venv", "venv", "build", "dist"})
+AWAITING_ANSWERS = "awaiting the investor's answers"  # `stopped` reasons of a plan with no
+AWAITING_APPROVAL = "awaiting the investor's approval"  # terminal, until `antstreet audit approve`
 _SEAL = re.compile(r"audit seal: base=([0-9a-f]{40}|[0-9a-f]{64}) request_sha256=([0-9a-f]{64})\Z")
 
 
@@ -100,8 +109,16 @@ class RepoEnv:
 class PlanResult:
     run_id: str
     seal: str
-    counted: int  # checks failing at the base: the ones a verdict can rest on
-    total: int
+    counted: int | None  # checks failing at the base: the ones a verdict can rest on
+    total: int | None  # None when approved later by `antstreet audit approve` (shown then, not now)
+
+
+@dataclass(frozen=True, slots=True)
+class Waiting:
+    """A plan with nobody at a terminal: it waits for `antstreet audit approve`. `text` says how."""
+
+    run_id: str
+    text: str
 
 
 def store_root(environ: Mapping[str, str]) -> Path:
@@ -392,9 +409,17 @@ def plan(
     boss_thinking: int | None = None,
     ask: Callable[[str], str],
     say: Callable[[str], None],
-) -> PlanResult | None:
+    ask_questions: bool = False,
+    attended: bool = True,
+) -> PlanResult | Waiting | None:
     """Seal checks for the request at `base_ref`. None when the investor rejected them; AuditError
-    when nothing could be sealed. Reads the repository, never writes to it."""
+    when nothing could be sealed. Reads the repository, never writes to it.
+
+    With `ask_questions` the boss also lists the rules the request leaves open as yes/no questions
+    (`antstreet.questions`); each answer adds a check or records a waiver before the sheet is
+    shown, folded. Not `attended` (no terminal): nothing is read from stdin, which another program
+    could fill; the run stops awaiting the investor's answers or approval (`Waiting`), and
+    `antstreet audit approve` carries on."""
     repo = Path(repo).resolve()
     store = Path(store)
     if store.resolve().is_relative_to(repo):
@@ -434,7 +459,7 @@ def plan(
                 executable=executable,
                 thinking_tokens=boss_thinking,
                 prompt_name=AUDIT_PROMPT,
-                context=public_surface(base_tree),
+                context=(surface := public_surface(base_tree)),
             )
         except BossError as exc:
             _book(record, env, boss_model, boss_thinking, exc.usage, str(exc.outcome))
@@ -451,18 +476,30 @@ def plan(
             Setup((), boss_model, boss_thinking), repo, paths, ledger, run_id, env, executable,
             ask, say,
         )  # fmt: skip
+        asked: list[questions.Question] = []
+        if ask_questions:
+            asked = _draft_questions(
+                sheet, paths, record, env, executable, boss_model, boss_thinking, surface, say
+            )
         held = held_out_n > 0 and pipe.examine(sheet, held_out_n, RESERVE_MICROS)
-        env_found = repo_env(repo, store)
-        say(f"Environment: {env_found.note}.")
-        say("Running the checks on the base...")
-        observed = run_checks(
-            base_tree, paths, sheet, tree_modules(base_tree),
-            site_packages=env_found.site_packages,
-        )  # fmt: skip
+        if asked and not attended:
+            questions.save(paths.root, asked)
+            _write_unapproved(paths, sheet)
+            texts = [q.text for q in asked]
+            record("boss", EventType.STOPPED, data={"reason": AWAITING_ANSWERS, "questions": texts})
+            return Waiting(run_id, how_to_answer(run_id, asked))
+        if asked:
+            answers = questions.ask_all(asked, ask, say)
+            sheet = questions.apply(sheet, asked, answers, paths.checks, record)
+        observed = _observe_base(repo, store, base_tree, paths, sheet, say)
+        notes = _notes(sheet, paths, observed)
+        if not attended:
+            _write_unapproved(paths, sheet)
+            record("boss", EventType.STOPPED, data={"reason": AWAITING_APPROVAL, "notes": [notes]})
+            return Waiting(run_id, how_to_approve(paths, run_id, [notes]))
         approved = review_term_sheet(
-            sheet, paths.checks, paths.root, ledger, run_id, ask=ask, say=say,
-            notes=[_notes(sheet, paths, observed)],
-            held_out_dir=paths.held_out if held else None,
+            sheet, paths.checks, paths.root, ledger, run_id, ask=ask, say=say, notes=[notes],
+            held_out_dir=paths.held_out if held else None, fold=bool(asked),
         )  # fmt: skip
     if approved is None:
         return None
@@ -473,6 +510,168 @@ def plan(
         counted,
         len(observed),
     )
+
+
+def _draft_questions(
+    sheet: TermSheet,
+    paths: RunPaths,
+    record: Recorder,
+    env: Mapping[str, str],
+    executable: str,
+    model: str,
+    thinking: int | None,
+    surface: str,
+    say: Callable[[str], None],
+) -> list[questions.Question]:
+    """The spec-gap questions, booked. A failed call costs the questions, never the plan."""
+    say("Asking the boss which rules the request leaves open...")
+    try:
+        asked, usage = questions.draft(
+            sheet, paths.checks, env=env, model=model, executable=executable, context=surface,
+            thinking_tokens=thinking,
+        )  # fmt: skip
+    except BossError as exc:
+        _book(record, env, model, thinking, exc.usage, str(exc.outcome), questions.PURPOSE)
+        say(f"No questions ({exc}); every check is shown in full.")
+        return []
+    _book(record, env, model, thinking, usage, "completed", questions.PURPOSE)
+    if not asked:
+        say("The boss found no open rule to ask about; every check is shown in full.")
+    return asked
+
+
+def _observe_base(
+    repo: Path,
+    store: Path,
+    base_tree: Path,
+    paths: RunPaths,
+    sheet: TermSheet,
+    say: Callable[[str], None],
+) -> dict[str, Observed]:
+    env_found = repo_env(repo, store)
+    say(f"Environment: {env_found.note}.")
+    say("Running the checks on the base...")
+    return run_checks(
+        base_tree, paths, sheet, tree_modules(base_tree), site_packages=env_found.site_packages
+    )
+
+
+def _write_unapproved(paths: RunPaths, sheet: TermSheet) -> None:
+    unapproved = dataclasses.replace(sheet, approved_by_investor=False)
+    (paths.root / TERM_SHEET_FILE).write_text(unapproved.to_json())
+
+
+def how_to_answer(run_id: str, asked: Sequence[questions.Question]) -> str:
+    example = ",".join("y" for _ in asked)
+    return (
+        f"Run {run_id} is {AWAITING_ANSWERS}. The boss asks about rules the request leaves "
+        f"open:\n{questions.render(asked)}\nAnswer each yourself, in order, y, n or s (skip): a "
+        "yes or a no adds the check drafted for that answer, a skip records a waiver. For "
+        f"example:\n  antstreet audit approve {run_id} --answers {example}\nIn Claude Code, "
+        "type it with the `!` prefix: the answers are yours, never the agent's. The term sheet "
+        "is shown next, for your approval."
+    )
+
+
+def how_to_approve(paths: RunPaths, run_id: str, notes: Sequence[str]) -> str:
+    """The waiting term sheet in full, and the one command that approves exactly that text."""
+    held_dir = paths.held_out if held_out.hashes(paths.held_out) else None
+    _, _, text = pending(paths.root / TERM_SHEET_FILE, paths.checks, held_dir, None, None)
+    return "\n".join([
+        text, *notes,
+        f"\nRun {run_id} is {AWAITING_APPROVAL}. Read the term sheet and every check above; to "
+        f"approve exactly that, run this yourself:\n  antstreet audit approve {run_id} --sheet "
+        f"{shown_digest(text)}\nIn Claude Code, type it with the `!` prefix: the approval is "
+        "yours, never the agent's.",
+    ])  # fmt: skip
+
+
+def waiting_for(events: Sequence[Event]) -> str | None:
+    """`AWAITING_ANSWERS` or `AWAITING_APPROVAL` while a plan waits for the investor, else None."""
+    state = None
+    for e in events:
+        reason = e.data.get("reason")
+        if e.event is EventType.STOPPED and e.actor == "boss":
+            state = reason if reason in (AWAITING_ANSWERS, AWAITING_APPROVAL) else None
+        elif e.actor == "investor" and e.event in (EventType.APPROVED, EventType.STOPPED):
+            state = None
+    return state
+
+
+def carry_on(
+    run_id: str,
+    *,
+    store: Path,
+    repo: Path,
+    answers: str | None,
+    digest: str | None,
+) -> PlanResult | Waiting:
+    """`antstreet audit approve`: show what a plan waits for, record the investor's answers (then
+    run the checks on the base and wait for the approval), or approve the sheet shown with `digest`.
+    AuditError, with nothing written, when the run is not waiting for that."""
+    paths = run_paths(store, run_id)
+    if not run_id or not (paths.root / "ledger.jsonl").is_file():
+        raise AuditError(f"there is no audit run {run_id!r} in {store}")
+    with paths.writer() as ledger:  # held from the reading to the writing
+        events = paths.events()
+        state = waiting_for(events)
+        if state is None:
+            raise AuditError(f"audit run {run_id} is not waiting for the investor")
+        if state == AWAITING_ANSWERS:
+            if digest is not None:
+                raise AuditError(f"answer the questions of run {run_id} first (--answers)")
+            try:
+                asked = questions.load(paths.root)
+                given = None if answers is None else questions.parse_answers(answers, len(asked))
+            except ValueError as exc:
+                raise AuditError(str(exc)) from exc
+            if given is None:
+                return Waiting(run_id, how_to_answer(run_id, asked))
+            return _answer(run_id, paths, store, Path(repo).resolve(), asked, given, ledger)
+        if answers is not None:
+            raise AuditError(f"audit run {run_id} has no questions waiting; it waits for approval")
+        notes = [n for n in events[-1].data.get("notes") or () if isinstance(n, str)]
+        if digest is None:
+            return Waiting(run_id, how_to_approve(paths, run_id, notes))
+        held_dir = paths.held_out if held_out.hashes(paths.held_out) else None
+        approved = approve_shown(
+            digest, paths.root, paths.checks, ledger, run_id, held_out_dir=held_dir
+        )
+    return PlanResult(run_id, seal_hash(approved, paths.checks, paths.held_out), None, None)
+
+
+def _answer(
+    run_id: str,
+    paths: RunPaths,
+    store: Path,
+    repo: Path,
+    asked: Sequence[questions.Question],
+    given: Sequence[str],
+    ledger: LedgerWriter,
+) -> Waiting:
+    sheet = TermSheet.from_json((paths.root / TERM_SHEET_FILE).read_text(encoding="utf-8"))
+    seal = parse_seal(sheet)
+    record = Recorder(ledger, run_id, round=0)
+    said: list[str] = []
+    answered: list[dict[str, object]] = []  # each answer's `ruled` data
+    with tempfile.TemporaryDirectory(prefix="boss_audit_") as tmp:
+        base_tree = Path(tmp) / "base"
+        try:
+            gitrepo.export(repo, seal.base, base_tree)
+        except gitrepo.GitError as exc:
+            raise AuditError(f"{exc} (run this in the audited repo, or pass --repo)") from exc
+        # Only check files are written until the base run is done: if it fails, the sheet and the
+        # ledger still wait for the answers, and answering again rewrites the same files.
+        sheet = questions.apply(
+            sheet, asked, given, paths.checks, lambda _a, _e, data: answered.append(data)
+        )
+        observed = _observe_base(repo, store, base_tree, paths, sheet, said.append)
+    _write_unapproved(paths, sheet)
+    for data in answered:
+        record("investor", EventType.RULED, data=data)
+    notes = _notes(sheet, paths, observed)
+    record("boss", EventType.STOPPED, data={"reason": AWAITING_APPROVAL, "notes": [notes]})
+    return Waiting(run_id, "\n".join([*said, how_to_approve(paths, run_id, [notes])]))
 
 
 def read_request(path: Path) -> str:
@@ -503,6 +702,7 @@ def _book(
     thinking: int | None,
     usage: Usage,
     out: str,
+    purpose: str = PURPOSE,
 ) -> None:
     record(
         "boss",
@@ -512,7 +712,7 @@ def _book(
         tokens_out=usage.tokens_out,
         tokens_cached=usage.tokens_cached,
         billing=billing_mode(env),
-        data={"purpose": PURPOSE, "model": model, "thinking_tokens": thinking, "outcome": out},
+        data={"purpose": purpose, "model": model, "thinking_tokens": thinking, "outcome": out},
     )
 
 

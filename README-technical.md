@@ -151,6 +151,12 @@ The verdict is `refuted`, `unrefuted`, `inconclusive` or `no_claim`. `unrefuted`
 sealed checks catch only what they test. The agent never sees the checks, and the verdict is
 signed. Full rules: [docs/CLI.md](docs/CLI.md).
 
+`--questions` (off by default until its live eval has run) turns most of the reading into a few
+yes/no questions about rules the request leaves open ("Should slugify('') raise ValueError?"):
+each answer adds the check drafted for it, or records a waiver, and the check list is shown folded.
+With no terminal, `plan` waits for `antstreet audit approve RUN --answers ...` and then `--sheet VALUE`,
+which you type yourself; the plugin's hook denies the agent any `approve`.
+
 ## Use it from any MCP client
 
 `antstreet mcp` is a read-only MCP server on stdio: `list_runs`, `status`, `report`, `verify_ledger`

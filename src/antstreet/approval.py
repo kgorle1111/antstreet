@@ -162,6 +162,7 @@ def review_term_sheet(
     view: DispatchView | None = None,
     spec_shown: SpecView | None = None,
     rules_path: Path | None = None,
+    fold: bool = False,
 ) -> TermSheet | None:
     """Show the term sheet; loop until the investor approves (returns the sheet) or rejects (None).
 
@@ -181,6 +182,10 @@ def review_term_sheet(
     since it was shown means "review it again". A rule list that is not the idea's (`SpecError`)
     cannot be approved. The approval then records the coverage summary and hashes the rule list at
     `rules_path` with the rest.
+
+    With `fold` each check is shown as one line (its description, file and SHA-256) instead of its
+    code, and `v` prints everything in full. The approval still binds the full text: a change to
+    any check since it was shown means "review it again", folded or not.
     """
     policy = None if view is None else view.policy
     path = run_dir / TERM_SHEET_FILE
@@ -196,13 +201,28 @@ def review_term_sheet(
         )
         if spec_problem:
             say(f"The rule list cannot be used: {spec_problem}")
-        say(shown)
+        if fold:
+            folded = render(sheet, checks_dir, held_out_dir, view, fold=True)
+            say((coverage.text + "\n\n" if coverage else "") + folded)
+        else:
+            say(shown)
         for note in notes:
             say(note)
+        question = (
+            "[a]pprove, [r]eject, [e]dit files and re-check, or [v]iew every check in full? "
+            if fold
+            else "[a]pprove, [r]eject, or [e]dit files and re-check? "
+        )
         try:
-            answer = ask("[a]pprove, [r]eject, or [e]dit files and re-check? ").strip().lower()
+            answer = ask(question).strip().lower()
         except (EOFError, KeyboardInterrupt):
             answer = "r"
+        while fold and answer in ("v", "view"):
+            say(shown)
+            try:
+                answer = ask("[a]pprove, [r]eject, or [e]dit files and re-check? ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = "r"
         if answer in YES:
             if spec_problem:
                 say(
@@ -408,7 +428,11 @@ def render(
     checks_dir: Path,
     held_out_dir: Path | None = None,
     view: DispatchView | None = None,
+    *,
+    fold: bool = False,
 ) -> str:
+    """The term sheet as the investor reads it. `fold` shows each check as one line with its
+    file's SHA-256 instead of its code."""
     lines = [
         "TERM SHEET",
         f"Idea: {sheet.idea}",
@@ -428,16 +452,29 @@ def render(
         sizes = {t.id: context.first_context_chars(sheet, t, checks_dir) for t in sheet.tasks}
         lines += ["", *render_table(sheet, dataclasses.replace(view, contexts=sizes))]
     for check in sheet.checks:
-        code = _check_text(checks_dir / check.file)
+        head = f"Check {check.id} [{check.task}] {_line(check.description, MAX_DESCRIPTION_CHARS)}"
+        if fold:
+            lines.append(f"{head} ({check.file} {_digest(checks_dir / check.file)})")
+            continue
         lines += [
-            f"\nCheck {check.id} [{check.task}] {_line(check.description, MAX_DESCRIPTION_CHARS)}",
+            f"\n{head}",
             f"--- {checks_dir / check.file}",
-            code,
+            _check_text(checks_dir / check.file),
         ]
+    if fold:
+        lines.insert(len(lines) - len(sheet.checks), "\nCHECKS (folded; [v]iew shows the code)")
+        return "\n".join(lines + _held_out_lines(held_out_dir, fold=True))
     return "\n".join(lines + _held_out_lines(held_out_dir))
 
 
-def _held_out_lines(held_out_dir: Path | None) -> list[str]:
+def _digest(path: Path) -> str:
+    try:
+        return "sha256 " + hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    except OSError as exc:
+        return f"<unreadable: {exc}>"
+
+
+def _held_out_lines(held_out_dir: Path | None, *, fold: bool = False) -> list[str]:
     """The held-out checks in full, marked as the ones no worker will be shown."""
     try:
         checks = held_out.load(held_out_dir) if held_out_dir is not None else []
@@ -447,6 +484,11 @@ def _held_out_lines(held_out_dir: Path | None) -> list[str]:
         return []
     lines = ["", "HELD-OUT CHECKS (graded on the finished product only; workers never see them)"]
     for check in checks:
+        if fold:
+            what = _line(check.source, MAX_DESCRIPTION_CHARS)
+            lines.append(f"Held-out check {check.id} verifies: {what} ({check.file} "
+                         f"{_digest(held_out_dir / check.file)})")  # fmt: skip
+            continue
         lines += [
             f"\nHeld-out check {check.id} verifies: {_line(check.source, MAX_DESCRIPTION_CHARS)}",
             f"--- {held_out_dir / check.file}",

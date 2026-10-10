@@ -313,6 +313,9 @@ APPROVES = [
     "antstreet approve",
     "boss approve r1 --sheet 0123456789abcdef",
     "uvx antstreet approve r1 --sheet 0123456789abcdef",
+    "uvx antstreet audit approve r1 --answers y,n,s",  # the plan's questions are the human's
+    "boss audit approve r1 --sheet 0123456789abcdef",
+    "uv run boss audit approve",
     "uvx antstreet@latest approve",
     "uvx --from antstreet==0.0.1 boss approve",
     "uvx --from git+https://github.com/kgorle1111/antstreet antstreet approve",
@@ -352,6 +355,7 @@ ALLOWED = [
     "uvx antstreet doctor",
     "uvx antstreet fund 'a csv parser' --budget 0.40",
     "uvx antstreet resume r1",
+    "uvx antstreet audit plan --questions --request req.txt",
     "boss status --dir /home/user/boss",
     "grep -rn approve src",
     "ls /home/user/boss/.boss/runs && echo approved",

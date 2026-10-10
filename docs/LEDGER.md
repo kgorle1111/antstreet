@@ -148,14 +148,14 @@ otherwise.
 
 - Actor: `boss`
 - Round: 0
-- Written by `cli.py` after the boss's drafting call, and by `audit.py` after the audit's, whether
-  the call worked, failed, timed out or returned a draft that does not validate. It is the only
+- Written by `cli.py` after the boss's drafting call, and by `audit.py` after the audit's (and
+  after its questions call, `antstreet audit plan --questions`), whether the call worked, failed, timed out or returned a draft that does not validate. It is the only
   event that comes from a model call by the boss.
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `purpose` | str | `term_sheet` for `antstreet fund`, `audit_checks` for `antstreet audit plan`. |
+| `purpose` | str | `term_sheet` for `antstreet fund`, `audit_checks` for `antstreet audit plan`, `spec_gaps` for the questions of `antstreet audit plan --questions`. |
 | `model` | str | The boss model, from `--boss-model`. |
 | `thinking_tokens` | int or null | The thinking budget from `--boss-thinking`; `null` means the CLI's own default. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose draft was unusable or invalid. |
@@ -485,7 +485,7 @@ Example:
 - Written by `firm.py` after the investor answers a question the worker could not settle, and by
   `pipeline.py` for `declined`. Only an `investor` event counts as a ruling on a check or a block. The term sheet and its
   approval are not touched: a dropped check is skipped because the ledger says so.
-- Four rulings:
+- Five rulings:
   - `dropped`: the check is no longer run, counted or required. Unlock thresholds are capped at
     what is left.
   - `kept`: the dispute is settled and the worker is told to satisfy the check.
@@ -496,16 +496,25 @@ Example:
     input ended). Ledgers written before the split carry `investor` for both. It is how a resume
     tells that from a Ctrl-C at the question, which writes nothing and so leaves the findings to
     be offered again.
-- Anything but a clear answer (or the end of input) writes `abandoned` instead.
+  - `answered`: round 0, written by `questions.py` for `antstreet audit plan --questions` (at the
+    terminal, or by `antstreet audit approve --answers`): the investor's answer to one of the boss's
+    yes/no questions about a rule the request leaves open, one event per question, before the
+    approval. A `yes` or `no` added the check drafted for that answer to the term sheet (`added`;
+    the approval hashes it like any other); a `skip` added nothing and is the recorded waiver.
+- Anything but a clear answer to a worker's dispute or block (or the end of input) writes
+  `abandoned` instead.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `task` | str | The task id. Absent for `declined`. |
-| `worker` | str | The worker that raised the dispute or the block. Absent for `declined`. |
-| `ruling` | str | `dropped`, `kept`, `unblocked` or `declined`. |
+| `task` | str | The task id. Absent for `declined` and `answered`. |
+| `worker` | str | The worker that raised the dispute or the block. Absent for `declined` and `answered`. |
+| `ruling` | str | `dropped`, `kept`, `unblocked`, `declined` or `answered`. |
 | `reason` | str | Why nobody was asked. Present on the `boss`'s `declined` only. |
 | `check` | str | The check ruled on. Present for `dropped` and `kept` only. |
 | `note` | str | The investor's note, on one line, secrets masked, at most 1000 characters. Present for `unblocked` only. |
+| `question` | str | The boss's question as it was shown: one line, secrets masked, controls made visible, at most 200 characters. Present for `answered` only. |
+| `answer` | str | `yes`, `no` or `skip`. Present for `answered` only. |
+| `added` | str | The id of the check that answer added. Present for an `answered` `yes` or `no` only. |
 | `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Examples:
@@ -520,6 +529,10 @@ Examples:
 
 ```json
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"ruling": "declined", "sig": "v2:583ded96c7a685332ecf92bc442d56c2a69824e475803ac896eb46bad9e15a7a"}, "event": "ruled", "prev": "615362e7cf3d7296fd55fe95617522e00d3774a098d0a3848838c4e693621d23", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T11:53:36.246239+00:00", "v": 1}
+```
+
+```json
+{"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"added": "c05", "answer": "yes", "question": "Should slugify('') return ''?", "ruling": "answered", "sig": "v2:9c41d0a3e5b7f2c86d1a4e0b3f7c9d2e5a8b1c4f7e0d3a6b9c2f5e8d1a4b7c0e"}, "event": "ruled", "prev": "3f0a9c2d7b5e1f4a8c6d0b3e9f2a5c7d1e4b8a0f6c3d9e2b5a7f1c4d8e0b6a3f", "round": 0, "run": "20261010T080312Z-a9ae4e", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-10T08:03:14.512207+00:00", "v": 1}
 ```
 
 ### `disputed`
@@ -778,6 +791,11 @@ Example:
   - `rule`, by `firm.py`: a hard run limit was reached, or the term sheet or a check no longer
     matches the approval, or a worker's folder is over the size limit (the gate would copy it for
     every check).
+  - `boss`, by `audit.py`: `antstreet audit plan` had no terminal to ask on (nothing is read from a
+    stdin another program could fill), so it waits for `antstreet audit approve` (round 0): reason
+    `awaiting the investor's answers` with `questions` when it has questions, then (or at once
+    without questions) `awaiting the investor's approval` with `notes`, the checks' results on the
+    base.
   - `boss`, by `firm.py`: the worker did not start isolated, or an infrastructure failure the
     loop will not retry (login lost, or attempts used up).
 
@@ -786,7 +804,8 @@ Example:
 | `reason` | str | Why the run stopped. |
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
 | `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `antstreet approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
-| `notes` | list | The roles' notes on the draft, shown under the term sheet by `antstreet approve`. They bind nothing. Only on a stop awaiting approval. |
+| `notes` | list | The roles' notes on the draft, shown under the term sheet by `antstreet approve` (for an audit, what each check does on the base, shown by `antstreet audit approve`). They bind nothing. Only on a stop awaiting approval. |
+| `questions` | list | The boss's yes/no questions, as shown, in order. Only on an audit's stop awaiting the investor's answers. |
 | `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Examples:

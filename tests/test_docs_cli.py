@@ -174,6 +174,7 @@ def test_environment_variables_documented_are_the_ones_the_code_reads(text):
         "bench/run.py",
         "bench/drafts.py",
         "bench/audit.py",
+        "bench/spec_gaps.py",
         "roles/judge.py",
         "gate.py",
         "gitrepo.py",

@@ -1,0 +1,75 @@
+{
+  "about": "Labelled cases for the spec-gap questions (src/antstreet/prompts/spec_gaps_v1.md). Each is a rule the task's idea states that the boss's own checks missed in a false-pass cell of bench/results/2026-10-03-false-pass-audit (row numbers in `source`). A case is surfaced when any question matches one of its `match` patterns (Python regex, case-insensitive). Scored by `python -m antstreet.bench.spec_gaps`. The prompt names classes of gap (non-ASCII, result types, iterators) that these cases share, so this set measures recall on known gaps, not generalisation; a fresh set is needed for that.",
+  "cases": [
+    {
+      "id": "bigdecimal-nonascii",
+      "task": "bigdecimal",
+      "rule": "digits that are not ASCII 0-9 are invalid",
+      "source": "rows 1, 19",
+      "match": ["non-?ascii", "unicode", "arabic", "full-?width", "[^\\x00-\\x7f]"]
+    },
+    {
+      "id": "bigdecimal-compare-scale",
+      "task": "bigdecimal",
+      "rule": "compare compares numeric values, not text, across different numbers of decimal places",
+      "source": "row 18",
+      "match": ["compare.*(scale|decimal places|digits after|fraction|0\\.\\d)", "numeric(al)? value", "lexicograph", "as text"]
+    },
+    {
+      "id": "calc-nonascii",
+      "task": "calc",
+      "rule": "no non-ASCII digits",
+      "source": "rows 2, 20, 21",
+      "match": ["non-?ascii", "unicode", "arabic", "full-?width", "[^\\x00-\\x7f]"]
+    },
+    {
+      "id": "calc-long-chain",
+      "task": "calc",
+      "rule": "an expression of 2000 operands joined by + is valid",
+      "source": "row 20",
+      "match": ["2000", "\\b\\d{3,}\\b.*(operand|term)", "recursion", "(long|deep).*(chain|expression)", "many (operands|terms)"]
+    },
+    {
+      "id": "duration-minus-space",
+      "task": "duration",
+      "rule": "no whitespace between a leading minus sign and the first number",
+      "source": "rows 22, 23",
+      "match": ["(minus|sign|'-).*(space|whitespace|tab)", "(space|whitespace).*(minus|sign)"]
+    },
+    {
+      "id": "jsonpointer-no-sharing",
+      "task": "jsonpointer",
+      "rule": "set_value returns a document that shares no dict or list with the input",
+      "source": "row 24",
+      "match": ["share", "cop(y|ies)", "same object", "mutat", "untouched", "deep"]
+    },
+    {
+      "id": "semver-nonascii",
+      "task": "semver",
+      "rule": "every non-ASCII character is invalid",
+      "source": "rows 6, 7, 8, 27",
+      "match": ["non-?ascii", "unicode", "arabic", "full-?width", "[^\\x00-\\x7f]"]
+    },
+    {
+      "id": "semver-sort-invalid",
+      "task": "semver",
+      "rule": "sort_versions raises ValueError if any element is invalid",
+      "source": "row 26",
+      "match": ["sort.*(invalid|valueerror|raise|malformed)", "(invalid|malformed).*sort"]
+    },
+    {
+      "id": "tokenbucket-float",
+      "task": "tokenbucket",
+      "rule": "available() returns the current number of tokens as a float",
+      "source": "rows 10, 11, 12, 28",
+      "match": ["float", "\\bint\\b", "integer", "\\btype\\b"]
+    },
+    {
+      "id": "toposort-generators",
+      "task": "toposort",
+      "rule": "each value of the mapping is consumed at most once",
+      "source": "rows 13, 14, 15, 29",
+      "match": ["generator", "iterator", "iterable", "consum", "\\bonce\\b"]
+    }
+  ]
+}
