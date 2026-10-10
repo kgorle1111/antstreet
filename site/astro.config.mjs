@@ -8,4 +8,6 @@ export default defineConfig({
   trailingSlash: "ignore",
   build: { inlineStylesheets: "always", format: "directory" },
   devToolbar: { enabled: false },
+  // Astro 7 defaults to "jsx", which drops the space before inline links ("lint.The README").
+  compressHTML: true,
 });
