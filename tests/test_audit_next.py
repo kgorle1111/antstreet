@@ -168,3 +168,13 @@ def _assert_no_check_text(said: str) -> None:
         assert check["code"] not in said
     for text in (MARKER, "test_collapses_runs_of_symbols", "assert", "c01", "c02"):
         assert text not in said
+
+
+def test_without_a_request_it_names_the_run_and_the_request_it_checks_against(audit):
+    # the newest covering run may have been sealed for another change: the verdict says so
+    at(audit, "bad")
+    code, said = next_step(audit)
+    assert code == 3 and f"No request given, so this checks against run {audit.rid}" in said
+    assert REQUEST.strip().splitlines()[0][:60] in said and "--request FILE" in said
+    code, said = next_step(audit, "--request", str(audit.request))
+    assert "No request given" not in said

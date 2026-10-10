@@ -369,7 +369,8 @@ Each case ends with the next command to run. The request is `--request FILE` or,
 `.antstreet/request.md` in the repo when that file exists. It is never the last commit message: at
 plan time `HEAD` is the base, so its message describes work already done. `plan` needs a clean
 tree, so commit the request file (or ignore it) first. A new request text seals a new run; the same
-text finds its run. To audit a branch, a run other than the newest, or with `--claim none`, use the
+text finds its run. Without a request, it checks the newest run that covers `HEAD` and says which run and which
+sealed request that is, so a verdict for a different change is never silent. To audit a branch, a run other than the newest, or with `--claim none`, use the
 steps.
 
 | Option | Default | Meaning |

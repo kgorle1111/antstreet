@@ -104,6 +104,7 @@ from antstreet.pipeline import (
     parse_roles,
     recorded_setup,
 )
+from antstreet.redact import safe_text
 from antstreet.report import build_report, dollars, render_report
 from antstreet.roles import registry
 from antstreet.roles.builders import PROFILES
@@ -1339,6 +1340,13 @@ def _audit_next(
         )
         return EXIT_OK
     say(f"Run {run} sealed base {seal.base[:12]}; HEAD {head[:12]} is past it, so checking HEAD.")
+    if request is None:  # the newest covering run may have been sealed for another change
+        say(
+            f"No request given, so this checks against run {run}, sealed for: "
+            f'"{_sealed_request(store, run)}". If the agent worked on a different change, seal '
+            f"checks for it first: `antstreet audit --request FILE` (or commit "
+            f"{audit.REQUEST_FILE})."
+        )
     check_args = argparse.Namespace(
         run=run, head=head, repo=str(repo), claim="done", claim_text=None, agent=None
     )
@@ -1348,6 +1356,17 @@ def _audit_next(
         "after more commits, `antstreet audit`."
     )
     return code
+
+
+def _sealed_request(store: Path, run: str) -> str:
+    """The first line of the request a run sealed, made safe to show (the store is local, but the
+    request text came from a file anyone could have written)."""
+    try:
+        text = (audit.run_paths(store, run).root / "term_sheet.json").read_text(encoding="utf-8")
+        first = TermSheet.from_json(text).idea.strip().splitlines()[0]
+    except (OSError, TermSheetError, IndexError):
+        return "(unreadable)"
+    return safe_text(first, limit=160)
 
 
 def _audit_stop_hook(repo: Path, store: Path, mode: str, say: Say) -> int:
