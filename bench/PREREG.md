@@ -179,7 +179,9 @@ Added 2026-10-10, after E4b's result and before any E4c run.
   affected it is underpowered and expected near zero); how many cells the flag fired in and how
   many of those delivered; cost per assigned cell; critic completion share; time.
 - **Infrastructure.** As E4b: usage-limit and login failures are moved aside and rerun; the run
-  stops after 3 such failures in a row.
+  stops after 3 such failures in a row. That stop is a pause: the cause is fixed and the run resumes
+  until every cell is counted. No decision is computed on a partial set; if the cells cannot all be
+  counted, the result is reported as "not run to completion", with no verdict.
 - **Cost.** About $44-48 (E4b averaged about $0.41 a cell; the flag adds at most the $0.30 fix,
   plus at most one reserve, in the roughly 9 affected cells). Worst case per cell stays at or
   under E4b's $1.35.
@@ -212,7 +214,9 @@ Added 2026-10-10, before any E9 run. (E7 and E8 are reserved for experiments pla
   +0.019?); false-pass rate per arm; in how many cells the boss redrafted, and the rule gaps and weak
   checks left at approval; cost per assigned cell; time.
 - **Infrastructure.** As E4b: usage-limit and login failures are moved aside and rerun; the run
-  stops after 3 such failures in a row.
+  stops after 3 such failures in a row. That stop is a pause: the cause is fixed and the run resumes
+  until every cell is counted. No decision is computed on a partial set; if the cells cannot all be
+  counted, the result is reported as "not run to completion", with no verdict.
 - **Cost.** About $55-65: coverage $25-35 (blind35's firm averaged $0.21 a cell, about $23 for 105,
   plus at most two Haiku boss redrafts a cell; the stub runs cost nothing), firm about $23, single
   about $9 (blind35's single averaged $0.088). Worst case $0.40 a cell, $126 in all.
