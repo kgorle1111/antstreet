@@ -372,6 +372,29 @@ def _audit_parser(sub: Any) -> None:
         "default 0, off)",
     )
     plan.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
+    plan.add_argument(
+        "--questions",
+        action="store_true",
+        help="the boss also asks up to 5 yes/no questions about rules the request leaves open; "
+        "each answer adds a check or records a waiver, and the checks are shown folded "
+        "(default: off)",
+    )
+    approve = steps.add_parser(
+        "approve",
+        help="answer the questions or approve the checks of a plan made with no terminal",
+    )
+    approve.add_argument(
+        "run", nargs="?", help="the run id `boss audit plan` printed (default: the latest)"
+    )
+    approve.add_argument(
+        "--answers", help="y, n or s (skip) per question, comma-separated, in the order shown"
+    )
+    approve.add_argument(
+        "--sheet", help="the value printed with the checks you read: approves that text only"
+    )
+    approve.add_argument(
+        "--repo", default=".", help="the audited checkout, to run the checks on its base"
+    )
     check = steps.add_parser(
         "check", help="run a run's sealed checks on a commit and record the gate's verdict"
     )
@@ -1239,6 +1262,8 @@ def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: 
     try:
         if args.audit_command == "plan":
             return _audit_plan(args, environ, store, ask, say)
+        if args.audit_command == "approve":
+            return _audit_approve(args, store, say)
         if args.audit_command == "check":
             return _audit_check(args, store, say)
         return _audit_report(args, store, say)
@@ -1275,13 +1300,37 @@ def _audit_plan(
         boss_model=args.boss_model,
         ask=ask,
         say=say,
+        ask_questions=args.questions,
+        attended=not _unattended(ask),
     )
     if done is None:
         say("Rejected. No checks were sealed.")
         return EXIT_FAILED
+    return _sealed(done, store, say)
+
+
+def _audit_approve(args: argparse.Namespace, store: Path, say: Say) -> int:
+    if args.answers is not None and args.sheet is not None:
+        say("Give --answers or --sheet, not both: the answers change the checks to approve.")
+        return EXIT_USAGE
+    run = audit_report.run_ids(store, None, every=False)[0] if args.run is None else args.run
+    done = audit.carry_on(
+        run, store=store, repo=Path(args.repo), answers=args.answers, digest=args.sheet
+    )
+    return _sealed(done, store, say)
+
+
+def _sealed(done: audit.PlanResult | audit.Waiting, store: Path, say: Say) -> int:
+    if isinstance(done, audit.Waiting):
+        say(done.text)
+        return EXIT_AWAITING
+    counts = (
+        f": {done.counted} of {done.total} checks fail on the base and will be counted"
+        if done.total is not None
+        else ""
+    )
     say(
-        f"Sealed audit run {done.run_id}: {done.counted} of {done.total} checks fail on the base "
-        f"and will be counted.\nSeal: {done.seal}\nStore: {store}\n"
+        f"Sealed audit run {done.run_id}{counts}.\nSeal: {done.seal}\nStore: {store}\n"
         "Record the seal where the agent cannot change it, and keep the store out of the agent's "
         "reach. When the agent says it is done, in the repo: "
         f"boss audit check {done.run_id} --claim done (the head defaults to HEAD)"

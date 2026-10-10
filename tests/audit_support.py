@@ -93,6 +93,8 @@ n = len([f for f in os.listdir(home) if f.startswith("argv_")])
 open(os.path.join(home, f"argv_{{n}}.json"), "w").write(json.dumps(argv))
 schema = argv[argv.index("--json-schema") + 1]
 which = "audit_examiner.json" if '"source"' in schema else "audit_draft.json"
+if '"if_yes"' in schema:
+    which = "audit_questions.json"
 draft = json.load(open(os.path.join(home, which)))
 usage = {{"m": {{"inputTokens": 10, "outputTokens": 5, "cacheReadInputTokens": 0}}}}
 print({INIT!r}, flush=True)
