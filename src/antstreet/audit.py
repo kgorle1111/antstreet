@@ -1,9 +1,9 @@
-"""`boss audit plan`: seal checks for a change request before anyone's work is looked at.
+"""`antstreet audit plan`: seal checks for a change request before anyone's work is looked at.
 
 The audit store lives outside the repository (`~/.boss-audit`, or `$BOSS_AUDIT_HOME`): the checks
 are not in the audited repo, in an agent's prompt or in its working folder. The store has the layout
 of a project (`<store>/.boss/runs/<id>`, `<store>/.boss/investor.key`), so the run's ledger, the
-investor's signed approval and the signed `audited` events are the machinery `boss fund` has.
+investor's signed approval and the signed `audited` events are the machinery `antstreet fund` has.
 
 The checks are written from the request and the base's public surface alone (paths, names and
 signatures, no bodies), so they cannot be fitted to a change. This module also holds what `plan`
@@ -59,7 +59,7 @@ MAX_REQUEST_BYTES = 64 * 1024
 MAX_SURFACE_CHARS = 30_000
 MAX_SURFACE_FILES = 300
 MAX_PARSE_BYTES = 256 * 1024
-REQUEST_FILE = ".antstreet/request.md"  # where `boss audit` with no step looks for the request
+REQUEST_FILE = ".antstreet/request.md"  # where `antstreet audit` with no step looks for the request
 VENV = ".venv"  # where `uv sync` and `python -m venv .venv` put a repo's environment
 _SKIPPED_DIRS = frozenset({"__pycache__", "node_modules", ".venv", "venv", "build", "dist"})
 _SEAL = re.compile(r"audit seal: base=([0-9a-f]{40}|[0-9a-f]{64}) request_sha256=([0-9a-f]{64})\Z")
@@ -133,7 +133,9 @@ def request_hash(request: str) -> str:
 def parse_seal(sheet: TermSheet) -> Seal:
     match = _SEAL.fullmatch(sheet.tasks[0].brief) if len(sheet.tasks) == 1 else None
     if match is None:
-        raise AuditError("this run's term sheet is not an audit seal: `boss audit plan` made none")
+        raise AuditError(
+            "this run's term sheet is not an audit seal: `antstreet audit plan` made none"
+        )
     seal = Seal(match.group(1), match.group(2))
     if request_hash(sheet.idea) != seal.request_sha256:
         raise AuditError("the request in the term sheet is not the one the seal records")
@@ -297,7 +299,8 @@ def repo_env(repo: Path, store: Path) -> RepoEnv:
         return RepoEnv(
             None,
             f"the repo's {VENV} is not used: its packages are the repo's code and run only inside "
-            "an OS sandbox, which this machine has not got (`boss doctor` says why), so a check "
+            "an OS sandbox, which this machine has not got (`antstreet doctor` says why), so a "
+            "check "
             "that imports a third-party module is blocked",
         )
     return RepoEnv(

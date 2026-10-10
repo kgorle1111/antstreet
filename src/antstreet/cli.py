@@ -8,11 +8,11 @@ Exit codes:
   2    usage error: a bad option, a blank idea, a budget too small to fund one slice, roles that
        cannot run together, or (for `verify`) no such run
   3    the run ended with a check still failing, for any reason (out of budget, a limit, a pause,
-       a declined round, a task set aside); for `boss audit check`, a refuted or inconclusive
+       a declined round, a task set aside); for `antstreet audit check`, a refuted or inconclusive
        verdict
   4    no terminal to ask on: the drafted term sheet (`fund`) or a worker's dispute of a check
-       (`fund`, `resume`) waits for `boss approve`
-  130  interrupted; continue with `boss resume`
+       (`fund`, `resume`) waits for `antstreet approve`
+  130  interrupted; continue with `antstreet resume`
 """
 
 from __future__ import annotations
@@ -187,9 +187,9 @@ def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--dir", default=".", help="project folder (default: current)")
     parser = argparse.ArgumentParser(
-        prog="boss", description="Fund an idea; an LLM boss runs the firm that builds it."
+        prog="antstreet", description="Fund an idea; an LLM boss runs the firm that builds it."
     )
-    parser.add_argument("--version", action="version", version=f"boss {__version__}")
+    parser.add_argument("--version", action="version", version=f"antstreet {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     fund = sub.add_parser(
@@ -276,7 +276,7 @@ def _parser() -> argparse.ArgumentParser:
         "--roles",
         default="",
         help="specialist roles to run, comma separated, or 'all' (default: none; critic is the "
-        "one to try); see `boss roles`",
+        "one to try); see `antstreet roles`",
     )
     _review_options(fund)
 
@@ -337,7 +337,9 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "roles", parents=[common], help="print the organisation: roles, profiles, skills"
     )
-    doctor = sub.add_parser("doctor", parents=[common], help="check that this machine can run boss")
+    doctor = sub.add_parser(
+        "doctor", parents=[common], help="check that this machine can run antstreet"
+    )
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
     sub.add_parser(
         "mcp",
@@ -398,7 +400,7 @@ def _audit_parser(sub: Any) -> None:
         "check", help="run a run's sealed checks on a commit and record the gate's verdict"
     )
     check.add_argument(
-        "run", nargs="?", help="the run id `boss audit plan` printed (default: the latest)"
+        "run", nargs="?", help="the run id `antstreet audit plan` printed (default: the latest)"
     )
     check.add_argument(
         "--head", default="HEAD", help="the branch, tag or commit to audit (default: HEAD)"
@@ -616,7 +618,7 @@ def _fund(
             say(
                 "Interrupted before the term sheet was approved. Nothing was funded; what the "
                 f"calls so far cost is on the ledger ({paths.ledger}). "
-                "Start again with `boss fund`."
+                "Start again with `antstreet fund`."
             )
             return EXIT_INTERRUPTED
         if plan is None:
@@ -730,8 +732,10 @@ def _await_approval(
     waivers: Mapping[str, str],
 ) -> int:
     """`fund` with nobody at a terminal to answer: keep the paid-for draft, unapproved, and wait
-    for `boss approve`, where end of input would have read as a rejection. The configuration goes
-    on `started` now, so `boss resume` builds exactly what was asked for once it is approved."""
+    for `antstreet approve`, where end of input would have read as a rejection. The configuration
+    goes
+    on `started` now, so `antstreet resume` builds exactly what was asked for once it is
+    approved."""
     paths, run = pipe.paths, pipe.run_id
     sheet = dataclasses.replace(plan.sheet, approved_by_investor=False)
     (paths.root / TERM_SHEET_FILE).write_text(sheet.to_json())
@@ -741,7 +745,7 @@ def _await_approval(
     data = {"reason": AWAITING, "untested": dict(waivers), "notes": list(plan.notes)}
     record("boss", EventType.STOPPED, data=data)
     _show_pending(paths, run, view, spec_shown, plan.notes, pipe.say)
-    pipe.say("Nothing was funded; only the draft was paid for. Do not run `boss fund` again.")
+    pipe.say("Nothing was funded; only the draft was paid for. Do not run `antstreet fund` again.")
     return EXIT_AWAITING
 
 
@@ -765,9 +769,10 @@ def _show_pending(
         say(note)
     say(
         f"\nRun {run} is {AWAITING}. Read the term sheet and every check above; to approve "
-        f"exactly that, run this yourself:\n  boss approve {run} --sheet {shown_digest(text)}\n"
+        f"exactly that, run this yourself:\n  antstreet approve {run} --sheet "
+        f"{shown_digest(text)}\n"
         "In Claude Code, type it with the `!` prefix: the approval is yours, never the agent's. "
-        f"Then build it with `boss resume {run}`."
+        f"Then build it with `antstreet resume {run}`."
     )
     return True
 
@@ -785,7 +790,8 @@ def _awaiting(events: Sequence[Event]) -> bool:
 
 def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
     """Show the term sheet `fund` left waiting, or, with `--sheet`, record the investor's approval
-    of exactly the text shown. Spends nothing; `boss resume` builds it. With `--dispute`, record
+    of exactly the text shown. Spends nothing; `antstreet resume` builds it. With `--dispute`,
+    record
     the investor's ruling on a dispute the run stopped on instead."""
     if (args.dispute is None) != (args.ruling is None) or (args.dispute and args.sheet):
         say("Rule on a dispute with both --dispute CHECK and --ruling drop|keep, without --sheet.")
@@ -802,7 +808,8 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
             config = started_config(events)
             if config is None or not _awaiting(events):
                 say(
-                    f"Run {run} is not {AWAITING}: only a term sheet `boss fund` drafted with no "
+                    f"Run {run} is not {AWAITING}: only a term sheet `antstreet fund` drafted "
+                    f"with no "
                     "terminal to ask on, and not yet approved, is approved this way."
                 )
                 return EXIT_FAILED
@@ -844,7 +851,7 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
     except (NotApprovedError, TermSheetError, spec.SpecError) as exc:
         say(f"Not approved: {exc}. Nothing was written.")
         return EXIT_FAILED
-    say(f"Approved run {run}. Build it with `boss resume {run}`.")
+    say(f"Approved run {run}. Build it with `antstreet resume {run}`.")
     return EXIT_OK
 
 
@@ -879,7 +886,7 @@ def _rule(check: str, ruling: str, run: str, paths: RunPaths, say: Say) -> int:
     if left:
         say(f"Still waiting for your ruling on: {', '.join(left)}.")
     else:
-        say(f"Continue with `boss resume {run}`.")
+        say(f"Continue with `antstreet resume {run}`.")
     return EXIT_OK
 
 
@@ -955,7 +962,7 @@ def _build(
     try:
         return pipe.after_build(sheet, outcome, run, review_cycles=cycles, fix_micros=fix_micros)
     except KeyboardInterrupt:
-        pipe.say(f"Interrupted. Nothing is lost: continue with `boss resume {pipe.run_id}`.")
+        pipe.say(f"Interrupted. Nothing is lost: continue with `antstreet resume {pipe.run_id}`.")
         return EXIT_INTERRUPTED
 
 
@@ -989,13 +996,13 @@ def _run(
             unattended=_unattended(ask),
         )
     except IsolationError as exc:
-        say(f"Stopped: the worker did not start isolated ({exc}). Run `boss doctor`.")
+        say(f"Stopped: the worker did not start isolated ({exc}). Run `antstreet doctor`.")
     except ModelMismatchError as exc:
         say(f"Stopped: the wrong model ran ({exc}). The slice was booked; nothing more was spent.")
     except NotApprovedError as exc:
         say(f"Stopped: {exc}. Nothing was spent.")
     except KeyboardInterrupt:
-        say(f"Interrupted. Nothing is lost: continue with `boss resume {run_id}`.")
+        say(f"Interrupted. Nothing is lost: continue with `antstreet resume {run_id}`.")
         return EXIT_INTERRUPTED
     return EXIT_FAILED
 
@@ -1014,7 +1021,7 @@ def _finish(paths: RunPaths, outcome: FirmReport | int, say: Say) -> int:
     if outcome.stopped:
         say(f"Ended early: {outcome.stopped}")
         if not outcome.all_passed:
-            say(f"To continue this run: `boss resume {paths.root.name}`")
+            say(f"To continue this run: `antstreet resume {paths.root.name}`")
     say(f"Run folder: {paths.root}  (built files: {paths.product})")
     if unverified:
         return EXIT_FAILED
@@ -1084,11 +1091,11 @@ def _resume_run(
         say(f"Run {run} cannot be resumed: its ledger is damaged ({exc}).")
         return EXIT_FAILED
     if _awaiting(events):
-        say(f"Run {run} is {AWAITING}; nothing was built. Read it with `boss approve {run}`.")
+        say(f"Run {run} is {AWAITING}; nothing was built. Read it with `antstreet approve {run}`.")
         return EXIT_FAILED
     config = started_config(events)
     if config is None:
-        say(f"Run {run} never got as far as hiring; start again with `boss fund`.")
+        say(f"Run {run} never got as far as hiring; start again with `antstreet fund`.")
         return EXIT_FAILED
     needed = min_round_budget(config.reserve_micros)
     if args.fix_budget is not None and args.fix_budget < needed:
@@ -1150,7 +1157,7 @@ def _topup(args: argparse.Namespace, project: Path, say: Say) -> int:
     needed = min_round_budget(config.reserve_micros) if config is not None else 0
     if left < needed:
         say(f"That cannot fund a slice yet: a round needs ${usd(needed)} left (reserve + slice).")
-    say(f"Continue with `boss resume {run}`.")
+    say(f"Continue with `antstreet resume {run}`.")
     return EXIT_OK
 
 
@@ -1175,7 +1182,7 @@ def _find_run(args: argparse.Namespace, project: Path, say: Say) -> str | None:
         say(
             f"No run {run!r} under {runs}."
             if run
-            else f"No runs under {runs}. Start one with `boss fund`."
+            else f"No runs under {runs}. Start one with `antstreet fund`."
         )
         return None
     return str(run)
@@ -1255,12 +1262,16 @@ def _verify(args: argparse.Namespace, project: Path, say: Say) -> int:
 
 
 def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: Say) -> int:
-    """`boss audit plan | check | report`. Every refusal (a dirty tree, a ledger or approval that
+    """`antstreet audit plan | check | report`. Every refusal (a dirty tree, a ledger or approval
+    that
     does not verify, a head off the base, a hostile repository) is exit 1 with the reason."""
     store = audit.store_root(environ)
     if args.stop_hook is not None:
         if args.audit_command is not None:
-            say(f"--stop-hook is for `boss audit` with no step, not `audit {args.audit_command}`")
+            say(
+                f"--stop-hook is for `antstreet audit` with no step, "
+                f"not `audit {args.audit_command}`"
+            )
             return EXIT_USAGE
         return _audit_stop_hook(Path(args.next_repo), store, args.stop_hook, say)
     try:
@@ -1293,7 +1304,7 @@ def _audit(args: argparse.Namespace, environ: Mapping[str, str], ask: Ask, say: 
 def _audit_next(
     args: argparse.Namespace, environ: Mapping[str, str], store: Path, ask: Ask, say: Say
 ) -> int:
-    """`boss audit` with no step: plan when no sealed run covers HEAD, else check HEAD."""
+    """`antstreet audit` with no step: plan when no sealed run covers HEAD, else check HEAD."""
     repo = Path(args.next_repo).resolve()
     head = gitrepo.resolve(repo, "HEAD")
     request = audit.find_request(repo, Path(args.next_request) if args.next_request else None)
@@ -1304,24 +1315,27 @@ def _audit_next(
             raise audit.AuditError(
                 f"no sealed audit run covers HEAD {head[:12]} of {repo}, and there is no request "
                 f"to seal checks for. Pass --request FILE, or commit the request to "
-                f"{audit.REQUEST_FILE} in the repo, then run `boss audit` again"
+                f"{audit.REQUEST_FILE} in the repo, then run `antstreet audit` again"
             )
         say(
             f"No sealed audit run covers HEAD {head[:12]} for the request in {request}, so this "
-            "seals checks for it first (`boss audit plan`, base HEAD)."
+            "seals checks for it first (`antstreet audit plan`, base HEAD)."
         )
         plan_args = argparse.Namespace(
             repo=str(repo), request=str(request), base=head, held_out=0, boss_model=DEFAULT_MODEL
         )
         code = _audit_plan(plan_args, environ, store, ask, say)
         if code == EXIT_OK:
-            say("Next: let the agent work and commit; when it says done, run `boss audit` here.")
+            say(
+                "Next: let the agent work and commit; when it says done, "
+                "run `antstreet audit` here."
+            )
         return code
     run, seal = found
     if seal.base == head:
         say(
             f"Nothing to check: HEAD is still the sealed base {head[:12]} of run {run}.\n"
-            "Next: let the agent work and commit; when it says done, run `boss audit` here."
+            "Next: let the agent work and commit; when it says done, run `antstreet audit` here."
         )
         return EXIT_OK
     say(f"Run {run} sealed base {seal.base[:12]}; HEAD {head[:12]} is past it, so checking HEAD.")
@@ -1329,7 +1343,10 @@ def _audit_next(
         run=run, head=head, repo=str(repo), claim="done", claim_text=None, agent=None
     )
     code = _audit_check(check_args, store, say)
-    say(f"Next: `boss audit report {run}` lists every verdict; after more commits, `boss audit`.")
+    say(
+        f"Next: `antstreet audit report {run}` lists every verdict; "
+        "after more commits, `antstreet audit`."
+    )
     return code
 
 
@@ -1363,7 +1380,7 @@ def _audit_stop_hook(repo: Path, store: Path, mode: str, say: Say) -> int:
     message = (
         f"AntStreet audit of HEAD {head[:12]} (run {run}): {verdict.verdict.upper()}, "
         f"{failed} of {counted} sealed checks failed.{note} Details for you, not the agent: "
-        f"`boss audit report {run}`."
+        f"`antstreet audit report {run}`."
     )
     out = {"systemMessage": message}
     if mode == "block" and verdict.verdict == "refuted":
@@ -1399,7 +1416,7 @@ def _audit_plan(
         f"and will be counted.\nSeal: {done.seal}\nStore: {store}\n"
         "Record the seal where the agent cannot change it, and keep the store out of the agent's "
         "reach. When the agent says it is done, in the repo: "
-        f"boss audit check {done.run_id} --claim done (the head defaults to HEAD)"
+        f"antstreet audit check {done.run_id} --claim done (the head defaults to HEAD)"
     )
     return EXIT_OK
 

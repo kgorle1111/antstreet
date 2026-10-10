@@ -158,7 +158,7 @@ def test_a_writer_is_refused_while_repair_holds_the_file(path, monkeypatch):
 def test_a_writer_refuses_a_file_whose_last_line_is_cut_off_and_names_the_repair(path, cut):
     torn_file(path, cut=cut)
     before = path.read_bytes()
-    with pytest.raises(LedgerCorruptError, match=r"boss resume"), LedgerWriter(path):
+    with pytest.raises(LedgerCorruptError, match=r"antstreet resume"), LedgerWriter(path):
         pass
     assert path.read_bytes() == before
 
@@ -167,7 +167,7 @@ def test_a_writer_refuses_a_tear_inside_a_multibyte_character_and_a_lone_fragmen
     path.parent.mkdir(parents=True)
     for torn in (b'{"v": 1, "note": "' + "é".encode()[:1], b"garbage"):
         path.write_bytes(torn)
-        with pytest.raises(LedgerCorruptError, match=r"boss resume"), LedgerWriter(path):
+        with pytest.raises(LedgerCorruptError, match=r"antstreet resume"), LedgerWriter(path):
             pass
         assert path.read_bytes() == torn
 

@@ -71,7 +71,7 @@ class CheckSpec:
 
 @dataclass(frozen=True, slots=True)
 class Dispatch:
-    """How one task is worked on (`boss fund --dispatch rules`). Values are checked against the
+    """How one task is worked on (`antstreet fund --dispatch rules`). Values are checked against the
     whitelist by `dispatch.dispatch_problems`, not here, so a bad edit reports every problem."""
 
     agent: str

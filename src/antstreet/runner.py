@@ -151,7 +151,8 @@ def deferred_sigint(stop: threading.Event) -> Iterator[None]:
     Python raises KeyboardInterrupt between any two bytecodes of the main thread, even inside
     threading.Condition.wait (queue.get, concurrent.futures.wait). There it can release a lock
     twice ("RuntimeError: release unlocked lock") or leave one held, so Ctrl-C ends in a traceback
-    or a hang instead of `boss resume`. Here it is raised where no lock is held, after the workers
+    or a hang instead of `antstreet resume`. Here it is raised where no lock is held, after the
+    workers
     were stopped the way a timeout stops them. Only the main thread can set a handler, and a
     handler other than Python's default (someone else's, or SIGINT ignored) is left alone.
     """

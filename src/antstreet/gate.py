@@ -138,7 +138,7 @@ def _site_arg(site: Path | None, tool: Sandbox | None) -> str:
     if tool is None:
         raise GateError(
             f"refusing to import the repo's packages from {site} without an OS sandbox; "
-            "run on a machine where `boss doctor` finds one"
+            "run on a machine where `antstreet doctor` finds one"
         )
     text = os.fspath(site)
     if not os.path.isabs(text) or not site.is_dir() or not text.isprintable():

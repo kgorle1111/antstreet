@@ -1,4 +1,5 @@
-"""`boss audit plan`: checks sealed from the request and the base's names, kept outside the repo."""
+"""`antstreet audit plan`: checks sealed from the request and the base's names, kept outside the
+repo."""
 
 import json
 import re

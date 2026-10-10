@@ -1,6 +1,6 @@
-"""`boss fund` with no terminal to ask on (Claude Code's Bash tool, a pipe): the paid-for draft
-waits for `boss approve`, which records the investor's approval of exactly the text shown, and
-`boss resume` builds it. Run against the fake `claude` of test_cli."""
+"""`antstreet fund` with no terminal to ask on (Claude Code's Bash tool, a pipe): the paid-for draft
+waits for `antstreet approve`, which records the investor's approval of exactly the text shown, and
+`antstreet resume` builds it. Run against the fake `claude` of test_cli."""
 
 import io
 import json
@@ -62,7 +62,7 @@ def test_fund_with_no_terminal_keeps_the_paid_draft_waiting_instead_of_rejecting
     code, output = boss("fund", "Reverse a string.", "--budget", "0.50")
     assert code == EXIT_AWAITING
     [run_dir] = boss.runs()
-    assert f"boss approve {run_dir.name} --sheet {digest(output)}" in output
+    assert f"antstreet approve {run_dir.name} --sheet {digest(output)}" in output
     assert "TERM SHEET" in output and "reverse('ab') == 'ba'" in output  # the checks, in full
     assert "Rejected" not in output
     kinds = [e.event for e in events(boss)]
@@ -81,7 +81,7 @@ def test_approve_records_the_shown_sheet_on_the_signed_ledger_and_resume_builds_
     assert code == EXIT_OK and digest(shown) == digest(output)
     assert len(events(boss)) == before
     code, said = boss("approve", run, "--sheet", digest(output))
-    assert code == EXIT_OK and f"boss resume {run}" in said
+    assert code == EXIT_OK and f"antstreet resume {run}" in said
     approved = events(boss)[-1]
     assert approved.event is EventType.APPROVED and approved.actor == "investor"
     assert approved.data["shown_sha256"].startswith(digest(output))

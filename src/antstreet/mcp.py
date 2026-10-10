@@ -1,4 +1,4 @@
-"""`boss mcp`: a read-only MCP server on stdio, so any MCP client can read a project's runs.
+"""`antstreet mcp`: a read-only MCP server on stdio, so any MCP client can read a project's runs.
 
 It is a front door, not the engine: every tool reads what the CLI's `status`, `report` and `doctor`
 read, through the same code, and none can fund, resume, top up or approve. Spending and approval

@@ -1,4 +1,5 @@
-"""The KPIs section of `boss report`: figures from the ledger, "not recorded" where it is silent."""
+"""The KPIs section of `antstreet report`: figures from the ledger, "not recorded" where it is
+silent."""
 
 from antstreet.ledger import Event, EventType
 from antstreet.report import build_report, render_report

@@ -1,5 +1,6 @@
-"""`boss audit` with no step: it seals checks when no run covers HEAD and checks HEAD when one does;
-`--stop-hook` is the same check for the plugin's Stop hook, and never shows a check to the agent."""
+"""`antstreet audit` with no step: it seals checks when no run covers HEAD and checks HEAD when one
+does; `--stop-hook` is the same check for the plugin's Stop hook, and never shows a check to
+the agent."""
 
 import json
 import shutil
@@ -24,12 +25,12 @@ from antstreet.rundir import RunPaths
 
 @pytest.fixture(scope="module")
 def sealed(tmp_path_factory):
-    """One run sealed by `boss audit --request`, and two branches past its base."""
+    """One run sealed by `antstreet audit --request`, and two branches past its base."""
     audit = Audit(tmp_path_factory.mktemp("next"))
     code, said = audit.run("--repo", str(audit.repo), "--request", str(audit.request))
     assert code == 0, said
-    assert "No sealed audit run covers HEAD" in said and "boss audit plan" in said
-    assert f"Sealed audit run {audit.run_id()}" in said and "run `boss audit` here" in said
+    assert "No sealed audit run covers HEAD" in said and "antstreet audit plan" in said
+    assert f"Sealed audit run {audit.run_id()}" in said and "run `antstreet audit` here" in said
     audit.rid = audit.run_id()
     for name, slug in (("bad", WRONG_SLUG), ("good", RIGHT_SLUG)):
         git(audit.repo, "checkout", "-q", "-b", name, "main")
@@ -77,7 +78,7 @@ def test_with_a_run_and_head_moved_it_checks_head_as_done_and_names_the_next_com
     at(audit, "bad")
     code, said = next_step(audit)
     assert code == 3 and "Verdict: REFUTED (claim: done" in said
-    assert f"Next: `boss audit report {audit.rid}`" in said
+    assert f"Next: `antstreet audit report {audit.rid}`" in said
     [event] = verdicts(audit)
     assert event.data["claim"] == "done"
     assert event.data["head"] == git(audit.repo, "rev-parse", "HEAD")

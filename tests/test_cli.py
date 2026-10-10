@@ -1,4 +1,5 @@
-"""CLI tests. `boss fund` runs end to end against a fake `claude` that plays boss and worker."""
+"""CLI tests. `antstreet fund` runs end to end against a fake `claude` that plays boss and
+worker."""
 
 import json
 import signal
@@ -387,7 +388,7 @@ def test_resume_finishes_an_interrupted_run_without_a_new_draft_or_a_second_hire
     code, output = boss("fund", "Reverse a string.", "--budget", "0.50")
     assert code == EXIT_INTERRUPTED
     [run_dir] = boss.runs()
-    assert f"continue with `boss resume {run_dir.name}`" in output
+    assert f"continue with `antstreet resume {run_dir.name}`" in output
     (boss.project.parent / "fake_interrupt").unlink()
     code, output = boss("resume", run_dir.name)
     assert code == EXIT_OK and "Round 1: 1/1 checks passed" in output
@@ -463,7 +464,7 @@ def test_resuming_a_finished_run_that_used_roles_changes_nothing_and_spends_noth
 
 def test_a_run_that_ends_early_tells_the_investor_how_to_continue(boss):
     code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9")
-    assert f"To continue this run: `boss resume {boss.runs()[0].name}`" in output
+    assert f"To continue this run: `antstreet resume {boss.runs()[0].name}`" in output
 
 
 @pytest.mark.parametrize("option", ["--rounds", "--max-tasks", "--max-slices", "--stall-slices"])
@@ -558,7 +559,7 @@ def test_topup_writes_one_investor_event_for_the_round_in_micros(boss):
     code, output = boss("topup", "--round", "1", "--amount", "0.20")
     assert code == EXIT_OK
     assert "Topped up round 1" in output and "by $0.2:" in output and "$0.308" in output
-    assert "Continue with `boss resume" in output
+    assert "Continue with `antstreet resume" in output
     events = events_of_run(boss)
     assert events[:-1] == before
     [last] = events[-1:]

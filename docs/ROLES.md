@@ -2,7 +2,7 @@
 
 What each is, how to add one, and when a role is switched on. `tests/test_docs_roles.py` fails
 when a profile or builder skill is missing here, when a file named here does not exist, and when a
-step below stops working. The table in "How `boss fund --roles` reaches each role" is checked
+step below stops working. The table in "How `antstreet fund --roles` reaches each role" is checked
 against the registry; what each role is for is in code, and `render_org` prints it (see "See the
 whole organisation").
 
@@ -15,7 +15,7 @@ whole organisation").
 | Tools | None | `Read`, `Write`, `Edit` in its own folder; no shell | Not applicable |
 | Produces | Data that must pass its gate | Files that the gate's checks run against | Text appended to a system prompt |
 | Paid for | A capped call, booked as a `role_call` event | Capped slices, like any worker | Its characters, on every call that loads it |
-| On by default | No: `boss fund --roles` turns it on | No: the builder prompt runs alone unless `boss fund --profile` names one | Loaded by whatever names it |
+| On by default | No: `antstreet fund --roles` turns it on | No: the builder prompt runs alone unless `antstreet fund --profile` names one | Loaded by whatever names it |
 
 ## What a role is
 
@@ -27,7 +27,7 @@ whole organisation").
   `role_call` event under the actor `role:<name>` (`ledger_fields` builds the fields). The call has a cap of `cap_micros`
   (150,000 micro-dollars, $0.15, unless the spec says otherwise; the critic has $0.40).
 - **Off by default.** `default_on` is `False` until a measurement says the role earns its cost.
-  A role runs only when `boss fund --roles` names it.
+  A role runs only when `antstreet fund --roles` names it.
 - **Placed by two fields.** `department` is one of `product`, `engineering`, `quality`,
   `delivery` or `advisory`. `reports_to` is `boss` or the name of another role.
 
@@ -67,7 +67,7 @@ Workers see the checks they are graded on. In the last benchmark 12 of 36 firm r
 visible check and then failed a hidden one a person wrote (B52 in [BACKLOG.md](BACKLOG.md)). The
 examiner is the role that closes that gap: a separate call that writes checks the workers never
 see, which are run once, on the assembled `product/`. It is off by default; `FirmConfig.held_out`
-says how many to ask for (0 is off, up to 8), and `boss fund` has no option for it yet.
+says how many to ask for (0 is off, up to 8), and `antstreet fund` has no option for it yet.
 
 - **What it sees.** The investor's idea, and the public names the product must expose: the paths
   each task owns, the modules and names the visible check files import, and the names the task
@@ -106,8 +106,8 @@ says how many to ask for (0 is off, up to 8), and `boss fund` has no option for 
   Only the list of skills after the base prompt differs. A profile cannot grant a permission.
 - `builder_system_prompt(name)` is the base prompt, a blank line, then the profile's skills in
   order. With no skills it is the base prompt byte for byte.
-- `boss fund --profile NAME` chooses one profile for the whole run. It is stored in the `started`
-  event's configuration, so `boss resume` uses the same one, and in every `hired` event. Without
+- `antstreet fund --profile NAME` chooses one profile for the whole run. It is stored in the `started`
+  event's configuration, so `antstreet resume` uses the same one, and in every `hired` event. Without
   the option the loop sends the base prompt alone: no profile is on by default.
 - Every specialist carries the six `builder/` skills the generalist does, then its own.
 
@@ -209,13 +209,13 @@ An unknown profile name is an error that lists the known ones:
   under its department.
 - A department with no role is left out of the chart and is not a problem.
 
-## How `boss fund --roles` reaches each role
+## How `antstreet fund --roles` reaches each role
 
-`boss fund --roles a,b,c` (or `--roles all`) names the roles to run. With no `--roles` nothing
+`antstreet fund --roles a,b,c` (or `--roles all`) names the roles to run. With no `--roles` nothing
 below happens, and the run, its ledger and its output are what they were before roles existed.
 `src/antstreet/pipeline.py` is the one module that calls a role's function. Every role call uses the
 boss's model (`--boss-model`) and thinking setting (`--boss-thinking`), and they are recorded on
-the `started` event, so `boss resume` calls roles the same way.
+the `started` event, so `antstreet resume` calls roles the same way.
 
 | Role | Runs | You see | The code uses it for |
 |---|---|---|---|

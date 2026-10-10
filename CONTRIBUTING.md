@@ -32,7 +32,7 @@ uv run ruff format --check .
 uv run mypy
 ```
 
-- Tests use recorded CLI output in `tests/fixtures/` and fake `claude` executables, so `boss fund`
+- Tests use recorded CLI output in `tests/fixtures/` and fake `claude` executables, so `antstreet fund`
   runs end to end without credentials.
 - One test makes a real model call and costs a few cents. It is skipped unless you set
   `BOSS_LIVE=1`: `BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py`.

@@ -12,10 +12,10 @@ Threat rows: T05, T12, T13, T14, T39 in `THREAT_MODEL.md`.
 - `BOSS_GATE_SANDBOX=off`: never sandbox.
 - `run_gate(..., sandbox=SandboxMode.X)` beats the variable. The variable is read in one place, at
   the start of `run_gate`; any other value is a `GateError`.
-- `boss doctor` prints a `gate sandbox` line: the tool found, or a warning with the fix. It only
+- `antstreet doctor` prints a `gate sandbox` line: the tool found, or a warning with the fix. It only
   fails under `require`, or for a bad value.
 - Every `CheckResult` has `sandboxed`. `False` means unsandboxed, whether by `off` or by `auto`
-  finding no tool. `boss report` does not show it yet.
+  finding no tool. `antstreet report` does not show it yet.
 - Benchmark runs (`antstreet.bench`) go through `run_gate` too, so `auto` sandboxes them.
 
 ## What is denied (macOS, verified by tests in `tests/test_gate_sandbox.py`)
@@ -75,7 +75,7 @@ a profile that interpolated the path fails it on quote, backslash and injection 
   sandboxed or not. It stays confined. On Linux the pid namespace should end with it (below).
 - **The worker CLI.** Only the gate's pytest process is sandboxed (T18, T19).
 - **Any machine without a working tool** under `auto`: unsandboxed, and only `CheckResult.sandboxed`
-  and `boss doctor` say so (T39).
+  and `antstreet doctor` say so (T39).
 - **Honest checks that need what the profile withholds:** localhost servers, sockets, `git`
   (the shim reads the Xcode tools under `/Library`: `xcrun: error: unable to load libxcrun`),
   subprocesses that read files outside the allowlist. They fail as worker failures.

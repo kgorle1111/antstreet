@@ -28,11 +28,11 @@ You need macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/) and
 git clone https://github.com/kgorle1111/antstreet.git
 cd antstreet
 uv sync
-uv run boss doctor --live        # checks this machine; two paid calls of at most $0.05 each
-uv run boss fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
+uv run antstreet doctor --live        # checks this machine; two paid calls of at most $0.05 each
+uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
 ```
 
-`boss fund` first shows you the term sheet and waits for your yes. This is the real shape of it,
+`antstreet fund` first shows you the term sheet and waits for your yes. This is the real shape of it,
 abridged, from the test suite's run with a fake model (so the check is a toy one):
 
 ```text
@@ -60,7 +60,7 @@ land in `.boss/runs/<run>/product/`.
 
 **Status: working, and not yet better than one agent at building.** Funding rounds, capped slices,
 firing, one reassignment, disputed checks and your rulings on them, held-out checks no worker sees,
-`boss resume`, `boss topup`, hard run limits and a hash-chained ledger with signed approvals are
+`antstreet resume`, `antstreet topup`, hard run limits and a hash-chained ledger with signed approvals are
 built. Checks run in an OS sandbox on macOS. On the 35-task benchmark (Haiku, $0.40 a task, three
 runs per task, both arms given the same instruction and neither told about hidden checks) the firm
 passed 64 of 105 (61%) against 62 of 105 (59%) for a single agent given the same idea; paired by
@@ -133,13 +133,13 @@ Why it is different:
 
 ## Audit an agent's "done"
 
-`boss audit` is the same idea pointed at someone else's work. Before a coding agent starts, you seal
+`antstreet audit` is the same idea pointed at someone else's work. Before a coding agent starts, you seal
 checks for the change request; afterwards you test the agent's commit against them.
 
 ```bash
-uv run boss audit plan --repo . --request req.txt --base main    # draft, run on base, you approve, seal
-uv run boss audit check RUN --head agent-branch --claim done     # RUN is the id `plan` printed
-uv run boss audit report                                         # verdicts and the false-pass rate
+uv run antstreet audit plan --repo . --request req.txt --base main    # draft, run on base, you approve, seal
+uv run antstreet audit check RUN --head agent-branch --claim done     # RUN is the id `plan` printed
+uv run antstreet audit report                                         # verdicts and the false-pass rate
 ```
 
 Or one command, in the repo: `uv run boss audit --request req.txt` before the agent starts (it
@@ -153,7 +153,7 @@ signed. Full rules: [docs/CLI.md](docs/CLI.md).
 
 ## Use it from any MCP client
 
-`boss mcp` is a read-only MCP server on stdio: `list_runs`, `status`, `report`, `verify_ledger`
+`antstreet mcp` is a read-only MCP server on stdio: `list_runs`, `status`, `report`, `verify_ledger`
 and `doctor` (never `--live`). No tool funds, resumes, tops up or approves; those stay yours, at a
 terminal. Put this in a project's `.mcp.json`. It works once the package is on PyPI; until then
 use `"args": ["--from", "/path/to/your/antstreet/checkout", "antstreet", "mcp"]`.
@@ -166,7 +166,7 @@ use `"args": ["--from", "/path/to/your/antstreet/checkout", "antstreet", "mcp"]`
 }
 ```
 
-Details: [docs/CLI.md](docs/CLI.md#boss-mcp).
+Details: [docs/CLI.md](docs/CLI.md#antstreet-mcp).
 
 ## Use it in GitHub Actions
 
@@ -247,7 +247,7 @@ The output `verdict` is `refuted`, `unrefuted`, `inconclusive` or `refused`.
 
 ## Install
 
-The [quickstart](#quickstart) commands are the whole install. `boss doctor` checks everything a run
+The [quickstart](#quickstart) commands are the whole install. `antstreet doctor` checks everything a run
 needs and prints a fix line for anything missing. `--live` makes two small paid calls, each capped at
 $0.05 on Haiku: one to verify the login, because `claude auth status` can report a login that the
 API then rejects, and one that asks a worker to write outside its folder, to check that the
@@ -256,7 +256,7 @@ installed CLI still refuses it.
 ## Use
 
 ```bash
-uv run boss fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
+uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
 ```
 
 1. The boss drafts a term sheet. You see the task brief and every check's code.
@@ -276,7 +276,7 @@ uv run boss fund "A function is_palindrome(text) that ignores case, spaces and p
    is a ledger event; the approved term sheet is not edited.
 6. The board report is printed and saved. Built files are in `.boss/runs/<run>/product/`.
 
-Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
+Useful options for `antstreet fund` (every option is in [docs/CLI.md](docs/CLI.md)):
 
 | Option | Meaning | Default |
 |---|---|---|
@@ -291,43 +291,43 @@ Useful options for `boss fund` (every option is in [docs/CLI.md](docs/CLI.md)):
 | `--dispatch MODE` | `off`, or `rules`: choose each task's agent, model and effort, shown in the term sheet | off |
 | `--max-tasks N` | Let the boss split the work into up to N tasks | 1 |
 | `--parallel N` | Work on up to N tasks at once; one worker per task | 1 |
-| `--profile NAME` | Add a worker profile's skills to the builder prompt; `boss roles` lists them | none |
+| `--profile NAME` | Add a worker profile's skills to the builder prompt; `antstreet roles` lists them | none |
 | `--roles A,B` | Run specialist roles around the build (stories, staged draft, audit, consultant, critic, demo, judge); `all` turns on every role. The critic is the one to try (see [ROLES.md](docs/ROLES.md)) | none |
 | `--review-cycles N`, `--fix-budget D` | Critic reviews of the product that may lead to a fix round you approve; dollars for that round | 1, two slices and a reserve |
 
 ```bash
-uv run boss resume    # continue the latest run: interrupted, paused or stopped
-uv run boss topup --round 1 --amount 0.20   # add money to a round; reopens a locked one
-uv run boss report    # the latest run's board report
-uv run boss status    # one line: last event, checks passing, spend
-uv run boss routing   # the start tier `--dispatch cascade` would pick per task kind, from past runs
-uv run boss verify    # offline integrity check: ledger chain, signatures, saved prompts
-uv run boss roles     # the organisation: roles, worker profiles and their skills
-uv run boss doctor    # check this machine; --live adds the two paid calls above
-uv run boss audit plan --repo . --request req.txt --base main   # seal checks for someone else's change
+uv run antstreet resume    # continue the latest run: interrupted, paused or stopped
+uv run antstreet topup --round 1 --amount 0.20   # add money to a round; reopens a locked one
+uv run antstreet report    # the latest run's board report
+uv run antstreet status    # one line: last event, checks passing, spend
+uv run antstreet routing   # the start tier `--dispatch cascade` would pick per task kind, from past runs
+uv run antstreet verify    # offline integrity check: ledger chain, signatures, saved prompts
+uv run antstreet roles     # the organisation: roles, worker profiles and their skills
+uv run antstreet doctor    # check this machine; --live adds the two paid calls above
+uv run antstreet audit plan --repo . --request req.txt --base main   # seal checks for someone else's change
 ```
 
-`boss audit` checks a change an agent made in a git repository against checks sealed before it, and
+`antstreet audit` checks a change an agent made in a git repository against checks sealed before it, and
 reports `refuted`, `unrefuted` (not proof), `inconclusive` or `no_claim`; see [docs/CLI.md](docs/CLI.md).
 
-With no terminal to ask on (Claude Code's Bash tool, a pipe), `boss fund` does not ask: it prints
+With no terminal to ask on (Claude Code's Bash tool, a pipe), `antstreet fund` does not ask: it prints
 the term sheet and every check, keeps the paid-for draft, and exits `4` with the one command that
 approves exactly that text. You run it yourself (in Claude Code, with the `!` prefix), then build:
 
 ```bash
-boss approve <run>                  # read the term sheet again, with its --sheet value
-boss approve <run> --sheet <value>  # your approval, refused if anything changed since it was shown
-boss resume <run>                   # builds it; an agent may run this, never `approve`
+antstreet approve <run>                  # read the term sheet again, with its --sheet value
+antstreet approve <run> --sheet <value>  # your approval, refused if anything changed since it was shown
+antstreet resume <run>                   # builds it; an agent may run this, never `approve`
 ```
 
-`boss resume` reads the run's ledger and the settings it started with. Running it is your decision
+`antstreet resume` reads the run's ledger and the settings it started with. Running it is your decision
 to lift a stop, and the approval, the budget and every limit are checked again. A round that closed
-below its unlock threshold stays locked until you `boss topup` it.
+below its unlock threshold stays locked until you `antstreet topup` it.
 
 Exit codes: `0` every check passed; `1` the boss produced no usable term sheet, you rejected it, or
 a worker did not start isolated; `2` usage error (including a blank idea and a budget too small to fund one slice);
 `3` the run ended with checks not passing, including a run stopped early by a limit, a declined
-round, a pause or a lost login; `4` no terminal to ask on, the term sheet waits for `boss approve`; `130` you pressed Ctrl-C (continue with `boss resume`).
+round, a pause or a lost login; `4` no terminal to ask on, the term sheet waits for `antstreet approve`; `130` you pressed Ctrl-C (continue with `antstreet resume`).
 
 ## Use it from Claude Code
 
@@ -359,7 +359,7 @@ asking you; only `/antstreet:fund` may also run `fund` and `resume`. No grant in
 Four hooks run as you. At session start, if `uvx` is missing, one prints the one command that
 installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. Before each
 Bash, Monitor or PowerShell call, one denies any command that runs `antstreet approve` or
-`boss approve` (through `uvx`, `uv run`, `python -m antstreet.cli`, an installed
+`antstreet approve` (through `uvx`, `uv run`, `python -m antstreet.cli`, an installed
 script, env prefixes, `;`, `&&`, `|`, subshells or quotes) and tells the agent to ask you to type
 it. When the agent stops, in a project with runs under `.boss/runs/`, the last runs
 `uvx antstreet status`, which checks the latest ledger's hash chain and signatures offline. A
@@ -383,7 +383,7 @@ claude-code-stop` separates these from your own checks.
 
 What the approve guard does not do: it reads the command's words, so a command that builds the
 word at run time (a variable, `xargs`, a script file) gets past it, and a command that only
-mentions both words (`echo boss approve`) is denied. It covers the agent's tool calls in Claude
+mentions both words (`echo antstreet approve`) is denied. It covers the agent's tool calls in Claude
 Code only; any other process running as you can approve, as you can. A Claude Code mod you install
 that handles `tool.check` can override its block. The `--sheet` value binds what is approved to
 the text you read; who approves rests on you.
@@ -394,7 +394,7 @@ Running `antstreet` (or the benchmark) from a shell inside a Claude Code session
 session's own variables (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_AGENT_SDK_*`, its
 `ANTHROPIC_BASE_URL`) never reach them. They use the login stored for your user by
 `claude auth login`, not the session's. If that login has expired, every call fails at once;
-`boss fund` and the benchmark then say to run `claude auth login`, and the benchmark stops after
+`antstreet fund` and the benchmark then say to run `claude auth login`, and the benchmark stops after
 3 such cells.
 
 Until `antstreet` is on PyPI and this repository is public, `uvx antstreet` does not resolve, so
@@ -410,7 +410,7 @@ the mods API is early access, so it can change between releases; this one was te
 The mod only draws and runs `antstreet`; every decision stays in the Python CLI.
 
 - When the agent stops a turn (and at session start), it runs `antstreet status --json`. If the
-  latest run is awaiting your approval (`boss fund` had no terminal to ask on and exited 4), a row
+  latest run is awaiting your approval (`antstreet fund` had no terminal to ask on and exited 4), a row
   above the prompt says so, with `[ Review ]` and `[ Hide ]`.
 - Review opens a pane with the term sheet and every check as `antstreet approve RUN` prints them,
   and two buttons: `[ Close ]` (focused first, so a stray Enter closes) and `[ Approve ]`. Approve
@@ -492,7 +492,7 @@ What AntStreet does not do, in plain words. Each links to its row in the [threat
   `.boss/investor.key` that no worker can read, and your approvals are signed with it too, so an
   edited, forged or appended line, or a forged approval, is refused even when the chain is
   recomputed. A run with no anchor and unsigned lines is refused until you adopt it
-  (`boss verify RUN --adopt-unsigned`).
+  (`antstreet verify RUN --adopt-unsigned`).
 - Workers start in an isolated configuration (no hooks, MCP servers or shell) and are refused if
   the CLI reports anything else.
 - A pass needs pytest to exit 0, a test report showing at least one test and no failures, errors
@@ -512,7 +512,7 @@ Limits you should know:
 - **The tool whitelist is not a sandbox, and the gate's sandbox is partial.** The gate executes the
   code a worker wrote, on your machine, with a filtered environment and a timeout. On macOS that
   runs under a deny-by-default profile; on Linux the `bwrap` version runs, and is required (`BOSS_GATE_SANDBOX=require`), in CI; with no
-  working tool, checks run with your full access (`boss doctor` warns; `BOSS_GATE_SANDBOX=require`
+  working tool, checks run with your full access (`antstreet doctor` warns; `BOSS_GATE_SANDBOX=require`
   refuses). Do not run ideas from sources you do not trust. Container isolation is not built.
 - Code written to target the gate's own process can still fake a pass (T12 in the threat model).
 - Built products are meant to use only the Python standard library: the builder prompt says so,
@@ -520,7 +520,7 @@ Limits you should know:
 - `--budget` covers the funding rounds. The boss's own drafting call is charged on top of it (about
   $0.03 to $0.10 on Haiku, most of it thinking; see `--boss-thinking`).
 - A task you set aside (or leave unanswered) stays set aside for the run, resumed or not.
-- A ledger whose last line was cut by a hard kill is repaired by `boss resume`, which removes
+- A ledger whose last line was cut by a hard kill is repaired by `antstreet resume`, which removes
   that line. A ledger damaged anywhere else cannot be resumed.
 - A slice cap can be overshot by one model response. The reserve is sized for that; a response
   that costs more than the reserve still overshoots.
@@ -537,7 +537,7 @@ Early. It works end to end and the tests are deep, but it is pre-release.
 - Built, not yet installable: a Claude Code plugin (it needs the repository public and the PyPI
   release, see [Use it from Claude Code](#use-it-from-claude-code)).
 - Planned, not built: a PyPI release (the name is `antstreet`; nothing is published yet).
-- Built, with a manual step: a GitHub Action that runs `boss audit check` on a pull request
+- Built, with a manual step: a GitHub Action that runs `antstreet audit check` on a pull request
   ([Use it in GitHub Actions](#use-it-in-github-actions)); you carry the sealed store to the
   runner yourself (see [docs/BACKLOG.md](docs/BACKLOG.md), B78).
 
@@ -570,7 +570,7 @@ BOSS_LIVE=1 uv run pytest tests/test_end_to_end.py   # one real run, a few cents
 ```
 
 Tests use recorded CLI output in `tests/fixtures/` and fake `claude` executables, so the whole
-flow, including `boss fund` end to end, runs without credentials.
+flow, including `antstreet fund` end to end, runs without credentials.
 
 ## Contributing
 

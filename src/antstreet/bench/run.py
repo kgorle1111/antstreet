@@ -1,7 +1,7 @@
 """Run benchmark cells: one task, one arm, one repetition, scored by the hidden checks.
 
 Both arms get the same idea text, model, tools and budget. The single arm is one worker given
-the idea. The firm arm is `boss fund` with the term sheet approved automatically, which is the
+the idea. The firm arm is `antstreet fund` with the term sheet approved automatically, which is the
 one place an investor decision is automated; results are labelled as such in the method note.
 Hidden checks and the reference solution are never copied into a workspace or a prompt.
 """
@@ -84,7 +84,8 @@ def run_cell(
 ) -> CellResult:
     """Run one cell, or return its saved result if it already ran.
 
-    `held_out` asks the firm arm for that many held-out checks (`boss fund --held-out N`, added to
+    `held_out` asks the firm arm for that many held-out checks (`antstreet fund --held-out N`,
+    added to
     `firm_args`, so the result records it); the single arm ignores it.
     """
     if type(held_out) is not int or not 0 <= held_out <= MAX_HELD_OUT:
@@ -319,7 +320,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     parser.add_argument("--boss-model", default=DEFAULT_MODEL)
     parser.add_argument("--only", nargs="+", help="task ids to run (default: all)")
     parser.add_argument(
-        "--firm-args", default="", help="extra `boss fund` options for the firm arm, quoted"
+        "--firm-args", default="", help="extra `antstreet fund` options for the firm arm, quoted"
     )
     parser.add_argument(
         "--held-out",
@@ -407,7 +408,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
 def preflight(environ: Mapping[str, str]) -> str | None:
     """Why no cell should start, or None. No model call: `claude auth status` with the exact
     environment a worker gets. It cannot see a login whose refresh will fail; the streak stop
-    catches that one. An API key is not checked here (as in `boss doctor` without --live)."""
+    catches that one. An API key is not checked here (as in `antstreet doctor` without --live)."""
     env = worker_env(environ)
     if uses_api_key(env):
         return None
