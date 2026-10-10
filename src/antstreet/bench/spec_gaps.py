@@ -111,11 +111,21 @@ def live(
     model: str = boss.DEFAULT_MODEL,
     executable: str = CLI,
     tasks: Path = TASKS,
-) -> tuple[dict[str, list[str]], int]:
-    """Each case's questions and the micro-dollars spent. A failed call leaves that case with no
+) -> tuple[dict[str, list[str]], int, bool]:
+    """Each case's questions, the micro-dollars spent, and whether any call's cost was unknown
+    (then the spend is a lower bound, never read as free). A failed call leaves that case with no
     questions (it scores as missed), and its spend is still counted when the CLI reported it."""
     found: dict[str, list[str]] = {}
     spent = 0
+    unknown = False
+
+    def add(cost: int | None) -> None:
+        nonlocal spent, unknown
+        if cost is None:
+            unknown = True
+        else:
+            spent += cost
+
     for case in cases:
         with tempfile.TemporaryDirectory(prefix="spec_gaps_") as tmp:
             checks = Path(tmp) / "checks"
@@ -124,17 +134,17 @@ def live(
                     case.idea(tasks), 1_000_000, checks, env=env, model=model,
                     executable=executable,
                 )  # fmt: skip
-                spent += draft.usage.cost_micros or 0
+                add(draft.usage.cost_micros)
                 asked, usage = questions.draft(
                     draft.sheet, checks, env=env, model=model, executable=executable
                 )
-                spent += usage.cost_micros or 0
+                add(usage.cost_micros)
             except boss.BossError as exc:
-                spent += exc.usage.cost_micros or 0
+                add(exc.usage.cost_micros)
                 print(f"{case.id}: {exc}", file=sys.stderr)
                 asked = []
         found[case.id] = [q.text for q in asked]
-    return found, spent
+    return found, spent, unknown
 
 
 def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = None) -> int:
@@ -150,6 +160,10 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
     run.add_argument("--model", default=boss.DEFAULT_MODEL)
     args = parser.parse_args(argv)
     cases = load_cases(args.cases)
+    if args.step == "score":  # needs only the cases' patterns, not their task files
+        saved = json.loads(args.questions.read_text(encoding="utf-8"))
+        print(report([score(c, saved.get(c.id, [])) for c in cases]))
+        return 0
     tokens_in, tokens_out, usd = estimate(cases)
     print(
         f"Estimate for {len(cases)} cases, 2 calls each: {tokens_in:,} tokens in, "
@@ -158,15 +172,11 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
     )
     if args.step == "estimate":
         return 0
-    if args.step == "score":
-        saved = json.loads(args.questions.read_text(encoding="utf-8"))
-        print(report([score(c, saved.get(c.id, [])) for c in cases]))
-        return 0
     if not args.yes_spend:
         print("Not run: `live` makes real model calls. Add --yes-spend to run it.")
         return 2
     environ = dict(environ if environ is not None else os.environ)
-    found, spent = live(
+    found, spent, unknown = live(
         cases,
         env=worker_env(environ),
         model=args.model,
@@ -174,7 +184,8 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
     )
     args.out.write_text(json.dumps(found, indent=1, ensure_ascii=False), encoding="utf-8")
     print(report([score(c, found.get(c.id, [])) for c in cases]))
-    print(f"Spent ${spent / 1_000_000:.4f} (measured). Questions saved to {args.out}.")
+    kind = "at least; a call reported no cost" if unknown else "measured"
+    print(f"Spent ${spent / 1_000_000:.4f} ({kind}). Questions saved to {args.out}.")
     return 0
 
 

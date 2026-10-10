@@ -508,7 +508,7 @@ Example:
 |---|---|---|
 | `task` | str | The task id. Absent for `declined` and `answered`. |
 | `worker` | str | The worker that raised the dispute or the block. Absent for `declined` and `answered`. |
-| `ruling` | str | `dropped`, `kept`, `unblocked` or `declined`. |
+| `ruling` | str | `dropped`, `kept`, `unblocked`, `declined` or `answered`. |
 | `reason` | str | Why nobody was asked. Present on the `boss`'s `declined` only. |
 | `check` | str | The check ruled on. Present for `dropped` and `kept` only. |
 | `note` | str | The investor's note, on one line, secrets masked, at most 1000 characters. Present for `unblocked` only. |

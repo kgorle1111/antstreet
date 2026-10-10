@@ -311,3 +311,35 @@ def test_the_live_eval_runs_against_a_fake_claude_and_reports_recall_and_spend(t
     assert len(json.loads(out.read_text())["calc-nonascii"]) == 3
     assert spec_gaps.main(["--cases", str(cases), "score", "--questions", str(out)]) == 0
     assert "Recall: 1 of 2" in capsys.readouterr().out
+
+
+def test_scoring_saved_questions_needs_no_task_file(tmp_path, capsys):
+    from antstreet.bench import spec_gaps
+
+    # a held-out case whose task has no bench/tasks folder: scoring reads only its patterns
+    case = {"id": "fresh", "task": "no-such-task", "rule": "r", "source": "s", "match": ["empty"]}
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"cases": [case]}))
+    saved = tmp_path / "q.json"
+    saved.write_text(json.dumps({"fresh": ["Should an empty string raise ValueError?"]}))
+    assert spec_gaps.main(["--cases", str(cases), "score", "--questions", str(saved)]) == 0
+    assert "Recall: 1 of 1" in capsys.readouterr().out
+
+
+def test_an_unknown_call_cost_makes_the_spend_a_lower_bound(monkeypatch):
+    from antstreet.bench import spec_gaps
+
+    class Usage:
+        def __init__(self, cost):
+            self.cost_micros = cost
+
+    class Draft:
+        usage = Usage(None)  # the CLI reported no cost for this call
+        sheet = object()
+
+    monkeypatch.setattr(spec_gaps.boss, "draft_term_sheet", lambda *a, **k: Draft())
+    monkeypatch.setattr(spec_gaps.questions, "draft", lambda *a, **k: ([], Usage(5_000)))
+    case = spec_gaps.Case("c", "t", "r", "s", ("x",))
+    monkeypatch.setattr(spec_gaps.Case, "idea", lambda self, tasks=None: "an idea")
+    found, spent, unknown = spec_gaps.live([case], env={})
+    assert found == {"c": []} and spent == 5_000 and unknown
