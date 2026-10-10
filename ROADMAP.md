@@ -40,8 +40,9 @@ On `main`, pre-release (not on PyPI yet). Each item links the pull request that 
   the sandbox and flags a check that passes them all as WEAK. It is advisory and never changes the
   verdict; `--no-strength` skips it ([#71](https://github.com/kgorle1111/antstreet/pull/71)).
 - **Approval as a few yes/no questions**, opt-in (`audit plan --questions`, off by default): you
-  answer where the request leaves a rule open, and your answers become checks or waivers. Only an
-  offline eval has run; the live eval is pending, so we do not claim it works better
+  answer where the request leaves a rule open, and your answers become checks or waivers. Its
+  pre-registered live eval did not show it finds unseen gaps (4 of 10 held-out rules against a bar
+  of 5, [results](bench/results/2026-10-10-spec-gaps/README.md)), so it stays opt-in and we do not claim it works better
   ([#72](https://github.com/kgorle1111/antstreet/pull/72)).
 
 **A gate and a ledger you can trust**
@@ -103,7 +104,6 @@ Up next, each in its own pull request.
 
 - **First run**: a short `--help`, a timed fresh-machine run published in the README, a first-run
   guide, and a few good first issues.
-- **The live eval of approval questions**, which decides whether `--questions` stays opt-in.
 - **Evidence**: a new task-set version that fixes the defects an eval audit found, keeping old
   results reproducible, and the false-pass audit's scripts committed.
 
