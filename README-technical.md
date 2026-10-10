@@ -142,6 +142,11 @@ uv run boss audit check RUN --head agent-branch --claim done     # RUN is the id
 uv run boss audit report                                         # verdicts and the false-pass rate
 ```
 
+Or one command, in the repo: `uv run boss audit --request req.txt` before the agent starts (it
+seals, as `plan` with base `HEAD`), then `uv run boss audit` when it says done (it checks `HEAD`,
+claim `done`). With no step it reads the request from `--request` or a committed
+`.antstreet/request.md`, and always prints the next command.
+
 The verdict is `refuted`, `unrefuted`, `inconclusive` or `no_claim`. `unrefuted` is not proof: the
 sealed checks catch only what they test. The agent never sees the checks, and the verdict is
 signed. Full rules: [docs/CLI.md](docs/CLI.md).
@@ -351,15 +356,30 @@ with the run id and value `fund` printed. A line starting with `!` runs as you, 
 agent. The plugin's commands may run `status`, `report` and `doctor` (without `--live`) without
 asking you; only `/antstreet:fund` may also run `fund` and `resume`. No grant includes `approve`.
 
-Three hooks run as you. At session start, if `uvx` is missing, one prints the one command that
+Four hooks run as you. At session start, if `uvx` is missing, one prints the one command that
 installs uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it installs nothing. Before each
 Bash, Monitor or PowerShell call, one denies any command that runs `antstreet approve` or
 `boss approve` (through `uvx`, `uv run`, `python -m antstreet.cli`, an installed
 script, env prefixes, `;`, `&&`, `|`, subshells or quotes) and tells the agent to ask you to type
 it. When the agent stops, in a project with runs under `.boss/runs/`, the last runs
 `uvx antstreet status`, which checks the latest ledger's hash chain and signatures offline. A
-failure is shown to you; it never blocks the agent. In any other project the first and last are
-silent.
+failure is shown to you; it never blocks the agent. In any other project the first and that one
+are silent.
+
+The fourth also runs when the agent stops: in a git repo that a sealed `boss audit` run covers,
+with `HEAD` moved past its base, it runs `uvx antstreet audit --stop-hook` (no model call), which
+checks the commit at `HEAD` as a claim of `done` (label `claude-code-stop`). Uncommitted changes are
+not checked, and the notice says so. By default the verdict goes to you only, as a message the
+agent does not see, and the agent stops as usual. Set the plugin option `audit_on_refuted` to
+`block` to keep the agent working on a refuted verdict: it is told only "N of M sealed checks
+failed; the human has the details", never which checks or what they test, and the next stop only
+notifies. The trade-off: blocking catches a false "done" in the same session, but it turns the
+hook into an oracle the agent can probe commit by commit, which is the overfitting the sealed
+checks exist to prevent; notify keeps the checks blind and leaves the next move to you. Each commit
+is checked once. With no audit run in the store (`~/.boss-audit`) it is silent and runs nothing;
+an error, a missing `uvx` or the 60-second timeout never blocks, and at most shows you a generic
+notice. Every stop where `HEAD` moved records a `done` claim, so `boss audit report --agent
+claude-code-stop` separates these from your own checks.
 
 What the approve guard does not do: it reads the command's words, so a command that builds the
 word at run time (a variable, `xargs`, a script file) gets past it, and a command that only
