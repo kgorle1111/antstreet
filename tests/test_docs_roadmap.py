@@ -62,7 +62,7 @@ def test_nothing_the_roadmap_lists_as_next_already_exists_in_the_cli():
     ):  # "the existing `--x`" is a deliberate reference
         words = span.split()
         command = " ".join(words if words[0] == "antstreet" else ["antstreet", *words])
-        if span.startswith("-") and words[0] in options or (len(words) > 1 and command in parsers):
+        if span.startswith("-") and words[0] in options or command in parsers:
             built.append(span)
     assert not built, (
         f"listed as unbuilt but already in the CLI: {built}. Move the item to Shipped, or write "
