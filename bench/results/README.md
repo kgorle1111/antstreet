@@ -62,6 +62,13 @@ Costs are the CLI's client-side estimates. Model: Haiku. Budget: $0.40 per cell.
 Recall is biased down: 16 of the 23 harvested wrong implementations were built against these
 same drafts. See `bench/METHOD.md`.
 
+## Spec-gap questions (2026-10-10-spec-gaps)
+
+SG1: does the `--questions` call ask about rules the drafted checks miss? Haiku, one run per case, hand-checked.
+Known gaps 5/10 [24-76%] (regex 4/10); held-out rules 5/10 [24-76%] (regex 2/10), 4/10 without one borderline
+question. At least $3.45 spent. The bar (5/10 held out) is met exactly, by one borderline case: weak support, size
+unknown. See `2026-10-10-spec-gaps/README.md`.
+
 ## Drafts and auditor (2026-09-30-drafts-and-audit)
 
 Scored from saved cells; no worker ran and the write-up made no model call. Task set `c130282a6eec5fe8`,

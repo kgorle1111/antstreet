@@ -235,3 +235,4 @@ equal compute in the literature. They stay off by default and are not claimed to
 - 2026-10-07: added E4b (the critic with a $0.40 cap), after E4's result and before any E4b run.
 - 2026-10-07, before any E4b result was read: the critic call's time limit rises from 300 s to 900 s for E4b. In the first 7 E4b cells, 4 critic calls hit the 300 s limit (E4 had 1 in 105), so with the $0.40 cap the time limit, not the critic, would have decided them. Those 7 cells are set aside unread and E4b restarts from zero with both changes; everything else is unchanged.
 - 2026-10-10: added SG1 (spec-gap questions, known and held-out sets), before any live run of it.
+- 2026-10-10, after the SG1 runs: the "about $0.30 a set" cost line was 6 times low (measured $1.72 a set, thinking tokens were not counted); `estimate` is corrected. Nothing else in SG1 changed; the result is in `bench/results/2026-10-10-spec-gaps/README.md`.
