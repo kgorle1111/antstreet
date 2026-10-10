@@ -44,6 +44,9 @@ from antstreet.termsheet import CheckSpec, check_file_problems
 MIN_HIDDEN_CHECKS = 5
 MIN_MUTANTS = 3
 MUTANT_TIMEOUT_S = 10.0  # per check; a wrong solution that hangs a check has failed it
+# Per check, when validating a task: proves the reference passes and an empty workspace fails, not
+# speed. 30 s flagged valid tasks as broken on a loaded machine (`roman` under parallel suites).
+VALIDATE_TIMEOUT_S = 120.0
 MUTANTS_DIR = "mutants"
 DIFFICULTIES = ("easy", "medium", "hard")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}\Z")
@@ -231,8 +234,10 @@ def gate_problems(task: BenchTask) -> list[str]:
         return _imported_gate_problems(task, task.imported)
     checks = task.hidden_checks()
     with tempfile.TemporaryDirectory(prefix="boss_bench_empty_") as empty:
-        on_empty = run_gate(Path(empty), task.hidden_dir, checks, timeout_s=30.0)
-    on_reference = run_gate(task.reference_dir, task.hidden_dir, checks, timeout_s=30.0)
+        on_empty = run_gate(Path(empty), task.hidden_dir, checks, timeout_s=VALIDATE_TIMEOUT_S)
+    on_reference = run_gate(
+        task.reference_dir, task.hidden_dir, checks, timeout_s=VALIDATE_TIMEOUT_S
+    )
     problems = [
         f"hidden check {r.check_id} does not fail on an empty workspace ({r.status})"
         for r in on_empty
