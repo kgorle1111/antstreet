@@ -23,7 +23,7 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 - Readers take no lock, and a reader racing the writer can see the line being written cut off
   (Linux makes an append visible a page at a time). So a last line with no newline is re-read for up
   to 100 ms before it is judged: a line in flight completes, a torn tail left by a crash does not
-  and is refused as above. Every re-read is parsed and checked in full.
+  and is refused as above. The waits look at the last byte only; the final read is parsed and checked in full.
 - `LedgerWriter` never appends to a cut-off last line, because the next line would be glued onto
   it and the file could no longer be repaired. Opening a file whose last line has no newline and
   does not parse as an event raises `LedgerCorruptError` naming `antstreet resume`, and changes nothing.
