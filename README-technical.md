@@ -300,6 +300,7 @@ Useful options for `antstreet fund` (every option is in [docs/CLI.md](docs/CLI.m
 | `--profile NAME` | Add a worker profile's skills to the builder prompt; `antstreet roles` lists them | none |
 | `--roles A,B` | Run specialist roles around the build (stories, staged draft, audit, consultant, critic, demo, judge); `all` turns on every role. The critic is the one to try (see [ROLES.md](docs/ROLES.md)) | none |
 | `--review-cycles N`, `--fix-budget D` | Critic reviews of the product that may lead to a fix round you approve; dollars for that round | 1, two slices and a reserve |
+| `--fix-after-stop` | Offer the critic's fix round even when the run ended at a round locked below its unlock threshold; your yes tops that round up, which reopens it | off |
 
 ```bash
 uv run antstreet resume    # continue the latest run: interrupted, paused or stopped
