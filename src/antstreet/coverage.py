@@ -197,8 +197,8 @@ def gate_view(
         stubs = recorded.get(check.id, [])
         if now is None or now != hashes.get(check.id) or not isinstance(stubs, list):
             changed.append(check.id)
-        elif stubs:
-            weak[check.id] = [s for s in stubs if s in STUBS]
+        elif known := [s for s in stubs if isinstance(s, str) and s in STUBS]:
+            weak[check.id] = known
     waived = list(_rules_in(report, "uncovered", "waived"))
     redrafts = saved.get("redrafts")
     redrafts = redrafts if type(redrafts) is int else "?"

@@ -261,6 +261,21 @@ def test_a_damaged_coverage_file_cannot_be_approved(boss, monkeypatch):
     assert code != EXIT_OK and "coverage.json cannot be read" in output
 
 
+def test_a_coverage_file_with_a_non_string_stub_does_not_crash_the_approval(boss, monkeypatch):
+    import antstreet.cli as cli
+
+    run = boss(COVERED)
+    monkeypatch.setattr(cli, "_unattended", lambda ask: True)
+    _, output = run("fund", IDEA, "--budget", "0.50", "--coverage")
+    [value] = set(re.findall(r"--sheet ([0-9a-f]{16})", output))
+    path = run.run_dir() / "coverage.json"
+    saved = json.loads(path.read_text())
+    saved["weak"] = {check: [["raises"], {}] for check in saved["sha256"]}  # unhashable items
+    path.write_text(json.dumps(saved))
+    code, output = run("approve", run.run_dir().name, "--sheet", value)
+    assert code == EXIT_OK, output  # unknown stub names are dropped, as unknown strings are
+
+
 def test_a_deleted_coverage_file_cannot_be_approved_unattended(boss, monkeypatch):
     """The ledger says --coverage was chosen, so a missing file refuses; it never drops the gate."""
     import antstreet.cli as cli
