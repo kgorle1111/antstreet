@@ -159,7 +159,7 @@ otherwise.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `purpose` | str | `term_sheet` for `antstreet fund`, `audit_checks` for `antstreet audit plan`, `spec_gaps` for the questions of `antstreet audit plan --questions`. |
+| `purpose` | str | `term_sheet` for `antstreet fund`, `audit_checks` for `antstreet audit plan`, `spec_gaps` for the questions of `antstreet audit plan --questions`, `coverage_redraft` for a redraft `antstreet fund --coverage` asked for (one event per redraft, after the `term_sheet` one). |
 | `model` | str | The boss model, from `--boss-model`. |
 | `thinking_tokens` | int or null | The thinking budget from `--boss-thinking`; `null` means the CLI's own default. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose draft was unusable or invalid. |
@@ -699,7 +699,7 @@ Example:
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
 | `shown_sha256` | str | SHA-256 hex of the exact text the investor approved: the rule coverage (with `--spec`), the term sheet, every check and held-out check, as `antstreet approve` rendered it. Only on an approval made with `antstreet approve --sheet`, whose value is its first 16 characters. |
 | `route` | str | `one_agent` or `firm`: the route the investor approved (`dispatch.route_of` chose it from the sheet, or the investor edited it). Only in the first form, and only when the run uses `--dispatch rules`. The term sheet carries it too, and `hashes` covers that. |
-| `spec` | object | Only with `--spec`, in the first form: `rules_sha256` (digest of the rule list), `rules` (scored rules), `anchored`, `unanchored`, `anchor_missing`, `unscored_missing` (counts), `uncovered` and `waived` (rule ids) and `waived_reasons` (id to the boss's one-line reason). Inside the signed data. |
+| `spec` | object | Only with `--spec`, in the first form: `rules_sha256` (digest of the rule list), `rules` (scored rules), `anchored`, `unanchored`, `anchor_missing`, `unscored_missing` (counts), `uncovered` and `waived` (rule ids) and `waived_reasons` (id to the boss's one-line reason); with `--coverage` also `investor_waived` (the rule ids no check cites, which the approval waives) and `weak` (check id to the stub products it passed on: `returns_none`, `returns_input`, `raises`). Inside the signed data. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
 | `added_checks` | list | The ids of the checks an amendment added, in order. Only in an amendment. |
 | `sig` | str | On every form. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`). Approvals written by the first version of signing carry a bare hex `sig` over their run, round and data; approvals older than signing have none. |
@@ -808,6 +808,7 @@ Example:
 | `reason` | str | Why the run stopped. |
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
 | `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `antstreet approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
+| `coverage` | bool | The run was started with `--coverage`, so `antstreet approve` shows the COVERAGE GATE from `coverage.json`, and refuses when that file is missing or unreadable rather than show the sheet without it. Only on a stop awaiting approval. |
 | `notes` | list | The roles' notes on the draft, shown under the term sheet by `antstreet approve` (for an audit, what each check does on the base, shown by `antstreet audit approve`). They bind nothing. Only on a stop awaiting approval. |
 | `questions` | list | The boss's yes/no questions, as shown, in order. Only on an audit's stop awaiting the investor's answers. |
 | `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
