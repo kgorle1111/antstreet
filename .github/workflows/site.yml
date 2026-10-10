@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false # npm ci/build run third-party code; no token in .git/config
 
       - uses: actions/setup-node@v4
         with:
