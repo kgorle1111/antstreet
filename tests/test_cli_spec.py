@@ -93,6 +93,20 @@ def test_a_rule_list_deleted_before_an_unattended_approval_refuses_it(boss, monk
     assert EventType.APPROVED not in [e.event for e in read_events(run_dir / "ledger.jsonl")]
 
 
+def test_whether_spec_was_chosen_comes_from_the_stop_and_only_an_old_stop_reads_the_file(
+    tmp_path,
+):
+    from antstreet.cli import _spec_chosen
+
+    rules = tmp_path / "rules.json"
+    assert _spec_chosen({"spec": True}, rules), "chosen, file gone: approve must refuse"
+    rules.write_text("[]")
+    assert not _spec_chosen({"spec": False}, rules), "a stray file does not turn the view on"
+    assert _spec_chosen({}, rules), "a stop written before the key: the file decides"
+    rules.unlink()
+    assert not _spec_chosen({}, rules)
+
+
 def test_without_spec_nothing_about_rules_happens(boss):
     run = boss(DRAFT)
     code, output = run("fund", IDEA, "--budget", "0.50")
