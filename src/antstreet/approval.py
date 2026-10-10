@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from antstreet import context, held_out, signing, spec
+from antstreet import context, coverage, held_out, signing, spec
 from antstreet.dispatch import DispatchPolicy, DispatchView, render_table
 from antstreet.ledger import Event, EventType, LedgerWriter
 from antstreet.redact import _CONTROL_ESCAPES, safe_text
@@ -42,12 +42,17 @@ SpecView = Callable[[TermSheet], SpecShown]
 
 
 def spec_view(
-    rules_path: Path, checks_dir: Path, untested: Mapping[str, str] | None = None
+    rules_path: Path,
+    checks_dir: Path,
+    untested: Mapping[str, str] | None = None,
+    coverage_path: Path | None = None,
 ) -> SpecView:
     """The investor's rule coverage view for a term sheet, recomputed from the files on disk each
     time it is asked for: the rule list is re-derived from the sheet's idea (a list edited to drop
     a rule is `spec.SpecError`), and the claims are the checks' own `criteria`. `untested` is the
-    boss's waivers, rule id to reason."""
+    boss's waivers, rule id to reason. With `coverage_path` (`fund --coverage`) the view ends with
+    the coverage gate (`antstreet.coverage.gate_view`): the rules approving waives, and the weak
+    checks, recorded in the summary as `investor_waived` and `weak`."""
     waived = dict(untested or {})
 
     def view(sheet: TermSheet) -> SpecShown:
@@ -68,7 +73,11 @@ def spec_view(
             r: safe_text(" ".join(waived[r].split()), limit=MAX_DESCRIPTION_CHARS)
             for r in summary["waived"]
         }
-        return SpecShown(spec.render_report(report, waived), summary)
+        text = spec.render_report(report, waived)
+        if coverage_path is not None:
+            gate, recorded = coverage.gate_view(coverage_path, report, sheet, checks_dir)
+            text, summary = f"{text}\n{gate}", summary | recorded
+        return SpecShown(text, summary)
 
     return view
 

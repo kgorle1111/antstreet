@@ -81,12 +81,14 @@ def run_cell(
     budget_micros: int,
     firm_args: Sequence[str] = (),
     held_out: int = 0,
+    coverage: bool = False,
 ) -> CellResult:
     """Run one cell, or return its saved result if it already ran.
 
     `held_out` asks the firm arm for that many held-out checks (`antstreet fund --held-out N`,
     added to
-    `firm_args`, so the result records it); the single arm ignores it.
+    `firm_args`, so the result records it); the single arm ignores it. `coverage` adds
+    `--coverage` to the firm arm the same way.
     """
     if type(held_out) is not int or not 0 <= held_out <= MAX_HELD_OUT:
         raise ValueError(
@@ -94,6 +96,8 @@ def run_cell(
         )
     if arm == "firm" and held_out:
         firm_args = [*firm_args, "--held-out", str(held_out)]
+    if arm == "firm" and coverage:
+        firm_args = [*firm_args, "--coverage"]
     out = cell_dir(results_dir, task.id, arm, rep)
     if (out / "result.json").is_file():
         saved = CellResult.load(out / "result.json")
@@ -329,6 +333,11 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         default=0,
         help="held-out checks for the firm arm to ask the examiner for (0 is off)",
     )
+    parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help="the firm arm runs `antstreet fund --coverage` (rules covered, stub-checked checks)",
+    )
     parser.add_argument("--jobs", type=int, default=2, help="cells to run at once")
     parser.add_argument("--dry-run", action="store_true", help="list the cells and exit")
     args = parser.parse_args(argv)
@@ -372,6 +381,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
             budget_micros=args.budget,
             firm_args=shlex.split(args.firm_args),
             held_out=args.held_out,
+            coverage=args.coverage,
         )
         verdict = "PASS" if result.passed else f"fail ({result.failure_class})"
         score = f"{result.hidden_passed}/{result.hidden_total} hidden"
