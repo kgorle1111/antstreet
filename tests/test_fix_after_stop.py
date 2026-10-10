@@ -8,7 +8,17 @@ import json
 from pathlib import Path
 
 import pytest
-from test_pipeline import CLAIM, GOOD, Fx, approvals, asked, finding, ok, product_verdicts
+from test_pipeline import (
+    CLAIM,
+    EXAMINED,
+    GOOD,
+    Fx,
+    approvals,
+    asked,
+    finding,
+    ok,
+    product_verdicts,
+)
 
 from antstreet import budget, signing
 from antstreet.cli import EXIT_INCOMPLETE, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE
@@ -68,6 +78,24 @@ def test_a_locked_round_is_reopened_by_the_investors_top_up_and_the_worker_fixes
     assert product_verdicts(fx) == {"c01": "passed", "c02": "passed"}
     closed = [e.data["unlocked"] for e in fx.events(EventType.ROUND_CLOSED)]
     assert closed == [False, True] and fx.events(EventType.SLICE_END)[-1].round == 1
+
+
+def test_with_held_out_checks_the_top_up_approval_covers_them_and_the_worker_runs(fx):
+    """The firm checks the approval against the held-out folder before every slice: an amendment
+    approved without its hashes would leave the top-up paid for and no worker allowed to run."""
+    costly = BAD | {"cost": 0.051}  # round 1 has room for the examiner's cap and 3 such slices
+    fx.set("worker", [costly, costly, costly, {"files": {"rev.py": GOOD}}])
+    fx.set("critic", ok({"findings": [finding()]}))
+    fx.set("examiner", ok(EXAMINED))
+    out = fx.fund(
+        "--roles", "critic", "--budget", "0.26", "--slice", "0.06", "--fix-after-stop",
+        "--held-out", "1",
+    )  # fmt: skip
+    assert "Held-out check h01" in out.text and len(asked(out, "Add these")) == 1
+    first, amendment = approvals(fx)
+    assert amendment.data["held_out_hashes"] == first.data["held_out_hashes"] != {}
+    assert out.code == EXIT_OK and fx.calls().count("worker") == 4
+    assert product_verdicts(fx) == {"c01": "passed", "c02": "passed"}
 
 
 def test_the_reopened_round_never_spends_past_its_budget_and_the_top_up(fx):

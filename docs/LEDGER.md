@@ -668,8 +668,8 @@ Example:
     was started with `--spec`. The summary is inside the signed data.
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
   - An amendment: the investor approves more checks and a round added to an approved term sheet.
-    It carries `hashes` of the amended term sheet and its check files, `round` (the round the
-    amendment added) and `added_checks`. `pipeline.py` writes it, only after the investor says yes
+    It carries `hashes` of the amended term sheet and its check files, `held_out_hashes` when the
+    run has held-out checks, `round` (the round the amendment added) and `added_checks`. `pipeline.py` writes it, only after the investor says yes
     to the critic's fix round, and before it rewrites `term_sheet.json`. With `--fix-after-stop`
     and a run that ended at a locked round, `round` is that locked round, no round is added (only
     the last round's `unlock_checks` grows to every check), and the money follows as a `topped_up`

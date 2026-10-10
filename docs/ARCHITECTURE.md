@@ -373,7 +373,8 @@ With no roles every method of it does nothing and writes nothing.
 3. **After the loop.** `Pipeline.after_build` runs only if something was built. The critic reviews
    `product/`; its verified findings become checks for the task that owns the module they import,
    plus a new last round. If the investor says yes, `pipeline.py` records an investor `approved` event
-   with `hashes`, `round` and `added_checks`, rewrites `term_sheet.json`, and `cli.py` runs the
+   with `hashes` (and `held_out_hashes` when the run has held-out checks), `round` and
+   `added_checks`, rewrites `term_sheet.json`, and `cli.py` runs the
    loop again on the amended sheet. The demo writer and the judge of `USAGE.md` run only if
    every required check passes.
 
