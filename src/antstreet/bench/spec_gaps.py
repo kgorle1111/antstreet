@@ -34,10 +34,11 @@ ROOT = Path(__file__).resolve().parents[3]
 CASES = ROOT / "bench" / "spec_gaps" / "cases.json"
 TASKS = ROOT / "bench" / "tasks"
 CHARS_PER_TOKEN = 4  # a rough English/code ratio; the live run prints the measured cost
-# Output per call, guessed from live drafts (3-8 checks of a few lines each) and the questions'
-# shape (5 questions, two short checks each). The live run prints the measured figure.
-DRAFT_OUT_TOKENS = 2_000
-QUESTIONS_OUT_TOKENS = 2_500
+# Output-equivalent tokens per call (thinking included), set so the estimate matches the first
+# live run (2026-10-10: $1.72 for 10 cases; the draft is about $0.10 of each case's $0.17, as in
+# 2026-09-30-drafts-and-audit). The first guess, 2,000 and 2,500, was 6 times low.
+DRAFT_OUT_TOKENS = 20_000
+QUESTIONS_OUT_TOKENS = 14_000
 CLI_OVERHEAD_TOKENS = 1_500  # the claude CLI's own framing per call, a guess
 # Claude Haiku 4.5, first-party API, USD per million tokens (claude-api skill table, 2026-10-06).
 PRICE_IN, PRICE_OUT = 1.00, 5.00
@@ -97,7 +98,7 @@ def estimate(cases: Sequence[Case], tasks: Path = TASKS) -> tuple[int, int, floa
     tokens_in = tokens_out = 0
     for case in cases:
         idea = len(case.idea(tasks))
-        drafted = DRAFT_OUT_TOKENS * CHARS_PER_TOKEN  # the questions call reads the drafted checks
+        drafted = 2_000 * CHARS_PER_TOKEN  # the questions call reads the checks, not the thinking
         tokens_in += (draft_prompt + idea) // CHARS_PER_TOKEN + CLI_OVERHEAD_TOKENS
         tokens_in += (gaps_prompt + idea + drafted) // CHARS_PER_TOKEN + CLI_OVERHEAD_TOKENS
         tokens_out += DRAFT_OUT_TOKENS + QUESTIONS_OUT_TOKENS

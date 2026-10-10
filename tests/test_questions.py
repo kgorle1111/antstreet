@@ -366,3 +366,12 @@ def test_a_login_failure_stops_the_live_run_unscored(tmp_path, monkeypatch, caps
     assert spec_gaps.main(args, environ={"PATH": "/usr/bin"}) == 3
     said = capsys.readouterr().out
     assert "Stopped, not scored" in said and "Recall" not in said and not out.exists()
+
+
+def test_the_estimate_counts_the_draft_call_and_is_near_the_first_measured_spend():
+    from antstreet.bench import spec_gaps
+
+    cases = spec_gaps.load_cases()
+    _, tokens_out, usd = spec_gaps.estimate(cases)
+    assert tokens_out == len(cases) * (spec_gaps.DRAFT_OUT_TOKENS + spec_gaps.QUESTIONS_OUT_TOKENS)
+    assert 1.0 < usd < 3.5  # measured $1.7227 (old guess: $0.30)
