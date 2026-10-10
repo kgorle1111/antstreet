@@ -501,6 +501,17 @@ def test_the_dispatch_keys_of_a_hire_are_documented(produced, text):
     assert written == documented
 
 
+def test_the_strength_keys_of_a_verdict_are_documented(produced, text):
+    rows = table(sections(text)["audited"].split("Strength keys")[1])
+    documented = {r[0].strip("`"): r[1] for r in rows}
+    measured = [e.data["strength"] for e in produced["audited"] if e.data.get("strength")]
+    assert measured, "no audit run measured strength"
+    for strength in measured:
+        assert set(strength) == set(documented)
+        for key, value in strength.items():
+            assert json_type(value) in declared(documented[key]), key
+
+
 def test_the_started_config_keys_are_documented_with_their_types(produced, text):
     rows = table(sections(text)["started"].split("Config keys")[1])
     documented = {r[0].strip("`"): r[1] for r in rows}

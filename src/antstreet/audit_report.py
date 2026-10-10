@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from antstreet.audit import AuditError, run_paths, runs_in
 from antstreet.audit_check import MODES, VERDICTS
@@ -41,6 +42,8 @@ class Observation:
     claim_mode: str
     counted: int
     failed: tuple[str, ...]
+    mutants: int = 0  # 0: strength not measured (an older event, or `--no-strength`)
+    killed: tuple[tuple[str, int], ...] = ()
 
 
 def wilson(refuted: int, n: int, z: float = Z95) -> tuple[float, float] | None:
@@ -66,10 +69,20 @@ def collect(store: Path, run_ids: list[str], agent: str | None = None) -> list[O
                 claim_mode=str(data.get("claim_mode", "")),
                 counted=int(data.get("counted", 0) or 0),
                 failed=tuple(str(i) for i in data.get("failed") or ()),
+                **_strength(data.get("strength")),
             )
             found.pop((run_id, observation.agent, observation.head), None)  # a later one replaces
             found[(run_id, observation.agent, observation.head)] = observation
     return [o for o in found.values() if agent is None or o.agent == agent]
+
+
+def _strength(raw: object) -> dict[str, Any]:
+    """The strength of an `audited` event. Events written before it was recorded have none."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("killed"), dict):
+        return {}
+    killed = tuple((str(i), k) for i, k in raw["killed"].items() if isinstance(k, int))
+    mutants = raw.get("mutants")
+    return {"mutants": mutants, "killed": killed} if isinstance(mutants, int) else {}
 
 
 def run_ids(store: Path, run: str | None, *, every: bool) -> list[str]:
@@ -96,6 +109,9 @@ def render(observations: list[Observation]) -> str:
             lines.append(
                 f"  {o.head[:12]} [{o.agent}] {o.claim_mode.replace('_', '-')}: {o.verdict}{detail}"
             )
+            if o.mutants:
+                bites = ", ".join(f"{i} {k}" + (" WEAK" if k == 0 else "") for i, k in o.killed)
+                lines.append(f"    check strength, kills of {o.mutants} mutants: {bites}")
     lines += ["", _aggregate(observations)]
     lines += ["", RECALL_FLOOR_NOTE]
     if any(o.claim_mode == "post_hoc" for o in observations):
