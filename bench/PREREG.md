@@ -182,6 +182,39 @@ Added 2026-10-10, after E4b's result and before any E4c run.
   plus at most one reserve, in the roughly 9 affected cells). Worst case per cell stays at or
   under E4b's $1.35.
 
+## E9. Checks that cover every rule raise delivery
+
+Added 2026-10-10, before any E9 run. (E7 and E8 are reserved for experiments planned earlier.)
+
+- **Why.** Most failed firm runs failed on a rule the idea states and no check tests
+  (`bench/results/2026-10-02-why-the-firm-loses`, section 2). In blind35 the firm delivered 64/105
+  and the single agent 62/105: +0.019 [-0.076, +0.124], not shown.
+- **Feature.** `antstreet fund --coverage` (PR #82): before any worker is paid, every scored rule of
+  the idea must be cited by a check, and no check may pass on any of three stub products written by
+  code. The boss redrafts with the gaps named, at most 2 more calls, each booked; a redraft is kept
+  only when it has fewer gaps. What is left is shown above the term sheet.
+- **Arms.** All three run fresh from one commit, the `main` commit that merges PR #82 (the write-up
+  records the SHA), on blind35's 35 tasks (the 17 of `blind-orig17` and the 18 of `blind-new18`,
+  listed in `bench/results/2026-10-03-blind35`), 3 reps, Haiku boss and workers, `--budget 0.40`:
+  1. coverage: firm, `--coverage --firm-args "--slice 0.20"`, `--out bench/results/raw/e9-coverage`;
+  2. firm: firm, `--firm-args "--slice 0.20"`, `--out bench/results/raw/e9-firm`;
+  3. single: `--out bench/results/raw/e9-single`.
+  blind35's saved cells are not reused: `main` has moved since `e203f65` (`builder_v5.md` among
+  other changes), so only same-commit arms isolate `--coverage`.
+- **Primary KPI and decision.** Delivery, paired by task, 10,000 task resamples, seed 0. `--coverage`
+  is shown to help only if the paired interval of coverage minus firm lies above 0.
+- **Second decision, named now.** The firm with coverage is shown to beat the single agent only if
+  the paired interval of coverage minus single lies above 0. It is a separate claim; a pass on one
+  is never reported as a pass on the other.
+- **Reported, not decided on.** firm minus single (does today's firm differ from blind35's
+  +0.019?); false-pass rate per arm; in how many cells the boss redrafted, and the rule gaps and weak
+  checks left at approval; cost per assigned cell; time.
+- **Infrastructure.** As E4b: usage-limit and login failures are moved aside and rerun; the run
+  stops after 3 such failures in a row.
+- **Cost.** About $55-65: coverage $25-35 (blind35's firm averaged $0.21 a cell, about $23 for 105,
+  plus at most two Haiku boss redrafts a cell; the stub runs cost nothing), firm about $23, single
+  about $9 (blind35's single averaged $0.088). Worst case $0.40 a cell, $126 in all.
+
 ## Not tested, and why
 
 Debate, personas and extra roles (product manager, consultant, demo writer, judge) show no gain at
@@ -230,3 +263,4 @@ equal compute in the literature. They stay off by default and are not claimed to
 - 2026-10-07: added E4b (the critic with a $0.40 cap), after E4's result and before any E4b run.
 - 2026-10-07, before any E4b result was read: the critic call's time limit rises from 300 s to 900 s for E4b. In the first 7 E4b cells, 4 critic calls hit the 300 s limit (E4 had 1 in 105), so with the $0.40 cap the time limit, not the critic, would have decided them. Those 7 cells are set aside unread and E4b restarts from zero with both changes; everything else is unchanged.
 - 2026-10-10: added E4c (the E4b critic with --fix-after-stop), before any E4c run.
+- 2026-10-10: added E9 (the firm with `--coverage` against a same-commit firm and single agent), before any E9 run.
