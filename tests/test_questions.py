@@ -344,3 +344,59 @@ def test_an_unknown_call_cost_makes_the_spend_a_lower_bound(monkeypatch):
     monkeypatch.setattr(spec_gaps.Case, "idea", lambda self, tasks=None: "an idea")
     found, spent, unknown = spec_gaps.live([case], env={})
     assert found == {"c": []} and spent == 5_000 and unknown
+
+
+def test_a_login_failure_stops_the_live_run_unscored(tmp_path, monkeypatch, capsys):
+    # an auth failure is not the model's answer: it must never print a recall of 0
+    from antstreet import boss
+    from antstreet.bench import spec_gaps
+    from antstreet.errors import Outcome
+    from antstreet.stream import Usage
+
+    def login(*args, **kwargs):
+        raise boss.BossError("boss call ended as login", Outcome.LOGIN, Usage(None, 0, 0, 0))
+
+    monkeypatch.setattr(spec_gaps.boss, "draft_term_sheet", login)
+    monkeypatch.setattr(spec_gaps.Case, "idea", lambda self, tasks=None: "an idea")
+    case = {"id": "c", "task": "t", "rule": "r", "source": "s", "match": ["x"]}
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"cases": [case]}))
+    out = tmp_path / "out.json"
+    args = ["--cases", str(cases), "live", "--yes-spend", "--out", str(out)]
+    assert spec_gaps.main(args, environ={"PATH": "/usr/bin"}) == 3
+    said = capsys.readouterr().out
+    assert "Stopped, not scored" in said and "Recall" not in said and not out.exists()
+
+
+def test_only_registered_stops_stop_the_run_and_the_stop_reports_its_spend(
+    tmp_path, monkeypatch, capsys
+):
+    # SG1 registers login and usage-limit failures as stops; an API error scores as missed
+    from antstreet import boss
+    from antstreet.bench import spec_gaps
+    from antstreet.errors import Outcome
+    from antstreet.stream import Usage
+
+    def fail(idea, *args, **kwargs):
+        outcome = Outcome.API_ERROR if idea == "a" else Outcome.LOGIN
+        raise boss.BossError("boss call failed", outcome, Usage(250_000, 0, 0, 0))
+
+    monkeypatch.setattr(spec_gaps.boss, "draft_term_sheet", fail)
+    monkeypatch.setattr(spec_gaps.Case, "idea", lambda self, tasks=None: self.id)
+    cases = tmp_path / "cases.json"
+    base = {"task": "t", "rule": "r", "source": "s", "match": ["x"]}
+    cases.write_text(json.dumps({"cases": [{"id": "a", **base}, {"id": "b", **base}]}))
+    out = tmp_path / "out.json"
+    args = ["--cases", str(cases), "live", "--yes-spend", "--out", str(out)]
+    assert spec_gaps.main(args, environ={"PATH": "/usr/bin"}) == 3
+    said = capsys.readouterr().out
+    assert "Stopped, not scored: b:" in said and "Spent $0.5000 (measured) before the stop" in said
+
+
+def test_the_estimate_counts_the_draft_call_and_is_near_the_first_measured_spend():
+    from antstreet.bench import spec_gaps
+
+    cases = spec_gaps.load_cases()
+    _, tokens_out, usd = spec_gaps.estimate(cases)
+    assert tokens_out == len(cases) * (spec_gaps.DRAFT_OUT_TOKENS + spec_gaps.QUESTIONS_OUT_TOKENS)
+    assert 1.0 < usd < 3.5  # measured $1.7227 (old guess: $0.30)
