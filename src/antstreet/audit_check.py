@@ -38,6 +38,7 @@ from antstreet.audit import (
 )
 from antstreet.gate import DEFAULT_TIMEOUT_S, CheckStatus, run_tree, sandbox_available
 from antstreet.ledger import AUDIT_ACTOR, EventType
+from antstreet.redact import safe_text
 from antstreet.rundir import Recorder, RunPaths
 from antstreet.sandbox import SandboxMode
 from antstreet.termsheet import TermSheet
@@ -388,10 +389,14 @@ def check(
             bites = None
             if strength:
                 measured = [i for i in counted if on_head[i].state is CheckState.PASSING]
-                bites = measure_strength(
-                    base_tree, head_tree, paths, sheet, known, measured, site_packages=site,
-                    cap=max_mutants, timeout_s=strength_timeout_s,
-                )  # fmt: skip
+                try:
+                    bites = measure_strength(
+                        base_tree, head_tree, paths, sheet, known, measured, site_packages=site,
+                        cap=max_mutants, timeout_s=strength_timeout_s,
+                    )  # fmt: skip
+                except Exception as exc:  # advisory: a failure here must never cost the verdict
+                    why = safe_text(f"{type(exc).__name__}: {exc}", limit=200)
+                    bites = Strength(0, 0, {}, f"not measured: {why}")
     except gitrepo.GitError as exc:
         raise AuditError(str(exc)) from exc
     failed = [i for i in counted if on_head[i].state is CheckState.FAILING]

@@ -13,6 +13,7 @@ from sandbox_support import working_sandbox
 
 import antstreet.audit_check as audit_check
 from antstreet.audit import CheckState, Observed
+from antstreet.gate import GateError
 from antstreet.ledger import EventType, audited
 from antstreet.rundir import Recorder, RunPaths
 from antstreet.sandbox import SandboxMode
@@ -166,3 +167,15 @@ def test_a_ledger_written_before_strength_still_verifies_and_reports(sealed, sto
     assert "strength" not in event.data
     code, said = sealed.run("report", BOSS_AUDIT_HOME=str(store))
     assert code == 0 and "unrefuted, 3 counted" in said and "check strength" not in said
+
+
+def test_a_crash_while_measuring_strength_never_costs_the_verdict(sealed, store, monkeypatch):
+    def boom(*args, **kwargs):
+        raise GateError("the gate fell over on a mutant")
+
+    monkeypatch.setattr(audit_check, "measure_strength", boom)
+    code, said = check(sealed, store)
+    assert code == 0 and "Verdict: UNREFUTED" in said
+    [event] = events(sealed, store)
+    assert event.data["verdict"] == "unrefuted" and event.data["strength"]["mutants"] == 0
+    assert event.data["strength"]["note"].startswith("not measured: GateError")
