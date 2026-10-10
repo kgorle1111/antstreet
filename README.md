@@ -229,12 +229,13 @@ Everything else, with the threat rows: [README-technical.md](README-technical.md
 
 Recently shipped: **one command**, `antstreet audit`, which does the next step (seal or check) and
 powers a Claude Code Stop hook that reports the verdict to you when the agent stops
-(([#69](https://github.com/kgorle1111/antstreet/pull/69))); **check strength**, which runs the counted checks against deliberately broken copies of
+([#69](https://github.com/kgorle1111/antstreet/pull/69)); **check strength**, which runs the counted checks against deliberately broken copies of
 the changed lines and flags a check that passes them all as weak, as advice that never changes the
-verdict (([#71](https://github.com/kgorle1111/antstreet/pull/71))); and opt-in **approval as a few yes/no questions**
+verdict ([#71](https://github.com/kgorle1111/antstreet/pull/71)); and opt-in **approval as a few yes/no questions**
 (`audit plan --questions`, offline eval only so far; the live eval is pending)
-(([#72](https://github.com/kgorle1111/antstreet/pull/72))). The agent also cannot run `antstreet audit` or read the audit store from inside Claude
-Code, a guard and tripwire rather than a sandbox (([#75](https://github.com/kgorle1111/antstreet/pull/75))).
+([#72](https://github.com/kgorle1111/antstreet/pull/72)). Inside Claude Code, a guard blocks the agent from running `antstreet audit` or reading the
+audit store; it is a tripwire, not isolation or a sandbox, and a determined agent can get around
+it ([#75](https://github.com/kgorle1111/antstreet/pull/75)).
 
 Next: **`antstreet` on PyPI** (imminent, not published yet), which the Stop hook and a zero-install
 `uvx` audit wait on, and **CI export** for the GitHub Action, then a first-run guide. Planned after
