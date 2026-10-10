@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from boss import held_out
 from boss import spec as rulespec
 from boss.approval import TERM_SHEET_FILE, _check_text, content_hashes
 from boss.budget import RESERVE_MICROS
@@ -672,6 +673,8 @@ class Pipeline:
             "round": n,
             "added_checks": [c.id for c in checks],
         }
+        if held := held_out.hashes(self.paths.held_out):  # the firm matches it before any slice
+            data["held_out_hashes"] = held
         Recorder(self.ledger, self.run_id, n)("investor", EventType.APPROVED, data=data)
         approved = dataclasses.replace(amended, approved_by_investor=True)
         (self.paths.root / TERM_SHEET_FILE).write_text(approved.to_json())
