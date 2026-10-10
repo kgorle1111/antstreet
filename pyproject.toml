@@ -1,15 +1,18 @@
 [project]
 name = "antstreet"
 version = "0.0.1"
-description = "Make AI coding agents prove their work: pytest checks you approve first, a sandboxed gate outside the agent, a signed ledger and budget caps."
-readme = "README.md"
+description = "Checks your AI coding agent's work against tests it never saw: sealed pytest checks you approve, run by a sandboxed gate, with a signed, hash-chained record."
+readme = "docs/PYPI.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-keywords = ["llm", "agents", "ai-agents", "budget", "pytest", "evaluation"]
+keywords = ["llm", "agents", "ai-agents", "budget", "pytest", "evaluation", "claude-code", "coding-agents", "testing", "verification", "audit"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Testing",
@@ -19,10 +22,11 @@ requires-python = ">=3.12"
 dependencies = ["pytest>=8"]
 
 [project.urls]
-Homepage = "https://github.com/kgorle1111/antstreet"
+Homepage = "https://kgorle1111.github.io/antstreet/"
 Repository = "https://github.com/kgorle1111/antstreet"
-Issues = "https://github.com/kgorle1111/antstreet/issues"
 Changelog = "https://github.com/kgorle1111/antstreet/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/kgorle1111/antstreet/blob/main/README-technical.md"
+Issues = "https://github.com/kgorle1111/antstreet/issues"
 
 [project.scripts]
 antstreet = "antstreet.cli:main"
