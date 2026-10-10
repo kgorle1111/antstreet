@@ -31,6 +31,7 @@ from antstreet.approval import content_hashes, review_term_sheet
 from antstreet.boss import DEFAULT_MODEL, BossError, InvalidDraftError, draft_term_sheet
 from antstreet.budget import RESERVE_MICROS
 from antstreet.gate import (
+    DEFAULT_TIMEOUT_S,
     Check,
     CheckResult,
     CheckStatus,
@@ -43,6 +44,7 @@ from antstreet.ledger import EventType
 from antstreet.pipeline import Pipeline, Setup
 from antstreet.redact import safe_text
 from antstreet.rundir import Recorder, RunPaths
+from antstreet.sandbox import SandboxMode
 from antstreet.stream import Usage
 from antstreet.termsheet import Task, TermSheet
 from antstreet.worker import CLI, billing_mode
@@ -299,6 +301,8 @@ def run_checks(
     known: frozenset[str],
     only: Collection[str] | None = None,
     site_packages: Path | None = None,
+    sandbox: SandboxMode | None = None,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
 ) -> dict[str, Observed]:
     """Every sealed check (the visible ones, then any held-out), or just those in `only`, against
     a copy of `tree`.
@@ -306,21 +310,22 @@ def run_checks(
     A check that fails because a module is missing is `BLOCKED`, not failing, when the module is
     not the standard library, not defined by either tree (`known`) and not named in the request:
     the environment lacks it, which says nothing about the change. A module the request names that
-    nobody wrote is a real failure.
+    nobody wrote is a real failure. `sandbox` and `timeout_s` are passed to the gate as they are.
     """
 
     def wanted(checks: list[Check]) -> list[Check]:
         return [c for c in checks if only is None or c.id in only]
 
-    results: list[CheckResult] = run_gate(
-        tree, paths.checks, wanted(sheet.gate_checks()), pythonpath=PYTHONPATH,
-        site_packages=site_packages,
-    )  # fmt: skip
+    def gate(folder: Path, checks: list[Check]) -> list[CheckResult]:
+        return run_gate(
+            tree, folder, checks, timeout_s=timeout_s, sandbox=sandbox, pythonpath=PYTHONPATH,
+            site_packages=site_packages,
+        )  # fmt: skip
+
+    results = gate(paths.checks, wanted(sheet.gate_checks()))
     held = wanted([h.to_check() for h in held_out.load(paths.held_out)])
     if held:
-        results += run_gate(
-            tree, paths.held_out, held, pythonpath=PYTHONPATH, site_packages=site_packages
-        )
+        results += gate(paths.held_out, held)
     return {r.check_id: observe(r, known, sheet.idea) for r in results}
 
 

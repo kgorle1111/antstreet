@@ -14,17 +14,21 @@ import ast
 import hashlib
 import re
 import tempfile
+import time
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from antstreet import gitrepo, held_out
+from antstreet import gitrepo, held_out, mutate
 from antstreet.approval import NotApprovedError, require_approval
 from antstreet.audit import (
+    _SKIPPED_DIRS,
+    MAX_PARSE_BYTES,
     PYTHONPATH,
     AuditError,
     CheckState,
+    _is_test_path,
     parse_seal,
     repo_env,
     run_checks,
@@ -33,9 +37,11 @@ from antstreet.audit import (
     seal_hash,
     tree_modules,
 )
-from antstreet.gate import CheckStatus, run_tree
+from antstreet.gate import DEFAULT_TIMEOUT_S, CheckStatus, run_tree, sandbox_available
 from antstreet.ledger import AUDIT_ACTOR, EventType
+from antstreet.redact import safe_text
 from antstreet.rundir import Recorder, RunPaths
+from antstreet.sandbox import SandboxMode
 from antstreet.termsheet import TermSheet
 
 CLAIMS = ("done", "none")
@@ -47,8 +53,32 @@ MAX_CLAIM_TEXT_BYTES = 64 * 1024
 # audited diffs
 MIN_NAME_PARTS = 4  # test_<three or more words>: a shorter name is common enough to collide
 MIN_LITERAL_CHARS = 16
+STRENGTH_TIMEOUT_S = 300.0  # all mutants together; one is never cut short to fit
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _AGENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._:@/+-]{0,63}\Z")
+
+
+@dataclass(frozen=True, slots=True)
+class Strength:
+    """How much each counted check that passes on the head bites: of `mutants` mutants of the
+    lines the change touched, how many it fails on. Advisory: it never changes the verdict."""
+
+    mutants: int  # each one run against every measured check
+    found: int  # mutants the change offered, before the cap
+    killed: Mapping[str, int]  # check id -> mutants it failed (or timed out) on
+    note: str  # why fewer than `found`, or none, were run; empty otherwise
+
+    def weak(self) -> list[str]:
+        """Checks that killed no mutant: each would pass every broken version tried."""
+        return [i for i, k in self.killed.items() if k == 0] if self.mutants else []
+
+    def to_data(self) -> dict[str, object]:
+        return {
+            "mutants": self.mutants,
+            "found": self.found,
+            "killed": dict(list(self.killed.items())[:MAX_LISTED]),
+            "note": self.note,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +102,7 @@ class Verdict:
     claim_text_sha256: str | None
     described: Mapping[str, str]  # check id -> its description, for the screen only
     environment: str = ""  # which packages the checks saw (`audit.repo_env`), for the screen only
+    strength: Strength | None = None  # None: not measured (`--no-strength`)
 
     def to_data(self) -> dict[str, object]:
         return {
@@ -89,6 +120,7 @@ class Verdict:
             "regressions": list(self.regressions[:MAX_LISTED]),
             "agent": self.agent,
             "claim_text_sha256": self.claim_text_sha256,
+            "strength": self.strength.to_data() if self.strength else None,
         }
 
 
@@ -198,6 +230,96 @@ def base_tests_on_head(
     return deleted, broken
 
 
+# --- check strength: the counted checks against mutants of the change ------------------------
+
+
+def measure_strength(
+    base_tree: Path,
+    head_tree: Path,
+    paths: RunPaths,
+    sheet: TermSheet,
+    known: frozenset[str],
+    measured: list[str],
+    *,
+    site_packages: Path | None = None,
+    cap: int = mutate.DEFAULT_CAP,
+    timeout_s: float = STRENGTH_TIMEOUT_S,
+) -> Strength:
+    """Run the `measured` checks against mutants of the lines `head_tree` changed from
+    `base_tree`, through the gate and only inside an OS sandbox: a mutant is the audited code,
+    edited. A check kills a mutant when it fails or times out on it. Each mutant is written into
+    `head_tree` for its run and the file put back after."""
+    if not measured:
+        return Strength(
+            0, 0, {}, "no counted check passes on the head, so there is none to measure"
+        )
+    if not sandbox_available():
+        return Strength(
+            0, 0, {}, "mutants run only inside an OS sandbox, which this run has not got "
+            "(`antstreet doctor` says why)",
+        )  # fmt: skip
+    found, total = mutate.mutants(_changed_sources(base_tree, head_tree), cap)
+    notes: list[str] = []
+    if total > len(found):
+        notes.append(f"{total} mutants found; {len(found)} taken, spread evenly across them")
+    killed = dict.fromkeys(measured, 0)
+    run = 0
+    deadline = time.monotonic() + timeout_s
+    for mutant in found:
+        if time.monotonic() >= deadline:
+            notes.append(f"stopped at the {timeout_s:g}s limit after {run} of {len(found)}")
+            break
+        target = head_tree / mutant.path
+        original = target.read_bytes()
+        try:
+            target.write_text(mutant.source, encoding="utf-8")
+            seen = run_checks(
+                head_tree, paths, sheet, known, only=measured, site_packages=site_packages,
+                sandbox=SandboxMode.REQUIRE, timeout_s=min(DEFAULT_TIMEOUT_S, timeout_s),
+            )  # fmt: skip
+        finally:
+            target.write_bytes(original)
+        run += 1
+        for check_id in measured:
+            if seen[check_id].state in (CheckState.FAILING, CheckState.TIMEOUT):
+                killed[check_id] += 1
+    if not found:
+        notes.append("the change has no line a mutant can be made of")
+    return Strength(run, total, killed, "; ".join(notes))
+
+
+def _changed_sources(base_tree: Path, head_tree: Path) -> dict[str, tuple[str, str]]:
+    """path -> (base text, head text) for each Python file outside tests that the head added or
+    changed. A symlink, a file too large or not UTF-8 is left out: it is never written to."""
+    root = head_tree.resolve()
+    files: dict[str, tuple[str, str]] = {}
+    for path in sorted(head_tree.rglob("*.py")):
+        relative = path.relative_to(head_tree)
+        if (
+            _SKIPPED_DIRS & set(relative.parts)
+            or _is_test_path(relative)
+            or path.is_symlink()
+            or not path.is_file()
+            or not path.resolve().is_relative_to(root)
+        ):
+            continue
+        new = _source(path)
+        old_path = base_tree / relative
+        old = _source(old_path) if old_path.is_file() and not old_path.is_symlink() else ""
+        if new is not None and new != old:
+            files[relative.as_posix()] = (old or "", new)
+    return files
+
+
+def _source(path: Path) -> str | None:
+    try:
+        with path.open("rb") as fh:
+            raw = fh.read(MAX_PARSE_BYTES + 1)
+        return raw.decode("utf-8") if len(raw) <= MAX_PARSE_BYTES else None
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 # --- the command ------------------------------------------------------------------------------
 
 
@@ -210,8 +332,13 @@ def check(
     claim: str,
     claim_text: Path | None = None,
     agent: str | None = None,
+    strength: bool = True,
+    max_mutants: int = mutate.DEFAULT_CAP,
+    strength_timeout_s: float = STRENGTH_TIMEOUT_S,
 ) -> Verdict:
     """Audit `head_ref` of `repo` against run `run_id` of `store`, record the verdict, return it.
+    With `strength`, also measure how much each counted check bites (`measure_strength`); that is
+    recorded beside the verdict and never changes it.
 
     Raises AuditError, NotApprovedError, a ledger error or a GitError when something it verifies
     does not hold; nothing is written to the ledger then.
@@ -260,6 +387,17 @@ def check(
             counted = sorted(i for i, o in on_base.items() if o.state is CheckState.FAILING)
             on_head = run_checks(head_tree, paths, sheet, known, only=counted, site_packages=site)
             deleted, regressions = base_tests_on_head(base_tree, head_tree, site)
+            bites = None
+            if strength:
+                measured = [i for i in counted if on_head[i].state is CheckState.PASSING]
+                try:
+                    bites = measure_strength(
+                        base_tree, head_tree, paths, sheet, known, measured, site_packages=site,
+                        cap=max_mutants, timeout_s=strength_timeout_s,
+                    )  # fmt: skip
+                except Exception as exc:  # advisory: a failure here must never cost the verdict
+                    why = safe_text(f"{type(exc).__name__}: {exc}", limit=200)
+                    bites = Strength(0, 0, {}, f"not measured: {why}")
     except gitrepo.GitError as exc:
         raise AuditError(str(exc)) from exc
     failed = [i for i in counted if on_head[i].state is CheckState.FAILING]
@@ -283,6 +421,7 @@ def check(
         claim_text_sha256=claim_hash,
         described=_descriptions(sheet, paths, failed),
         environment=env_found.note,
+        strength=bites,
     )
     with paths.writer() as ledger:
         Recorder(ledger, run_id, 0)(AUDIT_ACTOR, EventType.AUDITED, data=result.to_data())
@@ -355,8 +494,32 @@ def render_check(v: Verdict) -> str:
             "Post-hoc: some commit is dated before the seal, so the work may predate the checks. "
             "Commit dates are set by the committer and can be forged either way."
         )
+    if v.strength is not None:
+        lines += render_strength(v.strength)
     if v.verdict == "unrefuted":
         lines.append(
             "Unrefuted is not proof: the sealed checks catch only some wrong implementations."
         )
     return "\n".join(lines)
+
+
+def render_strength(s: Strength) -> list[str]:
+    lines = [
+        f"Check strength (advisory, never part of the verdict): {s.mutants} "
+        f"mutant{'' if s.mutants == 1 else 's'} of the lines "
+        "the change touched, each run against the counted checks that pass on the head."
+    ]
+    if s.note:
+        lines.append(f"  ({s.note})")
+    if s.mutants:
+        weak = s.weak()
+        lines += [
+            f"  {i} kills {k}/{s.mutants}"
+            + (": WEAK, it would pass broken code" if i in weak else "")
+            for i, k in s.killed.items()
+        ]
+        lines.append(
+            "  A mutant that survives may change nothing a check can see, so a kill count is how "
+            "much a check bites, not a catch rate."
+        )
+    return lines
