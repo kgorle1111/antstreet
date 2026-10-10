@@ -889,10 +889,20 @@ A model that is not the one launched, under `--dispatch rules`:
 | `regressions` | list | Tests of the base that pass on the base and fail when run over `head`'s code. Not part of the verdict. At most 50. |
 | `agent` | str or null | A label the investor gave the audited agent, if any. |
 | `claim_text_sha256` | str or null | SHA-256 of the file given as `--claim-text`, if any. The text itself is not stored. |
+| `strength` | object or null | How much each counted check that passes on `head` bites: the checks run against mutants of the lines the change touched (keys below). Advisory: never part of the verdict. `null` under `--no-strength`. Absent from events written before it was recorded; those still verify, and `antstreet audit report` shows no strength for them. |
 | `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the audit store's investor key (see Signatures above). |
+
+Strength keys:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `mutants` | int | Mutants run against every measured check. 0 when none was: no OS sandbox, no counted check passing on `head`, no line to mutate, or the time limit. |
+| `found` | int | Mutants the changed lines offered, before `--max-mutants`. |
+| `killed` | object | Check id to how many of the `mutants` it failed or timed out on. 0 of a positive `mutants` is shown as WEAK: the check would pass broken code. A survivor may be an equivalent mutant, so this is not a catch rate. At most 50 checks. |
+| `note` | str | Why fewer than `found`, or none, were run; empty otherwise. |
 
 Example, as `antstreet audit check` wrote it:
 
 ```json
-{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"agent": null, "base": "450109a66507cb2312db91fceb657edcd4d879cf", "blocked": [], "claim": "done", "claim_mode": "pre_registered", "claim_text_sha256": null, "counted": 2, "failed": [], "head": "ac5fface67ba4175f03134261b26d1e3c1b55c54", "leaks": [], "regressions": [], "seal": "ed5a83020bc8e7c814acc2b64bf69be69db78fdb731235283f725efb8c6e24e2", "sig": "v2:11f3f5c7765a68856569245a2258e4c9a63fecd56ad831dc35c813371b91a782", "tests_deleted": [], "verdict": "unrefuted"}, "event": "audited", "prev": "08f885e9ad713d74176d4dc5b9dffb45510c7b440dae6ec7c2ece46984f894f8", "round": 0, "run": "20261004T033508Z-051c5a", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-04T03:35:15.210999+00:00", "v": 1}
+{"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"agent": null, "base": "450109a66507cb2312db91fceb657edcd4d879cf", "blocked": [], "claim": "done", "claim_mode": "pre_registered", "claim_text_sha256": null, "counted": 2, "failed": [], "head": "cc6205caf9ae06949bc45cd1b12180ca233d7732", "leaks": [], "regressions": [], "seal": "ed5a83020bc8e7c814acc2b64bf69be69db78fdb731235283f725efb8c6e24e2", "sig": "v2:e6116d8391248c08499d18ff6e87c24fdb89aac1378726b1789b4fdc5a884099", "strength": {"found": 1, "killed": {"c01": 1, "c02": 1}, "mutants": 1, "note": ""}, "tests_deleted": [], "verdict": "unrefuted"}, "event": "audited", "prev": "5eadf5a1f1f3b5673fc707d7a9f029d4f7dec0fc7a23d026941b9083ed71eb1b", "round": 0, "run": "20261010T075934Z-77fd46", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-10T07:59:45.492486+00:00", "v": 1}
 ```

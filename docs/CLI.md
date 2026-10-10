@@ -443,7 +443,7 @@ Argument: `run`, the id `antstreet audit plan` printed. Default: the latest run 
 
 ## `antstreet audit check`
 
-`antstreet audit check [RUN] [--head REF] [--repo REPO] [--claim done|none] [--claim-text FILE] [--agent LABEL]`.
+`antstreet audit check [RUN] [--head REF] [--repo REPO] [--claim done|none] [--claim-text FILE] [--agent LABEL] [--no-strength] [--max-mutants N] [--strength-timeout SECONDS]`.
 Runs the sealed checks of audit run `RUN` on a commit and writes the gate's verdict to its ledger as a signed
 `audited` event.
 
@@ -456,6 +456,9 @@ Argument: `run`, the id `antstreet audit plan` printed. Default: the latest run 
 | `--claim` | `none` | What the agent said of its own work: `done`, or `none`. Only a claim of `done` can be refuted. v1 does not read the agent's words to decide this. |
 | `--claim-text` | none | A file with the agent's own words, up to 64 KiB. Kept as a SHA-256 only. |
 | `--agent` | none | A label for the agent (1 to 64 letters, digits and `. _ : @ / + -`), to report by. |
+| `--no-strength` | off | Skip the check strength below. |
+| `--max-mutants` | `30` | The most mutants the check strength runs (1 to 500). Over it, mutants are taken evenly across all of them. |
+| `--strength-timeout` | `300.0` | Seconds for every mutant together. No mutant starts after it; one already running finishes. |
 
 - Verified before anything runs, each refused with exit 1 and nothing written: the run's ledger
   (hash chain, anchor, every signature), the investor key exists, the term sheet is marked approved
@@ -485,6 +488,16 @@ Argument: `run`, the id `antstreet audit plan` printed. Default: the latest run 
   against the head's code. It lists base test files the head no longer has, and base tests that
   pass on the base and fail on the head's code, so a test the agent deleted or weakened still speaks.
   A request that changes behaviour breaks old tests honestly, so these are for you to read.
+- Check strength, also beside the verdict and never part of it: mutants of the head's code are
+  made from the lines the change added or edited (Python files outside tests; a file that does
+  not parse is skipped): a comparison flipped (`<` to `<=`, `==` to `!=`, ...), `+` and `-` swapped,
+  `and` and `or` swapped, a number plus one, `True` and `False` swapped, a returned value made
+  `None`, a `raise` dropped, an `if` condition negated. Each counted check that passes on the head
+  is run against each mutant through the gate, **only inside an OS sandbox** (without one, none
+  runs and the output says why), with the repo's `.venv` as above. The output reads `c01 kills 4/9`
+  per check, and a check that kills none is flagged `WEAK, it would pass broken code`. A mutant
+  may change nothing a check can see (an equivalent mutant), so a kill count says how much a check
+  bites, not what share of wrong implementations it catches.
 - The checks see the same environment as in `antstreet audit plan`, found again in `--repo` (its
   `.venv`), for the base and the head alike; the `Environment:` line says which.
 - The output names failing checks by id and description, never by code.

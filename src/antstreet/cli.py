@@ -37,6 +37,7 @@ from antstreet import (
     audit_check,
     audit_report,
     held_out,
+    mutate,
     routing,
     rulings,
     spec,
@@ -417,6 +418,25 @@ def _audit_parser(sub: Any) -> None:
         "--claim-text", help="a file with the agent's own words; kept as a hash only"
     )
     check.add_argument("--agent", type=_agent_arg, help="a label for the agent, to report by")
+    check.add_argument(
+        "--no-strength",
+        action="store_true",
+        help="skip measuring how many mutants of the change each counted check kills",
+    )
+    check.add_argument(
+        "--max-mutants",
+        type=_mutants_arg,
+        default=mutate.DEFAULT_CAP,
+        help=f"most mutants for the check strength (1 to {MAX_MUTANTS}; default "
+        f"{mutate.DEFAULT_CAP})",
+    )
+    check.add_argument(
+        "--strength-timeout",
+        type=_seconds_arg,
+        default=audit_check.STRENGTH_TIMEOUT_S,
+        help="seconds for every mutant together; no new mutant starts after it (default "
+        f"{audit_check.STRENGTH_TIMEOUT_S:g})",
+    )
     report = steps.add_parser("report", help="verdicts per run, and the false-pass rate")
     report.add_argument("run", nargs="?", help="audit run id (default: the latest)")
     report.add_argument("--all", action="store_true", help="every run in the store")
@@ -456,6 +476,25 @@ def _agent_arg(text: str) -> str:
         return audit_check.agent_label(text)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+MAX_MUTANTS = 500
+
+
+def _mutants_arg(text: str) -> int:
+    if not text.isdecimal() or not 1 <= int(text) <= MAX_MUTANTS:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number from 1 to {MAX_MUTANTS}")
+    return int(text)
+
+
+def _seconds_arg(text: str) -> float:
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = -1.0
+    if not 0 < seconds <= 86_400:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number of seconds from 0 to 86400")
+    return seconds
 
 
 def _held_out_arg(text: str) -> int:
@@ -1357,6 +1396,9 @@ def _audit_check(args: argparse.Namespace, store: Path, say: Say) -> int:
         claim=args.claim,
         claim_text=Path(args.claim_text) if args.claim_text else None,
         agent=args.agent,
+        strength=not args.no_strength,
+        max_mutants=args.max_mutants,
+        strength_timeout_s=args.strength_timeout,
     )
     say(audit_check.render_check(verdict))
     return EXIT_INCOMPLETE if verdict.verdict in ("refuted", "inconclusive") else EXIT_OK
