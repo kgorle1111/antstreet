@@ -65,9 +65,8 @@ same drafts. See `bench/METHOD.md`.
 ## Spec-gap questions (2026-10-10-spec-gaps)
 
 SG1: does the `--questions` call ask about rules the drafted checks miss? Haiku, one run per case, hand-checked.
-Known gaps 5/10 [24-76%] (regex 4/10); held-out rules 5/10 [24-76%] (regex 2/10), 4/10 without one borderline
-question. At least $3.45 spent. The bar (5/10 held out) is met exactly, by one borderline case: weak support, size
-unknown. See `2026-10-10-spec-gaps/README.md`.
+Known gaps 5/10 [24-76%] (regex 4/10); held-out rules 4/10 [17-69%] (regex 2/10). **Not shown**: the bar is 5/10
+held out. At least $3.45 spent. See `2026-10-10-spec-gaps/README.md`.
 
 ## Drafts and auditor (2026-09-30-drafts-and-audit)
 

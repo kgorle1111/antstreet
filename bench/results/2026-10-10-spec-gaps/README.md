@@ -9,15 +9,18 @@ data. No model call was made for this write-up.
 
 ## Answer
 
-**By the registered rule: "useful beyond known gaps", at exactly the bar, and weakly.** Held-out
-hand-checked recall is 5 of 10 [24%, 76%]; the bar is 5 of 10. The fifth hit is
-`intervals-touching-merge`, whose question is about negative numbers and only happens to use a touching
-pair; without it recall is 4 of 10 and the verdict would be "not shown". The regex scorer says 2 of
-10. Known-set recall (5 of 10 by hand) is not evidence of generalisation, as registered.
+**Not shown.** Held-out hand-checked recall is 4 of 10 [17%, 69%]; the bar is 5 of 10. The regex
+scorer says 2 of 10. Known-set recall (5 of 10 by hand) is not evidence of generalisation, as
+registered.
 
-Read plainly: the questions asked about roughly half of the held-out rules, and nothing here separates
-that from 40% or from 60%. Do not read it as "the questions find the gaps that matter"; read it as "not
-nothing, size unknown".
+A first draft of this write-up counted a fifth held-out hit, `intervals-touching-merge`, and called the
+bar met. Review showed that its question ("Does merge work with negative integers like
+merge([(-2, 0), (0, 2)])?") is answered yes or no, and either answer leaves open whether that pair
+merges, so under the registered rule ("its answer decides the rule's behaviour") it is a miss. The
+draft was corrected before merging; see that row below.
+
+Read plainly: the questions asked about some held-out rules, about 4 in 10 here, and the interval does
+not separate that from 50%. `--questions` stays opt-in and makes no claim to find the gaps that matter.
 
 ## Method
 
@@ -26,7 +29,7 @@ nothing, size unknown".
   quoted from `bench/tasks/*/idea.md`, chosen before any run, in ordering, tie-break, parsing and date
   classes the prompt does not name).
 - Per case: draft checks as `boss fund` does (call 1), then ask the questions (call 2).
-  `python -m antstreet.bench.spec_gaps --cases <set> live --yes-spend`.
+  `python -m antstreet.bench.spec_gaps --cases <set> live --yes-spend --out <file>`.
 - Regex score: the `match` patterns in the case files. **Hand check** (decides): a question surfaces a
   rule when its answer decides the rule's behaviour for some input the rule covers (PREREG SG1). Each
   case is judged only on its own questions.
@@ -36,7 +39,7 @@ nothing, size unknown".
 | Set | Regex recall | Hand recall [95% Wilson] | Well formed (<=5, all yes/no) | Spent |
 |---|---|---|---|---|
 | Known | 4/10 | **5/10 [24%, 76%]** | 10/10 [72%, 100%] | $1.7227 (measured) |
-| Held out | 2/10 | **5/10 [24%, 76%]**, or 4/10 [17%, 69%] without `intervals` | 10/10 [72%, 100%] | at least $1.7315 |
+| Held out | 2/10 | **4/10 [17%, 69%]** | 10/10 [72%, 100%] | at least $1.7315 |
 
 Well formed is vacuous for `csvline-whitespace-kept`: it has 0 questions (the call produced none), and
 0 questions is "at most 5, all yes/no". Without it, held-out well-formedness is 9/9 and that case is
@@ -67,7 +70,7 @@ about a different function).
 |---|---|---|---|
 | moneysplit-largest-fraction | no | yes | "Should split_by_ratio(13, [1, 1, 1]) return [5, 4, 4]?" (equal fractions, earlier first) and "Should split_by_ratio(10, [1, 0, 2]) return [3, 0, 7]?" (the leftover cent goes to the largest fraction). |
 | multisort-missing-last | yes | yes | "...place the record missing \"s\" after those with \"s\" values, within its dept group?" |
-| intervals-touching-merge | no | **yes, borderline** | "Does merge work with negative integers like merge([(-2, 0), (0, 2)])?" The input is a touching pair, so the answer (`[(-2, 2)]` or two intervals) decides the touching rule. The question's stated purpose is negatives; the rule is not named. Other questions: input not mutated, `subtract` with empty `b`, `total_length` of overlapping intervals; none touching. |
+| intervals-touching-merge | no | **no** | "Does merge work with negative integers like merge([(-2, 0), (0, 2)])?" uses a touching pair, but a yes or a no says nothing about whether it merges into `[(-2, 2)]`, so its answer does not decide the rule (first draft: "yes, borderline"; corrected in review). Other questions: input not mutated, `subtract` with empty `b`, `total_length` of overlapping intervals; none touching. |
 | lrucache-read-no-extend | no | no | The only question is about `keys()` returning a new list. |
 | cronnext-dom-or-dow | no | yes | "Should `0 0 31 2 1` fire on Mondays in February even though February has no 31st?" (day-of-month and day-of-week are ORed) |
 | urlquery-plus-space | yes | yes | "Does parse_query('a%20b=1&a+b=2') return {'a b': ['1', '2']}?" (`+` becomes a space; says nothing about `%2B`) |
@@ -76,8 +79,7 @@ about a different function).
 | workdays-months-not-chained | no | no | `add_months(date(2024, 1, 31), 1)` gives Feb 29 under chaining and direct computation alike; it cannot tell them apart. The rest are about business days. |
 | csvline-whitespace-kept | no | no | No questions. |
 
-Disagreements (3): `moneysplit-largest-fraction`, `intervals-touching-merge` and
-`cronnext-dom-or-dow` regex miss, hand hit. No regex hit that the hand check rejects. The regex is
+Disagreements (2): `moneysplit-largest-fraction` and `cronnext-dom-or-dow` regex miss, hand hit. No regex hit that the hand check rejects. The regex is
 lexical, so it misses a rule asked about through an example (`0 0 31 2 1`, `[1, 1, 1]`) rather than in
 words: it under-counts here, and over-counted once on the known set.
 
@@ -85,7 +87,9 @@ words: it under-counts here, and over-counted once on the known set.
 
 $1.7227 measured on the known set; $1.7315 on the held-out set, **at least**: one call reported no cost
 (`live` flags this and adds nothing for it), so the true figure is higher by an unknown amount.
-Together at least $3.4542, under the owner's $4 stop and above the "about $2-3 in all" in the PREREG.
+Together at least $3.4542, above the "about $2-3 in all" in the PREREG. Whether it stayed under the
+owner's $4 stop is not known: the uncosted call would have to exceed $0.55 to cross it, against about
+$0.17 for a whole case, but its cost was not recorded.
 
 The PREREG estimate of about $0.30 a set was 6 times low. Not because it left out the draft call
 (`estimate()` counted both calls) but because its output guesses (2,000 and 2,500 tokens a call) ignored
@@ -96,12 +100,10 @@ below $1.00.
 
 ## Limits
 
-- 10 cases a set. A Wilson interval at 5/10 is [24%, 76%]; the bar sits at the middle of it. 4/10 and
-  5/10 are not distinguishable, and the verdict flips on one case.
-- That case is `intervals-touching-merge`, the one judged by hand on how its question is read. A
-  stricter reading ("the question must be about the rule") gives 4/10 and "not shown". The registered
-  wording is "its answer decides the rule's behaviour", which I applied, but the person who set the
-  rule is also the one hand-checking it; a second checker was not used.
+- 10 cases a set. The interval at 4/10 is [17%, 69%] and contains the 50% bar: "not shown" is not
+  "shown useless", and one more hit would have met the bar.
+- The person who set the rules also hand-checked them; a second checker was not used. One case,
+  `intervals-touching-merge`, was scored a hit in the first draft and a miss after review.
 - One model (Haiku), one run per case. The same case could surface or not on a second run; run-to-run
   variation was not measured.
 - A hit is "a question touches the rule", not "the investor would have answered it correctly" or "the
@@ -111,6 +113,5 @@ below $1.00.
 - Each case's checks are a fresh draft, not the draft of the original false-pass cell.
 
 What would change the conclusion: a second held-out set of 10-20 fresh rules scored by two
-checkers, with held-out recall at or above 50% on the combined 20-30; or the same set run again with
-`intervals-touching-merge` coming out the same way. A combined held-out recall below 40% would move it
-to "not shown" with some confidence.
+checkers, with held-out recall at or above 50% on the combined 20-30 would move it to "useful beyond known
+gaps". A combined held-out recall below 40% would make "not shown" firmer.
