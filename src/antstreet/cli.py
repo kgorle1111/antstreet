@@ -22,6 +22,7 @@ import dataclasses
 import functools
 import json
 import os
+import shutil
 import sys
 import threading
 import uuid
@@ -36,6 +37,7 @@ from antstreet import (
     audit,
     audit_check,
     audit_report,
+    coverage,
     gitrepo,
     held_out,
     mutate,
@@ -58,6 +60,7 @@ from antstreet.boss import (
     DEFAULT_MODEL,
     RULES_PROMPT,
     BossError,
+    Draft,
     InvalidDraftError,
     draft_term_sheet,
 )
@@ -260,6 +263,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="the boss's checks must cite the rules of your idea (its own sentences, numbered by "
         "code) and you see which rules no check covers before you approve; one task (default: off)",
+    )
+    fund.add_argument(
+        "--coverage",
+        action="store_true",
+        help="turns on --spec, and before any worker is paid: the boss redrafts (at most "
+        f"{coverage.MAX_REDRAFTS} more calls) while a rule has no check or a check passes on a "
+        "stub product, and approving the sheet waives what is left (default: off)",
     )
     fund.add_argument("--max-slices", type=_count_arg, default=FiringPolicy().max_slices)
     fund.add_argument("--stall-slices", type=_count_arg, default=FiringPolicy().stall_slices)
@@ -592,7 +602,7 @@ def _fund(
         say(_fix_budget_refusal(needed, reserve))
         return EXIT_USAGE
     rules: spec.Split | None = None
-    if args.spec:
+    if args.spec or args.coverage:
         refusal = _spec_refusal(args, roles)
         if refusal:
             say(refusal)
@@ -617,7 +627,7 @@ def _fund(
     with paths.writer() as ledger:
         record = Recorder(ledger, run_id, round=0)
 
-        def boss_spend(usage: Usage, outcome: str) -> None:
+        def boss_spend(usage: Usage, outcome: str, purpose: str = "term_sheet") -> None:
             record(
                 "boss",
                 EventType.BOSS_CALL,
@@ -627,7 +637,7 @@ def _fund(
                 tokens_cached=usage.tokens_cached,
                 billing=billing_mode(env),
                 data={
-                    "purpose": "term_sheet",
+                    "purpose": purpose,
                     "model": args.boss_model,
                     "thinking_tokens": args.boss_thinking,
                     "outcome": outcome,
@@ -635,19 +645,58 @@ def _fund(
                 },
             )
 
+        def call_boss(checks_dir: Path, feedback: str | None = None) -> Draft:
+            return draft_term_sheet(
+                args.idea,
+                args.budget,
+                checks_dir,
+                env=env,
+                model=args.boss_model,
+                executable=executable,
+                max_tasks=args.max_tasks,
+                thinking_tokens=args.boss_thinking,
+                rules=rules,
+                feedback=feedback,
+            )
+
+        def covered(draft: Draft) -> Draft:
+            """`--coverage`: redraft while the gaps shrink, at most MAX_REDRAFTS calls, each
+            booked. A redraft is written beside the checks and replaces them only when it has
+            fewer gaps; a failed one leaves the draft as it was."""
+            if rules is None:  # --coverage turns on --spec, so never
+                return draft
+            gaps = coverage.measure(rules, draft.sheet, paths.checks, draft.untested)
+            trial, asked = paths.root / "checks.redraft", 0
+            while gaps.size and asked < coverage.MAX_REDRAFTS:
+                asked += 1
+                say(
+                    f"--coverage: {len(gaps.unclaimed)} rule(s) no check cites, "
+                    f"{len(gaps.anchor_missing)} with an anchor missing, {len(gaps.weak)} weak "
+                    f"check(s); asking the boss to redraft ({asked} of {coverage.MAX_REDRAFTS})..."
+                )
+                shutil.rmtree(trial, ignore_errors=True)
+                try:
+                    again = call_boss(trial, coverage.feedback(gaps, draft.sheet))
+                except BossError as exc:
+                    boss_spend(exc.usage, str(exc.outcome), coverage.PURPOSE)
+                    shutil.rmtree(trial, ignore_errors=True)
+                    say(f"The redraft failed ({exc}); the earlier draft stands.")
+                    break
+                boss_spend(again.usage, "completed", coverage.PURPOSE)
+                better = coverage.measure(rules, again.sheet, trial, again.untested)
+                if better.size >= gaps.size:
+                    shutil.rmtree(trial)
+                    say("The redraft has no fewer gaps; the earlier draft stands.")
+                    break
+                shutil.rmtree(paths.checks)
+                trial.rename(paths.checks)
+                draft, gaps = again, better
+            coverage.save(paths.coverage, gaps, asked)
+            return draft
+
         def draft_boss() -> TermSheet | None:
             try:
-                draft = draft_term_sheet(
-                    args.idea,
-                    args.budget,
-                    paths.checks,
-                    env=env,
-                    model=args.boss_model,
-                    executable=executable,
-                    max_tasks=args.max_tasks,
-                    thinking_tokens=args.boss_thinking,
-                    rules=rules,
-                )
+                draft = call_boss(paths.checks)
             except BossError as exc:
                 boss_spend(exc.usage, str(exc.outcome))
                 record("boss", EventType.STOPPED, data={"reason": str(exc)})
@@ -658,6 +707,8 @@ def _fund(
                     say("\n".join(f"  - {p}" for p in exc.problems))
                 return None
             boss_spend(draft.usage, "completed")
+            if args.coverage:
+                draft = covered(draft)
             waivers.update(draft.untested)
             if args.rounds > 1:
                 rounds = plan_rounds(
@@ -755,7 +806,9 @@ def _fund(
             max_tier=policy.max_tier if policy is not None else dispatching.DEFAULT_MAX_TIER,
             cascade=policy is not None and policy.cascade,
         )
-        spec_shown = spec_view(paths.rules, paths.checks, waivers) if rules else None
+        spec_shown = (
+            spec_view(paths.rules, paths.checks, waivers, _gate_file(paths)) if rules else None
+        )
         if _unattended(ask):  # EOF would reject the draft
             return _await_approval(pipe, plan, config, view, spec_shown, waivers)
         try:
@@ -783,6 +836,11 @@ def _fund(
         fix = args.fix_budget or default_fix_budget(config)
         outcome = _build(pipe, sheet, config, args.review_cycles, fix)
     return _finish(paths, outcome, say)
+
+
+def _gate_file(paths: RunPaths) -> Path | None:
+    """The coverage gate's measurement, for a run started with `--coverage`."""
+    return paths.coverage if paths.coverage.is_file() else None
 
 
 def _unattended(ask: Ask) -> bool:
@@ -891,7 +949,9 @@ def _approve(args: argparse.Namespace, project: Path, say: Say) -> int:
                 level = dispatching.RunLevel(setup.model, review, config.held_out, config.parallel)
                 view = dispatching.DispatchView(policy, level, config.policy.stall_slices, {})
             rules = paths.rules if paths.rules.is_file() else None
-            spec_shown = spec_view(paths.rules, paths.checks, waivers) if rules else None
+            spec_shown = (
+                spec_view(paths.rules, paths.checks, waivers, _gate_file(paths)) if rules else None
+            )
             if args.sheet is None:
                 kept = notes if isinstance(notes, list) else []
                 lines = [n for n in kept if isinstance(n, str)]
