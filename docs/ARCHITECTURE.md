@@ -79,6 +79,7 @@ One row per file under `src/antstreet/`, `src/antstreet/roles/`, `src/antstreet/
 | `roles/product.py` | The product manager (user stories) and the user agent (what the stories miss or misread). | Let the user agent edit the stories. |
 | `roles/stories.py` | The shape of user stories and acceptance criteria, and the word-for-word quote check against the idea. | Accept a criterion whose source is not a fragment of the idea. |
 | `rule.py` | The firing decision from a worker's slice history. | Read model output or state outside the history it is given. |
+| `questions.py` | The spec-gap pass of `boss audit plan --questions`: one boss call for yes/no questions with a check per answer, the guards on that output, the investor's answers as signed `ruled` events, and the checks they add. | Show a question or answer to a worker or the audited agent; add a check after the approval; read an answer from a stdin that is not a terminal. |
 | `rulings.py` | The investor's questions on a disputed check or a blocked task, and reading `ruled` events back. | Decide for the investor; change the approved term sheet. |
 | `rundir.py` | Run folder layout (the project's investor key path, the ledger writer and reader that use it), the event recorder, counting a folder's bytes against the size limit, assembling `product/`. | Copy a file into a path another task owns; follow a symlink. |
 | `runner.py` | Running one slice as a supervised child process; isolation check at init and on any later hook event; cutting its log at 50 MB; stopping it. | Leave a child running; start in a workspace holding agent config. |
@@ -101,6 +102,7 @@ One row per file under `src/antstreet/`, `src/antstreet/roles/`, `src/antstreet/
 | `bench/run.py` | Running benchmark cells through the single, single-review and firm arms; for the firm arm, passing `--held-out N` through and recording the held-out passed and total. | Copy hidden checks or the reference into a workspace or a prompt. |
 | `bench/score.py` | Scoring a draft's checks (precision on the reference, recall on the mutants) and a critic's verified findings against the reference. | Spend money; count a mutant killed only by a wrong check as caught. |
 | `bench/spec_p1.py` | Scoring the drafts the rules prompt made on the saved failing products against the P1 criteria, and the capped, paid pass of the spec mapper over them. | Spend past its cap; count a draft that is not usable in a rate; change a criterion (`bench/spec_truth/P1_CRITERIA.md`). |
+| `bench/spec_gaps.py` | The eval of `spec_gaps_v1.md`: labelled gaps from the false-pass audit (`bench/spec_gaps/cases.json`), scored offline; `live` only with `--yes-spend`, after printing a cost estimate. | Spend money without `--yes-spend`; change a case after seeing a number. |
 | `bench/spec_eval.py` | The offline evaluation of `spec.py` on saved drafts, labels and mutants written by Claude, against criteria written down before the run (`bench/spec_truth/CRITERIA.md`). | Call a model; spend money; change a criterion after seeing a number; read a harvested mutant. |
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
 | `bench/kpi.py` | The fixed KPI scorecard of benchmark results: one column per folder, arm, model, budget and firm options. | Count an infrastructure failure in a figure; show an unknown cost or an unrecorded figure as 0; pool columns that share a label. |
@@ -112,8 +114,8 @@ idea's rules, `boss fund --spec`), `builder_v5.md` (every worker; `builder_v4.md
 benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
 has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
-`check_auditor_v1.md`, `spec_mapper_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `boss audit plan` has one of its
-own, `audit_checks_v1.md`. Skills are Markdown files under `src/antstreet/skills/`
+`check_auditor_v1.md`, `spec_mapper_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `boss audit plan` has two of its
+own, `audit_checks_v1.md` and, with `--questions`, `spec_gaps_v1.md`. Skills are Markdown files under `src/antstreet/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
 
 ## Life of a run

@@ -28,9 +28,9 @@ what changed for someone using the tool, not which commit did it.
 - `boss audit report [RUN | --all] [--agent L]`: verdicts, and the false-pass rate with a Wilson interval per agent and claim mode. Pre-registered and post-hoc results are never added together; the rate is a floor.
 - Ledger: the `audited` event, signed with the project's key like an investor's event, and `purpose` `audit_checks` on `boss_call`.
 - Security: threats T51 to T54 (the audit store read by the agent, checks fitted to the change, a leak in the diff, a forged seal).
-- `boss audit plan --questions` (off by default): the boss asks up to 5 yes/no questions about rules the request leaves open; a yes or a no adds the check drafted for that answer, a skip records a waiver, and the checks are then shown folded (`v` shows the code). Each answer is a signed `ruled` event (`answered`).
-- `boss audit approve RUN [--answers A,B,...] [--sheet V]`: answers and approves an audit plan made with no terminal. `boss audit plan` no longer reads stdin that is not a terminal: it waits (exit 4) instead of reading end of input as a rejection.
-- `python -m antstreet.bench.spec_gaps`: the eval of the questions on 10 labelled gaps from the false-pass audit (`estimate`, `score`, `live --yes-spend`).
+- `boss audit plan --questions` (off by default): up to 5 yes/no questions on rules the request leaves open; each answer adds its check or a waiver, signed as `ruled` `answered`; the checks are then shown folded.
+- `boss audit approve RUN [--answers A,B] [--sheet V]` carries on a plan made with no terminal; such a plan now waits (exit 4) instead of reading end of input as a rejection.
+- `python -m antstreet.bench.spec_gaps`: the eval of the questions on 10 labelled gaps from the false-pass audit; `live` makes real calls only when told to.
 - `boss audit plan` and `check` run the checks with the repo's own `.venv` packages, read-only in the sandbox and never installed, so a check that imports a dependency is no longer `blocked`; without one, the `Environment:` line says why and to run `uv sync`.
 - `boss audit plan --request FILE` and `boss audit check --claim done` are enough inside the repo: `--repo` defaults to `.`, `--base` and `--head` to `HEAD`, and the run to the latest.
 - `boss fund --dispatch cascade` (off by default): each task climbs haiku, sonnet, opus, then opus at

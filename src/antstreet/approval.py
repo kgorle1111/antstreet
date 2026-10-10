@@ -208,8 +208,11 @@ def review_term_sheet(
             say(shown)
         for note in notes:
             say(note)
-        question = "[a]pprove, [r]eject, [e]dit files and re-check"
-        question += ", or [v]iew every check in full? " if fold else "? "
+        question = (
+            "[a]pprove, [r]eject, [e]dit files and re-check, or [v]iew every check in full? "
+            if fold
+            else "[a]pprove, [r]eject, or [e]dit files and re-check? "
+        )
         try:
             answer = ask(question).strip().lower()
         except (EOFError, KeyboardInterrupt):

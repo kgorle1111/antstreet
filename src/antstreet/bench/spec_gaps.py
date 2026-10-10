@@ -32,12 +32,12 @@ from antstreet.worker import CLI, EXECUTABLE_VAR, worker_env
 ROOT = Path(__file__).resolve().parents[3]
 CASES = ROOT / "bench" / "spec_gaps" / "cases.json"
 TASKS = ROOT / "bench" / "tasks"
-CHARS_PER_TOKEN = 4  # kn: a rough English/code ratio; count_tokens if the estimate must be exact
+CHARS_PER_TOKEN = 4  # a rough English/code ratio; the live run prints the measured cost
 # Output per call, guessed from live drafts (3-8 checks of a few lines each) and the questions'
 # shape (5 questions, two short checks each). The live run prints the measured figure.
 DRAFT_OUT_TOKENS = 2_000
 QUESTIONS_OUT_TOKENS = 2_500
-CLI_OVERHEAD_TOKENS = 1_500  # kn: the claude CLI's own framing per call; measure on the first run
+CLI_OVERHEAD_TOKENS = 1_500  # the claude CLI's own framing per call, a guess
 # Claude Haiku 4.5, first-party API, USD per million tokens (claude-api skill table, 2026-10-06).
 PRICE_IN, PRICE_OUT = 1.00, 5.00
 
