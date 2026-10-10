@@ -42,7 +42,8 @@ def parsers() -> dict[str, argparse.ArgumentParser]:
         steps = getattr(parser, "_subparsers", None)  # a command with steps of its own: `audit`
         if steps is None:
             found[f"boss {name}"] = parser
-        else:
+        else:  # its own options, for when no step is named, and each step's
+            found[f"boss {name}"] = parser
             found |= {f"boss {name} {s}": p for s, p in steps._group_actions[0].choices.items()}
     return found
 

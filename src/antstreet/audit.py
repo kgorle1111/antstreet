@@ -44,7 +44,7 @@ from antstreet.pipeline import Pipeline, Setup
 from antstreet.redact import safe_text
 from antstreet.rundir import Recorder, RunPaths
 from antstreet.stream import Usage
-from antstreet.termsheet import Task, TermSheet
+from antstreet.termsheet import Task, TermSheet, TermSheetError
 from antstreet.worker import CLI, billing_mode
 
 HOME_VAR = "BOSS_AUDIT_HOME"
@@ -59,6 +59,7 @@ MAX_REQUEST_BYTES = 64 * 1024
 MAX_SURFACE_CHARS = 30_000
 MAX_SURFACE_FILES = 300
 MAX_PARSE_BYTES = 256 * 1024
+REQUEST_FILE = ".antstreet/request.md"  # where `boss audit` with no step looks for the request
 VENV = ".venv"  # where `uv sync` and `python -m venv .venv` put a repo's environment
 _SKIPPED_DIRS = frozenset({"__pycache__", "node_modules", ".venv", "venv", "build", "dist"})
 _SEAL = re.compile(r"audit seal: base=([0-9a-f]{40}|[0-9a-f]{64}) request_sha256=([0-9a-f]{64})\Z")
@@ -137,6 +138,35 @@ def parse_seal(sheet: TermSheet) -> Seal:
     if request_hash(sheet.idea) != seal.request_sha256:
         raise AuditError("the request in the term sheet is not the one the seal records")
     return seal
+
+
+def latest_run(
+    store: Path, repo: Path, head: str, request_sha256: str | None = None
+) -> tuple[str, Seal] | None:
+    """The newest approved run whose sealed base is `head` or one of its ancestors in `repo`, and,
+    when `request_sha256` is given, that sealed that request. Nothing here is verified (`check`
+    verifies the ledger and the approval before it trusts a run); this only picks one."""
+    for run_id in reversed(runs_in(store)):
+        try:
+            text = (run_paths(store, run_id).root / "term_sheet.json").read_text(encoding="utf-8")
+            sheet = TermSheet.from_json(text)
+            seal = parse_seal(sheet)
+            if not sheet.approved_by_investor or request_sha256 not in (None, seal.request_sha256):
+                continue
+            if seal.base == head or gitrepo.is_ancestor(repo, seal.base, head):
+                return run_id, seal
+        except (OSError, TermSheetError, AuditError, gitrepo.GitError):
+            continue  # unreadable, not an audit seal, or a base this repo does not have
+    return None
+
+
+def find_request(repo: Path, given: Path | None) -> Path | None:
+    """`--request` when given, else the repo's `.antstreet/request.md` when it is a file. Not the
+    last commit message: at plan time HEAD is the base, so its message is the work already done."""
+    if given is not None:
+        return Path(given)
+    found = Path(repo) / REQUEST_FILE
+    return found if found.is_file() and not found.is_symlink() else None
 
 
 def seal_hash(sheet: TermSheet, checks_dir: Path, held_out_dir: Path) -> str:
@@ -372,7 +402,7 @@ def plan(
         base = gitrepo.resolve(repo, base_ref)
     except gitrepo.GitError as exc:
         raise AuditError(str(exc)) from exc
-    request = _read_request(request_file)
+    request = read_request(request_file)
     run_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
     paths = run_paths(store, run_id)
     _private_dirs(store)
@@ -437,7 +467,7 @@ def plan(
     )
 
 
-def _read_request(path: Path) -> str:
+def read_request(path: Path) -> str:
     try:
         with Path(path).open("rb") as fh:
             raw = fh.read(MAX_REQUEST_BYTES + 1)
