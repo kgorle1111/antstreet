@@ -208,6 +208,8 @@ def test_the_audit_stop_hook_notifies_by_default_and_passes_the_cli_json_through
         ("block", '{"stop_hook_active": false}', "block"),
         ("block", '{"session_id":"s","stop_hook_active":true}', "notify"),  # never block twice
         ("block", '{"stop_hook_active": true}', "notify"),
+        ("block", '{\n  "stop_hook_active" :\n    true\n}', "notify"),  # any valid JSON layout
+        ("block", '{"stop_hook_active":\t  false}', "block"),
         ("notify", "{}", "notify"),
         ("anything else", "{}", "notify"),
     ],
