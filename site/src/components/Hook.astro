@@ -1,0 +1,152 @@
+---
+import { AUDIT_URL } from "../data/links";
+import hook from "../data/hook.json";
+
+const sub = hook.lines.find((l) => l.id === "sub")!.text;
+const N = "#0f1b2d";
+// The CHECKS PASSED seal, centred on (0, 0). Drawn twice (left and right of the crack) so it can split.
+const crack = "6,-100 -8,-32 12,30 -2,100";
+---
+<section id="hook" class="hook" aria-labelledby="hook-h1">
+  <div class="wrap hook-grid">
+    <div class="hook-copy hud">
+      <h1 id="hook-h1">It wrote its <span class="em">own</span> checks.</h1>
+      <p class="hook-sub" data-hook="sub">{sub}</p>
+      <div class="hook-ctas" data-hook="ctas">
+        <a class="btn btn-primary" href="#try">Try <code>antstreet audit</code></a>
+        <a class="btn" href={AUDIT_URL}>Read the data</a>
+      </div>
+    </div>
+
+    <figure class="hook-figure">
+      <div
+        class="stage grain hook-stage"
+        role="img"
+        aria-label="A green seal reads CHECKS PASSED. A sealed envelope marked HIDDEN CHECKS opens; the card inside turns from a circle into a red diamond with an X and reads HIDDEN CHECK: FAILED, and the green seal cracks."
+      >
+        <div class="world" aria-hidden="true">
+          <!-- z1 far props: the 77 ghost cells, out of focus (foreshadowing #problem) -->
+          <div class="layer" data-p="0.5" data-z="1">
+            <svg viewBox="0 0 640 480" class="ghost">
+              <defs>
+                <pattern id="hk-dots" width="36" height="36" patternUnits="userSpaceOnUse" x="122" y="114">
+                  <circle cx="18" cy="18" r="11" fill="#2fb457" stroke={N} stroke-width="3" />
+                </pattern>
+              </defs>
+              <rect x="122" y="114" width="396" height="252" fill="url(#hk-dots)" />
+            </svg>
+          </div>
+
+          <!-- z2 mid: the CHECKS PASSED seal (the subject until the match cut, then behind) -->
+          <div class="layer seal-layer" data-p="0.8" data-z="2">
+            <svg viewBox="0 0 640 480">
+              <defs>
+                <g id="hk-seal-art">
+                  <circle r="88" fill="#2fb457" stroke={N} stroke-width="6" />
+                  <polyline points="-38,-6 -10,24 40,-32" fill="none" stroke="#f4f1ea" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" />
+                  <g transform="rotate(-6) translate(0 64)">
+                    <rect x="-118" y="-22" width="236" height="44" rx="22" fill="#2fb457" stroke={N} stroke-width="5" />
+                    <text class="seal-text" y="8" text-anchor="middle" font-size="24" fill={N}>CHECKS PASSED</text>
+                  </g>
+                </g>
+                <clipPath id="hk-left"><polygon points={`-200,-200 6,-200 ${crack} -2,200 -200,200`} /></clipPath>
+                <clipPath id="hk-right"><polygon points={`200,-200 6,-200 ${crack} -2,200 200,200`} /></clipPath>
+              </defs>
+              <g id="hk-seal" transform="translate(88 124) scale(0.7)">
+                <g class="hk-half hk-half-l" transform="translate(-14 4) rotate(-6)"><use href="#hk-seal-art" clip-path="url(#hk-left)" /></g>
+                <g class="hk-half hk-half-r" transform="translate(14 -4) rotate(6)"><use href="#hk-seal-art" clip-path="url(#hk-right)" /></g>
+                <polyline class="hk-crack" points={crack} fill="none" stroke={N} stroke-width="9" stroke-linejoin="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0" />
+              </g>
+            </svg>
+          </div>
+
+          <!-- z3 subject: the envelope, the card inside it, the flap (real 3D), the wax seal -->
+          <div class="layer env" data-p="1" data-z="3">
+            <svg viewBox="0 0 640 480" class="env-back">
+              <rect x="130" y="150" width="380" height="240" rx="14" fill="#e3d7bb" stroke={N} stroke-width="6" />
+            </svg>
+            <svg viewBox="0 0 640 480" class="env-card">
+              <g id="hk-card" transform="translate(320 105)">
+                <rect x="-150" y="-90" width="300" height="180" rx="14" fill="#f4f1ea" stroke={N} stroke-width="5" />
+                <g transform="translate(0 -24)">
+                  <rect id="hk-shape" x="-32" y="-32" width="64" height="64" rx="5" fill="#ff5a4f" stroke={N} stroke-width="5" transform="rotate(45)" />
+                  <g id="hk-x" stroke={N} stroke-width="7" stroke-linecap="round">
+                    <line x1="-12" y1="-12" x2="12" y2="12" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0" />
+                    <line x1="12" y1="-12" x2="-12" y2="12" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0" />
+                  </g>
+                </g>
+                <g id="hk-pill" transform="translate(0 50)">
+                  <rect x="-136" y="-20" width="272" height="40" rx="20" fill="#ff5a4f" stroke={N} stroke-width="4" />
+                  <text y="7" text-anchor="middle" font-size="19" fill={N} class="pill-text">HIDDEN CHECK: FAILED</text>
+                </g>
+              </g>
+            </svg>
+            <svg viewBox="0 0 640 480" class="env-front">
+              <path d="M130 150 L320 270 L510 150 L510 376 Q510 390 496 390 L144 390 Q130 390 130 376 Z" fill="#f4f1ea" stroke={N} stroke-width="6" stroke-linejoin="round" />
+              <rect x="208" y="318" width="224" height="42" rx="6" fill={N} />
+              <text x="320" y="346" text-anchor="middle" font-size="21" fill="#f4f1ea" class="label-text">HIDDEN CHECKS</text>
+            </svg>
+            <div class="flap" id="hk-flap">
+              <svg viewBox="0 0 380 120" preserveAspectRatio="none"><polygon points="3,3 377,3 190,117" fill="#ebe0c6" stroke={N} stroke-width="6" stroke-linejoin="round" /></svg>
+            </div>
+            <svg viewBox="0 0 640 480" class="env-wax">
+              <defs>
+                <g id="hk-wax-art">
+                  <circle r="62" fill="#e3a82e" stroke={N} stroke-width="5" />
+                  <circle r="46" fill="none" stroke="#b9861d" stroke-width="4" />
+                  <path d="M0 -20 a10 10 0 1 1 -0.1 0 Z M-6 -6 L6 -6 L9 22 L-9 22 Z" fill={N} />
+                </g>
+                <clipPath id="hk-wl"><polygon points="-80,-80 4,-80 -6,-20 8,20 -2,80 -80,80" /></clipPath>
+                <clipPath id="hk-wr"><polygon points="80,-80 4,-80 -6,-20 8,20 -2,80 80,80" /></clipPath>
+              </defs>
+              <g id="hk-wax" transform="translate(320 240)" opacity="0">
+                <g class="hk-wax-l"><use href="#hk-wax-art" clip-path="url(#hk-wl)" /></g>
+                <g class="hk-wax-r"><use href="#hk-wax-art" clip-path="url(#hk-wr)" /></g>
+              </g>
+            </svg>
+          </div>
+
+          <!-- z4 foreground occluders, out of focus -->
+          <div class="layer fg" data-p="1.3" data-z="4">
+            <svg viewBox="0 0 640 480"><text x="18" y="470" font-size="104" class="brace" data-decor>{"{ }"}</text><text x="540" y="70" font-size="80" class="brace" data-decor>{"{ }"}</text></svg>
+          </div>
+        </div>
+        <p class="hud stage-caption" data-hook="caption" aria-hidden="true">Checks it never saw.</p>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<style>
+  .hook { padding-block: clamp(28px, 5vw, 56px) clamp(24px, 3vw, 40px); }
+  .hook-grid { display: grid; gap: 28px; align-items: center; }
+  @media (min-width: 960px) { .hook-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 56px; } }
+  .hook h1 { font-size: clamp(44px, 7.4vw, 92px); }
+  .hook-sub { font-size: clamp(18px, 2vw, 22px); margin-top: 20px; max-width: 34ch; color: var(--ink); }
+  .hook-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .hook-figure { margin: 0; }
+  .hook-stage { aspect-ratio: 4 / 3; width: 100%; }
+  .hook-stage :global(text) { font-family: var(--display); font-weight: 800; }
+  .hook-stage .seal-text, .hook-stage .pill-text { letter-spacing: 0.06em; }
+  .hook-stage .label-text { font-family: var(--mono); font-weight: 500; letter-spacing: 0.06em; }
+  .ghost { opacity: 0.1; filter: blur(4px); }
+  .seal-layer { filter: blur(3.5px) brightness(0.8); }
+  .env { perspective: 900px; }
+  .env > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .flap { position: absolute; left: 20.3125%; top: 31.25%; width: 59.375%; height: 25%; transform-origin: 50% 0; transform: rotateX(-180deg); z-index: 0; }
+  .flap svg { width: 100%; height: 100%; display: block; }
+  .env-back { z-index: 0; }
+  .env-card { z-index: 1; }
+  .env-front { z-index: 2; }
+  .env-wax { z-index: 4; }
+  .fg { filter: blur(6px); }
+  .brace { font-family: var(--mono); font-weight: 500; fill: #24406e; opacity: 0.55; }
+  .stage-caption {
+    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); margin: 0; white-space: nowrap;
+    font-family: var(--display); font-weight: 800; font-size: clamp(15px, 2.4vw, 24px);
+    background: var(--bg); color: var(--ink); padding: 6px 14px; border-radius: 999px;
+  }
+  /* Motion mode, before the hook script decides whether to play: only the art waits (at most
+     300 ms); the H1, the sub-line and the calls to action are visible from first paint. */
+  :global(.m) .hook-stage .world { visibility: hidden; }
+</style>

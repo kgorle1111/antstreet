@@ -1,0 +1,80 @@
+# Checks the Pages site on pull requests that touch it: the build, the number-source and link
+# tests, and the Playwright checks (screens, keyboard, axe, reduced motion, layout shift, flashes).
+# Kept out of ci.yml so Python-only pull requests never install Node or a browser.
+name: Site
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - "docs/assets/demo.svg"
+      - "tests/test_site*.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site:
+    name: build and check the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false # npm ci/build run third-party code; no token in .git/config
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: site/.nvmrc
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build
+        working-directory: site
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      # The built page's numbers, links and reading floor; required here, skipped in ci.yml.
+      - name: Site tests (pytest)
+        env:
+          SITE_DIST_REQUIRED: "1"
+        run: |
+          uv sync --locked
+          uv run pytest -o addopts="" -q tests/test_site.py tests/test_site_facts.py
+
+      - name: Links
+        working-directory: site
+        run: npm run links
+
+      # The flash test reads frame luminance from the hook recording with ffmpeg's signalstats.
+      - name: Install ffmpeg
+        timeout-minutes: 5
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
+
+      - name: Install Chromium for Playwright
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright
+        working-directory: site
+        env:
+          SHOTS_DIR: test-results/shots
+        run: npx playwright test
+
+      - name: Keep the screenshots and any failure traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-playwright
+          path: site/test-results
+          if-no-files-found: ignore

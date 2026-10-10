@@ -1,0 +1,57 @@
+---
+import facts from "../data/facts.json";
+import Caveat from "./Caveat.astro";
+import { PROFILE, TECH_URL } from "../data/links";
+
+type Id = keyof typeof facts;
+// label: the words after the number; count: what the counter lands on (the source number).
+const stats: { id: Id; label: string; count: number; fmt: "plus" | "pct" | "int" | "ver" }[] = [
+  { id: "tests", label: "tests", count: 5700, fmt: "plus" },
+  { id: "coverage", label: "coverage floor, about 98% measured", count: 96, fmt: "pct" },
+  { id: "threats", label: "threat rows", count: 71, fmt: "int" },
+  { id: "decisions", label: "recorded design decisions", count: 46, fmt: "int" },
+  { id: "experiments", label: "pre-registered experiments", count: 7, fmt: "int" },
+  { id: "python", label: "Python, Apache-2.0", count: 0, fmt: "ver" },
+];
+---
+<section id="built-by" class="section built" aria-labelledby="built-h">
+  <div class="wrap">
+    <p class="eyebrow">How it's engineered</p>
+    <h2 id="built-h">Built to be checked, too.</h2>
+    <ul class="stats">
+      {stats.map((s) => (
+        <li class="stat">
+          <p data-fact={s.id} class="stat-main">
+            <span class="num display" data-count={s.fmt === "ver" ? undefined : s.count} data-fmt={s.fmt}>{facts[s.id].value}</span>
+            <span class="label">{s.label}</span>
+          </p>
+          <Caveat id={s.id} />
+        </li>
+      ))}
+      <li class="stat">
+        <p class="stat-main"><span class="num display">strict</span><span class="label">mypy, over src/antstreet</span></p>
+        <span class="caveat">Type-checked in CI.</span>
+      </li>
+    </ul>
+    <p class="meta">
+      This page holds itself to the same rule: every number on it is bound to its source file by a test, and its motion passes a reading-time lint.
+      <a href={TECH_URL}>The technical README</a> has the rest.
+    </p>
+    <p class="by">I built AntStreet. <strong>Kannishk Naidu Gorle</strong>, <a href={PROFILE} data-literal>github.com/kgorle1111</a></p>
+  </div>
+</section>
+
+<style>
+  .stats { list-style: none; padding: 0; margin: 32px 0 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+  .stat { border-top: 3px solid var(--ink); padding-top: 14px; }
+  .stat-main { display: flex; flex-direction: column; }
+  .num { position: relative; font-size: clamp(40px, 5vw, 56px); line-height: 1; font-variant-numeric: tabular-nums; }
+  /* while counting, the real text keeps its place (and stays in the page text) but is drawn
+     transparent under the aria-hidden copy */
+  .num:global(.counting) { color: transparent; }
+  .num :global(.num-anim) { position: absolute; left: 0; top: 0; color: var(--ink); white-space: nowrap; }
+  .label { font-family: var(--display); font-weight: 600; font-size: 18px; margin-top: 6px; }
+  .meta { margin-top: 32px; max-width: 70ch; color: var(--mute); }
+  .meta a { color: var(--ink); }
+  .by { margin-top: 18px; font-size: 18px; }
+</style>

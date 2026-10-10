@@ -1,0 +1,12 @@
+---
+// One number, bound to facts.json by id; tests/test_site_facts.py checks every digit on the page
+// sits inside one of these (or a data-literal) and that the fact's caveat is on the page too.
+import facts from "../data/facts.json";
+
+interface Props { id: keyof typeof facts; show?: "value" | "wording"; tag?: string; class?: string }
+const { id, show = "wording", tag = "span", class: cls } = Astro.props;
+const fact = facts[id];
+if (!fact) throw new Error(`no fact ${id}`);
+const Tag = tag as any;
+---
+<Tag data-fact={id} class={cls}>{Astro.slots.has("default") ? <slot /> : fact[show]}</Tag>

@@ -1,0 +1,24 @@
+---
+import { REPO, AUDIT_URL } from "../data/links";
+---
+<section id="cta" class="section cta" aria-labelledby="cta-h">
+  <div class="wrap cta-box">
+    <p class="wordmark-lg display" aria-hidden="true"><span>Ant</span><span class="street">Street</span></p>
+    <h2 id="cta-h">Checks your AI coding agent's work against tests it never saw.</h2>
+    <div class="cta-row">
+      <a class="btn btn-primary" href={REPO}>Star on GitHub <span aria-hidden="true">★</span></a>
+      <a class="btn" href="#try">Try <code>antstreet audit</code></a>
+      <a class="btn" href={AUDIT_URL}>Read the data</a>
+    </div>
+  </div>
+</section>
+
+<style>
+  .cta-box { text-align: center; display: grid; justify-items: center; gap: 18px; }
+  .wordmark-lg { font-size: clamp(40px, 6vw, 64px); margin: 0; line-height: 1; }
+  .street { color: var(--emph); }
+  :global(:root:not([data-theme="dark"])) .street { box-shadow: inset 0 -0.16em 0 var(--yellow); }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme="light"])) .street { box-shadow: none; } }
+  .cta h2 { max-width: 22ch; font-size: clamp(28px, 4.2vw, 48px); }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 8px; }
+</style>

@@ -1,0 +1,15 @@
+---
+import { REPO } from "../data/links";
+---
+<footer class="footer">
+  <div class="wrap foot-row">
+    <p>Independent open source · Not affiliated with Anthropic</p>
+    <p><a href={`${REPO}/blob/main/LICENSE`}>Apache License</a> · <a href={`${REPO}/blob/main/NOTICE`}>Notices</a> · <a href="#top">Back to top</a></p>
+  </div>
+</footer>
+
+<style>
+  .footer { border-top: 2px solid var(--line); padding-block: 28px; font-size: 15px; color: var(--mute); }
+  .foot-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+  .footer a { color: var(--ink); }
+</style>

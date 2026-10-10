@@ -1,0 +1,10 @@
+export const REPO = "https://github.com/kgorle1111/antstreet";
+export const BLOB = `${REPO}/blob/main`;
+export const AUDIT_URL = `${BLOB}/bench/results/2026-10-03-false-pass-audit/README.md`;
+export const AUDIT_CASES = `${AUDIT_URL}#cases`;
+export const RESULTS_URL = `${BLOB}/bench/results/README.md`;
+export const PREREG_URL = `${BLOB}/bench/PREREG.md`;
+export const ROADMAP_URL = `${BLOB}/ROADMAP.md`;
+export const TECH_URL = `${BLOB}/README-technical.md`;
+export const FUND_URL = `${REPO}#-advanced-and-experimental-antstreet-fund`;
+export const PROFILE = "https://github.com/kgorle1111";

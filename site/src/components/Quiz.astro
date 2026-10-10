@@ -1,0 +1,101 @@
+---
+import Fact from "./Fact.astro";
+import Caveat from "./Caveat.astro";
+import { BLOB } from "../data/links";
+---
+<section id="quiz" class="section quiz" aria-labelledby="quiz-h">
+  <div class="wrap">
+    <p class="eyebrow">One of the false passes</p>
+    <h2 id="quiz-h">Same number?</h2>
+
+    <svg width="0" height="0" class="filters" aria-hidden="true" focusable="false"><filter id="whipblur" x="-20%" y="0" width="140%" height="100%"><feGaussianBlur stdDeviation="0 0" /></filter></svg>
+    <div class="stage grain quiz-stage" aria-hidden="true">
+      <div class="world">
+        <div class="layer scene-digits" data-p="1">
+          <div class="num num-a"><span data-literal>123</span></div>
+          <div class="num num-b"><bdi dir="ltr" class="ar" data-literal>١٢٣</bdi><span class="eq mono" data-literal>= 123</span></div>
+        </div>
+        <div class="layer scene-hidden" data-p="1">
+          <svg viewBox="0 0 640 360" class="hidden-art">
+            <g transform="translate(320 140)">
+              <rect x="-46" y="-46" width="92" height="92" rx="7" fill="#ff5a4f" stroke="#0f1b2d" stroke-width="6" transform="rotate(45)" />
+              <g stroke="#0f1b2d" stroke-width="9" stroke-linecap="round"><line x1="-18" y1="-18" x2="18" y2="18" /><line x1="18" y1="-18" x2="-18" y2="18" /></g>
+            </g>
+            <g transform="translate(320 250)">
+              <rect x="-150" y="-22" width="300" height="44" rx="22" fill="#ff5a4f" stroke="#0f1b2d" stroke-width="4" />
+              <text y="8" text-anchor="middle" font-size="21" fill="#0f1b2d" class="pill-text">HIDDEN CHECK: FAILED</text>
+            </g>
+            <text x="320" y="320" text-anchor="middle" font-size="22" class="raise">DID NOT RAISE ValueError</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="quiz-q" role="group" aria-labelledby="quiz-h">
+      <button type="button" class="btn quiz-answer" data-answer="yes">Yes</button>
+      <button type="button" class="btn quiz-answer" data-answer="no">No</button>
+    </div>
+
+    <ol class="beats">
+      <li class="beat" data-beat="answer">
+        <h3 class="beat-h" tabindex="-1">Yes. Arabic-Indic digits.</h3>
+        <p class="beat-p">They are everyday digits in much of the world, and Python reads them as numbers. The joke is the code's assumption, never the script.</p>
+      </li>
+      <li class="beat card" data-beat="task">
+        <p class="tag mono">Task</p>
+        <blockquote class="quote mono"><Fact id="rule" /></blockquote>
+        <p class="src"><Caveat id="rule" class="" /> Anything else must raise <code>ValueError</code>. <a href={`${BLOB}/bench/tasks/bigdecimal/idea.md`}>Read the task</a></p>
+      </li>
+      <li class="beat card" data-beat="code">
+        <p class="tag mono">The AI's code used</p>
+        <pre class="code"><code><span class="typed" data-literal>"<bdi class="ar">١٢٣</bdi>".isdigit()</span> <span class="arrow" aria-hidden="true">→</span> <span class="result" data-fact="isdigit">True</span></code></pre>
+        <Caveat id="isdigit" />
+        <p class="verdict display">Task: reject. Code: accept.</p>
+      </li>
+      <li class="beat card" data-beat="hidden">
+        <p class="tag mono">The hidden check</p>
+        <p class="hidden-line"><span class="mark-fail" aria-hidden="true"></span><span class="display">Hidden check: failed</span></p>
+        <pre class="code"><code>DID NOT RAISE ValueError</code></pre>
+      </li>
+      <li class="beat card data-card" data-beat="data">
+        <p class="b2 display"><Fact id="b2" /></p>
+        <p class="chip"><Caveat id="b2" tag="span" class="b2-caveat" /></p>
+      </li>
+    </ol>
+    <button type="button" class="btn quiz-next" hidden>Next</button>
+  </div>
+</section>
+
+<style>
+  .filters { position: absolute; width: 0; height: 0; }
+  .quiz-stage { aspect-ratio: 16 / 9; max-height: 440px; width: 100%; margin-top: 28px; }
+  @media (max-width: 640px) { .quiz-stage { aspect-ratio: 4 / 3; } }
+  .scene-digits { display: flex; align-items: center; justify-content: space-around; }
+  .num { position: relative; font-family: var(--display); font-weight: 800; font-size: clamp(64px, 14vw, 168px); line-height: 1; color: var(--ink); display: flex; flex-direction: column; align-items: center; }
+  .num .ar { font-family: var(--ar); }
+  .eq { font-size: clamp(16px, 2vw, 22px); color: var(--mute); margin-top: 12px; opacity: 0; }
+  .scene-hidden { opacity: 0; visibility: hidden; }
+  .hidden-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hidden-art text { font-family: var(--display); font-weight: 800; letter-spacing: 0.04em; }
+  .hidden-art .raise { font-family: var(--mono); font-weight: 500; fill: var(--ink); letter-spacing: 0; }
+  .quiz-q { display: none; gap: 12px; margin-top: 20px; }
+  .quiz-next { margin-top: 20px; }
+  .beats { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 16px; max-width: 760px; }
+  .beat-h { font-size: clamp(26px, 3.4vw, 36px); }
+  .beat-p { margin-top: 8px; color: var(--mute); }
+  .card { border: 2px solid var(--line); border-radius: 16px; padding: 20px 22px; background: var(--bg-2); }
+  .tag { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); margin-bottom: 8px; }
+  .quote { margin: 0; font-size: clamp(17px, 2vw, 20px); }
+  .src { margin-top: 10px; font-size: 15px; color: var(--mute); }
+  .code { margin: 0; font-size: clamp(17px, 2.2vw, 22px); white-space: pre-wrap; }
+  .code .result { color: var(--ink); font-weight: 500; }
+  .code .ar { font-family: var(--ar); }
+  .verdict { margin-top: 14px; font-size: 22px; }
+  .hidden-line { display: flex; align-items: center; gap: 12px; font-size: 22px; margin-bottom: 8px; }
+  .mark-fail { width: 22px; height: 22px; background: #ff5a4f; border: 3px solid #0f1b2d; transform: rotate(45deg) scale(0.8); border-radius: 3px; flex: none; }
+  .b2 { font-size: clamp(24px, 3vw, 32px); margin-bottom: 12px; }
+  .b2-caveat { font-size: 15px; }
+  :global(.js) .quiz-q { display: flex; }
+  :global(.js) .beat { display: none; }
+  :global(.js) .beat.shown { display: block; }
+</style>

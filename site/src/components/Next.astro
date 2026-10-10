@@ -1,0 +1,49 @@
+---
+import { ROADMAP_URL } from "../data/links";
+
+// From ROADMAP.md, "Now" and "Next". Nothing here is built yet.
+const now = [
+  ["antstreet on PyPI", "so nothing needs a clone."],
+  ["Check strength", "each sealed check runs against deliberately broken copies of the changed code; a check that passes them all is flagged as weak."],
+  ["Approval as a few yes/no questions", "you answer where the request is ambiguous, and your answers become checks or waivers, signed like any approval."],
+];
+const next = [
+  ["A one-command, zero-install audit", "uvx antstreet audit in any Python repo, once the package is on PyPI."],
+  ["A Claude Code Stop hook", "runs audit check when the agent says it is done."],
+  ["CI export", "carry a sealed run to CI so the GitHub Action needs no manual step."],
+  ["First run", "a short --help, a timed fresh-machine run in the README, a first-run guide."],
+];
+---
+<section id="next" class="section next" aria-labelledby="next-h">
+  <div class="wrap">
+    <p class="eyebrow">Roadmap</p>
+    <h2 id="next-h">What comes next. Nothing below is built yet.</h2>
+    <div class="cols">
+      <div>
+        <h3 class="col-h">Now</h3>
+        <ul class="items">{now.map(([t, d]) => <li><strong>{t}</strong>: {d}</li>)}</ul>
+      </div>
+      <div>
+        <h3 class="col-h">Next</h3>
+        <ul class="items">{next.map(([t, d]) => <li><strong>{t}</strong>: {d}</li>)}</ul>
+      </div>
+      <aside class="report" aria-labelledby="report-h">
+        <p class="soon mono">Coming</p>
+        <h3 id="report-h">The Honesty Report</h3>
+        <p>A repeatable, pre-registered measurement of how often AI-written checks pass while hidden checks fail. Method first, results when they exist.</p>
+      </aside>
+    </div>
+    <p class="more"><a href={ROADMAP_URL}>The full roadmap</a></p>
+  </div>
+</section>
+
+<style>
+  .cols { display: grid; gap: 28px; margin-top: 32px; }
+  @media (min-width: 960px) { .cols { grid-template-columns: 1fr 1fr 0.9fr; gap: 40px; } }
+  .col-h { font-size: 24px; margin-bottom: 12px; }
+  .items { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
+  .report { border: 2px dashed var(--ink); border-radius: 16px; padding: 22px; align-self: start; }
+  .report h3 { font-size: 24px; margin: 10px 0 8px; }
+  .soon { display: inline-block; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; background: var(--yellow); color: var(--navy); padding: 4px 10px; border-radius: 999px; }
+  .more { margin-top: 24px; font-weight: 700; }
+</style>

@@ -1,0 +1,162 @@
+---
+// One world, four beats. The world is drawn once in <defs>; the pinned stage and the four static
+// panels (reduced motion, no script) both show it through <use>, so they can never disagree.
+const N = "#0f1b2d";
+const steps = [
+  { id: "approve", text: "You approve the checks. They are signed and sealed before the agent starts." },
+  { id: "blind", text: "The agent builds blind: it never sees the sealed checks." },
+  { id: "gate", text: "A sandboxed gate runs them. Plain code decides, not the agent." },
+  { id: "record", text: "Every decision is written down in a signed, hash-chained record." },
+];
+const rows = [0, 1, 2, 3, 4, 5];
+const widths = [210, 160, 230, 180, 200, 150];
+---
+<section id="how" class="section how" aria-labelledby="how-h">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2 id="how-h">Checks you approve. A gate that decides. A record that stays.</h2>
+  </div>
+
+  <svg class="how-defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <g id="how-world">
+        <!-- a: the check list gets a signature and a wax seal -->
+        <g id="how-a">
+          <rect x="190" y="70" width="260" height="340" rx="10" fill="#f4f1ea" stroke={N} stroke-width="5" />
+          <text x="214" y="112" class="w-mono" font-size="20">CHECKS</text>
+          {rows.map((i) => (
+            <g transform={`translate(214 ${140 + i * 34})`}>
+              <rect width="18" height="18" rx="3" fill="none" stroke={N} stroke-width="3" />
+              <polyline points="3,9 8,14 16,3" fill="none" stroke="#1f7a45" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+              <rect x="30" y="5" width={widths[i]} height="8" rx="4" fill="#c9c1ae" />
+            </g>
+          ))}
+          <path id="how-sign" d="M214 372 c14 -26 22 -26 26 -4 s10 18 20 -6 s14 -20 18 0 s12 14 26 -10 c6 -8 12 -6 16 4" fill="none" stroke={N} stroke-width="4" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0" />
+          <g id="how-wax" transform="translate(410 372)">
+            <circle r="34" fill="#e3a82e" stroke={N} stroke-width="4" />
+            <circle r="24" fill="none" stroke="#b9861d" stroke-width="3" />
+            <path d="M0 -12 a6 6 0 1 1 -0.1 0 Z M-4 -4 L4 -4 L6 13 L-6 13 Z" fill={N} />
+          </g>
+        </g>
+
+        <!-- b: { } blocks built behind a frosted pane -->
+        <g id="how-b" transform="translate(640 0)">
+          <rect x="120" y="408" width="400" height="10" rx="5" fill="#c9c1ae" />
+          {[0, 1, 2, 3].map((i) => (
+            <g class="how-block" data-i={i} transform={`translate(${250 + (i % 2) * 70} ${352 - Math.floor(i / 2) * 58})`}>
+              <rect width="120" height="54" rx="8" fill="#24406e" stroke={N} stroke-width="4" />
+              <text x="60" y="37" text-anchor="middle" font-size="28" class="w-mono" fill="#f4f1ea">{"{ }"}</text>
+            </g>
+          ))}
+          <g id="how-pane">
+            <rect x="150" y="60" width="340" height="360" rx="16" fill="#f4f1ea" fill-opacity="0.72" stroke={N} stroke-width="4" />
+            <path d="M150 140 L230 60 M150 240 L330 60 M150 340 L430 60 M190 420 L490 120 M290 420 L490 220 M390 420 L490 320" stroke="#ffffff" stroke-opacity="0.55" stroke-width="10" />
+            <rect x="244" y="36" width="152" height="40" rx="20" fill={N} />
+            <text x="320" y="63" text-anchor="middle" font-size="20" class="w-mono" fill="#f4f1ea">BLIND</text>
+          </g>
+        </g>
+
+        <!-- c: the gate booth; the arm stays shut for a diamond and lifts for a circle -->
+        <g id="how-c" transform="translate(1280 0)">
+          <rect x="40" y="398" width="560" height="10" rx="5" fill="#c9c1ae" />
+          <g id="how-booth">
+            <rect x="300" y="180" width="110" height="220" rx="8" fill="#f4f1ea" stroke={N} stroke-width="5" />
+            <rect x="286" y="160" width="138" height="30" rx="6" fill={N} />
+            <rect x="322" y="214" width="66" height="54" rx="6" fill="#9fb4cf" stroke={N} stroke-width="4" />
+            <text x="355" y="304" text-anchor="middle" font-size="17" class="w-mono">GATE</text>
+            <text x="355" y="326" text-anchor="middle" font-size="13" class="w-mono">(SANDBOX)</text>
+          </g>
+          <g id="how-arm" transform="translate(296 268) rotate(-80)">
+            <rect x="-232" y="-11" width="236" height="22" rx="11" fill="#ffc61a" stroke={N} stroke-width="4" />
+            <path d="M-200 -9 l-18 18 M-160 -9 l-18 18 M-120 -9 l-18 18 M-80 -9 l-18 18 M-40 -9 l-18 18" stroke={N} stroke-width="8" />
+            <circle r="12" fill={N} />
+          </g>
+          <g id="how-fail" transform="translate(40 330)">
+            <rect width="96" height="54" rx="8" fill="#24406e" stroke={N} stroke-width="4" />
+            <g transform="translate(48 -20)"><rect x="-16" y="-16" width="32" height="32" rx="3" fill="#ff5a4f" stroke={N} stroke-width="4" transform="rotate(45)" /><path d="M-7 -7 L7 7 M7 -7 L-7 7" stroke={N} stroke-width="4" stroke-linecap="round" /></g>
+          </g>
+          <g id="how-pass" transform="translate(470 330)">
+            <rect width="96" height="54" rx="8" fill="#24406e" stroke={N} stroke-width="4" />
+            <g transform="translate(48 -20)"><circle r="18" fill="#2fb457" stroke={N} stroke-width="4" /><polyline points="-8,0 -2,6 9,-6" fill="none" stroke="#f4f1ea" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" /></g>
+          </g>
+        </g>
+
+        <!-- d: the receipt prints; each row is chained to the last by a gold link -->
+        <g id="how-d" transform="translate(1920 0)">
+          <clipPath id="how-slotclip"><rect x="0" y="0" width="640" height="404" /></clipPath>
+          <g clip-path="url(#how-slotclip)"><g id="how-receipt">
+            <path d="M200 56 L440 56 L440 404 L200 404 Z" fill="#f4f1ea" stroke={N} stroke-width="4" />
+            <path d="M200 56 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12 l12 -12 l12 12" fill="#f4f1ea" stroke={N} stroke-width="4" stroke-linejoin="round" />
+            <text x="222" y="92" font-size="17" class="w-mono">RECORD</text>
+            {rows.map((i) => (
+              <g class="how-row" data-i={i} transform={`translate(222 ${116 + i * 46})`}>
+                <rect width={widths[i] - 40} height="9" rx="4.5" fill="#56657a" />
+                <rect x="150" y="-2" width="44" height="13" rx="3" fill="#e3a82e" />
+              </g>
+            ))}
+            {rows.slice(1).map((i) => (
+              <path class="how-link" d={`M394 ${114 + (i - 1) * 46 + 13} c14 6 14 26 0 33`} fill="none" stroke="#e3a82e" stroke-width="4" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0" />
+            ))}
+          </g></g>
+          <rect x="170" y="400" width="300" height="34" rx="10" fill={N} />
+        </g>
+      </g>
+    </defs>
+  </svg>
+
+  <div class="wrap how-pin">
+    <div class="stage grain how-stage" role="img" aria-label="Four scenes: a check list is signed and sealed; code blocks are built behind a frosted pane; a gate's arm stays shut for a red diamond and lifts for a green circle; a receipt prints rows chained by gold links.">
+      <div class="how-backdrop layer" data-p="0.2" aria-hidden="true"></div>
+      <div class="world" aria-hidden="true">
+        <div class="layer how-subject" data-p="1"><svg viewBox="0 0 2560 480"><use href="#how-world" /></svg></div>
+        <div class="layer how-fg" data-p="1.3"><span>{"{ }"}</span><span>{"{ }"}</span><span>{"{ }"}</span><span>{"{ }"}</span></div>
+      </div>
+    </div>
+    <ol class="how-captions hud">
+      {steps.map((s, i) => (
+        <li class="how-cap" data-step={s.id} data-sequenced="how">
+          <span class="how-n" aria-hidden="true">{["a", "b", "c", "d"][i]}</span>
+          <span class="how-t">{s.text}</span>
+        </li>
+      ))}
+    </ol>
+  </div>
+
+  <div class="wrap how-panels">
+    {steps.map((s, i) => (
+      <figure class="how-panel">
+        <div class="stage grain"><svg aria-hidden="true" viewBox={`${i * 640} 0 640 480`}><use href="#how-world" /></svg></div>
+        <figcaption>{s.text}</figcaption>
+      </figure>
+    ))}
+  </div>
+</section>
+
+<style>
+  .how-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+  .how :global(.w-mono) { font-family: var(--mono); font-weight: 500; fill: #0f1b2d; letter-spacing: 0.06em; }
+  .how-pin { margin-top: 32px; display: none; }
+  .how-stage { aspect-ratio: 4 / 3; max-height: 68vh; margin-inline: auto; }
+  .how-backdrop { inset: -20% -40%; background: repeating-linear-gradient(to bottom, transparent 0 46px, color-mix(in srgb, var(--gold) 28%, transparent) 46px 48px); }
+  .how-subject { width: 400%; right: auto; transform-origin: 12.5% 50%; }
+  .how-subject svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .how-fg { filter: blur(6px); pointer-events: none; }
+  .how-fg span { position: absolute; font: 500 72px/1 var(--mono); color: #24406e; opacity: 0.5; }
+  .how-fg span:nth-child(1) { left: 2%; top: 70%; }
+  .how-fg span:nth-child(2) { left: 80%; top: 6%; }
+  .how-fg span:nth-child(3) { left: 150%; top: 74%; }
+  .how-fg span:nth-child(4) { left: 260%; top: 8%; }
+  .how-captions { list-style: none; padding: 0; margin: 18px auto 0; max-width: 720px; min-height: 3.2em; position: relative; }
+  .how-cap { display: flex; gap: 12px; align-items: baseline; font-family: var(--display); font-weight: 800; font-size: clamp(19px, 2.4vw, 26px); line-height: 1.25; }
+  .how-pin .how-cap { position: absolute; inset: 0 0 auto 0; opacity: 0; visibility: hidden; }
+  .how-n { font-family: var(--mono); font-weight: 500; font-size: 15px; color: var(--mute); text-transform: uppercase; }
+  .how-panels { display: grid; gap: 20px; margin-top: 32px; }
+  @media (min-width: 768px) { .how-panels { grid-template-columns: 1fr 1fr; } }
+  .how-panel { margin: 0; }
+  .how-panel .stage { aspect-ratio: 4 / 3; }
+  .how-panel svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+  .how-panel figcaption { margin-top: 12px; font-family: var(--display); font-weight: 800; font-size: 20px; line-height: 1.25; }
+  /* Motion mode: the pinned stage replaces the panels. */
+  :global(.m) .how-pin { display: block; }
+  :global(.m) .how-panels { display: none; }
+</style>

@@ -1,0 +1,29 @@
+---
+import { REPO } from "../data/links";
+---
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav" id="top">
+  <div class="wrap nav-row">
+    <a class="wordmark" href="#main" aria-label="AntStreet, back to the top"><span>Ant</span><span class="street">Street</span></a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="#problem">Data</a></li>
+        <li><a href="#try">Try it</a></li>
+        <li><a class="gh" href={REPO}>GitHub <span aria-hidden="true">★</span></a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav { position: sticky; top: 0; z-index: 50; background: var(--bg); border-bottom: 2px solid var(--line); }
+  .nav-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; }
+  .wordmark { font-family: var(--display); font-weight: 800; font-size: 22px; text-decoration: none; letter-spacing: -0.01em; }
+  .street { color: var(--emph); }
+  :global(:root:not([data-theme="dark"])) .street { box-shadow: inset 0 -0.18em 0 var(--yellow); }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme="light"])) .street { box-shadow: none; } }
+  nav ul { display: flex; gap: clamp(12px, 3vw, 28px); list-style: none; margin: 0; padding: 0; align-items: center; }
+  nav a { text-decoration: none; font-weight: 700; font-size: 16px; padding: 8px 2px; display: inline-block; }
+  nav a:hover { text-decoration: underline; }
+  .gh { border: 2px solid var(--ink); border-radius: 999px; padding: 6px 12px; }
+</style>
