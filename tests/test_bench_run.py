@@ -12,6 +12,7 @@ from antstreet.bench.results import CellResult, cell_dir, load_results
 from antstreet.bench.run import main, run_cell
 from antstreet.bench.tasks import load_task, load_tasks, task_set_hash
 from antstreet.ledger import EventType, read_events
+from antstreet.rundir import RunPaths
 
 TASK = load_task(Path(__file__).parent.parent / "bench" / "tasks" / "slugify")
 REFERENCE = (TASK.reference_dir / "slugify.py").read_text()
@@ -214,6 +215,19 @@ def test_firm_options_are_passed_through_and_recorded(bench):
     assert result.firm_args == "--slice 0.05 --no-firing"
     worker = bench.calls()[-1]
     assert worker[worker.index("--max-budget-usd") + 1] == "0.05"
+
+
+def test_the_fix_after_stop_arm_is_passed_to_fund_recorded_and_kept_apart(bench):
+    (bench.home / "product.py").write_text(REFERENCE)
+    options = {"environ": bench.environ, "set_hash": "abc123", "budget_micros": 400_000}
+    arm = ["--roles", "critic", "--fix-after-stop"]
+    result = run_cell(TASK, "firm", 1, bench.results, firm_args=arm, **options)
+    assert result.firm_args == "--roles critic --fix-after-stop"
+    [run] = (cell_dir(bench.results, "slugify", "firm", 1) / ".boss" / "runs").iterdir()
+    started = next(e for e in RunPaths(run).events() if e.event is EventType.STARTED)
+    assert started.data["roles"]["fix_after_stop"] is True
+    with pytest.raises(RuntimeError, match="run with other options"):  # E4b's arm is not E4c's
+        run_cell(TASK, "firm", 1, bench.results, firm_args=["--roles", "critic"], **options)
 
 
 def test_the_coverage_option_runs_the_firm_arm_with_the_gate_and_records_it(bench):

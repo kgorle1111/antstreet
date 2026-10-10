@@ -55,7 +55,7 @@ Argument: `idea`, what to build, in plain words.
   set `"route": "firm"` on a one-file sheet; `"one_agent"` on a sheet with several files is refused.
 - `--roles` is checked before anything is spent. An unknown name, or a role without the roles it
   needs, is a usage error (exit 2) that says what to change. `--fix-budget` below one reserve plus
-  $0.005 is refused the same way.
+  $0.005 is refused the same way, and so is `--fix-after-stop` without `--roles critic`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -83,6 +83,7 @@ Argument: `idea`, what to build, in plain words.
 | `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `antstreet roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
 | `--review-cycles` | `1` | Times the critic may review the finished product and offer a fix round. With 0 the critic still runs and its findings are shown, but you are asked nothing. |
 | `--fix-budget` | two slices plus one reserve | Dollars for a fix round after the critic's findings: `$0.30` with the default slice and reserve. At least one reserve plus $0.005. |
+| `--fix-after-stop` | off | Needs `--roles critic`. When the run ended only because a round closed below its unlock threshold (no limit, pause, stop or awaited ruling), the critic's findings are still offered: a yes adds the checks and records the fix money as your `topped_up` of that round, which reopens it; no round is added. A finding of a task that was set aside is not offered: the reopened round would have no worker for it. Every other stop still offers nothing. Recorded on the run, so `resume` keeps it. |
 
 What it asks you:
 

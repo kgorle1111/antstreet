@@ -241,7 +241,7 @@ Example, a critic's call written by a run with every role:
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
-| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `antstreet approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
+| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `antstreet approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`), and `fix_after_stop` (true, only when `--fix-after-stop` was given; absent means off). |
 
 Config keys:
 
@@ -668,9 +668,12 @@ Example:
     was started with `--spec`. The summary is inside the signed data.
   - Round N, by `firm.py` when the investor funds a later round. Carries `round`.
   - An amendment: the investor approves more checks and a round added to an approved term sheet.
-    It carries `hashes` of the amended term sheet and its check files, `round` (the round the
-    amendment added) and `added_checks`. `pipeline.py` writes it, only after the investor says yes
-    to the critic's fix round, and before it rewrites `term_sheet.json`. `firm.py` reads it: a
+    It carries `hashes` of the amended term sheet and its check files, `held_out_hashes` when the
+    run has held-out checks, `round` (the round the amendment added) and `added_checks`. `pipeline.py` writes it, only after the investor says yes
+    to the critic's fix round, and before it rewrites `term_sheet.json`. With `--fix-after-stop`
+    and a run that ended at a locked round, `round` is that locked round, no round is added (only
+    the last round's `unlock_checks` grows to every check), and the money follows as a `topped_up`
+    of that round, written after `term_sheet.json`. `firm.py` reads it: a
     worker is told about an added check of its own task, and only an `investor` event counts.
 - A missing `round` counts as round 1 when the state is rebuilt, so the first approval opens
   round 1.
@@ -746,6 +749,10 @@ The first form of an approval under `--dispatch rules`:
   `round_closed` when it ends. The same event raises the run's spend ceiling. The same event from
   any other actor adds nothing and reopens nothing.
 - `antstreet topup` writes it only for a round of the term sheet, and not for one that closed unlocked.
+- `pipeline.py` writes it too, with `--fix-after-stop`: after the investor's yes to a fix round
+  offered on a run that ended at a locked round, right after the amendment's `approved` and the
+  new `term_sheet.json`, with the fix budget as `micros`. Same actor, same keys, same effect. An
+  interruption before it leaves the round locked and nothing spent.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -809,6 +816,7 @@ Example:
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
 | `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `antstreet approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
 | `coverage` | bool | The run was started with `--coverage`, so `antstreet approve` shows the COVERAGE GATE from `coverage.json`, and refuses when that file is missing or unreadable rather than show the sheet without it. Only on a stop awaiting approval. |
+| `spec` | bool | The run was started with `--spec` (or `--coverage`), so `antstreet approve` shows the rule coverage from `rules.json`, and refuses when that file is missing rather than show the sheet without it. Only on a stop awaiting approval; on one written before this key existed, `rules.json` being there decides. |
 | `notes` | list | The roles' notes on the draft, shown under the term sheet by `antstreet approve` (for an audit, what each check does on the base, shown by `antstreet audit approve`). They bind nothing. Only on a stop awaiting approval. |
 | `questions` | list | The boss's yes/no questions, as shown, in order. Only on an audit's stop awaiting the investor's answers. |
 | `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
