@@ -178,3 +178,20 @@ def test_without_a_request_it_names_the_run_and_the_request_it_checks_against(au
     assert REQUEST.strip().splitlines()[0][:60] in said and "--request FILE" in said
     code, said = next_step(audit, "--request", str(audit.request))
     assert "No request given" not in said
+
+
+def test_the_stop_hook_never_measures_strength(audit, monkeypatch):
+    # strength never changes the verdict and can run for minutes; the hook has 60 s
+    import antstreet.audit_check as audit_check
+
+    seen = {}
+    real = audit_check.check
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(audit_check, "check", spy)
+    at(audit, "bad")
+    audit.run("--repo", str(audit.repo), "--stop-hook", "notify")
+    assert seen.get("strength") is False

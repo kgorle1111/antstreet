@@ -1387,8 +1387,10 @@ def _audit_next(
             f"{audit.REQUEST_FILE})."
         )
     check_args = argparse.Namespace(
-        run=run, head=head, repo=str(repo), claim="done", claim_text=None, agent=None
-    )
+        run=run, head=head, repo=str(repo), claim="done", claim_text=None, agent=None,
+        no_strength=False, max_mutants=mutate.DEFAULT_CAP,
+        strength_timeout=audit_check.STRENGTH_TIMEOUT_S,
+    )  # fmt: skip
     code = _audit_check(check_args, store, say)
     say(
         f"Next: `antstreet audit report {run}` lists every verdict; "
@@ -1427,8 +1429,9 @@ def _audit_stop_hook(repo: Path, store: Path, mode: str, say: Say) -> int:
     try:
         if any(o.head == head for o in audit_report.collect(store, [run], STOP_HOOK_AGENT)):
             return EXIT_OK  # already reported for this commit
+        # No check strength here: it never changes the verdict and can outlast the hook's 60 s.
         verdict = audit_check.check(
-            run, head, repo=repo, store=store, claim="done", agent=STOP_HOOK_AGENT
+            run, head, repo=repo, store=store, claim="done", agent=STOP_HOOK_AGENT, strength=False
         )
         dirty = not gitrepo.is_clean(repo)
     except Exception:  # noqa: BLE001 - a hook error must never reach the agent or block the user
