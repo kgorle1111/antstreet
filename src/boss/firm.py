@@ -167,6 +167,12 @@ def started_config(events: Sequence[Event]) -> FirmConfig | None:
     return None
 
 
+def locked_stop(round_n: int) -> str:
+    """The `FirmReport.stopped` of a run that ended because a round closed below its unlock
+    threshold, and for no other reason."""
+    return f"round {round_n} closed below its unlock threshold"
+
+
 @dataclass(frozen=True, slots=True)
 class FirmReport:
     passed: int
@@ -261,7 +267,7 @@ class _Firm:
                 stopped = "stopped earlier"
                 break
             if round_.n in state.locked_rounds:  # also on resume: a locked round stays locked
-                stopped = f"round {round_.n} closed below its unlock threshold"
+                stopped = locked_stop(round_.n)
                 break
             if round_.n in state.closed_rounds:
                 continue
@@ -282,7 +288,7 @@ class _Firm:
             if passed == total:
                 break
             if not unlocked:
-                stopped = f"round {round_.n} closed below its unlock threshold"
+                stopped = locked_stop(round_.n)
                 break
         for path in assemble_product(self.paths, self.sheet, self.state()):
             self.say(f"Not in the product: {path} (its name collides with another task's file).")

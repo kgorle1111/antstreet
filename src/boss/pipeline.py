@@ -29,7 +29,7 @@ from boss.budget import RESERVE_MICROS
 from boss.context import imported_modules
 from boss.dispatch import DispatchPolicy
 from boss.errors import Outcome
-from boss.firm import Advise, FirmConfig, FirmReport, config_data
+from boss.firm import Advise, FirmConfig, FirmReport, config_data, locked_stop
 from boss.gate import Check, CheckStatus, GateError, run_gate
 from boss.ledger import Event, EventType, LedgerWriter
 from boss.redact import safe_text
@@ -123,13 +123,18 @@ class Setup:
     roles: tuple[str, ...]
     model: str  # the model of every role call: the boss's
     thinking_tokens: int | None
+    # `fund --fix-after-stop`: the critic's fix round may reopen a round that closed locked
+    fix_after_stop: bool = False
 
     def data(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "names": list(self.roles),
             "model": self.model,
             "thinking_tokens": self.thinking_tokens,
         }
+        if self.fix_after_stop:  # absent when off, so a run without it records what it always did
+            data["fix_after_stop"] = True
+        return data
 
 
 def recorded_setup(events: Sequence[Event]) -> Setup | None:
@@ -139,7 +144,10 @@ def recorded_setup(events: Sequence[Event]) -> Setup | None:
             thinking = raw.get("thinking_tokens")
             names = tuple(str(n) for n in raw["names"])
             return Setup(
-                names, str(raw.get("model", "")), thinking if type(thinking) is int else None
+                names,
+                str(raw.get("model", "")),
+                thinking if type(thinking) is int else None,
+                raw.get("fix_after_stop") is True,
             )
     return None
 
@@ -524,14 +532,15 @@ class Pipeline:
             if review is None or not review.verified:
                 break
             amended = None
+            reopen = self._reopenable(sheet, outcome)
             if cycles == 0:
                 self.say(
                     "--review-cycles is 0: the findings are in the report, no fix round is offered."
                 )
-            elif outcome.stopped:
+            elif outcome.stopped and reopen is None:
                 self.say(f"The run ended early ({outcome.stopped}): no fix round is offered.")
             else:
-                amended = self._amend(sheet, review, fix_micros)
+                amended = self._amend(sheet, review, fix_micros, reopen)
             if amended is None:
                 record = Recorder(self.ledger, self.run_id, 0)
                 record("investor", EventType.RULED, data={"ruling": DECLINED})
@@ -541,6 +550,17 @@ class Pipeline:
                 return result
             sheet, outcome = amended, result
         return sheet, outcome
+
+    def _reopenable(self, sheet: TermSheet, outcome: FirmReport) -> int | None:
+        """With `--fix-after-stop`, the round a fix round may reopen: the run ended only because
+        that round closed below its unlock threshold. Any other stop (a limit, a pause, a ruling
+        awaited, a round the investor did not fund) reopens nothing."""
+        if not self.setup.fix_after_stop or not outcome.stopped:
+            return None
+        state = run_state(self._events(), [t.id for t in sheet.tasks])
+        if state.stopped:
+            return None
+        return next((n for n in state.locked_rounds if outcome.stopped == locked_stop(n)), None)
 
     def _critic(self, sheet: TermSheet) -> Review | None:
         cycle = len(_calls(self._events(), "critic")) + 1
@@ -582,24 +602,32 @@ class Pipeline:
         }
         return [c.description for c in sheet.checks if c.id in passed]
 
-    def _amend(self, sheet: TermSheet, review: Review, fix_micros: int) -> TermSheet | None:
+    def _amend(
+        self, sheet: TermSheet, review: Review, fix_micros: int, reopen: int | None = None
+    ) -> TermSheet | None:
         """The sheet the investor is asked to approve: the verified findings as checks, and a new
         last round that funds a worker to fix them. Records the approval when the investor says
-        yes; the checks it wrote are removed again when the sheet is not approved."""
+        yes; the checks it wrote are removed again when the sheet is not approved.
+
+        With `reopen`, a round that closed locked, no round is added (the loop never passes a
+        locked round): the fix money is the investor's top-up of that round, which reopens it."""
         checks = self._proposed(sheet, review)
         if not checks:
             return None
-        n, rounds = _with_fix_round(
-            sheet,
-            fix_micros,
-            len(sheet.checks) + len(checks),
-            run_state(self._events(), [t.id for t in sheet.tasks]).approved_rounds,
-        )
+        total = len(sheet.checks) + len(checks)
+        if reopen is None:
+            n, rounds = _with_fix_round(
+                sheet,
+                fix_micros,
+                total,
+                run_state(self._events(), [t.id for t in sheet.tasks]).approved_rounds,
+            )
+            budget_micros = sheet.budget_micros + fix_micros
+        else:  # the money goes on the ledger as a top-up: the sheet's budget stays as approved
+            last = dataclasses.replace(sheet.rounds[-1], unlock_checks=total)
+            n, rounds, budget_micros = reopen, (*sheet.rounds[:-1], last), sheet.budget_micros
         amended = dataclasses.replace(
-            sheet,
-            checks=(*sheet.checks, *checks),
-            rounds=rounds,
-            budget_micros=sheet.budget_micros + fix_micros,
+            sheet, checks=(*sheet.checks, *checks), rounds=rounds, budget_micros=budget_micros
         )
         try:
             validate(amended, self.paths.checks, self.policy)
@@ -612,16 +640,20 @@ class Pipeline:
             self.say(f"\nCheck {c.id} [{c.task}] {_one_line(c.description, 300)}")
             self.say(f"--- {self.paths.checks / c.file}")
             self.say(_check_text(self.paths.checks / c.file))
-        if n <= len(sheet.rounds):
+        if reopen is not None:
+            self.say(
+                f"\nRound {n} closed below its unlock threshold, so the run ended there. A yes "
+                f"adds the fix money to round {n} as your top-up, which reopens it."
+            )
+        elif n <= len(sheet.rounds):
             self.say(
                 f"\nThe fix round is round {n}, in the place of the first round that never opened. "
                 "The rounds after it move up one number and keep their money; each still needs "
                 "your yes, and the last now unlocks only when every check passes."
             )
-        question = (
-            f"Add these {len(checks)} checks and fund a fix round of ${usd(fix_micros)}? "
-            "[y]es / [n]o "
-        )
+        what = f"top up round {n} by" if reopen is not None else "fund a fix round of"
+        question = f"Add these {len(checks)} checks and {what} ${usd(fix_micros)}? [y]es / [n]o "
+
         try:
             answer = self.ask(question).strip().lower()
         except EOFError:  # nobody is there to approve it; Ctrl-C is an interruption, not a no
@@ -643,6 +675,12 @@ class Pipeline:
         Recorder(self.ledger, self.run_id, n)("investor", EventType.APPROVED, data=data)
         approved = dataclasses.replace(amended, approved_by_investor=True)
         (self.paths.root / TERM_SHEET_FILE).write_text(approved.to_json())
+        if reopen is not None:
+            # Last, after the sheet on disk: an interruption before it leaves the round locked and
+            # nothing spent, never the fix money funding a sheet without the new checks.
+            Recorder(self.ledger, self.run_id, n)(
+                "investor", EventType.TOPPED_UP, data={"micros": fix_micros}
+            )
         self.say("Approved. Funding a worker to fix them...")
         return approved
 

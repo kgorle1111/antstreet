@@ -76,6 +76,7 @@ Argument: `idea`, what to build, in plain words.
 | `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `boss roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
 | `--review-cycles` | `1` | Times the critic may review the finished product and offer a fix round. With 0 the critic still runs and its findings are shown, but you are asked nothing. |
 | `--fix-budget` | two slices plus one reserve | Dollars for a fix round after the critic's findings: `$0.30` with the default slice and reserve. At least one reserve plus $0.005. |
+| `--fix-after-stop` | off | Needs `--roles critic`. When the run ended only because a round closed below its unlock threshold (no limit, pause, stop or awaited ruling), the critic's findings are still offered: a yes adds the checks and records the fix money as your `topped_up` of that round, which reopens it; no round is added. Every other stop still offers nothing. Recorded on the run, so `resume` keeps it. |
 
 What it asks you:
 
