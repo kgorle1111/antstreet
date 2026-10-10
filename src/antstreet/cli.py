@@ -295,6 +295,12 @@ def _parser() -> argparse.ArgumentParser:
         "one to try); see `antstreet roles`",
     )
     _review_options(fund)
+    fund.add_argument(
+        "--fix-after-stop",
+        action="store_true",
+        help="let the critic's fix round reopen a round that closed below its unlock threshold, "
+        "as your top-up of it; needs --roles critic (default: off)",
+    )
 
     for name, text in (
         ("resume", "continue an interrupted, paused or stopped run from its ledger"),
@@ -601,6 +607,9 @@ def _fund(
     if args.fix_budget is not None and args.fix_budget < needed:
         say(_fix_budget_refusal(needed, reserve))
         return EXIT_USAGE
+    if args.fix_after_stop and "critic" not in roles:
+        say("--fix-after-stop needs --roles critic: only the critic's findings make a fix round.")
+        return EXIT_USAGE
     rules: spec.Split | None = None
     if args.spec or args.coverage:
         refusal = _spec_refusal(args, roles)
@@ -719,7 +728,7 @@ def _fund(
 
         policy = _dispatch_policy(args)
         pipe = Pipeline(
-            Setup(roles, args.boss_model, args.boss_thinking),
+            Setup(roles, args.boss_model, args.boss_thinking, args.fix_after_stop),
             project, paths, ledger, run_id, env, executable, ask, say, policy,
         )  # fmt: skip
         try:
