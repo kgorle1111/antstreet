@@ -350,7 +350,7 @@ def test_gate_problems_report_reference_failures_with_the_gates_detail(tmp_path,
         "hidden check c0 does not pass on the reference (pytest exited 1)",
         "hidden check c1 does not pass on the reference (exceeded 30.0s)",
     ]
-    assert [seconds for _, seconds in calls] == [30.0, 30.0]
+    assert [seconds for _, seconds in calls] == [120.0, 120.0]  # VALIDATE_TIMEOUT_S
 
 
 def test_the_empty_run_uses_an_empty_directory_and_the_reference_run_the_reference(
