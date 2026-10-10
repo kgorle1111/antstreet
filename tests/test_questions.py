@@ -1,5 +1,5 @@
-"""The spec-gap questions: guards on the model's output, `boss audit plan --questions` at a terminal,
-and the same plan with no terminal, answered and approved with `boss audit approve`."""
+"""The spec-gap questions: guards on the model's output, `boss audit plan --questions` at a
+terminal, and the same plan with no terminal, answered and approved with `boss audit approve`."""
 
 import json
 import re
@@ -15,7 +15,7 @@ NO_EMPTY = (
     "import pytest\nfrom slug import slugify\n\n\n"
     "def test_empty_raises():\n    with pytest.raises(ValueError):\n        slugify('')\n"
 )
-YES_ACCENT = "from slug import slugify\n\n\ndef test_keeps():\n    assert slugify('café') == 'café'\n"
+YES_ACCENT = "from slug import slugify\n\n\ndef test_keeps():\n    assert slugify('é') == 'é'\n"
 NO_ACCENT = "from slug import slugify\n\n\ndef test_drops():\n    assert slugify('café') == 'caf'\n"
 YES_DIGIT = "from slug import slugify\n\n\ndef test_digits():\n    assert slugify('a1') == 'a1'\n"
 NO_DIGIT = "from slug import slugify\n\n\ndef test_no_digits():\n    assert slugify('a1') == 'a'\n"
@@ -243,3 +243,47 @@ def test_questions_and_answers_never_reach_the_audited_repo(tmp_path, monkeypatc
     saved = json.loads((audit.store / ".boss" / "runs" / audit.run_id() / "questions.json")
                        .read_text())  # fmt: skip
     assert len(saved) == 3
+
+
+# --- the eval harness ---------------------------------------------------------------------------
+
+
+def test_the_eval_scores_a_case_surfaced_only_when_a_question_names_its_rule():
+    from antstreet.bench import spec_gaps
+
+    cases = {c.id: c for c in spec_gaps.load_cases()}
+    assert len(cases) == 10 and all(c.idea() for c in cases.values())
+    nonascii = cases["semver-nonascii"]
+    assert spec_gaps.score(nonascii, ["Should parse('١.٢.٣') raise ValueError?"]).surfaced
+    missed = spec_gaps.score(nonascii, ["Should parse('1.2') raise ValueError?", "Why?"])
+    assert not missed.surfaced and missed.count == 2 and not missed.well_formed
+    assert spec_gaps.score(cases["tokenbucket-float"], ["Is available() a float?"]).well_formed
+
+
+def test_the_live_eval_runs_against_a_fake_claude_and_reports_recall_and_spend(tmp_path, capsys):
+    from audit_support import DRAFT, FAKE_CLAUDE
+
+    from antstreet.bench import spec_gaps
+
+    fake = tmp_path / "claude"
+    fake.write_text(FAKE_CLAUDE)
+    fake.chmod(0o755)
+    (tmp_path / "audit_draft.json").write_text(json.dumps(DRAFT))
+    (tmp_path / "audit_questions.json").write_text(json.dumps(QUESTIONS))
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "BOSS_CLAUDE_BIN": str(fake)}
+    every = json.loads(spec_gaps.CASES.read_text())
+    some = [c for c in every["cases"] if c["id"] in ("calc-nonascii", "tokenbucket-float")]
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"cases": some}))  # two cases keep the gate runs few
+    out = tmp_path / "found.json"
+    live = ["--cases", str(cases), "live", "--out", str(out)]
+    assert spec_gaps.main(live, environ=env) == 2  # no --yes-spend: no call
+    assert not out.exists() and not list(tmp_path.glob("argv_*"))
+    assert spec_gaps.main([*live, "--yes-spend"], environ=env) == 0
+    said = capsys.readouterr().out
+    # the canned questions ask about non-ASCII letters, not about a returned type
+    assert "Recall: 1 of 2 known-missing rules surfaced (50%)." in said
+    assert "Spent $0.0160 (measured)" in said and "about $0." in said
+    assert len(json.loads(out.read_text())["calc-nonascii"]) == 3
+    assert spec_gaps.main(["--cases", str(cases), "score", "--questions", str(out)]) == 0
+    assert "Recall: 1 of 2" in capsys.readouterr().out
