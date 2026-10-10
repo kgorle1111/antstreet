@@ -430,7 +430,7 @@ Argument: `run`, the id `antstreet audit plan` printed. Default: the latest run 
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--answers` | none | One answer per question, comma-separated, in the order shown: `y`, `n` or `s` (skip). Recorded once; the run then exports the base commit from `--repo`, runs the checks on it, and prints the term sheet in full with the `--sheet` value. |
+| `--answers` | none | One answer per question, comma-separated, in the order shown: `y`, `n` or `s` (skip). The run first exports the base commit from `--repo` and runs the checks on it; only if that works are the answers recorded (once), and then it prints the term sheet in full with the `--sheet` value. If the base run fails, nothing is recorded and the same answers can be given again. |
 | `--sheet` | none | The value printed with the term sheet you read: approves exactly that text and prints the seal. A check or the sheet changed since it was printed means a different text: nothing is approved. |
 | `--repo` | `.` | The audited checkout, used with `--answers` to export the base commit. It is read, never written. |
 
