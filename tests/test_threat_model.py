@@ -111,7 +111,7 @@ def test_the_late_hook_control_is_claimed_only_with_its_tests(rows):
 
 def test_the_ledger_row_says_resume_repairs_a_torn_tail_and_the_code_does(rows):
     row = next(r for r in rows if r["id"] == "T28")
-    assert "repair_torn_tail" in row["control"] and "`boss resume` calls it" in row["control"]
+    assert "repair_torn_tail" in row["control"] and "`antstreet resume` calls it" in row["control"]
     assert "no command calls" not in row["status"] and "Not wired in" not in row["status"]
     assert (
         "tests/test_cli.py::test_resume_repairs_a_ledger_whose_last_line_was_cut_off_and_says_so"
@@ -122,7 +122,9 @@ def test_the_ledger_row_says_resume_repairs_a_torn_tail_and_the_code_does(rows):
         for p in (ROOT / "src" / "antstreet").rglob("*.py")
         if p.name != "ledger.py" and "repair_torn_tail" in p.read_text(encoding="utf-8")
     ]
-    assert callers == ["cli.py"], "the only caller is `boss resume`: update T28 if that changes"
+    assert callers == ["cli.py"], (
+        "the only caller is `antstreet resume`: update T28 if that changes"
+    )
     # The repair comes before the first read of the ledger, in `_resume_run` (`_resume` finds
     # the run and turns a held lock into a message).
     tree = ast.parse((ROOT / "src" / "antstreet" / "cli.py").read_text(encoding="utf-8"))

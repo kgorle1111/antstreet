@@ -1,6 +1,7 @@
 """A dispute with nobody at a terminal to rule on it (Claude Code's Bash tool, a pipe): the run
 stops with the dispute pending instead of setting the task aside, the investor rules with
-`boss approve RUN --dispute CHECK --ruling drop|keep`, and `boss resume` carries on from the
+`antstreet approve RUN --dispute CHECK --ruling drop|keep`, and `antstreet resume` carries on from
+the
 ruling. Scripted workers and the real gate; no model calls."""
 
 import io
@@ -53,7 +54,7 @@ def test_unattended_dispute_stops_the_run_pending_instead_of_setting_the_task_as
 
 
 def resume(paths, ruling=None):
-    """What `boss approve --dispute` and `boss resume` append, as the investor."""
+    """What `antstreet approve --dispute` and `antstreet resume` append, as the investor."""
     with LedgerWriter(paths.ledger) as ledger:
         if ruling:
             data = {"task": "count_vowels", "worker": "w1", "check": "c05", "ruling": ruling}
@@ -127,7 +128,7 @@ def cli(project, *argv):
 def test_approve_dispute_records_the_signed_ruling_once(project_run):
     project, paths = project_run
     code, said = cli(project, "approve", "r1", "--dispute", "c05", "--ruling", "drop")
-    assert code == EXIT_OK and "boss resume r1" in said
+    assert code == EXIT_OK and "antstreet resume r1" in said
     [ruled] = events_of(paths, EventType.RULED)
     assert ruled.actor == "investor" and SIG_KEY in ruled.data
     assert {k: ruled.data[k] for k in ("task", "worker", "check", "ruling")} == {
@@ -177,9 +178,9 @@ def test_finish_exits_awaiting_and_prints_the_commands_last(project_run):
     said = []
     assert _finish(paths, FirmReport(6, 7, RULING_AWAITED), said.append) == EXIT_AWAITING
     tail = "\n".join(said[-2:])
-    assert "boss approve r1 --dispute c05 --ruling drop" in tail
-    assert "boss approve r1 --dispute c05 --ruling keep" in tail
-    assert "boss resume r1" in tail and "the ruling is yours, never the agent's" in tail
+    assert "antstreet approve r1 --dispute c05 --ruling drop" in tail
+    assert "antstreet approve r1 --dispute c05 --ruling keep" in tail
+    assert "antstreet resume r1" in tail and "the ruling is yours, never the agent's" in tail
 
 
 def _event(actor, kind, **data):

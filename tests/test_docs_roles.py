@@ -33,7 +33,7 @@ from antstreet.skills import MAX_SKILL_CHARS, SkillError, all_skill_ids, load_sk
 from antstreet.termsheet import Task
 
 DOC = DOCS / "ROLES.md"
-HEADING = "How `boss fund --roles` reaches each role"
+HEADING = "How `antstreet fund --roles` reaches each role"
 BUILDER_SIDE = {p.name for p in PROFILES} | {"builder"}
 PATH = re.compile(r"(?:src|tests|docs|bench)/[^\s`]*")
 
@@ -77,7 +77,8 @@ def test_the_skill_table_names_each_shipped_builder_skill_once_with_the_failure_
     assert all(len(r) == 2 and r[1] for r in rows)
 
 
-# Where `boss fund --roles` runs each role: the method of `Pipeline` that books its call, and the
+# Where `antstreet fund --roles` runs each role: the method of `Pipeline` that books its call, and
+# the
 # stage the document names for it. The table in ROLES.md must say exactly this.
 STAGES = {
     "product_manager": ("_stories", "before approval"),

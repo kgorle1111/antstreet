@@ -57,7 +57,7 @@ def test_no_tool_is_a_warning_with_the_fix_and_does_not_fail_the_run(monkeypatch
     cwd = tmp_path / "work"
     cwd.mkdir()
     checks = run_doctor({}, cwd, executable=cli)
-    assert all(c.ok for c in checks)  # `boss doctor` exits 0 iff every check is ok
+    assert all(c.ok for c in checks)  # `antstreet doctor` exits 0 iff every check is ok
     check = checks[-1]
     assert check.fix == "" and "install bubblewrap" in check.advice
     assert "full access" in check.detail

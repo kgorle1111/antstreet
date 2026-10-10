@@ -1,4 +1,4 @@
-"""Check strength in `boss audit check`: the counted checks against mutants of the change.
+"""Check strength in `antstreet audit check`: the counted checks against mutants of the change.
 
 The sealed checks here are two strong ones and a weak one that only calls the new function and
 asserts nothing about what it gives back. The head is right, so the verdict is unrefuted; strength

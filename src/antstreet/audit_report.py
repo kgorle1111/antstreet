@@ -1,4 +1,4 @@
-"""`boss audit report`: the gate's verdicts, run by run and in aggregate.
+"""`antstreet audit report`: the gate's verdicts, run by run and in aggregate.
 
 Only `audited` events written by the gate and verified by the store's key are read
 (`RunPaths.events` refuses a ledger with a forged or edited one). A later verdict on the same head,
@@ -92,13 +92,13 @@ def run_ids(store: Path, run: str | None, *, every: bool) -> list[str]:
     chosen = run or (known[-1] if known else None)
     if chosen is None or chosen not in known:
         where = f"No audit run {chosen!r}" if chosen else "No audit runs"
-        raise AuditError(f"{where} under {store}. Seal checks with `boss audit plan`.")
+        raise AuditError(f"{where} under {store}. Seal checks with `antstreet audit plan`.")
     return [chosen]
 
 
 def render(observations: list[Observation]) -> str:
     if not observations:
-        return "No audit verdicts yet. Run `boss audit check RUN --head REF --claim done`."
+        return "No audit verdicts yet. Run `antstreet audit check RUN --head REF --claim done`."
     lines: list[str] = []
     for run in dict.fromkeys(o.run for o in observations):
         lines.append(f"Run {run}")

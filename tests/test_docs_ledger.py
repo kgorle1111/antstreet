@@ -166,7 +166,8 @@ def cli_events(tmp_path, *, binary=None, answers=("a",), extra=()):
 
 
 def cli_spec_events(tmp_path):
-    """`boss fund --spec`: a boss that cites the idea's rules, so `boss_call` carries `prompt` and
+    """`antstreet fund --spec`: a boss that cites the idea's rules, so `boss_call` carries `prompt`
+    and
     `rules` and `approved` carries the coverage summary."""
     from test_cli import DRAFT as PLAIN
     from test_cli import FAKE_CLAUDE
@@ -183,7 +184,8 @@ def cli_spec_events(tmp_path):
 
 
 def cli_spec_mapper_events(tmp_path):
-    """`boss fund --spec --roles spec_mapper`: a fake boss that cites rules and a fake mapper that
+    """`antstreet fund --spec --roles spec_mapper`: a fake boss that cites rules and a fake mapper
+    that
     agrees with it, so the mapper's `role_call` is booked."""
     from test_cli import DRAFT as PLAIN
     from test_cli import FAKE_CLAUDE
@@ -204,7 +206,7 @@ def cli_spec_mapper_events(tmp_path):
 
 
 def cli_resumed_events(tmp_path):
-    """A run stopped by a wall-clock limit that is already over, then `boss resume` on it."""
+    """A run stopped by a wall-clock limit that is already over, then `antstreet resume` on it."""
     fund = ["fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9"]
     run_cli(tmp_path, fund)
     _, run_dir, _ = run_cli(tmp_path, ["resume"])
@@ -212,8 +214,10 @@ def cli_resumed_events(tmp_path):
 
 
 def cli_awaiting_events(tmp_path):
-    """`boss fund` with no terminal to ask on (the real `input`, a stdin that is not a TTY), then
-    `boss approve --sheet` with the value it printed: the waiting `stopped` and the approval."""
+    """`antstreet fund` with no terminal to ask on (the real `input`, a stdin that is not a TTY),
+    then
+    `antstreet approve --sheet` with the value it printed: the waiting `stopped` and the
+    approval."""
     import io
     import re
     import sys
@@ -238,7 +242,7 @@ def cli_awaiting_events(tmp_path):
 
 def cli_topped_up_events(tmp_path):
     """A round that closed below its unlock threshold because its budget ran out ($0.108 funds one
-    slice and leaves less than the $0.105 another needs), then `boss topup` on it."""
+    slice and leaves less than the $0.105 another needs), then `antstreet topup` on it."""
     run_cli(tmp_path, ["fund", "Reverse a string.", "--budget", "0.108"], broken=True)
     _, run_dir, _ = run_cli(tmp_path, ["topup", "--round", "1", "--amount", "0.25"])
     return read_events(run_dir / "ledger.jsonl")
@@ -277,7 +281,8 @@ def examiner_events(tmp_path):
 
 
 def audit_events(tmp_path):
-    """`boss audit plan` and `boss audit check` against a fake boss and a small git repository:
+    """`antstreet audit plan` and `antstreet audit check` against a fake boss and a small git
+    repository:
     the boss's audit draft, the investor's approval and the gate's signed verdict."""
     from audit_support import RIGHT_SLUG, Audit, branch, later
 
@@ -449,7 +454,7 @@ def test_actor_forms_and_the_writer_rules_are_documented(text):
 
 
 def test_only_the_reserved_types_have_no_writer_and_the_document_says_so(produced, text):
-    # role_call has two: `pipeline.py` (`boss fund --roles`) and `roles/examiner.py`.
+    # role_call has two: `pipeline.py` (`antstreet fund --roles`) and `roles/examiner.py`.
     unwritten = {e.value for e in EventType} - set(produced)
     assert unwritten == NO_WRITER, f"types with no writer changed: {sorted(unwritten)}"
     for name in NO_WRITER:
@@ -612,7 +617,7 @@ def test_the_started_roles_field_is_what_the_pipeline_records_and_resume_reads(p
         for e in produced["started"]
         if "roles" in e.data and e.data["roles"]["names"] not in (["spec_mapper"], [])
     ]
-    # a run awaiting `boss approve` records roles with no names; every other run with roles
+    # a run awaiting `antstreet approve` records roles with no names; every other run with roles
     # is a run with every role --roles all names; the `--spec` run
     # names the mapper alone, because `all` includes the staged roles --spec refuses
     assert with_roles

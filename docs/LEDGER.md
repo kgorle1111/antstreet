@@ -17,12 +17,12 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
 - Append-only. One writer at a time (exclusive lock; a second writer is refused).
 - Each event is validated before it is written, then flushed to disk.
 - A line that is not a valid event makes reading fail with the file name and line number.
-  A torn last line counts. `boss resume` calls `ledger.repair_torn_tail` before it reads the file:
+  A torn last line counts. `antstreet resume` calls `ledger.repair_torn_tail` before it reads the file:
   it cuts an incomplete last line (only when every earlier line is valid) and says what it removed.
-  No other command repairs: `boss report` and `boss status` report a torn ledger as damaged.
+  No other command repairs: `antstreet report` and `antstreet status` report a torn ledger as damaged.
 - `LedgerWriter` never appends to a cut-off last line, because the next line would be glued onto
   it and the file could no longer be repaired. Opening a file whose last line has no newline and
-  does not parse as an event raises `LedgerCorruptError` naming `boss resume`, and changes nothing.
+  does not parse as an event raises `LedgerCorruptError` naming `antstreet resume`, and changes nothing.
   A last line that is a complete event and only lost its newline gets the newline, under the
   writer's lock; the next `prev` is the same either way.
 - The version `v` must be the integer 1: `true` and `1.0` make the line corrupt. Adding `prev`
@@ -78,11 +78,11 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   outside the run folder that the investor key signs (not built).
 - Unsigned runs. With the key path and no anchor, a ledger with any unsigned line is refused by
   every reader and by the writer (which also refuses when the key file is gone, so a new key never
-  signs on top of it), naming `boss verify RUN --adopt-unsigned`. That command
+  signs on top of it), naming `antstreet verify RUN --adopt-unsigned`. That command
   (`ledger.adopt_unsigned`) is the investor's decision: it makes every other check (chain, every
   `mac`, every investor signature), refuses to create a key over signed lines whose key is lost,
   then writes the anchor for the ledger as it is now; later reads and appends work as for any
-  signed run. It changes nothing for a run that has an anchor. `boss report` then says
+  signed run. It changes nothing for a run that has an anchor. `antstreet report` then says
   `Ledger: N of M lines are unsigned: either older than line signing or rewritten without the
   key`. A signed line's `prev` covers the chained lines before it, and nothing covers lines older
   than the chain.
@@ -155,7 +155,7 @@ otherwise.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `purpose` | str | `term_sheet` for `boss fund`, `audit_checks` for `boss audit plan`. |
+| `purpose` | str | `term_sheet` for `antstreet fund`, `audit_checks` for `antstreet audit plan`. |
 | `model` | str | The boss model, from `--boss-model`. |
 | `thinking_tokens` | int or null | The thinking budget from `--boss-thinking`; `null` means the CLI's own default. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose draft was unusable or invalid. |
@@ -180,9 +180,9 @@ Example:
   - `run_examiner` in `roles/examiner.py`, for the examiner. Round 1, before the investor
     approves, so the call counts in that round's spend and against its budget; it is skipped
     (cost 0, outcome `skipped`) when round 1 could not then fund a worker slice. It adds
-    `requested`, `kept` and `problems`. `boss fund --held-out N` calls it through
+    `requested`, `kept` and `problems`. `antstreet fund --held-out N` calls it through
     `Pipeline.examine`.
-- `boss report` reads these events for its Roles section.
+- `antstreet report` reads these events for its Roles section.
 - `budget.remaining` reads them to charge a timed-out call at its `cap_micros` (below).
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
   for a call that was not made (`outcome` `not_called` or `skipped`). Billing is `api` or
@@ -228,16 +228,16 @@ Example, a critic's call written by a run with every role:
 - Round: 0
 - Written once, before the first round, holding the configuration the run was started with.
   `run_firm` writes it. When roles were chosen `pipeline.py` writes it first (`record_start`) with
-  the same `config` and adds `roles`, and `run_firm` then writes none. `boss fund` with no terminal
+  the same `config` and adds `roles`, and `run_firm` then writes none. `antstreet fund` with no terminal
   to ask on writes it too, before approval, with `roles` always (its `names` may be empty), and a
-  `stopped` event after it: that run is awaiting `boss approve`, and `boss resume` refuses it until
-  an `approved` event exists. `boss resume` reads it back, so a run continues with its own settings
+  `stopped` event after it: that run is awaiting `antstreet approve`, and `antstreet resume` refuses it until
+  an `approved` event exists. `antstreet resume` reads it back, so a run continues with its own settings
   and roles, not the defaults. A run without this event never hired anyone and cannot be resumed.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
-| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `boss approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
+| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `antstreet approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`). |
 
 Config keys:
 
@@ -255,12 +255,12 @@ Config keys:
 | `limits.max_workspace_bytes` | int | Most bytes a worker's folder or the assembled product may hold. The gate copies the folder for every check, so a larger one is not gated. |
 | `parallel` | int | Tasks worked on at once (`--parallel`). Each task still has one worker at a time. |
 | `profile` | str or null | The worker profile: skills added to the builder prompt. `null` is the bare prompt. |
-| `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. Set by `boss fund --held-out N`. A run started before the key existed loads with 0. |
-| `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. Set by `boss fund --worker-thinking N`. A run started before the key existed loads with `null`. |
+| `held_out` | int | How many held-out checks the examiner was asked for, 0 to 8; 0 (the default) is off. Set by `antstreet fund --held-out N`. A run started before the key existed loads with 0. |
+| `thinking_tokens` | int or null | The thinking budget of every worker slice (`MAX_THINKING_TOKENS`); 0 turns thinking off, `null` is the CLI's own default. Set by `antstreet fund --worker-thinking N`. A run started before the key existed loads with `null`. |
 | `dispatch` | bool | `true` when the run uses `--dispatch rules`. Written only then; a run without it has neither this key nor `max_tier`. |
 | `max_tier` | str | The dearest tier dispatch may use (`--max-tier`, default `sonnet`). Written only with `dispatch`. |
 | `cascade` | bool | `true` when the run uses `--dispatch cascade` (then `dispatch` is `true` too). Written only then; a run without it has no such key. |
-| `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `boss fund` has no option for it, so it is 0.95. |
+| `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `antstreet fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
 
@@ -278,7 +278,7 @@ The same, in a run that named roles:
 
 - Actor: `investor`
 - Round: the round of the last event in the ledger
-- Written by `cli.py` when `boss resume` finds the run stopped. It lifts the stop: a stop holds
+- Written by `cli.py` when `antstreet resume` finds the run stopped. It lifts the stop: a stop holds
   until a later `resumed`, and a later stop holds again. Nothing else writes it. Its only key is
   the signature: an unsigned or forged one is refused when the ledger is read, so it cannot lift a
   stop.
@@ -351,7 +351,7 @@ A replacement, stepped up one tier by `--dispatch rules`:
 | `task` | str | The task id. |
 | `cap_micros` | int | The slice's spend cap in micro-dollars. A target: one response can run past it. |
 | `session` | str | The UUID of the CLI session this attempt uses. A new one for every attempt that is not a proven resume (a session is resumed only after a slice in it got past infrastructure); the CLI refuses an id that is already in use. |
-| `context_sha256` | str | SHA-256 (hex) of the worker's system prompt, a NUL byte, then its user prompt: the bytes of `logs/<worker>-s<slice>.prompt.txt`, which `boss report` rehashes. Only under `--dispatch rules`. |
+| `context_sha256` | str | SHA-256 (hex) of the worker's system prompt, a NUL byte, then its user prompt: the bytes of `logs/<worker>-s<slice>.prompt.txt`, which `antstreet report` rehashes. Only under `--dispatch rules`. |
 | `context_chars` | int | Characters in the user prompt, at most `context.MAX_BUNDLE_CHARS` (30,000). Only under `--dispatch rules`. |
 | `context_parts` | object | Characters of each part of the user prompt that is in it: `task`, `interfaces`, `handoff`, `notes` for a first slice; `gate` for a resumed one. Only under `--dispatch rules`. |
 
@@ -644,7 +644,7 @@ Example:
 - Actor: `investor`
 - Three forms, all by the investor:
   - Round 0, by `approval.py` when the investor approves the term sheet, at the question or with
-    `boss approve` (which adds `shown_sha256`). Carries `hashes`,
+    `antstreet approve` (which adds `shown_sha256`). Carries `hashes`,
     `held_out_hashes` when the run has held-out checks, `route` when the run uses
     `--dispatch rules`, `rules.json` among its `hashes` and a `spec` coverage summary (rule and
     anchor counts, the uncovered and waived rule ids, the digest of the rule list) when the run
@@ -680,7 +680,7 @@ Example:
 |---|---|---|
 | `hashes` | object | SHA-256 hex digests: `term_sheet` for the term sheet without its approval flag, and one entry per check file, named by the file, and `rules.json` for a run started with `--spec`. Present in the first form, and in an amendment. |
 | `held_out_hashes` | object | SHA-256 hex digests of every file in the run's `held_out/` folder, named by the file (`manifest.json` and one `test_h01.py` per held-out check). Present only when the run has held-out checks. |
-| `shown_sha256` | str | SHA-256 hex of the exact text the investor approved: the rule coverage (with `--spec`), the term sheet, every check and held-out check, as `boss approve` rendered it. Only on an approval made with `boss approve --sheet`, whose value is its first 16 characters. |
+| `shown_sha256` | str | SHA-256 hex of the exact text the investor approved: the rule coverage (with `--spec`), the term sheet, every check and held-out check, as `antstreet approve` rendered it. Only on an approval made with `antstreet approve --sheet`, whose value is its first 16 characters. |
 | `route` | str | `one_agent` or `firm`: the route the investor approved (`dispatch.route_of` chose it from the sheet, or the investor edited it). Only in the first form, and only when the run uses `--dispatch rules`. The term sheet carries it too, and `hashes` covers that. |
 | `spec` | object | Only with `--spec`, in the first form: `rules_sha256` (digest of the rule list), `rules` (scored rules), `anchored`, `unanchored`, `anchor_missing`, `unscored_missing` (counts), `uncovered` and `waived` (rule ids) and `waived_reasons` (id to the boss's one-line reason). Inside the signed data. |
 | `round` | int | The round funded. Present in the second form, and in an amendment. |
@@ -700,7 +700,7 @@ Examples:
 The first two examples are unsigned and unchained: the first is older than signing, the second
 was written outside a project (a test's run folder). In a project every investor event carries
 `prev` and `sig`, as in the next two (the key that signed them was thrown away). A signed approval,
-as `boss fund` writes it:
+as `antstreet fund` writes it:
 
 ```json
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"hashes": {"term_sheet": "aa0ce180f53592efa47a651dc9e0b62d750b5817cec5f2dce48f585f158c7f5b", "test_c01.py": "46dcc9df463d18fec190640e9731fb76fd54990602d51e6f562260ee40137215", "test_c02.py": "ef8fdb7658a4589dad9a7e41b8b287e591fb402c96b8b5b3bc1438cbe7fe1173"}, "sig": "v2:641b282b994350128b7ed8524b68500a73dad5f1e5eee113e5cae602a6949211"}, "event": "approved", "prev": "b87dac9056fcb0aa1702b8b8a51f98408b164689f7f17e3f753bf1feea4e03ff", "round": 0, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:52:27.361484+00:00", "v": 1}
@@ -722,20 +722,20 @@ The first form of an approval under `--dispatch rules`:
 
 - Actor: `investor`
 - Round: the round that gets the money
-- Written by `cli.py` when `boss topup` adds money to a round. Only an `investor` event counts:
+- Written by `cli.py` when `antstreet topup` adds money to a round. Only an `investor` event counts:
   `budget.round_budget` adds `micros` to the budget of the round of each such event, and
   `state.run_state` takes the round out of `locked_rounds` and `closed_rounds` when the event comes
   after the `round_closed` that locked it, so the loop funds that round again and writes another
   `round_closed` when it ends. The same event raises the run's spend ceiling. The same event from
   any other actor adds nothing and reopens nothing.
-- `boss topup` writes it only for a round of the term sheet, and not for one that closed unlocked.
+- `antstreet topup` writes it only for a round of the term sheet, and not for one that closed unlocked.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `micros` | int | Extra budget for the round, a positive integer. Anything else makes the budget code raise. |
 | `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
-Example, `boss topup --round 1 --amount 0.25` on a round that had run out of money:
+Example, `antstreet topup --round 1 --amount 0.25` on a round that had run out of money:
 
 ```json
 {"actor": "investor", "billing": "unknown", "cost_micros": 0, "data": {"micros": 250000, "sig": "v2:dfda8844d673948b2b77d479b4464dee1fb77733da6912a495f97c3388a47f63"}, "event": "topped_up", "prev": "4be3ea985fb0bd3310654b880a2858826e97e546af41463965caa7373a4f68b1", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-02T20:48:19.193786+00:00", "v": 1}
@@ -748,7 +748,7 @@ Example, `boss topup --round 1 --amount 0.25` on a round that had run out of mon
 - Written by `firm.py` in two cases. A slice ended because the plan's usage limit was reached
   (`reason` `plan usage limit reached`), or a slice reported a plan window at or over
   `config.plan_pause_at` while work is left (`reason` names the window and its percentage), so the
-  next slice is not lost to the limit. The run ends; the round stays open and `boss resume`
+  next slice is not lost to the limit. The run ends; the round stays open and `antstreet resume`
   continues it.
 
 | Key | Type | Meaning |
@@ -769,9 +769,9 @@ Example:
 - Written when the run ends on purpose. A stop holds until a `resumed` event; a later stop holds
   again. Writers:
   - `boss`, by `cli.py`: the boss's call failed or its draft was invalid (round 0).
-  - `boss`, by `cli.py`: `boss fund` had no terminal to ask on, so the drafted term sheet waits
-    for `boss approve` (round 0, reason `awaiting the investor's approval`, with `untested` and
-    `notes`). `boss resume` refuses the run until the investor's `approved` event exists, then
+  - `boss`, by `cli.py`: `antstreet fund` had no terminal to ask on, so the drafted term sheet waits
+    for `antstreet approve` (round 0, reason `awaiting the investor's approval`, with `untested` and
+    `notes`). `antstreet resume` refuses the run until the investor's `approved` event exists, then
     lifts this stop like any other.
   - `investor`, by `approval.py`: the term sheet was rejected (round 0).
   - `investor`, by `firm.py`: a later round was not funded.
@@ -785,8 +785,8 @@ Example:
 |---|---|---|
 | `reason` | str | Why the run stopped. |
 | `fix` | str | A one-line next step. Present only when an infrastructure failure stopped the run. |
-| `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `boss approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
-| `notes` | list | The roles' notes on the draft, shown under the term sheet by `boss approve`. They bind nothing. Only on a stop awaiting approval. |
+| `untested` | object | Rule id to the boss's reason for leaving it untested (`--spec`), so `antstreet approve` shows the coverage `fund` showed. Only on a stop awaiting approval; empty without `--spec`. |
+| `notes` | list | The roles' notes on the draft, shown under the term sheet by `antstreet approve`. They bind nothing. Only on a stop awaiting approval. |
 | `sig` | str | On the investor's stops only. `v2:` and the HMAC-SHA-256 (hex) of the line with the project's investor key (see Signatures above). Present when the run is in a project (`<project>/.boss/runs/<id>`); absent otherwise and from lines written before signing. |
 
 Examples:
@@ -845,10 +845,10 @@ A model that is not the one launched, under `--dispatch rules`:
 
 - Actor: `gate`
 - Round: 0. Cost: 0. It records a verdict on a change made outside this run; it is not a spend.
-- Written by `audit_check.check` (`boss audit check`), once everything it verifies has held: the
+- Written by `audit_check.check` (`antstreet audit check`), once everything it verifies has held: the
   ledger, the signed approval, every check file, and that the head descends from the base. One run
   has one per audited head; a later one for the same head and agent replaces an earlier one in
-  `boss audit report`.
+  `antstreet audit report`.
 - Signed like an investor event: `sig` is `v2:` and the HMAC-SHA-256 of the line with the audit
   store's key. A reader that passes the key path (`RunPaths.events`, which `check` and `report` use)
   refuses a ledger holding an `audited` line that does not verify, whoever the actor says it is.
@@ -858,7 +858,7 @@ A model that is not the one launched, under `--dispatch rules`:
 |---|---|---|
 | `base` | str | The commit the checks were sealed against, as a full hash. |
 | `head` | str | The commit that was audited, as a full hash. |
-| `seal` | str | SHA-256 over the approved term sheet, every check file and every held-out file, as `boss audit plan` printed it. |
+| `seal` | str | SHA-256 over the approved term sheet, every check file and every held-out file, as `antstreet audit plan` printed it. |
 | `verdict` | str | `refuted`, `unrefuted`, `inconclusive` or `no_claim`. |
 | `claim` | str | `done` or `none`: what the audited agent said about its own work, as `--claim` gave it. |
 | `claim_mode` | str | `pre_registered` (at least one commit, every one dated after the seal) or `post_hoc`. The dates are the committer's own and can be forged. |
@@ -882,7 +882,7 @@ Strength keys:
 | `killed` | object | Check id to how many of the `mutants` it failed or timed out on. 0 of a positive `mutants` is shown as WEAK: the check would pass broken code. A survivor may be an equivalent mutant, so this is not a catch rate. At most 50 checks. |
 | `note` | str | Why fewer than `found`, or none, were run; empty otherwise. |
 
-Example, as `boss audit check` wrote it:
+Example, as `antstreet audit check` wrote it:
 
 ```json
 {"actor": "gate", "billing": "unknown", "cost_micros": 0, "data": {"agent": null, "base": "450109a66507cb2312db91fceb657edcd4d879cf", "blocked": [], "claim": "done", "claim_mode": "pre_registered", "claim_text_sha256": null, "counted": 2, "failed": [], "head": "cc6205caf9ae06949bc45cd1b12180ca233d7732", "leaks": [], "regressions": [], "seal": "ed5a83020bc8e7c814acc2b64bf69be69db78fdb731235283f725efb8c6e24e2", "sig": "v2:e6116d8391248c08499d18ff6e87c24fdb89aac1378726b1789b4fdc5a884099", "strength": {"found": 1, "killed": {"c01": 1, "c02": 1}, "mutants": 1, "note": ""}, "tests_deleted": [], "verdict": "unrefuted"}, "event": "audited", "prev": "5eadf5a1f1f3b5673fc707d7a9f029d4f7dec0fc7a23d026941b9083ed71eb1b", "round": 0, "run": "20261010T075934Z-77fd46", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-10T07:59:45.492486+00:00", "v": 1}

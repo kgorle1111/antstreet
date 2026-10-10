@@ -1,4 +1,5 @@
-"""`boss fund --spec`: the checks cite the idea's rules, the investor sees the coverage, the ledger
+"""`antstreet fund --spec`: the checks cite the idea's rules, the investor sees the coverage, the
+ledger
 records it. Run against the fake `claude` of test_cli, with a boss that cites rules."""
 
 import json

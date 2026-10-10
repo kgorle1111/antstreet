@@ -37,13 +37,14 @@ CLAUDE_FLAGS = {"--bare", "--safe-mode"}
 def parsers() -> dict[str, argparse.ArgumentParser]:
     """Every documented command, by the name used in the document's headings."""
     top = cli._parser()
-    found = {"boss": top}
+    found = {"antstreet": top}
     for name, parser in top._subparsers._group_actions[0].choices.items():
         steps = getattr(parser, "_subparsers", None)  # a command with steps of its own: `audit`
         if steps is None:
-            found[f"boss {name}"] = parser
+            found[f"antstreet {name}"] = parser
         else:
-            found |= {f"boss {name} {s}": p for s, p in steps._group_actions[0].choices.items()}
+            choices = steps._group_actions[0].choices.items()
+            found |= {f"antstreet {name} {s}": p for s, p in choices}
     return found
 
 
@@ -111,8 +112,8 @@ def test_every_option_of_every_command_is_documented_with_its_default(text, pars
 
 
 def test_every_subcommand_is_documented_and_no_other_is(text, parsers):
-    documented = set(re.findall(r"^## `(boss \w+(?: \w+)?)`\s*$", text, re.M))
-    assert documented == {n for n in parsers if n != "boss"}
+    documented = set(re.findall(r"^## `(antstreet \w+(?: \w+)?)`\s*$", text, re.M))
+    assert documented == {n for n in parsers if n != "antstreet"}
 
 
 def test_every_option_named_anywhere_in_the_document_exists_in_some_parser(
@@ -128,7 +129,7 @@ def test_every_option_named_anywhere_in_the_document_exists_in_some_parser(
 
 
 def test_exit_codes_in_the_document_are_the_constants_in_the_code(text):
-    body = section(text, "Exit codes of `boss`")
+    body = section(text, "Exit codes of `antstreet`")
     codes = {r[0].strip("`") for r in table(body)}
     assert codes == {
         str(c)
@@ -264,7 +265,7 @@ def test_a_run_stopped_early_names_the_command_that_continues_it(tmp_path):
     args = ["fund", "Reverse a string.", "--budget", "0.50", "--max-minutes", "1e-9"]
     code, run_dir, said = run_cli(tmp_path, args)
     assert code == cli.EXIT_INCOMPLETE
-    assert f"To continue this run: `boss resume {run_dir.name}`" in "\n".join(said)
+    assert f"To continue this run: `antstreet resume {run_dir.name}`" in "\n".join(said)
     code, resumed_dir, said = run_cli(tmp_path, ["resume"])
     assert code == cli.EXIT_INCOMPLETE and resumed_dir == run_dir
     kinds = [e.event for e in read_events(run_dir / "ledger.jsonl")]

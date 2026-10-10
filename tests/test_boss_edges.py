@@ -221,7 +221,7 @@ def test_an_unstartable_executable_names_itself_points_at_doctor_and_has_unknown
         with pytest.raises(BossError) as info:
             draft(result_with(), executable=executable)
         assert executable in str(info.value)
-        assert "boss doctor" in str(info.value)
+        assert "antstreet doctor" in str(info.value)
         assert info.value.usage.cost_micros is None
 
 

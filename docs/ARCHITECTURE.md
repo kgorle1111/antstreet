@@ -11,7 +11,7 @@ Related: [LEDGER.md](LEDGER.md) (event schema), [CLI.md](CLI.md) (commands, run 
 
 | Role | What it is | Ledger actor |
 |---|---|---|
-| Investor | The human. Gives the idea and budget, reads every check, approves, rejects or edits. Later rules on a disputed check or a blocked task, adds money to a round with `boss topup`, and lifts a stop with `boss resume`. | `investor` |
+| Investor | The human. Gives the idea and budget, reads every check, approves, rejects or edits. Later rules on a disputed check or a blocked task, adds money to a round with `antstreet topup`, and lifts a stop with `antstreet resume`. | `investor` |
 | Boss | One model call with no tools. Drafts tasks and pytest checks. Nothing else. | `boss` |
 | Worker | A headless `claude` CLI session. Tools: `Read`, `Write`, `Edit`, all scoped to its own folder. No shell. | `worker:<name>` |
 | Rule | Plain code (`rule.decide`). Decides from a worker's slice history: continue, done, fire, escalate, retry. | `rule` |
@@ -24,10 +24,10 @@ Related: [LEDGER.md](LEDGER.md) (event schema), [CLI.md](CLI.md) (commands, run 
 - The loop (`firm.py`) is not an actor. It reads the ledger, asks the rule, and writes events.
 - Specialist roles (`src/antstreet/roles/`) are not in this table. Each is one model call with no tools,
   behind a gate in code, and its spend is booked as a `role_call` event under the actor
-  `role:<name>`. Every role is off unless `boss fund --roles` names it, and `pipeline.py` is the
+  `role:<name>`. Every role is off unless `antstreet fund --roles` names it, and `pipeline.py` is the
   only module that calls one; [ROLES.md](ROLES.md) says where each runs and when one is switched
   on.
-- A worker profile (`boss fund --profile`) is the same worker with skills added to its prompt. It
+- A worker profile (`antstreet fund --profile`) is the same worker with skills added to its prompt. It
   changes what the worker is told, not what it may do.
 
 ## Module map
@@ -49,21 +49,21 @@ One row per file under `src/antstreet/`, `src/antstreet/roles/`, `src/antstreet/
 | `firm.py` | The round loop: hire, fund up to `parallel` slices at once, gate each, ask the rule, write events; pause before the plan limit; gate the assembled `product/`, with the held-out checks when the run has any. | Keep state outside the ledger; record a pass itself; spend before approval matches; write the ledger from any thread but its own; let a held-out result reach a per-worker decision. |
 | `gate.py` | Running checks against a fresh copy of the workspace, inside the OS sandbox when there is one; the verdict. | Read the exit code alone; accept a pass without the plugin's signed proof; run a check from the workspace; modify the original workspace. |
 | `gitrepo.py` | Reading a git repository the user did not write: resolve a ref to a commit, is the tree clean, ancestry, commits between, diff, export a commit's tree. Every call is an argv list in a scrubbed environment with plumbing only, and history is read in an object-only copy of the repository. | Run a program the repository's config names (`core.fsmonitor`, filters, `diff.external`, hooks); pass a ref git could read as an option; check anything out; write to the repository. |
-| `audit.py` | `boss audit plan`, and what plan and check share: the audit store's layout (a project's, in `~/.boss-audit`), the seal (the base commit and the request's hash in the term sheet's one task, so inside the signed approval), the base's public surface, and how a check's result on a tree is read (failing, passing, blocked, timeout). | Write to the audited repository or put check text anywhere outside the store; show the boss a function body, a test or any change; count a check that passes on the base; record a verdict. |
-| `audit_check.py` | `boss audit check`: verifying the run first, exporting both trees from git objects, the verdict, the claim mode, the leak scan, the base's tests run over the head's code, and writing the signed `audited` event. | Run anything before the ledger, the approval and the check files verify; accept a head that does not descend from the sealed base; let a leak or a base-test failure alone produce `refuted`; print a check's code; write a verdict it did not compute. |
-| `mutate.py` | Mutants of the lines a change added or edited, for `boss audit check`'s check strength: standard library `ast`, a fixed order, a cap spread evenly. | Mutate a line the change did not touch; run anything; present a kill count as a catch rate. |
-| `audit_report.py` | `boss audit report`: the verdicts the store's key vouches for, the false-pass rate with its Wilson interval per agent and claim mode. | Add a pre-registered verdict to a post-hoc one; read an `audited` event that does not verify; present the rate as more than a floor. |
+| `audit.py` | `antstreet audit plan`, and what plan and check share: the audit store's layout (a project's, in `~/.boss-audit`), the seal (the base commit and the request's hash in the term sheet's one task, so inside the signed approval), the base's public surface, and how a check's result on a tree is read (failing, passing, blocked, timeout). | Write to the audited repository or put check text anywhere outside the store; show the boss a function body, a test or any change; count a check that passes on the base; record a verdict. |
+| `audit_check.py` | `antstreet audit check`: verifying the run first, exporting both trees from git objects, the verdict, the claim mode, the leak scan, the base's tests run over the head's code, and writing the signed `audited` event. | Run anything before the ledger, the approval and the check files verify; accept a head that does not descend from the sealed base; let a leak or a base-test failure alone produce `refuted`; print a check's code; write a verdict it did not compute. |
+| `mutate.py` | Mutants of the lines a change added or edited, for `antstreet audit check`'s check strength: standard library `ast`, a fixed order, a cap spread evenly. | Mutate a line the change did not touch; run anything; present a kill count as a catch rate. |
+| `audit_report.py` | `antstreet audit report`: the verdicts the store's key vouches for, the false-pass rate with its Wilson interval per agent and claim mode. | Add a pre-registered verdict to a post-hoc one; read an `audited` event that does not verify; present the rate as more than a floor. |
 | `_gate_plugin.py` | The pytest plugin inside every gate run: writes a signed proof that each collected test really ran and passed. Copied by the gate, never imported by boss. | Import `boss`; read pytest's reports as evidence. |
 | `handoff.py` | Copying a fired worker's files and notes for its replacement. | Call a model; follow a symlink. |
 | `held_out.py` | The `held_out/` folder of a run: its manifest, its content hashes, and the gate its files must pass (ids, parse, a test function, failing on an empty workspace). | Hold a check's body anywhere but that folder; let a file it does not list stand. |
-| `ledger.py` | The event schema, the exclusive appender that chains each line to the one before, refuses a cut-off last line, signs every investor event and anchors the last line when it has the project's key path, the reader that checks the chain and (with that path) the signatures and the anchor, totals, `repair_torn_tail` (called by `boss resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0; append to a ledger the key does not vouch for; hand a reader an investor event it has not verified. |
+| `ledger.py` | The event schema, the exclusive appender that chains each line to the one before, refuses a cut-off last line, signs every investor event and anchors the last line when it has the project's key path, the reader that checks the chain and (with that path) the signatures and the anchor, totals, `repair_torn_tail` (called by `antstreet resume`). | Edit or delete a line, except an incomplete last one in `repair_torn_tail`; add an unknown cost as 0; append to a ledger the key does not vouch for; hand a reader an investor event it has not verified. |
 | `limits.py` | Hard run limits: spend ceiling, slices, workers, wall clock, and the size of a worker's folder. | Depend on the round budget or the rule. |
-| `mcp.py` | `boss mcp`: a read-only MCP server on stdio (JSON-RPC 2.0, stdlib only). Its tools `list_runs`, `status`, `report`, `verify_ledger` and `doctor` reuse the CLI's own code against the project it was started in; a run is named by one path-safe word; results are capped. | Offer a tool that funds, resumes, tops up, approves or calls a model; take a path from the client; write anything but protocol lines to stdout. |
+| `mcp.py` | `antstreet mcp`: a read-only MCP server on stdio (JSON-RPC 2.0, stdlib only). Its tools `list_runs`, `status`, `report`, `verify_ledger` and `doctor` reuse the CLI's own code against the project it was started in; a run is named by one path-safe word; results are capped. | Offer a tool that funds, resumes, tops up, approves or calls a model; take a path from the client; write anything but protocol lines to stdout. |
 | `pipeline.py` | The roles the investor chose, around the loop: before approval (stories, staged draft, audit, judge, notes under the sheet), while a dispute is open (the consultant's line), after the build (the critic and the fix round, the demo, the judge of the usage note). Booking every role call, the `started` event's `roles`, and what a resume still owes. | Decide anything: a note binds nothing, a proposal changes the run only when the investor says yes; record an amendment by anyone but the investor; call a role that was not chosen; write a role's model text to the screen unmade safe. |
 | `redact.py` | Masking secrets and control characters in text that is stored or shown (`safe_text`), in linear time. | Return text that still contains a matched secret. |
 | `kpi.py` | The investor-question count and the run facts the KPIs use (product verdict, held-out grades, the single arm's last status word, the ledger's time span), all from events. | Read model text or anything but events; count a figure the ledger does not hold as 0. |
 | `report.py` | The board report, computed from events, including one line per `role_call`; the held-out results (or why there are none) apart from the visible checks. | Read anything but events; fold an unknown cost into a total as 0; let a held-out result replace a visible one. |
-| `routing.py` | The cascade's start tier: the task kind from the term sheet, the attempts recorded in this project's verified past runs (`read_runs`), the expected-cost chooser (`choose_start`) with its priors, and the `boss routing` view. | Call a model; read a ledger the investor key does not vouch for; write anything; pick a tier above `--max-tier`. |
+| `routing.py` | The cascade's start tier: the task kind from the term sheet, the attempts recorded in this project's verified past runs (`read_runs`), the expected-cost chooser (`choose_start`) with its priors, and the `antstreet routing` view. | Call a model; read a ledger the investor key does not vouch for; write anything; pick a tier above `--max-tier`. |
 | `retry.py` | Pure decisions on infrastructure failures: wait, pause, give up. | Sleep; read a clock; touch a process. |
 | `roles/__init__.py` | `registry()`: every role, collected from the `SPECS` of the modules in the package. | List a role by hand; accept two roles with one name. |
 | `roles/advisory.py` | The check auditor (an opinion on each check against the idea) and the consultant (an opinion on one disputed check). | Change a check or a ruling; accept an opinion whose quote is not a fragment of the idea. |
@@ -109,17 +109,17 @@ One row per file under `src/antstreet/`, `src/antstreet/roles/`, `src/antstreet/
 
 Prompts are files, not code. The boss and the benchmark use `src/antstreet/prompts/term_sheet_v1.md`
 (one task), `term_sheet_v2.md` (several tasks), `term_sheet_v3.md` (one task whose checks cite the
-idea's rules, `boss fund --spec`), `builder_v5.md` (every worker; `builder_v4.md` is its predecessor, kept for the recorded benchmark runs) and `solo_v2.md` (the
+idea's rules, `antstreet fund --spec`), `builder_v5.md` (every worker; `builder_v4.md` is its predecessor, kept for the recorded benchmark runs) and `solo_v2.md` (the
 benchmark's single agent) and `self_review_v1.md` (the `single-review` arm's second slice). Each role
 has its own: `product_manager_v1.md`, `user_agent_v1.md`,
 `system_designer_v1.md`, `tester_v1.md`, `critic_v1.md`, `judge_v1.md`, `demo_writer_v1.md`,
-`check_auditor_v1.md`, `spec_mapper_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `boss audit plan` has one of its
+`check_auditor_v1.md`, `spec_mapper_v1.md`, `consultant_v1.md` and `examiner_v1.md`. `antstreet audit plan` has one of its
 own, `audit_checks_v1.md`. Skills are Markdown files under `src/antstreet/skills/`
 that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLES.md) says how they fit.
 
 ## Life of a run
 
-`boss fund "<idea>" --budget 0.40`
+`antstreet fund "<idea>" --budget 0.40`
 
 1. `cli` refuses, with exit 2, a `--slice` below the smallest slice cap or a budget per round
    below one reserve plus one minimum slice. Count options that are not whole numbers of 1 or more
@@ -134,7 +134,7 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
    fewer rounds if the run's reserve plus $0.005 would not fit in each.
 6. The investor reads the term sheet and every check, and approves, rejects or edits. Approval is
    an `approved` event holding hashes of the term sheet and each check file, and of the held-out
-   files when the run has them. With `--held-out N`, `boss fund` first has the examiner write
+   files when the run has them. With `--held-out N`, `antstreet fund` first has the examiner write
    them (`Pipeline.examine`, which calls `roles.examiner.run_examiner`), between steps 4 and 6.
 7. `run_firm` verifies the approval, writes `started` once (the run's configuration), then for each
    round asks for the investor's yes (rounds after the first) and runs the round.
@@ -158,7 +158,7 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
     needs them to pass as well. The report is rendered from the ledger, saved as `report.md` and
     printed, with the two results apart. Exit 0 if every check passed, else 3.
 
-`boss resume [run]` continues a run that was interrupted (Ctrl-C, exit 130), paused or stopped:
+`antstreet resume [run]` continues a run that was interrupted (Ctrl-C, exit 130), paused or stopped:
 
 1. `repair_torn_tail` cuts a last ledger line that a hard kill left incomplete, and says so. A
    damaged ledger that this does not fix ends the command with exit 1.
@@ -176,14 +176,14 @@ that a role's or a worker profile's system prompt is built from; [ROLES.md](ROLE
    checks with no `scope: product` result are run, and likewise the held-out checks with no
    `scope: held_out` result.
 
-`boss topup [run] --round N --amount D` records the investor's money for one round:
+`antstreet topup [run] --round N --amount D` records the investor's money for one round:
 
 1. It repairs a cut last ledger line as `resume` does, loads `term_sheet.json`, and takes the
    ledger's exclusive lock; a lock held by another process ends the command with exit 1.
 2. Holding the lock it reads the ledger and refuses a round the term sheet does not have, or one
    that closed unlocked (exit 2).
 3. It writes one `topped_up` event (actor `investor`, the round, `micros`) and prints the round's
-   new budget. It spends nothing: the next `boss resume` runs the loop, which counts the event in
+   new budget. It spends nothing: the next `antstreet resume` runs the loop, which counts the event in
    `budget.round_budget` (so also in the spend ceiling) and, for a locked round, treats the lock
    as lifted (`state.run_state`).
 
@@ -216,7 +216,7 @@ no `route` or `dispatch`, every worker runs on `--model`, the ledger has none of
    investor, and an infrastructure failure is retried on the same model; neither steps anything up.
 6. **Check what ran.** The CLI's `system/init` names the model it started with; `slice_end` records
    it as `model_id`, and a launched tier that is not in it stops the run after the slice is booked.
-7. **Report.** `boss report` prints one line per worker (tier, effort, why hired, cost, outcome,
+7. **Report.** `antstreet report` prints one line per worker (tier, effort, why hired, cost, outcome,
    model that ran) and rehashes each saved prompt.
 
 ### The cascade (`--dispatch cascade`)
@@ -296,7 +296,7 @@ The design relies on these. Each has a test; [THREAT_MODEL.md](THREAT_MODEL.md) 
 - **A worker never sees a held-out check.** They are stored outside every workspace, graded only
   on `product/`, approved by the investor with the term sheet, and ignored by `state` and `rule`.
 - **The loop keeps no state outside the ledger.** Before every decision it rebuilds the run with
-  `state.run_state`. Calling `run_firm` again on the same ledger continues the run; `boss resume` does
+  `state.run_state`. Calling `run_firm` again on the same ledger continues the run; `antstreet resume` does
   that. A stop holds until a `resumed` event from the investor lifts it.
 - **Money is integer micro-dollars.** The CLI's float estimate is converted once, in `stream.py`.
   Nothing stored is a float. Dollars appear only in text for people and CLI flags.
@@ -351,7 +351,7 @@ scales it for larger models: 3x for Sonnet, 5x for Opus (output-price ratios, no
 
 ## The roles around the loop
 
-`boss fund --roles a,b` makes `cli.py` build a `Pipeline` (`pipeline.py`) and hand it to the loop.
+`antstreet fund --roles a,b` makes `cli.py` build a `Pipeline` (`pipeline.py`) and hand it to the loop.
 With no roles every method of it does nothing and writes nothing.
 
 1. **Before approval.** `Pipeline.plan` runs the product manager, then the user agent, then the
@@ -377,7 +377,7 @@ usage judgement per build of the product (the last `slice_end`).
 
 ## The audit commands
 
-`boss audit` reuses the run's ledger, the investor's signed approval and the gate; it adds no loop
+`antstreet audit` reuses the run's ledger, the investor's signed approval and the gate; it adds no loop
 and funds no worker. It answers one question: did a change somebody else's agent made do what the
 request asked?
 
@@ -406,7 +406,7 @@ model says is read after that: no claim is parsed, no output of the agent is sho
 - An investor ruling on a task that was already set aside. It stays set aside for the run,
   resumed or not.
 - A writer for `denied` events. Nothing writes it.
-- In `boss audit` v1: installing dependencies for the checks, non-Python code, checks that need a
+- In `antstreet audit` v1: installing dependencies for the checks, non-Python code, checks that need a
   network, a service or a database, monorepos with several environments, retrying a flaky check,
   Windows, a GitHub Action, scanning an agent's transcript for a leak, and reading an agent's words
   to find its claim. The store is private to its owner and outside the repo, which does not stop an

@@ -1,4 +1,4 @@
-"""Mutants of the lines a change touched, for the check strength of `boss audit check`.
+"""Mutants of the lines a change touched, for the check strength of `antstreet audit check`.
 
 A mutant is one small edit to the head's code, of the kind a wrong implementation makes: a
 comparison or an operator flipped, a constant off by one, a condition negated, a `raise` dropped,

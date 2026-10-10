@@ -167,7 +167,7 @@ def _callers(name: str, *, skip: tuple[str, ...]) -> list[str]:
 def test_not_built_claims_are_still_true(text):
     body = section(text, "Not built")
     # nothing writes denied; `topped_up` is read by the budget (and counted by the KPIs as a step
-    # the investor took) and written by `boss topup` only
+    # the investor took) and written by `antstreet topup` only
     assert _uses("DENIED") == [] and "`denied`" in body
     assert _uses("TOPPED_UP") == ["budget.py", "cli.py", "kpi.py"] and "topped_up" not in body
     # the amendment is no longer a gap: it is written (see the test below), so it is not listed
@@ -214,9 +214,9 @@ def test_what_the_document_no_longer_calls_missing_is_built_and_named(text):
     assert _callers("plan_pressure", skip=("retry.py",)) == ["firm.py"]
     assert "retry.plan_pressure(run.rate_limit" in firm_source
     assert firm.FirmConfig().plan_pause_at == 0.95 and "plan_pressure" not in body
-    # `boss resume` exists, and it calls repair_torn_tail
+    # `antstreet resume` exists, and it calls repair_torn_tail
     commands = cli._parser()._subparsers._group_actions[0].choices
-    assert "resume" in commands and "boss resume" not in body
+    assert "resume" in commands and "antstreet resume" not in body
     assert "repair_torn_tail" in inspect.getsource(cli._resume_run)
     assert "repair_torn_tail" not in body
     assert _callers("repair_torn_tail", skip=("ledger.py",)) == ["cli.py"]
