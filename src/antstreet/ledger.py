@@ -342,13 +342,15 @@ def _settled(path: Path) -> bytes:
     Readers take no lock, and one `write` is not atomic against a concurrent `read`: Linux makes
     an append visible a page at a time (CI run 38042874252 read a line cut at byte 4096). A line
     in flight is whole within microseconds; a torn tail left by a crash never is, and is judged
-    exactly as before once the wait runs out. The waits look at the last byte only; the one full
-    read after them is the only one returned, and it is parsed and checked in full, so no state
-    is accepted that a single read would have refused.
+    exactly as before once the wait runs out. The waits look at the last byte only; a full read
+    is returned only if it ends with a newline (or, once the waits run out, as it is). That read
+    is parsed and checked in full, so no state is accepted that a single read would refuse.
     """
     for _ in range(_SETTLE_TRIES):
-        if _ends_settled(path):
-            break
+        if _ends_settled(path):  # cheap; the full read below can still race a new append
+            data = Path(path).read_bytes()
+            if not data or data.endswith(b"\n"):
+                return data
         time.sleep(_SETTLE_WAIT)
     return Path(path).read_bytes()
 
