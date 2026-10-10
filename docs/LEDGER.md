@@ -870,7 +870,7 @@ A model that is not the one launched, under `--dispatch rules`:
 | `regressions` | list | Tests of the base that pass on the base and fail when run over `head`'s code. Not part of the verdict. At most 50. |
 | `agent` | str or null | A label the investor gave the audited agent, if any. |
 | `claim_text_sha256` | str or null | SHA-256 of the file given as `--claim-text`, if any. The text itself is not stored. |
-| `strength` | object or null | How much each counted check that passes on `head` bites: the checks run against mutants of the lines the change touched (keys below). Advisory: never part of the verdict. `null` under `--no-strength`. Absent from events written before it was recorded; those still verify, and `boss audit report` shows no strength for them. |
+| `strength` | object or null | How much each counted check that passes on `head` bites: the checks run against mutants of the lines the change touched (keys below). Advisory: never part of the verdict. `null` under `--no-strength`. Absent from events written before it was recorded; those still verify, and `antstreet audit report` shows no strength for them. |
 | `sig` | str | `v2:` and the HMAC-SHA-256 (hex) of the line with the audit store's investor key (see Signatures above). |
 
 Strength keys:

@@ -256,7 +256,7 @@ def measure_strength(
     if not sandbox_available():
         return Strength(
             0, 0, {}, "mutants run only inside an OS sandbox, which this run has not got "
-            "(`boss doctor` says why)",
+            "(`antstreet doctor` says why)",
         )  # fmt: skip
     found, total = mutate.mutants(_changed_sources(base_tree, head_tree), cap)
     notes: list[str] = []
