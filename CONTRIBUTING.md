@@ -104,7 +104,8 @@ a time and reruns the tests; a "survivor" is a change no test caught.
 
 - **Small commits, one concern each.** The subject is a conventional commit: `type(scope): what`,
   in the imperative. Types in use: `feat`, `fix`, `test`, `docs`, `refactor`, `build`, `ci`,
-  `chore`, `style`. The body says why. Work on a branch and open a pull request; CI must be green.
+  `chore`, `style`, and `merge` for a commit that merges `main` into a branch and resolves its
+  conflicts. The body says why. Work on a branch and open a pull request; CI must be green.
 - **Tests that can fail.** New logic comes with a test that fails when the logic is wrong. Then
   mutation-check what you changed: make the smallest change to the code that should break the test,
   run it, see it fail, and restore the code. A test you have not seen fail proves nothing.
