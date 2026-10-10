@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from antstreet import boss, questions
+from antstreet.errors import INFRASTRUCTURE
 from antstreet.worker import CLI, EXECUTABLE_VAR, worker_env
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -104,6 +105,10 @@ def estimate(cases: Sequence[Case], tasks: Path = TASKS) -> tuple[int, int, floa
     return tokens_in, tokens_out, usd
 
 
+class InfrastructureStop(Exception):
+    """A call failed for a reason that is not the model's (login, a limit): stop, never score."""
+
+
 def live(
     cases: Sequence[Case],
     *,
@@ -141,6 +146,8 @@ def live(
                 add(usage.cost_micros)
             except boss.BossError as exc:
                 add(exc.usage.cost_micros)
+                if exc.outcome in INFRASTRUCTURE:  # login, limits: not the model's answer
+                    raise InfrastructureStop(f"{case.id}: {exc}") from exc
                 print(f"{case.id}: {exc}", file=sys.stderr)
                 asked = []
         found[case.id] = [q.text for q in asked]
@@ -176,12 +183,16 @@ def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = 
         print("Not run: `live` makes real model calls. Add --yes-spend to run it.")
         return 2
     environ = dict(environ if environ is not None else os.environ)
-    found, spent, unknown = live(
-        cases,
-        env=worker_env(environ),
-        model=args.model,
-        executable=environ.get(EXECUTABLE_VAR, CLI),
-    )
+    try:
+        found, spent, unknown = live(
+            cases,
+            env=worker_env(environ),
+            model=args.model,
+            executable=environ.get(EXECUTABLE_VAR, CLI),
+        )
+    except InfrastructureStop as exc:
+        print(f"Stopped, not scored: {exc}. Fix the cause and run again; nothing was saved.")
+        return 3
     args.out.write_text(json.dumps(found, indent=1, ensure_ascii=False), encoding="utf-8")
     print(report([score(c, found.get(c.id, [])) for c in cases]))
     kind = "at least; a call reported no cost" if unknown else "measured"

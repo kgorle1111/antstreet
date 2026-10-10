@@ -344,3 +344,25 @@ def test_an_unknown_call_cost_makes_the_spend_a_lower_bound(monkeypatch):
     monkeypatch.setattr(spec_gaps.Case, "idea", lambda self, tasks=None: "an idea")
     found, spent, unknown = spec_gaps.live([case], env={})
     assert found == {"c": []} and spent == 5_000 and unknown
+
+
+def test_a_login_failure_stops_the_live_run_unscored(tmp_path, monkeypatch, capsys):
+    # an auth failure is not the model's answer: it must never print a recall of 0
+    from antstreet import boss
+    from antstreet.bench import spec_gaps
+    from antstreet.errors import Outcome
+    from antstreet.stream import Usage
+
+    def login(*args, **kwargs):
+        raise boss.BossError("boss call ended as login", Outcome.LOGIN, Usage(None, 0, 0, 0))
+
+    monkeypatch.setattr(spec_gaps.boss, "draft_term_sheet", login)
+    monkeypatch.setattr(spec_gaps.Case, "idea", lambda self, tasks=None: "an idea")
+    case = {"id": "c", "task": "t", "rule": "r", "source": "s", "match": ["x"]}
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"cases": [case]}))
+    out = tmp_path / "out.json"
+    args = ["--cases", str(cases), "live", "--yes-spend", "--out", str(out)]
+    assert spec_gaps.main(args, environ={"PATH": "/usr/bin"}) == 3
+    said = capsys.readouterr().out
+    assert "Stopped, not scored" in said and "Recall" not in said and not out.exists()
