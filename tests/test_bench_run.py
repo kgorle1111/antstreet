@@ -230,6 +230,32 @@ def test_the_fix_after_stop_arm_is_passed_to_fund_recorded_and_kept_apart(bench)
         run_cell(TASK, "firm", 1, bench.results, firm_args=["--roles", "critic"], **options)
 
 
+def test_the_coverage_option_runs_the_firm_arm_with_the_gate_and_records_it(bench):
+    from antstreet import spec
+
+    first, *rest = spec.split(TASK.idea.strip()).scorable
+    cited = {**DRAFT, "checks": [{**DRAFT["checks"][0], "rules": [first.id]}]}
+    cited["untested"] = [{"rule": r.id, "reason": "left for the test"} for r in rest]
+    (bench.home / "draft.json").write_text(json.dumps(cited))
+    (bench.home / "product.py").write_text(REFERENCE)
+    result = run_cell(
+        TASK,
+        "firm",
+        1,
+        bench.results,
+        environ=bench.environ,
+        set_hash="abc123",
+        budget_micros=400_000,
+        coverage=True,
+    )
+    assert result.firm_args == "--coverage" and result.passed
+    boss_calls = [c for c in bench.calls() if c[c.index("--tools") + 1] == ""]
+    assert len(boss_calls) == 2, "the draft and one redraft: every other rule was left uncited"
+    assert result.boss_micros == 8_000
+    [run_dir] = (cell_dir(bench.results, "slugify", "firm", 1) / ".boss" / "runs").iterdir()
+    assert (run_dir / "coverage.json").is_file()
+
+
 def test_a_finished_cell_is_not_run_again(bench):
     first = bench("single")
     calls = len(bench.calls())
