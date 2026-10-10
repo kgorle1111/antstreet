@@ -13,6 +13,9 @@ what changed for someone using the tool, not which commit did it.
 - `boss audit` with no step does the next one: seals checks when no run covers `HEAD` (request
   from `--request` or `.antstreet/request.md`), checks `HEAD` as `done` when a run's base is
   behind it, and prints the next command.
+- The plugin hook also denies the agent `antstreet audit` in any form, and any Bash, Read, Grep or
+  Glob call that names or links into the audit store: a tripwire, not a sandbox (keep the store
+  under another user for that).
 - A plugin Stop hook that audits `HEAD` against a sealed run when the agent stops. It tells you
   the verdict and shows the agent no check; blocking a refuted stop is the opt-in option
   `audit_on_refuted`.
