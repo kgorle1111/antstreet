@@ -166,7 +166,7 @@ Built like something you would be happy to inherit.
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
 - **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
-- **7 pre-registered experiments**, with every change to the plan dated
+- **9 pre-registered experiments**, with every change to the plan dated
   ([bench/PREREG.md](bench/PREREG.md)).
 - **46 recorded design decisions**, including what was rejected and why
   ([DECISIONS.md](docs/DECISIONS.md)).
