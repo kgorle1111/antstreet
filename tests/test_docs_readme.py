@@ -91,7 +91,8 @@ def test_a_threat_row_anchor_counts_as_a_heading(tmp_path):
 def test_the_documentation_section_links_every_document(text):
     body = section(text, "Documentation")
     linked = set(LINK.findall(body))
-    expected = {f"docs/{p.name}" for p in DOCS.glob("*.md")}
+    # PYPI.md is the packaging page, not a document to link
+    expected = {f"docs/{p.name}" for p in DOCS.glob("*.md") if p.name != "PYPI.md"}
     expected |= {"bench/METHOD.md", "CHANGELOG.md", "SECURITY.md", "CONTRIBUTING.md"}
     assert expected <= linked, f"the README does not link: {sorted(expected - linked)}"
 

@@ -183,7 +183,11 @@ def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--dir", default=".", help="project folder (default: current)")
     parser = argparse.ArgumentParser(
-        prog="antstreet", description="Fund an idea; an LLM boss runs the firm that builds it."
+        prog="antstreet",
+        description=(
+            "Check an AI coding agent's work against sealed tests it never saw (audit), "
+            "or fund a budget-capped build (experimental)."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"antstreet {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
