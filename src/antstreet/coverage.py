@@ -56,7 +56,7 @@ class Gaps:
     anchor_missing: tuple[str, ...]
     weak: Mapping[str, tuple[str, ...]]  # check id -> the stubs it passed on
     unmeasured: str | None = None  # why the stubs could not be run, if they could not
-    sha256: Mapping[str, str] = field(default_factory=dict)  # check id -> its file, as measured
+    sha256: Mapping[str, str] = field(default_factory=dict)  # every check id -> its file, measured
 
     @property
     def size(self) -> int:
@@ -112,7 +112,7 @@ def measure(
         anchor_missing=_rules_in(report, "anchor_missing"),
         weak=weak,
         unmeasured=unmeasured,
-        sha256={c: _sha(sources[c]) for c in weak},
+        sha256={c: _sha(text) for c, text in sources.items()},
     )
 
 
@@ -162,7 +162,8 @@ _STUB_WORDS = {
 def save(path: Path, gaps: Gaps, redrafts: int) -> None:
     data = {
         "redrafts": redrafts,
-        "weak": {c: {"stubs": list(s), "sha256": gaps.sha256[c]} for c, s in gaps.weak.items()},
+        "weak": {c: list(s) for c, s in gaps.weak.items()},
+        "sha256": dict(gaps.sha256),
         "unmeasured": gaps.unmeasured,
     }
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
@@ -172,8 +173,8 @@ def gate_view(
     path: Path, report: spec.SpecReport, sheet: TermSheet, checks_dir: Path
 ) -> tuple[str, dict[str, Any]]:
     """The gate's lines above the term sheet, and what the approval records. The waived rules are
-    recomputed from the files now; a weak flag counts only for a check unchanged since it was
-    measured (an edited check is said to be unmeasured)."""
+    recomputed from the files now; a check counts as measured, weak or not, only while its file
+    is the one measured (an edited or added check is said to be unmeasured)."""
     try:
         saved = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(saved, dict):
@@ -183,23 +184,21 @@ def gate_view(
             f"{FILE} cannot be read ({exc}), and this run was started with --coverage, so its "
             "gate cannot be shown; start again with `antstreet fund --coverage`"
         ) from exc
-    recorded = saved.get("weak")
+    recorded, hashes = saved.get("weak"), saved.get("sha256")
     recorded = recorded if isinstance(recorded, dict) else {}
+    hashes = hashes if isinstance(hashes, dict) else {}
     weak: dict[str, list[str]] = {}
     changed = []
     for check in sheet.checks:
-        entry = recorded.get(check.id)
-        if not isinstance(entry, dict):
-            continue
         try:
             now = _sha((checks_dir / check.file).read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError):
             now = None
-        stubs = entry.get("stubs")
-        if now == entry.get("sha256") and isinstance(stubs, list):
-            weak[check.id] = [s for s in stubs if s in STUBS]
-        else:
+        stubs = recorded.get(check.id, [])
+        if now is None or now != hashes.get(check.id) or not isinstance(stubs, list):
             changed.append(check.id)
+        elif stubs:
+            weak[check.id] = [s for s in stubs if s in STUBS]
     waived = list(_rules_in(report, "uncovered", "waived"))
     redrafts = saved.get("redrafts")
     redrafts = redrafts if type(redrafts) is int else "?"

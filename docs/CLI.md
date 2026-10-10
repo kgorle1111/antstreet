@@ -826,7 +826,7 @@ Exit codes: `0`; `1` when the file cannot be read.
 | `demo/` | `demo.py` and `USAGE.md` as installed in `product/`. Kept because `product/` is rebuilt on every run, and a `resume` copies them back. |
 | `demo_scratch/` | Where the demo writer ran its script against a copy of the product. |
 
-A run started with `--spec` also has `rules.json`, the rule list of its idea; with `--coverage`, `coverage.json` too (the redrafts asked for, the weak checks with the stubs they passed and their file's SHA-256, and why the stubs could not run, if they could not). A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
+A run started with `--spec` also has `rules.json`, the rule list of its idea; with `--coverage`, `coverage.json` too (the redrafts asked for, the weak checks with the stubs they passed, the SHA-256 of every check file as measured, and why the stubs could not run, if they could not). A run that asked for held-out checks also has `held_out/` (their files and a `manifest.json`;
 never inside a workspace or `product/`) and, if the examiner's output was refused,
 `examiner_refused.json`; `antstreet fund --held-out N` creates them. `workspaces/`, `logs/` and `product/`
 exist only once a worker has been hired. `report.md` is

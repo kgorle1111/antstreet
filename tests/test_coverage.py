@@ -218,6 +218,21 @@ def test_a_check_edited_after_the_stub_run_is_shown_unmeasured(boss):
     assert approved.data["spec"]["weak"] == {}
 
 
+def test_a_strong_check_edited_into_a_weak_one_is_shown_unmeasured(boss):
+    run = boss(GAPPY)
+    answers = iter(["e", "", "a"])
+
+    def weaken_then_approve(prompt):
+        answer = next(answers)
+        if answer == "":
+            (run.run_dir() / "checks" / "test_c01.py").write_text(IDENTITY)
+        return answer
+
+    code, output = run("fund", IDEA, "--budget", "0.50", "--coverage", ask=weaken_then_approve)
+    assert code == EXIT_OK, output
+    assert "Edited since the stub run, not measured: c01." in output
+
+
 def test_the_unattended_approval_shows_and_binds_the_gate(boss, monkeypatch):
     import antstreet.cli as cli
 
