@@ -75,13 +75,15 @@ every ledger verified, and a further `resume` changed nothing in any of them.
   started from one killed at once, so it says "unknown" rather than "free".
 - **A worker left running is stopped before its slice runs again.** The worker runs in a session
   of its own, so a SIGKILL of `antstreet` does not reach it: it can go on writing its workspace.
-  The runner records its process group in `logs/<worker>.pgid` (next to its log) right after
-  launch and removes it once the slice's group is stopped. `resume` reads it before booking the
-  interrupted slice: a live group whose command line holds the slice's session id is stopped
-  (SIGTERM, then SIGKILL) and the booking says so (`stopped_pgid`); a live group that cannot be
-  shown to be the worker (its id reused, or only the worker's tool commands left) is never
-  signalled, and `resume` refuses, books nothing and says what to do. The trial's fake worker
-  records every later worker call made while it still runs: none was.
+  The runner records its process group in `logs/<worker>.pgid` (next to its log) before the
+  worker CLI starts, and removes it once the slice's group is stopped: the launched child waits
+  on a pipe and execs the CLI only after the record, so an `antstreet` killed in between leaves
+  no worker running (the child sees the pipe close and exits). `resume` reads the file before
+  booking the interrupted slice: a live group whose command line holds the slice's session id
+  is stopped (SIGTERM, then SIGKILL) and the booking says so (`stopped_pgid`); a live group that
+  cannot be shown to be the worker (its id reused, or only the worker's tool commands left) is
+  never signalled, and `resume` refuses, books nothing and says what to do. The trial's fake
+  worker records every later worker call made while it still runs: none was.
 - **Two resumes cannot run one run at once.** The second is refused (the run is still being
   written by another process) and the ledger is byte for byte unchanged; the first finishes.
 
@@ -105,8 +107,7 @@ every ledger verified, and a further `resume` changed nothing in any of them.
   timeout usually prints one with its cost; then the slice is booked exactly.
 - The benchmark runner (`bench/run.py`) resumes whole cells, not slices; it was not faulted here.
 - A worker left running is found only through `logs/<worker>.pgid`: a run started before this
-  file existed, or an `antstreet` killed in the microseconds between launching the worker and
-  writing it, resumes as before (the slice is booked, a worker may still run). Stopping needs
+  file existed resumes as before (the slice is booked, a worker may still run). Stopping needs
   `/bin/ps` (macOS, Linux); without it a live group cannot be verified and `resume` refuses.
 
 Rerun: `uv run pytest -o addopts="" tests/test_fault_injection.py` (about a minute), or print the
