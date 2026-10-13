@@ -120,7 +120,8 @@ if argv[argv.index("--tools") + 1] == "":   # the boss or a role
         import time; time.sleep(30)
     scripted = answer(who)
     log(who, unscripted=scripted is None, model=argv[argv.index("--model") + 1],
-        thinking=os.environ.get("MAX_THINKING_TOKENS", "unset"))
+        thinking=os.environ.get("MAX_THINKING_TOKENS", "unset"),
+        cap=argv[argv.index("--max-budget-usd") + 1])
     open(os.path.join(folder, "last_" + who + ".txt"), "w").write(prompt)
     if scripted is None or scripted.get("fail"):
         cost = (scripted or {{}}).get("cost", 0.002)
