@@ -164,6 +164,7 @@ def design_tasks(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
 ) -> tuple[Design, Usage]:
@@ -183,6 +184,7 @@ def design_tasks(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
         timeout_s=timeout_s,
     )
@@ -313,6 +315,7 @@ def write_checks(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
 ) -> tuple[TestPlan, Usage]:
@@ -334,6 +337,7 @@ def write_checks(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
         timeout_s=timeout_s,
     )
@@ -395,6 +399,7 @@ def draft_staged(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
     n_rounds: int = 1,
@@ -418,6 +423,7 @@ def draft_staged(
         "executable": executable,
         "thinking_tokens": thinking_tokens,
         "timeout_s": timeout_s,
+        "role_caps": role_caps,
     }
     paid: dict[str, Usage] = {}
     try:

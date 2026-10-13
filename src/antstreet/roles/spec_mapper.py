@@ -201,6 +201,7 @@ def map_rules(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
 ) -> tuple[RuleMap, Usage]:
@@ -235,6 +236,7 @@ def map_rules(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
         timeout_s=timeout_s,
     )

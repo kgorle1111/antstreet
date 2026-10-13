@@ -284,6 +284,7 @@ def write_demo(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
     call_timeout_s: float = 300.0,
     timeout_s: float = DEFAULT_TIMEOUT_S,
@@ -313,6 +314,7 @@ def write_demo(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
         timeout_s=call_timeout_s,
     )

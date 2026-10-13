@@ -28,7 +28,14 @@ from antstreet import budget, held_out
 from antstreet.ledger import EventType, LedgerWriter
 from antstreet.redact import safe_text
 from antstreet.roles.advisory import _block
-from antstreet.roles.base import RoleError, RoleOutputError, RoleSpec, call_role, ledger_fields
+from antstreet.roles.base import (
+    RoleError,
+    RoleOutputError,
+    RoleSpec,
+    call_role,
+    ledger_fields,
+    with_cap,
+)
 from antstreet.roles.stories import MIN_SOURCE_CHARS, is_fragment
 from antstreet.rundir import Recorder, RunPaths
 from antstreet.stream import Usage
@@ -144,6 +151,7 @@ def examine(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     timeout_s: float = 300.0,
 ) -> tuple[list[tuple[held_out.HeldOutCheck, str]], Usage]:
     """One call: `n` held-out checks, each with its code. Nothing is written to the run.
@@ -174,6 +182,7 @@ def examine(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         timeout_s=timeout_s,
     )
     entries, problems = _parse(output.data, idea, n)
@@ -233,6 +242,7 @@ def run_examiner(
     model: str,
     reserve_micros: int = budget.RESERVE_MICROS,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     say: Callable[[str], None] = print,
 ) -> bool:
     """Call the examiner once for this run, between the boss's draft and the investor's approval.
@@ -246,14 +256,15 @@ def run_examiner(
     if any(e.event is EventType.ROLE_CALL and e.actor == EXAMINER.actor for e in events):
         return bool(held_out.hashes(paths.held_out))  # asked once per run, never twice
     record = Recorder(ledger, run_id, round=1)
+    spec = with_cap(EXAMINER, role_caps)  # the cap the call gets is the one booked and checked
 
     def book(usage: Usage, outcome: str, kept: int, problems: Sequence[str]) -> None:
         shown = [safe_text(p, limit=_PROBLEM_CHARS) for p in problems[:_SHOWN_PROBLEMS]]
         extra = {"requested": n, "kept": kept, "problems": shown}
-        fields = ledger_fields(EXAMINER, usage, outcome, model=model, env=env, **extra)
+        fields = ledger_fields(spec, usage, outcome, model=model, env=env, **extra)
         record(EXAMINER.actor, EventType.ROLE_CALL, **fields)
 
-    room = budget.remaining(sheet, events, 1) - EXAMINER.cap_micros
+    room = budget.remaining(sheet, events, 1) - spec.cap_micros
     if room < budget.min_round_budget(reserve_micros):
         why = "round 1 could not then fund a worker slice"
         book(Usage(0, 0, 0, 0), "skipped", 0, [why])
@@ -268,6 +279,7 @@ def run_examiner(
             env=env,
             model=model,
             executable=executable,
+            role_caps=role_caps,
         )
     except RoleError as exc:
         problems = exc.problems if isinstance(exc, RoleOutputError) else [str(exc)]

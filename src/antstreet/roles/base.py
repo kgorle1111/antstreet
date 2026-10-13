@@ -8,6 +8,7 @@ worker, and workers already exist.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -80,6 +81,14 @@ class RoleOutput:
     usage: Usage
 
 
+def with_cap(spec: RoleSpec, role_caps: Mapping[str, int] | None) -> RoleSpec:
+    """The spec with the investor's cap for it (`fund --role-cap`), or as it is. The call and its
+    `role_call` event must use the same spec: `budget.remaining` charges a lost call at the cap the
+    event records."""
+    cap = (role_caps or {}).get(spec.name)
+    return spec if cap is None else dataclasses.replace(spec, cap_micros=cap)
+
+
 def system_prompt(spec: RoleSpec) -> str:
     """The role's prompt followed by each of its skills, in the order the spec lists them."""
     parts = [load_prompt(spec.prompt).rstrip()]
@@ -97,6 +106,7 @@ def call_role(
     executable: str = CLI,
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
+    role_caps: Mapping[str, int] | None = None,
 ) -> RoleOutput:
     """One call: no tools, the role's system prompt, schema-validated output.
 
@@ -106,6 +116,7 @@ def call_role(
     """
     if not user_prompt.strip() or user_prompt.lstrip().startswith("-"):
         raise ValueError("a role's prompt must be non-empty text that does not start with '-'")
+    spec = with_cap(spec, role_caps)
     argv = build_boss_command(
         prompt=user_prompt,
         system_prompt=system_prompt(spec),
