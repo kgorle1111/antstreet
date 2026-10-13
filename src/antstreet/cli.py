@@ -200,9 +200,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"antstreet {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
+    _audit_parser(sub)  # first: the help lists commands in the order they are added
 
     fund = sub.add_parser(
-        "fund", parents=[common], help="draft a term sheet for an idea, approve it, and build it"
+        "fund",
+        parents=[common],
+        help="(experimental) draft a term sheet for an idea, approve it, and build it",
     )
     fund.add_argument("idea", help="what to build, in plain words")
     fund.add_argument(
@@ -368,7 +371,6 @@ def _parser() -> argparse.ArgumentParser:
         parents=[common],
         help="serve this project's runs read-only to an MCP client on stdin/stdout",
     )
-    _audit_parser(sub)
     return parser
 
 
