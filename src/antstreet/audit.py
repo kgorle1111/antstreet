@@ -712,7 +712,13 @@ def _book(
         tokens_out=usage.tokens_out,
         tokens_cached=usage.tokens_cached,
         billing=billing_mode(env),
-        data={"purpose": purpose, "model": model, "thinking_tokens": thinking, "outcome": out},
+        data={
+            "purpose": purpose,
+            "model": model,
+            "model_observed": usage.model_observed,
+            "thinking_tokens": thinking,
+            "outcome": out,
+        },
     )
 
 

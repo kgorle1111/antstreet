@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from antstreet.errors import RunSignals
+from antstreet.worker import model_id_of
 
 MICROS_PER_USD = 1_000_000
 # json.loads joins an escaped surrogate pair into one character, so any surrogate left is a lone
@@ -34,6 +35,9 @@ class Usage:
     tokens_out: int
     tokens_cached: int  # cache reads
     cumulative: bool = field(default=False, compare=False)  # metadata: equal figures are equal
+    # The model the CLI's `system/init` event says it ran, cleaned; None when no init arrived.
+    # Metadata like `cumulative`: it is what the ledger records beside the requested model.
+    model_observed: str | None = field(default=None, compare=False)
 
 
 class StreamReader:
@@ -142,6 +146,7 @@ class StreamReader:
             tokens_out,
             tokens_cached,
             cumulative=True,
+            model_observed=model_id_of(self.init),
         )
 
     def _message_usage(self, cost_micros: int | None) -> Usage:
@@ -150,7 +155,9 @@ class StreamReader:
         count at the start of the response (4 against 775 billed in the capped fixture), so a sum
         of them would look measured and be wrong. The cost stays unknown for the same reason."""
         sums = [sum(m[i] for m in self._messages.values()) for i in range(3)]
-        return Usage(cost_micros, sums[0] + sums[1], 0, sums[2])
+        return Usage(
+            cost_micros, sums[0] + sums[1], 0, sums[2], model_observed=model_id_of(self.init)
+        )
 
 
 def _count(model: dict[str, Any], key: str) -> int:
