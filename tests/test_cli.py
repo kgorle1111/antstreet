@@ -909,3 +909,11 @@ def test_verify_without_runs_or_with_an_unknown_or_hostile_run_is_a_usage_error(
     for run in ("nope", "../runs", ".."):
         code, text = boss("verify", run)
         assert code == EXIT_USAGE and "No run" in text
+
+
+def test_the_help_lists_audit_first_and_marks_fund_experimental(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    text = capsys.readouterr().out
+    assert "{audit,fund," in text
+    assert "fund                (experimental)" in text
