@@ -2,7 +2,7 @@
   "name": "antstreet",
   "displayName": "AntStreet",
   "version": "0.0.1",
-  "description": "Check your coding agent's work against tests it never saw: you approve the checks first, a sandboxed gate outside the agent decides, and a signed ledger records it. Also: fund a budget-capped build.",
+  "description": "Fund an idea: approve a term sheet of checks, a team of agents builds it in budget-capped rounds, a sandboxed gate outside the agents decides, and a signed ledger records it. Also: audit an agent's change against checks it never saw.",
   "author": {
     "name": "Kannishk Naidu Gorle"
   },

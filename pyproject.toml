@@ -1,7 +1,7 @@
 [project]
 name = "antstreet"
 version = "0.0.1"
-description = "Checks your AI coding agent's work against tests it never saw: sealed pytest checks you approve, run by a sandboxed gate, with a signed, hash-chained record."
+description = "A fund for AI coding agents: you approve a term sheet of checks, a team of agents builds in budget-capped rounds, a sandboxed gate decides, a signed ledger records. Also audits a change against sealed checks."
 readme = "docs/PYPI.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

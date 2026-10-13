@@ -1,12 +1,12 @@
 {
   "name": "antstreet",
-  "description": "AntStreet: you approve the checks, a gate outside the agent decides what passed.",
+  "description": "AntStreet: a fund for AI coding agents. You approve the checks, a gate outside the agents decides what passed.",
   "owner": { "name": "Kannishk Naidu Gorle" },
   "plugins": [
     {
       "name": "antstreet",
       "source": "./",
-      "description": "Audit an agent's work against sealed checks it never saw, fund a build, and check a run's ledger, from Claude Code."
+      "description": "Fund a budget-capped build, audit an agent's work against sealed checks it never saw, and check a run's ledger, from Claude Code."
     }
   ]
 }
