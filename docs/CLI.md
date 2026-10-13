@@ -231,7 +231,7 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 
 ## `antstreet report`
 
-`antstreet report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39).
+`antstreet report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39). A Models section lists, for the boss's and each role's calls, the model asked for and the one the CLI reported running (`boss  sonnet -> claude-sonnet-5-5 (1 call)`); a ledger written before `model_observed` existed says "not recorded".
 
 A **KPIs** section follows the spend. All of it comes from the ledger: `Delivered` (every check
 passes on the assembled product, or NO, or "not recorded" for a ledger with no product verdict),
@@ -313,16 +313,17 @@ It makes no model call and writes nothing. Exit 0.
 
 ## `antstreet doctor`
 
-`antstreet doctor [--dir DIR] [--live]`. Checks what a run needs and prints a fix line for each failure.
+`antstreet doctor [--dir DIR] [--live] [--mods]`. Checks what a run needs and prints a fix line for each failure.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--dir` | `.` | Project folder; `.boss/` inside it must be writable. |
 | `--live` | off | Verify the login with one real call: model `haiku`, cap $0.05, 120 s. If that works, make a second real call to test the worker path rules (see below): model `haiku`, cap $0.05, 120 s. Both are paid, at most $0.10 by their caps. |
+| `--mods` | off | List the Claude Code plugins (mods) that load in this folder and flag any that can skip the audit guard (see below). No model call. |
 
 Checks, in order: Python 3.12 or newer; a POSIX system; `pytest` importable; the `claude` binary on
 `PATH`; its version is 2.1.277 or newer; the login; the worker path rules (only with `--live`, and
-only when the login check passed); a writable `.boss/`; the gate sandbox. The
+only when the login check passed); the mods (only with `--mods`); a writable `.boss/`; the gate sandbox. The
 sandbox line names the tool found (`sandbox-exec` or `bwrap`). With no working tool it is a warning
 with the fix, not a failure, and the exit code stays 0. It fails under `BOSS_GATE_SANDBOX=require`
 or for a value that is not `auto`, `require` or `off`. See [SANDBOX.md](SANDBOX.md). Without `--live` the login
@@ -334,6 +335,25 @@ worker to write a file outside its own folder. It passes when the write was refu
 the file appears, when the worker did not start isolated, or when the call could not run. If the
 worker did not try the write, it passes with a warning (`inconclusive`) and the exit code stays 0:
 run `--live` again. The other checks make no paid call. The two costs are the CLI's estimates.
+
+The mods check runs `claude plugin list --json` in the project folder, then
+`claude plugin validate --json <installPath>` for each listed plugin except `@builtin` ones, each
+with a 20 s timeout. It exists because a plugin written into `~/.claude/skills/<name>/` or the
+project's `.claude/skills/<name>/` loads at the next session start, without a prompt, as
+`<name>@skills-dir`, and a mod that hooks `tool.call` or `tool.check` (a gating hook) can answer a
+tool call before the audit guard (`hooks/deny-approve.sh`) runs. It detects; it does not prevent.
+Lines, each naming the plugin's path and never its contents:
+
+- `FAIL mod <name>@skills-dir`: a plugin from a skills folder with a gating hook.
+- `WARN mod <name>@skills-dir`: a plugin from a skills folder without one, or one that is not
+  loaded now (disabled, or a project folder skipped because the workspace is not trusted).
+- `WARN mod <id>`: any other enabled plugin with a gating hook. A disabled plugin from elsewhere is not
+  loaded, so it is not inspected; a disabled skills-folder plugin is still reported (above).
+- `FAIL mods` or `FAIL mod <id>`: it could not look. `claude` is missing, a call timed out or
+  failed, its output is not the JSON expected, a plugin's validation failed, or more than 100
+  plugins are listed. It never reports a clean machine when it could not look.
+
+Exit codes are doctor's own: 0 when no check failed (warnings included), 1 when one did.
 
 ## `antstreet mcp`
 

@@ -222,14 +222,14 @@
     ]
   },
   "threats": {
-    "value": "71",
-    "wording": "71 threat rows",
+    "value": "72",
+    "wording": "72 threat rows",
     "caveat": "A threat model with a test per row.",
     "sources": [
       {
         "path": "docs/THREAT_MODEL.md",
         "count": "^\\| T(\\d+) ",
-        "equals": 71
+        "equals": 72
       },
       {
         "path": "ROADMAP.md",

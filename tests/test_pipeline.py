@@ -415,6 +415,9 @@ KPIs
 Workers
   w1 on t1 (haiku): completed, status done: "wrote rev.py", 1 slice(s)
 
+Models (boss and role calls: requested, then what the CLI reported)
+  boss  haiku -> claude-haiku-4-5-20251001 (1 call)
+
 Run folder: PROJECT/.boss/runs/RUN  (built files: PROJECT/.boss/runs/RUN/product)"""
 
 

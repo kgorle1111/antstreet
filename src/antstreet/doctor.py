@@ -21,6 +21,7 @@ from pathlib import Path
 
 from antstreet.errors import Outcome, classify
 from antstreet.gate import GateError, sandbox_mode
+from antstreet.redact import safe_text
 from antstreet.runner import run_slice
 from antstreet.sandbox import SandboxMode, detect, missing_hint
 from antstreet.stream import StreamReader
@@ -40,6 +41,7 @@ _MIN_CLI = ".".join(map(str, MIN_CLI_VERSION))
 _MIN_PYTHON = (3, 12)
 CANARY_MODEL = "haiku"
 CANARY_CAP_MICROS = 50_000
+_MAX_MODS = 100  # each one is a `claude plugin validate` call of up to _PROBE_TIMEOUT_S
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,13 +66,13 @@ def _skipped(name: str, because: str) -> DoctorCheck:
 
 
 def _run(
-    argv: list[str], env: Mapping[str, str], timeout: int
+    argv: list[str], env: Mapping[str, str], timeout: int, cwd: Path | None = None
 ) -> subprocess.CompletedProcess[str] | str:
     """The finished process, or a one-line reason it could not run to completion."""
     try:
         return subprocess.run(
             argv, env=dict(env), stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=timeout,
+            timeout=timeout, cwd=cwd,
         )  # fmt: skip
     except subprocess.TimeoutExpired:
         return f"timed out after {timeout}s"
@@ -247,18 +249,138 @@ def _check_gate_sandbox() -> DoctorCheck:
     )  # fmt: skip
 
 
+def _show(value: object) -> str:
+    """A plugin id, path or hook name from the CLI, safe to print: a planted mod names itself."""
+    return safe_text(str(value), limit=200)
+
+
+def _plugin_json(
+    path: str, argv: list[str], env: Mapping[str, str], cwd: Path, *, nonzero_ok: bool = False
+) -> object | str:
+    """The parsed JSON of one `claude plugin` call, or a one-line reason it could not be read."""
+    shown = "claude " + " ".join(argv[:3])
+    done = _run([path, *argv], env, _PROBE_TIMEOUT_S, cwd)
+    if isinstance(done, str):
+        return f"`{shown}` {done}"
+    if done.returncode != 0 and not nonzero_ok:
+        return f"`{shown}` failed (exit {done.returncode})"
+    try:
+        parsed: object = json.loads(done.stdout)
+    except ValueError:
+        return f"`{shown}` gave unparsable output (exit {done.returncode})"
+    return parsed
+
+
+def _gating_hooks(report: object) -> list[str] | str:
+    """Hook names `claude plugin validate --json` lists as gating, or why it could not be read."""
+    if not isinstance(report, dict) or report.get("success") is not True:
+        return "its validation failed or was unreadable, so its hooks may not all be listed"
+    contents = report.get("contents", [])
+    if not isinstance(contents, list):
+        return "its validation report has an unexpected shape"
+    found: set[str] = set()
+    for part in [report.get("manifest"), *contents]:
+        hooks = part.get("gatingHooks", []) if isinstance(part, dict) else None
+        if not isinstance(hooks, list):
+            return "its validation report has an unexpected shape"
+        for hook in hooks:
+            name = hook.get("hook") if isinstance(hook, dict) else None
+            if not isinstance(name, str):
+                return "its validation report has an unexpected shape"
+            found.add(name)
+    return sorted(found)
+
+
+def _check_one_mod(
+    path: str, entry: Mapping[str, object], env: Mapping[str, str], cwd: Path
+) -> DoctorCheck | None:
+    """A finding for one listed plugin, or None when there is nothing to say about it."""
+    plugin_id, raw_path = str(entry["id"]), entry.get("installPath")
+    where = raw_path if isinstance(raw_path, str) else ""
+    source = plugin_id.rpartition("@")[2]
+    if source == "builtin":
+        return None
+    planted = source == "skills-dir"
+    name, shown = f"mod {_show(plugin_id)}", _show(where) if where else "(no path given)"
+    if entry.get("enabled") is not True:
+        if not planted:
+            return None
+        scope = _show(entry.get("scope"))
+        # an untrusted workspace's project folder is listed with no path (Claude Code 2.1.296)
+        folder = shown if where else "a folder under ./.claude/skills/"
+        detail = f"not loaded now ({scope} scope, {folder})"
+        advice = "it loads once enabled or once this workspace is trusted; delete it if not yours"
+        return DoctorCheck(name, True, detail, "", advice)
+    look = f"run `claude plugin validate {shown}` by hand, then re-run antstreet doctor --mods"
+    if not where:
+        return _fail(name, "enabled, but listed without an install path to inspect", look)
+    report = _plugin_json(path, ["plugin", "validate", "--json", where], env, cwd, nonzero_ok=True)
+    hooks = report if isinstance(report, str) else _gating_hooks(report)
+    if isinstance(hooks, str):
+        return _fail(name, f"could not inspect {shown}: {hooks}", look)
+    gating = ", ".join(_show(h) for h in hooks)
+    if planted and hooks:
+        detail = (
+            f"loads from a skills folder ({shown}) and hooks {gating}: it can answer a tool call "
+            "before AntStreet's guard runs"
+        )
+        fix = f"if you did not write it, delete {shown}; if you did, review it: it is not checked"
+        return _fail(name, detail, fix)
+    if planted:
+        detail = f"loads from a skills folder ({shown}), no gating hooks"
+        advice = "an agent with bypass permissions can write here; delete it if you did not"
+        return DoctorCheck(name, True, detail, "", advice)
+    if hooks:
+        detail = f"hooks {gating} ({shown}): it can answer a tool call before AntStreet's guard"
+        advice = f"keep it only if you trust it, or: claude plugin disable {_show(plugin_id)}"
+        return DoctorCheck(name, True, detail, "", advice)
+    return None
+
+
+def _check_mods(path: str, env: Mapping[str, str], cwd: Path) -> list[DoctorCheck]:
+    """Every Claude Code plugin from a skills folder, and every one with a gating hook.
+
+    Detection, not prevention: such a mod loads at the next session start without a prompt and
+    can answer `tool.call`/`tool.check` before the PreToolUse guard runs (R4 probe, 2026-10-13).
+    It never reports a clean machine unless the CLI listed the plugins and each one was inspected.
+    """
+    fix = "run `claude plugin list --json` by hand to see why, then re-run antstreet doctor --mods"
+    listed = _plugin_json(path, ["plugin", "list", "--json"], env, cwd)
+    if isinstance(listed, str):
+        return [_fail("mods", listed, fix)]
+    if not isinstance(listed, list) or not all(
+        isinstance(e, dict) and isinstance(e.get("id"), str) for e in listed
+    ):
+        return [_fail("mods", "`claude plugin list --json` gave an unexpected shape", fix)]
+    if len(listed) > _MAX_MODS:
+        detail = f"{len(listed)} plugins listed, more than the {_MAX_MODS} this check inspects"
+        return [_fail("mods", detail, "remove plugins you do not use, then re-run")]
+    found = [c for e in listed if (c := _check_one_mod(path, e, env, cwd)) is not None]
+    plural = "s" * (len(listed) != 1)
+    return [_pass("mods", f"{len(listed)} plugin{plural} listed and inspected"), *found]
+
+
 def run_doctor(
-    env: Mapping[str, str], cwd: Path, *, live: bool = False, executable: str = CLI
+    env: Mapping[str, str],
+    cwd: Path,
+    *,
+    live: bool = False,
+    mods: bool = False,
+    executable: str = CLI,
 ) -> list[DoctorCheck]:
     checks = [_check_python(), _check_platform(), _check_pytest()]
     cli, path = _check_cli(executable, env)
     checks.append(cli)
     if path is None:
         checks += [_skipped("claude version", "claude cli"), _skipped("login", "claude cli")]
+        if mods:
+            checks.append(_skipped("mods", "claude cli"))
     else:
         checks += [_check_version(path, env), _check_login(path, env, live=live)]
         if live and checks[-1].ok:  # a second small call, only when the first one worked
             checks.append(_check_path_rules(path, env))
+        if mods:
+            checks += _check_mods(path, env, cwd)
     return [*checks, _check_writable(cwd), _check_gate_sandbox()]
 
 

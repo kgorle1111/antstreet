@@ -161,6 +161,7 @@ otherwise.
 |---|---|---|
 | `purpose` | str | `term_sheet` for `antstreet fund`, `audit_checks` for `antstreet audit plan`, `spec_gaps` for the questions of `antstreet audit plan --questions`, `coverage_redraft` for a redraft `antstreet fund --coverage` asked for (one event per redraft, after the `term_sheet` one). |
 | `model` | str | The boss model, from `--boss-model`. |
+| `model_observed` | str or null | The model the CLI's `system/init` event says the call ran (for example `claude-haiku-4-5-20251001`), next to the requested `model`; `null` when no init arrived (the call failed before it, or timed out). Events written before this key existed lack it, and `antstreet report` says "not recorded" for them. |
 | `thinking_tokens` | int or null | The thinking budget from `--boss-thinking`; `null` means the CLI's own default. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose draft was unusable or invalid. |
 | `prompt` | str | Only with `--spec`: `term_sheet_v3.md`, the prompt that asks for rule citations. |
@@ -169,7 +170,7 @@ otherwise.
 Example:
 
 ```json
-{"actor": "boss", "billing": "subscription", "cost_micros": 4000, "data": {"model": "haiku", "outcome": "completed", "purpose": "term_sheet", "thinking_tokens": null}, "event": "boss_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:35.110818+00:00", "v": 1}
+{"actor": "boss", "billing": "subscription", "cost_micros": 4000, "data": {"model": "haiku", "model_observed": "claude-haiku-4-5-20251001", "outcome": "completed", "purpose": "term_sheet", "thinking_tokens": null}, "event": "boss_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:35.110818+00:00", "v": 1}
 ```
 
 ### `role_call`
@@ -186,7 +187,7 @@ Example:
     (cost 0, outcome `skipped`) when round 1 could not then fund a worker slice. It adds
     `requested`, `kept` and `problems`. `antstreet fund --held-out N` calls it through
     `Pipeline.examine`.
-- `antstreet report` reads these events for its Roles section.
+- `antstreet report` reads these events for its Roles and Models sections.
 - `budget.remaining` reads them to charge a timed-out call at its `cap_micros` (below).
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
   for a call that was not made (`outcome` `not_called` or `skipped`). Billing is `api` or
@@ -195,7 +196,8 @@ Example:
 | Key | Type | Meaning |
 |---|---|---|
 | `role` | str | The role's name, the part of the actor after `role:`. |
-| `model` | str | The model the call used. |
+| `model` | str | The model the call asked for. |
+| `model_observed` | str or null | The model the CLI's `system/init` event says the call ran, next to the requested `model`; `null` when no init arrived, and for a call that was not made (`not_called`, `skipped`). Events written before this key existed lack it, and `antstreet report` says "not recorded" for them. |
 | `prompt` | str | The prompt file the role runs under. |
 | `skills` | list | The skill ids appended to that prompt, in order. Empty if none. |
 | `cap_micros` | int | The role's per-call cap. When `cost_micros` is `null` (killed at its timeout) and the outcome is not an infrastructure failure, `budget.remaining` charges this against the event's round. Older events lack it and are charged 0. |
@@ -223,7 +225,7 @@ call per rubric and build.
 Example, a critic's call written by a run with every role:
 
 ```json
-{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cap_micros": 400000, "cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
+{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cap_micros": 400000, "cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "model_observed": "claude-haiku-4-5-20251001", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
 ```
 
 ### `started`

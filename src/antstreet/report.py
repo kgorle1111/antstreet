@@ -80,6 +80,17 @@ class RoleLine:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelLine:
+    """The boss's or a role's calls on one requested model, and what the CLI said it ran."""
+
+    actor: str
+    requested: str
+    observed: str | None  # None: the CLI reported no model (no init arrived)
+    recorded: bool  # False: the events predate `model_observed`, so nothing is known
+    calls: int
+
+
+@dataclass(frozen=True, slots=True)
 class RoundLine:
     n: int
     passed: int
@@ -98,6 +109,7 @@ class Report:
     workers: list[WorkerLine] = field(default_factory=list)
     disputes: list[DisputeLine] = field(default_factory=list)
     roles: list[RoleLine] = field(default_factory=list)
+    models: list[ModelLine] = field(default_factory=list)  # boss and role calls only
     notes: list[str] = field(default_factory=list)
     held_out: list[CheckLine] = field(
         default_factory=list
@@ -164,6 +176,7 @@ def build_report(events: Sequence[Event]) -> Report:
             for e in events
             if e.event is EventType.ROLE_CALL and not _missing(e)
         ],
+        models=_models(events),
         notes=[_note(e) for e in events if e.event in _NOTABLE]
         + [_incomplete_note(e) for e in events if _missing(e)],
         held_out=held_out,
@@ -175,6 +188,29 @@ def build_report(events: Sequence[Event]) -> Report:
         questions=investor_questions(events),
         span_s=span_seconds(events),
     )
+
+
+_NO_CALL = ("not_called", "skipped")  # a role_call booked for a call that was never made
+
+
+def _models(events: Sequence[Event]) -> list[ModelLine]:
+    """Each (actor, requested, observed) of the boss's and roles' calls, in first-seen order.
+    Workers are not here: their observed ids are on the Workers lines."""
+    seen: dict[tuple[str, str, str | None, bool], int] = {}
+    for e in events:
+        if e.event not in (EventType.BOSS_CALL, EventType.ROLE_CALL):
+            continue
+        if e.data.get("outcome") in _NO_CALL:
+            continue
+        observed = e.data.get("model_observed")
+        key = (
+            e.actor,
+            str(e.data.get("model", "")),
+            observed if isinstance(observed, str) else None,
+            "model_observed" in e.data,
+        )
+        seen[key] = seen.get(key, 0) + 1
+    return [ModelLine(a, r, o, rec, n) for (a, r, o, rec), n in seen.items()]
 
 
 def _sandbox_summary(flags: Sequence[object]) -> str | None:
@@ -391,12 +427,26 @@ def render_report(report: Report) -> str:
             detail = f": {_detail(role.detail)}" if role.detail else ""
             how = f"{_detail(role.result) or '?'} ({_detail(role.outcome)})"
             out.append(f"  {_detail(role.role)}  {how}, {cost}{detail}")
+    if report.models:
+        out += ["", "Models (boss and role calls: requested, then what the CLI reported)"]
+        out += [f"  {_model_line(m)}" for m in report.models]
     if report.disputes:
         out += ["", "Disputed checks (yours to rule on; a disputed check never counts as passing)"]
         out += [f'  {d.check} by {d.worker}: "{d.reason}"' for d in report.disputes]
     if report.notes:
         out += ["", "Notes"] + [f"  {n}" for n in report.notes]
     return "\n".join(out) + "\n"
+
+
+def _model_line(m: ModelLine) -> str:
+    if not m.recorded:
+        ran = "not recorded (the ledger predates model_observed)"
+    elif m.observed is None:
+        ran = "not reported by the CLI"
+    else:
+        ran = _detail(m.observed)
+    plural = "call" if m.calls == 1 else "calls"
+    return f"{_detail(m.actor)}  {_detail(m.requested) or '?'} -> {ran} ({m.calls} {plural})"
 
 
 def _dispatch_line(w: WorkerLine) -> str:

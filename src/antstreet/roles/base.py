@@ -140,6 +140,7 @@ def ledger_fields(
         "data": {
             "role": spec.name,
             "model": model,
+            "model_observed": usage.model_observed,
             "prompt": spec.prompt,
             "skills": list(spec.skills),
             "cap_micros": spec.cap_micros,  # what budget.remaining charges if the cost is unknown
