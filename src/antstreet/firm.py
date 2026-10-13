@@ -67,6 +67,9 @@ DEFAULT_WORKER_MODEL = "haiku"
 DEFAULT_SLICE_MICROS = 100_000
 MAX_WORKERS_PER_TASK = 2  # the first worker plus one reassignment
 SLICE_SHARE = 0.8  # the single-agent benchmark arm caps its one slice at this share of the budget
+# The `error` key that books a slice which started and never reported an end (the process running
+# the loop was killed): its spend is unknown, so the report's total reads as a lower bound.
+INTERRUPTED_SLICE = "interrupted_slice"
 
 SliceRunner = Callable[..., SliceRun]
 Gate = Callable[..., list[CheckResult]]
@@ -1015,6 +1018,25 @@ class _Firm:
         return f"stopped: {action.reason}"
 
 
+def interrupted_slices(events: Sequence[Event]) -> list[Event]:
+    """The `slice_start` of each slice that never reported an end and is not booked yet, in
+    ledger order. A worker runs one slice at a time, so its next start, end or `error` closes its
+    open one; a start closed only by a later start was lost too. Read it only between runs of the
+    loop (`run_firm` holds the ledger's lock): a slice running now has no end yet either."""
+    open_starts: dict[str, int] = {}
+    lost: list[int] = []
+    for i, e in enumerate(events):
+        if not e.actor.startswith("worker:"):
+            continue
+        if e.event is EventType.SLICE_START:
+            if e.actor in open_starts:
+                lost.append(open_starts[e.actor])
+            open_starts[e.actor] = i
+        elif e.event in (EventType.SLICE_END, EventType.ERROR):
+            open_starts.pop(e.actor, None)  # an `error` in place of an end is already unknown
+    return [events[i] for i in sorted([*lost, *open_starts.values()])]
+
+
 def _last_slice(events: Sequence[Event]) -> int:
     """Index of the last `slice_end`, or -1 when no slice has ended."""
     return max((i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1)
@@ -1118,6 +1140,10 @@ def run_firm(
     if started_config(events) is None:
         start = Event(run=run_id, round=0, actor="boss", event=EventType.STARTED)
         ledger.append(dataclasses.replace(start, data={"config": config_data(cfg)}))
+    for lost in interrupted_slices(events):
+        record = Recorder(ledger, run_id, lost.round)
+        slice_n = lost.data.get("slice")
+        record(lost.actor, EventType.ERROR, cost_micros=None, data={INTERRUPTED_SLICE: slice_n})
     firm = _Firm(
         sheet,
         paths,

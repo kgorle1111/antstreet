@@ -155,6 +155,20 @@ def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=Non
 # --- the real CLI against a fake `claude`, for boss_call and the investor's own events -------
 
 
+def firm_killed_events(tmp_path):
+    """A run killed while slice 1 ran, then resumed: the resume books the lost slice."""
+    worker = Script(KeyboardInterrupt(), step(GOOD, "done"))
+    with pytest.raises(KeyboardInterrupt):
+        firm_events(tmp_path, worker)
+    paths = RunPaths(tmp_path)
+    with LedgerWriter(paths.ledger) as ledger:
+        run_firm(
+            sheet(), paths, ledger, "r1", env={"HOME": "/h"}, ask=lambda q: "n",
+            say=lambda _: None, slice_runner=worker, gate=run_gate, sleep=lambda _: None,
+        )  # fmt: skip
+    return read_events(paths.ledger)
+
+
 def cli_events(tmp_path, *, binary=None, answers=("a",), extra=()):
     _, run_dir, _ = run_cli(
         tmp_path,
@@ -355,6 +369,7 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
         limits=RunLimits(max_slices=1))))  # fmt: skip
     runs.append(firm_events(where("isolation"), Script(IsolationError("tools differ")),
                             expect=IsolationError))  # fmt: skip
+    runs.append(firm_killed_events(where("killed")))
     runs.append(firm_events(where("declined"), Script(step(HALF, cost=100_000)), two_rounds,
                             answers=["n"]))  # fmt: skip
     runs.append(firm_events(where("held-out"), Script(step(GOOD, "done")), held=True))
