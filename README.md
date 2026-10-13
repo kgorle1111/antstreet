@@ -67,12 +67,14 @@ git clone https://github.com/kgorle1111/antstreet.git ~/antstreet
 cd ~/antstreet && uv sync
 uv run antstreet doctor --live      # checks this machine; two paid calls of at most $0.05 each
 uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
+                                    # in a terminal: read the term sheet, answer y, and it builds
 uv run antstreet report             # the board report for the run
 ```
 
 `fund` shows you the term sheet and waits for your yes. With no terminal to ask on (a pipe, CI,
-Claude Code's Bash tool) it prints the one `antstreet approve` command that approves exactly the
-text shown, and `antstreet resume` then builds it. Optional roles (the critic is the one we suggest)
+Claude Code's Bash tool) it builds nothing yet: it prints the term sheet and the one command that
+approves exactly that text. Then the steps are `antstreet approve RUN --sheet VALUE` (as printed),
+`antstreet resume RUN` to build, and `antstreet report`. Optional roles (the critic is the one we suggest)
 and model dispatch are off unless you ask for them. Every command: [docs/CLI.md](docs/CLI.md).
 
 ## 🧪 We measure, and we publish the "no"
