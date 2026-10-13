@@ -18,7 +18,7 @@
 of checks, you approve it, and a team of AI coding agents builds it in budget-capped rounds. A
 sandboxed gate of plain code decides what passed, and a signed ledger records every step.**
 
-Early and experimental: in our published benchmark runs a team has not yet beaten a single agent;
+Early and experimental: in our published benchmark runs a team has not yet shown a benefit over a single agent;
 every result, including the misses, is in [bench/results](bench/results/README.md).
 
 ## 🚦 In three steps
@@ -226,7 +226,7 @@ bound to a test, every negative result published.
 
 Early and pre-release. It works end to end, and:
 
-- **A team has not yet beaten a single agent** in our published runs (blind35), and no fund
+- **A team has not yet shown a benefit over a single agent** in our published runs (blind35), and no fund
   experiment since (E1, E3, E4, E4b) has shown its benefit. We do not claim the fund builds
   better, faster or cheaper.
 - **`unrefuted` is not proof.** The sealed checks catch only what they test, and a model drafts

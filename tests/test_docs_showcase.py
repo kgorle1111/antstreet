@@ -199,8 +199,9 @@ def test_the_fund_leads_with_its_status_line_and_the_audit_follows():
         "agents builds it in budget-capped rounds" in head
     )
     assert (
-        "Early and experimental: in our published benchmark runs a team has not yet beaten a "
-        "single agent; every result, including the misses, is in [bench/results]" in head
+        "Early and experimental: in our published benchmark runs a team has not yet shown a "
+        "benefit over a single agent; every result, including the misses, is in [bench/results]"
+        in head
     )
     assert body.index("antstreet fund") < body.index("antstreet audit plan")
     assert body.index("## 🚦") < body.index("## 🔍 Audit")

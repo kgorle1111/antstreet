@@ -12,7 +12,7 @@ slices, and a worker that stops making progress is fired. A sandboxed gate, not 
 what passed, and every dollar and decision goes on a signed, hash-chained ledger. The same sealed
 checks can audit a change someone else's agent made (`antstreet audit`).
 
-Early and experimental: in our published benchmark runs a team has not yet beaten a single agent;
+Early and experimental: in our published benchmark runs a team has not yet shown a benefit over a single agent;
 every result, including the misses, is in [bench/results](bench/results/README.md).
 
 Why: in our benchmark, 29 of 77 runs (38%, 95% interval 28-49%) passed every check the model had

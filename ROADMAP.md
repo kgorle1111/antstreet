@@ -6,7 +6,7 @@ and workers that stop making progress are fired. A sandboxed gate of plain code 
 fail, and every step goes on a signed, hash-chained ledger. The same sealed checks can audit a
 change someone else's agent made. The AI drafts; you and plain code decide.
 
-Early and experimental: in our published benchmark runs a team has not yet beaten a single agent;
+Early and experimental: in our published benchmark runs a team has not yet shown a benefit over a single agent;
 every result, including the misses, is in [bench/results](bench/results/README.md).
 
 ## Why it matters
