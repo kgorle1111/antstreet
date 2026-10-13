@@ -1,0 +1,106 @@
+"""Does `resume` recover with zero double-spend? (U1)
+
+Every fault in `fault_support` is injected into a real `antstreet fund` (its own process, a fake
+`claude`, the real gate, a signed ledger), then `antstreet resume` runs until the run ends, once
+more after that, and `antstreet verify` checks the ledger. Each trial must either deliver or stop
+with a reason that names the next command, and never pay for a slice twice or lose a cost unseen.
+The measured table in docs/RECOVERY.md is regenerated here and must match.
+"""
+
+import re
+
+import pytest
+from docs_support import DOCS, read
+from fault_support import BASELINE_LINES, POINTS, ROWS, WORKER_FAULTS, all_trials, summary, table
+
+from antstreet.cli import EXIT_INTERRUPTED, EXIT_OK
+from antstreet.firm import INTERRUPTED_SLICE
+from antstreet.ledger import EventType
+
+# The trials share one fixture (about 30 runs, threaded); under xdist they stay on one worker.
+pytestmark = pytest.mark.xdist_group("fault-injection")
+
+
+@pytest.fixture(scope="module")
+def trials(tmp_path_factory):
+    return all_trials(tmp_path_factory.mktemp("faults"))
+
+
+def named(trials, fault, point=None):
+    return [t for t in trials if t.fault == fault and point in (None, t.point)]
+
+
+def test_every_fault_was_injected_at_every_point(trials):
+    assert {(t.fault, t.point) for t in trials} >= {(k, p) for k in WORKER_FAULTS for p in POINTS}
+    assert sorted(t.point for t in named(trials, "anchor_crash")) == list(
+        range(1, BASELINE_LINES + 1)
+    )
+    [clean] = named(trials, "none")
+    assert clean.recovered and len(clean.events) == BASELINE_LINES  # the sweep covers every line
+    assert clean.billed_micros == clean.booked_micros == 24_000
+
+
+def test_no_fault_pays_for_a_slice_twice(trials):
+    assert {(t.fault, t.point): t.double_spends for t in trials if t.double_spends} == {}
+    for t in trials:
+        assert t.booked_micros <= t.billed_micros, (t.fault, t.point)
+
+
+def test_every_trial_delivers_or_stops_saying_what_to_do(trials):
+    stuck = [
+        (t.fault, t.point, t.final.output[-300:])
+        for t in trials
+        if not (t.recovered or t.escalated)
+    ]
+    assert stuck == []
+
+
+def test_no_spend_is_lost_unseen(trials):
+    # Billed money that is on no ledger line is allowed only next to an event of unknown cost,
+    # so the report's total reads as a lower bound (R7).
+    assert {(t.fault, t.point): t.silent_loss_micros for t in trials if t.silent_loss_micros} == {}
+
+
+def test_every_ledger_verifies_and_one_more_resume_changes_nothing(trials):
+    assert [(t.fault, t.point) for t in trials if not t.verified] == []
+    assert [(t.fault, t.point) for t in trials if t.rerun_changed] == []
+
+
+def test_worker_faults_are_absorbed_without_a_resume(trials):
+    for kind in ("kill_worker", "hang", "gibberish", "garbled_result"):
+        for t in named(trials, kind):
+            assert t.steps[0].command == "fund" and t.steps[0].code == EXIT_OK, (kind, t.point)
+
+
+def test_a_killed_antstreet_books_the_slice_it_lost(trials):
+    for t in named(trials, "kill_antstreet"):
+        assert t.steps[0].code < 0  # really killed
+        lost = [e for e in t.events if e.event is EventType.ERROR and INTERRUPTED_SLICE in e.data]
+        assert [(e.actor, e.data[INTERRUPTED_SLICE], e.cost_micros) for e in lost] == [
+            ("worker:w1", t.point, None)
+        ]
+
+
+def test_ctrl_c_mid_slice_loses_the_cost_the_cli_reported(trials):
+    # Known gap, measured: the runner reads the CLI's final result after Ctrl-C, but the
+    # KeyboardInterrupt is raised before the slice is booked, so a known cost becomes unknown.
+    # In a new session (call 1) it stays off the books; in a resumed one (call 2) the next slice's
+    # cumulative session total books it.
+    unbooked = {t.point: t.billed_micros - t.booked_micros for t in named(trials, "ctrl_c")}
+    assert unbooked == {1: 10_000, 2: 0}
+    for t in named(trials, "ctrl_c"):
+        assert t.steps[0].code == EXIT_INTERRUPTED and t.recovered and t.unknown_events == 1
+
+
+def test_a_second_resume_while_one_runs_is_refused_and_changes_nothing(trials):
+    [t] = named(trials, "concurrent_resume")
+    assert t.problems == () and t.recovered
+
+
+def test_the_recovery_document_holds_the_measured_table(trials):
+    text = read(DOCS / "RECOVERY.md")
+    found = re.search(r"^\| Fault \|.*?(?=\n\n|\Z)", text, re.M | re.S)
+    assert found, "docs/RECOVERY.md has no table starting with `| Fault |`"
+    assert found.group(0).strip() == table(trials)
+    assert len(ROWS) == len(found.group(0).strip().splitlines()) - 2
+    assert summary(trials) in " ".join(text.split())
