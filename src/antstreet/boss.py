@@ -36,6 +36,11 @@ _PROMPT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.md\Z")
 DEFAULT_MODEL = "haiku"
 DEFAULT_CAP_MICROS = 250_000  # $0.25; live drafts cost $0.008-0.060, and a capped draft is wasted
 DEFAULT_TIMEOUT_S = 300.0
+# Upper bounds for `fund --boss-cap`, `--role-cap` and `--boss-timeout`: typo guards, not budgets.
+# Opus 5.5 spent $0.252 drafting a 39 KB spec and NL2Repo specs reach ~150 KB, so ~$1 is a real
+# need; $5 is 20x the default. An hour is 12x the default and above any draft measured (~165 s).
+MAX_CAP_MICROS = 5_000_000
+MAX_TIMEOUT_S = 3600.0
 MAX_CHECKS = 8
 MAX_CHECKS_WITH_RULES = 12  # a request has about 20 rules and a check may test several
 RULES_PROMPT = "term_sheet_v3.md"  # used when the checks must cite the idea's rules

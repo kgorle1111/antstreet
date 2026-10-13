@@ -57,7 +57,11 @@ from antstreet.approval import (
     spec_view,
 )
 from antstreet.boss import (
+    DEFAULT_CAP_MICROS,
     DEFAULT_MODEL,
+    DEFAULT_TIMEOUT_S,
+    MAX_CAP_MICROS,
+    MAX_TIMEOUT_S,
     RULES_PROMPT,
     BossError,
     Draft,
@@ -100,6 +104,7 @@ from antstreet.ledger import (
 )
 from antstreet.limits import RunLimits
 from antstreet.pipeline import (
+    Caps,
     Pipeline,
     Plan,
     RolesError,
@@ -301,6 +306,26 @@ def _parser() -> argparse.ArgumentParser:
         "--boss-thinking",
         type=_tokens_arg,
         help="thinking tokens the boss may use per call; 0 turns thinking off (default: the CLI's)",
+    )
+    fund.add_argument(
+        "--boss-cap",
+        type=_call_cap_arg,
+        help=f"dollar cap on each of the boss's calls (default: ${usd(DEFAULT_CAP_MICROS)}; "
+        f"at most ${usd(MAX_CAP_MICROS)})",
+    )
+    fund.add_argument(
+        "--boss-timeout",
+        type=_timeout_arg,
+        help=f"seconds each of the boss's calls may run (default: {DEFAULT_TIMEOUT_S:g}; "
+        f"at most {MAX_TIMEOUT_S:g})",
+    )
+    fund.add_argument(
+        "--role-cap",
+        action="append",
+        type=_role_cap_arg,
+        metavar="ROLE=USD",
+        help="dollar cap on each call of one role, e.g. critic=1.00; repeat for more roles "
+        f"(default: the role's own; at most ${usd(MAX_CAP_MICROS)})",
     )
     fund.add_argument(
         "--worker-thinking",
@@ -564,6 +589,63 @@ def _seconds_arg(text: str) -> float:
     return seconds
 
 
+def _call_cap_arg(text: str) -> int:
+    micros = usd_arg(text)
+    if micros > MAX_CAP_MICROS:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is above the ${usd(MAX_CAP_MICROS)} a single call may be capped at"
+        )
+    return micros
+
+
+def _timeout_arg(text: str) -> float:
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = 0.0
+    if not 0 < seconds <= MAX_TIMEOUT_S:  # NaN fails too
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a number of seconds above 0 and at most {MAX_TIMEOUT_S:g}"
+        )
+    return seconds
+
+
+def _role_cap_arg(text: str) -> tuple[str, int]:
+    name, sep, amount = text.partition("=")
+    if not sep or name.strip() not in registry():
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not ROLE=USD with a role `antstreet roles` lists, e.g. critic=1.00"
+        )
+    return name.strip(), _call_cap_arg(amount)
+
+
+def _caps(args: argparse.Namespace, roles: Sequence[str]) -> Caps | str:
+    """The cap flags as a Caps, or why they are refused: a role capped twice, or capped but
+    not run (its cap would silently do nothing)."""
+    given = args.role_cap or []
+    names = [name for name, _ in given]
+    if twice := sorted({n for n in names if names.count(n) > 1}):
+        return f"--role-cap names {', '.join(twice)} more than once."
+    running = set(roles) | ({"examiner"} if args.held_out > 0 else set())
+    if idle := sorted(set(names) - running):
+        return (
+            f"--role-cap names {', '.join(idle)}, which this run does not call; "
+            "add it to --roles (the examiner comes with --held-out)."
+        )
+    return Caps(args.boss_cap, args.boss_timeout, tuple(sorted(given)))
+
+
+def _caps_line(caps: Caps) -> str:
+    """The caps the investor set, said before anything is spent on them."""
+    parts = []
+    if caps.boss_micros is not None:
+        parts.append(f"boss calls capped at ${usd(caps.boss_micros)}")
+    if caps.boss_timeout_s is not None:
+        parts.append(f"boss calls time out after {caps.boss_timeout_s:g}s")
+    parts += [f"{name} calls capped at ${usd(micros)}" for name, micros in caps.roles]
+    return "Caps set for this run: " + "; ".join(parts) + "."
+
+
 def _held_out_arg(text: str) -> int:
     if not text.isdecimal() or int(text) > MAX_HELD_OUT:
         raise argparse.ArgumentTypeError(f"{text!r} is not a whole number from 0 to {MAX_HELD_OUT}")
@@ -641,6 +723,10 @@ def _fund(
     if args.fix_after_stop and "critic" not in roles:
         say("--fix-after-stop needs --roles critic: only the critic's findings make a fix round.")
         return EXIT_USAGE
+    caps = _caps(args, roles)
+    if isinstance(caps, str):
+        say(caps)
+        return EXIT_USAGE
     rules: spec.Split | None = None
     if args.spec or args.coverage:
         refusal = _spec_refusal(args, roles)
@@ -664,6 +750,8 @@ def _fund(
         paths.rules.write_text(spec.dumps(rules), encoding="utf-8")
     waivers: dict[str, str] = {}  # rules the boss left untested, with its reasons
     say(f"Run {run_id}: drafting the term sheet...")
+    if caps.given():
+        say(_caps_line(caps))
     with paths.writer() as ledger:
         record = Recorder(ledger, run_id, round=0)
 
@@ -693,6 +781,8 @@ def _fund(
                 checks_dir,
                 env=env,
                 model=args.boss_model,
+                cap_micros=caps.boss_micros or DEFAULT_CAP_MICROS,
+                timeout_s=caps.boss_timeout_s or DEFAULT_TIMEOUT_S,
                 executable=executable,
                 max_tasks=args.max_tasks,
                 thinking_tokens=args.boss_thinking,
@@ -760,7 +850,7 @@ def _fund(
 
         policy = _dispatch_policy(args)
         pipe = Pipeline(
-            Setup(roles, args.boss_model, args.boss_thinking, args.fix_after_stop),
+            Setup(roles, args.boss_model, args.boss_thinking, args.fix_after_stop, caps),
             project, paths, ledger, run_id, env, executable, ask, say, policy,
         )  # fmt: skip
         try:

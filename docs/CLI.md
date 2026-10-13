@@ -34,7 +34,10 @@ Argument: `idea`, what to build, in plain words.
   that starts with `-`, put some other word first.
 - `--rounds`, `--max-tasks`, `--max-slices` and `--stall-slices` must be whole numbers of 1 or
   more. `--max-minutes` must be a positive number. `--boss-thinking` must be a whole number. Any
-  other value is a usage error (exit 2) before anything is spent.
+  other value is a usage error (exit 2) before anything is spent. So is a `--boss-cap` or
+  `--role-cap` amount that is not positive or is above $5.00, and a `--boss-timeout` that is not
+  above 0 and at most 3600 seconds. Any cap flag given is printed before the boss is called and
+  recorded on `started` (`roles.caps`), so `antstreet resume` calls the roles with the same caps.
 - Ctrl-C after approval, while workers are running, stops the run, prints `antstreet resume <id>` and
   exits 130. Nothing already recorded is lost. Ctrl-C earlier, while the boss or a role is being
   called, ends the run with a message and exit 130: nothing was funded, what the calls so far cost
@@ -84,6 +87,9 @@ Argument: `idea`, what to build, in plain words.
 | `--no-firing` | off | Keep funding stalled workers. A worker is still fired at the slice limit. |
 | `--boss-model` | `haiku` | Model for the boss's own call. |
 | `--boss-thinking` | none | Thinking tokens the boss may use; 0 turns thinking off. Without it the CLI's default applies. Roles use it too. |
+| `--boss-cap` | none | Dollar cap on each of the boss's calls (its draft, and each `--coverage` redraft). Without it, $0.25. Positive and at most $5.00: a typo guard, not a budget (Opus 5.5 hit $0.25 drafting a 39 KB spec). The boss's calls are charged on top of `--budget`, so a higher cap adds to what the run can cost. |
+| `--boss-timeout` | none | Seconds each of the boss's calls may run before it is killed (outcome `timeout`, cost unknown). Without it, 300. Above 0 and at most 3600. |
+| `--role-cap` | none | `ROLE=USD`: dollar cap on each call of that role, such as `critic=1.00`; repeat it for more roles. Without it each role keeps its own cap (the critic's is $0.40, the product manager's $0.30, the tester's $0.25, every other role's $0.15). Positive and at most $5.00. A role named twice, or one this run does not call (not in `--roles`; the examiner needs `--held-out`), is a usage error (exit 2). The `role_call` event records the cap the call was given, and a call killed at its timeout is charged that cap against its round. |
 | `--roles` | none | Specialist roles to run around the build, comma separated, or `all`. Names are those `antstreet roles` prints. Each role is one capped model call; its spend is a `role_call` event. `user_agent` needs `product_manager`; `tester` needs `product_manager` and `system_designer`; `system_designer` needs `tester`. A role's model is `--boss-model`. [ROLES.md](ROLES.md) says when each runs. |
 | `--review-cycles` | `1` | Times the critic may review the finished product and offer a fix round. With 0 the critic still runs and its findings are shown, but you are asked nothing. |
 | `--fix-budget` | two slices plus one reserve | Dollars for a fix round after the critic's findings: `$0.30` with the default slice and reserve. At least one reserve plus $0.005. |

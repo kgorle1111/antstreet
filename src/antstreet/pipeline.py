@@ -27,6 +27,7 @@ from typing import Any
 from antstreet import held_out
 from antstreet import spec as rulespec
 from antstreet.approval import TERM_SHEET_FILE, YES, _check_text, content_hashes
+from antstreet.boss import MAX_CAP_MICROS, MAX_TIMEOUT_S
 from antstreet.budget import RESERVE_MICROS
 from antstreet.context import imported_modules
 from antstreet.dispatch import DispatchPolicy
@@ -37,7 +38,7 @@ from antstreet.ledger import Event, EventType, LedgerWriter
 from antstreet.redact import safe_text
 from antstreet.roles import registry
 from antstreet.roles.advisory import advise_on_dispute, audit_checks, render_advice, render_audit
-from antstreet.roles.base import RoleError, RoleSpec, ledger_fields
+from antstreet.roles.base import RoleError, RoleSpec, ledger_fields, with_cap
 from antstreet.roles.critic import (
     Finding,
     Review,
@@ -128,6 +129,59 @@ def default_fix_budget(config: FirmConfig) -> int:
 
 
 @dataclass(frozen=True, slots=True)
+class Caps:
+    """The per-call caps the investor set on `fund` (`--boss-cap`, `--boss-timeout`,
+    `--role-cap`). Each one not set keeps the code's default, so it is not recorded."""
+
+    boss_micros: int | None = None
+    boss_timeout_s: float | None = None
+    roles: tuple[tuple[str, int], ...] = ()  # (role name, micros), sorted by name
+
+    def given(self) -> bool:
+        return self.boss_micros is not None or self.boss_timeout_s is not None or bool(self.roles)
+
+    def role_caps(self) -> dict[str, int]:
+        return dict(self.roles)
+
+    def data(self) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        if self.boss_micros is not None:
+            data["boss_micros"] = self.boss_micros
+        if self.boss_timeout_s is not None:
+            data["boss_timeout_s"] = self.boss_timeout_s
+        if self.roles:
+            data["roles"] = dict(self.roles)
+        return data
+
+    @classmethod
+    def from_data(cls, raw: object) -> Caps:
+        """Caps as recorded; a value out of bounds or of the wrong type is dropped (its default
+        applies), never trusted: the ledger is data."""
+        if not isinstance(raw, dict):
+            return cls()
+        boss = raw.get("boss_micros")
+        timeout = raw.get("boss_timeout_s")
+        roles = raw.get("roles")
+        return cls(
+            boss if _cap_ok(boss) else None,
+            _timeout_of(timeout),
+            tuple(sorted((k, v) for k, v in roles.items() if isinstance(k, str) and _cap_ok(v)))
+            if isinstance(roles, dict)
+            else (),
+        )
+
+
+def _cap_ok(value: object) -> bool:
+    return type(value) is int and 0 < value <= MAX_CAP_MICROS
+
+
+def _timeout_of(value: object) -> float | None:
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value) if 0 < value <= MAX_TIMEOUT_S else None  # NaN fails both
+    return None
+
+
+@dataclass(frozen=True, slots=True)
 class Setup:
     """The roles a run was started with. Recorded on the run's `started` event so that
     `antstreet resume` and the report know them; `FirmConfig` never carries role names."""
@@ -137,6 +191,7 @@ class Setup:
     thinking_tokens: int | None
     # `fund --fix-after-stop`: the critic's fix round may reopen a round that closed locked
     fix_after_stop: bool = False
+    caps: Caps = Caps()  # `fund`'s cap flags; resume calls the roles with the same caps
 
     def data(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -146,6 +201,8 @@ class Setup:
         }
         if self.fix_after_stop:  # absent when off, so a run without it records what it always did
             data["fix_after_stop"] = True
+        if self.caps.given():  # absent when no cap flag was given, like fix_after_stop
+            data["caps"] = self.caps.data()
         return data
 
 
@@ -160,6 +217,7 @@ def recorded_setup(events: Sequence[Event]) -> Setup | None:
                 str(raw.get("model", "")),
                 thinking if type(thinking) is int else None,
                 raw.get("fix_after_stop") is True,
+                Caps.from_data(raw.get("caps")),
             )
     return None
 
@@ -197,9 +255,11 @@ class Pipeline:
             "model": self.setup.model,
             "executable": self.executable,
             "thinking_tokens": self.setup.thinking_tokens,
+            "role_caps": self.setup.caps.role_caps(),
         }
 
     def _book(self, spec: RoleSpec, usage: Usage, outcome: str, result: str, **data: Any) -> None:
+        spec = with_cap(spec, self.setup.caps.role_caps())  # the cap the call was given
         fields = ledger_fields(
             spec, usage, outcome, model=self.setup.model, env=self.env, result=result, **data
         )
@@ -263,13 +323,15 @@ class Pipeline:
             model=self.setup.model,
             reserve_micros=reserve_micros,
             executable=self.executable,
+            role_caps=self.setup.caps.role_caps(),
             say=self.say,
         )
 
     def record_start(self, config: FirmConfig) -> None:
         """Write the run's `started` event with the chosen roles on it. `run_firm` then finds it
-        and writes none, so the two never disagree. Nothing is written without roles."""
-        if self.setup.roles:
+        and writes none, so the two never disagree. Nothing is written without roles or a cap
+        flag."""
+        if self.setup.roles or self.setup.caps.given():
             data = {"config": config_data(config), "roles": self.setup.data()}
             Recorder(self.ledger, self.run_id, 0)("boss", EventType.STARTED, data=data)
 

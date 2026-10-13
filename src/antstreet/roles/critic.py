@@ -205,6 +205,7 @@ def review_product(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
     timeout_s: float = 900.0,  # E4b: 300s cut 4 of the first 7 critic calls; 900s let 94/105 finish
     gate_timeout_s: float = GATE_TIMEOUT_S,
@@ -227,6 +228,7 @@ def review_product(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
         timeout_s=timeout_s,
     )

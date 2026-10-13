@@ -243,7 +243,7 @@ Example, a critic's call written by a run with every role:
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
-| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `antstreet approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`), and `fix_after_stop` (true, only when `--fix-after-stop` was given; absent means off). |
+| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `antstreet approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`), `fix_after_stop` (true, only when `--fix-after-stop` was given; absent means off), and `caps` (object, only when `--boss-cap`, `--boss-timeout` or `--role-cap` was given; absent means every default): its keys are only those given, `boss_micros` (int: `--boss-cap`), `boss_timeout_s` (float: `--boss-timeout`) and `roles` (object: role name to the micro-dollar cap of each of its calls, `--role-cap`). A run with a cap flag and no roles still records `roles`, with `names` empty, so `antstreet resume` keeps the caps; a recorded value out of bounds is ignored and the default applies. |
 
 Config keys:
 
