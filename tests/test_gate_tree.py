@@ -4,7 +4,7 @@ import pytest
 
 from antstreet.gate import CheckStatus, GateError, run_tree
 
-PASSED, FAILED = CheckStatus.PASSED, CheckStatus.FAILED
+PASSED, FAILED, TIMEOUT = CheckStatus.PASSED, CheckStatus.FAILED, CheckStatus.TIMEOUT
 SUITE = """import pytest
 
 class TestK:
@@ -103,11 +103,12 @@ def test_a_nested_test_path_works(dirs):
     assert run_tree(ws, tree, "pkg/tests").tests == {"pkg/tests/test_a.py::test_a": PASSED}
 
 
-def test_a_hang_is_a_timeout_with_no_results(dirs):
+def test_a_hang_past_the_suite_cap_is_a_timeout_of_the_running_test(dirs):
     ws, tree = dirs
     (tree / "test_h.py").write_text("import time\n\ndef test_h():\n    time.sleep(60)\n")
-    got = run_tree(ws, tree, "tests", timeout_s=2.0)
-    assert got.tests == {} and got.exit_code is None and "exceeded 2.0s" in got.detail
+    got = run_tree(ws, tree, "tests", timeout_s=2.0, test_timeout_s=50.0)
+    assert got.tests == {"tests/test_h.py::test_h": TIMEOUT} and got.timed_out
+    assert got.exit_code is None and "exceeded 2.0s" in got.detail
 
 
 def test_a_crash_with_no_report_is_no_results_not_an_exception(dirs):
@@ -142,3 +143,104 @@ def test_a_src_layout_product_is_importable_when_the_caller_names_the_folder(dir
     assert got.tests == {"tests/test_lib.py::test_v": PASSED}
     with pytest.raises(GateError, match="not inside the workspace copy"):
         run_tree(ws, tree, "tests", pythonpath=("ws/../..",))
+
+
+# --- time limits -------------------------------------------------------------------------------
+
+HANGS = """import time
+
+def test_before():
+    pass
+
+def test_sleeps_forever():
+    while True:
+        time.sleep(0.05)
+
+def test_spins_forever():
+    while True:
+        pass
+
+def test_swallows_exceptions():
+    while True:
+        try:
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+def test_slow_but_inside_the_limit():
+    time.sleep(0.3)
+
+def test_after():
+    pass
+"""
+
+
+def test_one_hanging_test_is_a_timeout_and_the_others_still_report(dirs):
+    ws, tree = dirs
+    (tree / "test_h.py").write_text(HANGS)
+    got = run_tree(ws, tree, "tests", test_timeout_s=1.0)
+    assert got.tests == {
+        "tests/test_h.py::test_before": PASSED,
+        "tests/test_h.py::test_sleeps_forever": TIMEOUT,
+        "tests/test_h.py::test_spins_forever": TIMEOUT,  # pure Python, no sleep to interrupt
+        "tests/test_h.py::test_swallows_exceptions": TIMEOUT,  # `except Exception` cannot eat it
+        "tests/test_h.py::test_slow_but_inside_the_limit": PASSED,
+        "tests/test_h.py::test_after": PASSED,
+    }
+    assert got.detail == "3 of 6 passed (3 timed out)" and not got.timed_out
+    assert got.duration_s < 20  # three limits of 1 s each plus start-up, not the 180 s suite cap
+
+
+def test_a_timed_out_test_is_not_a_failed_one_and_a_failed_one_is_not_a_timeout(dirs):
+    ws, tree = dirs
+    (tree / "test_m.py").write_text(
+        "import time\n\ndef test_wrong():\n    assert 0\n\ndef test_hangs():\n    time.sleep(30)\n"
+    )
+    got = run_tree(ws, tree, "tests", test_timeout_s=1.0)
+    assert got.tests["tests/test_m.py::test_wrong"] is FAILED
+    assert got.tests["tests/test_m.py::test_hangs"] is TIMEOUT
+
+
+def test_a_hang_in_a_fixture_is_a_timeout_of_that_test_alone(dirs):
+    ws, tree = dirs
+    (tree / "test_f.py").write_text(
+        "import time, pytest\n\n@pytest.fixture\ndef slow():\n    time.sleep(30)\n\n"
+        "def test_needs_it(slow):\n    pass\n\ndef test_free():\n    pass\n"
+    )
+    got = run_tree(ws, tree, "tests", test_timeout_s=1.0)
+    assert got.tests == {
+        "tests/test_f.py::test_needs_it": TIMEOUT,
+        "tests/test_f.py::test_free": PASSED,
+    }
+
+
+def test_a_test_that_disables_the_alarm_is_cut_by_the_suite_cap_and_keeps_what_finished(dirs):
+    ws, tree = dirs
+    (tree / "test_s.py").write_text(
+        "import signal, time\n\ndef test_first():\n    pass\n\n"
+        "def test_deaf():\n    signal.setitimer(signal.ITIMER_REAL, 0)\n    time.sleep(60)\n\n"
+        "def test_never_starts():\n    pass\n"
+    )
+    got = run_tree(ws, tree, "tests", timeout_s=4.0, test_timeout_s=1.0)
+    assert got.timed_out and got.exit_code is None
+    assert got.tests == {
+        "tests/test_s.py::test_first": PASSED,
+        "tests/test_s.py::test_deaf": TIMEOUT,
+    }
+    assert got.detail == "suite exceeded 4.0s with 1 test(s) running or unfinished"
+
+
+def test_the_suite_cap_still_works_with_no_progress_at_all(dirs):
+    ws, tree = dirs
+    (tree / "test_c.py").write_text("import time\ntime.sleep(60)\n\ndef test_x():\n    pass\n")
+    got = run_tree(ws, tree, "tests", timeout_s=3.0)
+    assert got.timed_out and got.tests == {}  # it hung while being collected
+
+
+@pytest.mark.parametrize("bad", [0, -1.0, float("inf"), float("nan")])
+def test_nonsense_limits_are_refused(dirs, bad):
+    ws, tree = dirs
+    (tree / "test_a.py").write_text("def test_a():\n    pass\n")
+    for name in ("timeout_s", "test_timeout_s"):
+        with pytest.raises(GateError, match=name):
+            run_tree(ws, tree, "tests", **{name: bad})

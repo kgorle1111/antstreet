@@ -61,6 +61,28 @@ only on the count of readable paths, so a directory named `"))(allow default)((`
 directory and nothing else (`test_a_hostile_directory_name_grants_that_directory_and_nothing_else`;
 a profile that interpolated the path fails it on quote, backslash and injection names).
 
+## Time limits
+
+Every limit is wall clock, and a run past one is reported as `timeout`, never as a pass and never
+as a plain failure.
+
+| What | Limit | Where it is enforced |
+|---|---|---|
+| One check (`run_gate`) | 60 s (`DEFAULT_TIMEOUT_S`; callers pass their own) | The process group is killed from outside. |
+| One whole imported suite (`run_tree`) | 180 s (`TREE_TIMEOUT_S`; `imported.suite_timeout_s` in a task's `meta.json`) | The process group is killed from outside. |
+| One test of an imported suite (`run_tree`) | 30 s for each of setup, call and teardown (`TREE_TEST_TIMEOUT_S`; `imported.test_timeout_s`) | Inside the sandboxed pytest, by `_tree_plugin.py` with `SIGALRM`. |
+
+A hanging test in an imported suite costs only itself: the alarm raises a `BaseException` in it
+(a test's own `except Exception:` cannot swallow it), pytest reports that test, and the rest run
+and are graded. The JUnit report marks it, and `gate._tree_statuses` turns the mark into `timeout`.
+
+A test that switches the alarm off (or hangs in C code that never returns to the interpreter) is
+cut by the suite cap instead. JUnit is only written at the end, so the plugin appends each test's
+result to a progress log as it goes; after a suite kill the finished tests keep their results, the
+test that was running is `timeout`, and the benchmark records the tests that never started as
+`timeout` too (`bench.tasks.grade_imported`). The progress log is unsigned, like the rest of a
+whole-tree run (T12).
+
 ## What it does not protect against
 
 - **A forged verdict aimed at the gate's plugin (T12).** Rewriting the report, exiting 0 or patching
@@ -130,7 +152,8 @@ comparisons outside an assert. Not covered:
 - Bare truthiness (`assert f(x)`), `len(x)` (a product object can report any length), and what a
   product's `__str__`, `__iter__` or `__hash__` returns before a plain comparison sees it. These
   give the product nothing an honest-looking return value would not.
-- Whole-tree runs (`gate.run_tree`, imported benchmark suites): no plugin, no guard, no proof.
+- Whole-tree runs (`gate.run_tree`, imported benchmark suites): no guard, no proof. They load
+  `_tree_plugin.py`, which only enforces a time limit and logs progress; see "Time limits".
 - `x not in [plain list]` and `x != plain` are true for any product object, as `==` is false for
   it: a negative check cannot tell a wrong product object from a right one. Prefer positive checks.
 - Only the check file (always copied to `checks/<name>` directly, `gate._run_one`) is guarded, not
