@@ -167,7 +167,7 @@ Built like something you would be happy to inherit.
 - **5,700+ tests**, no model calls needed (recorded CLI output and fake `claude` executables).
 - **Coverage floor 96%** (line and branch) enforced in CI; about 98% measured when the floor was set.
 - **`mypy --strict`** over `src/`, plus ruff.
-- **A threat model with 71 rows**, each bound to the test for its control
+- **A threat model with 72 rows**, each bound to the test for its control
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
 - **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
@@ -235,7 +235,9 @@ verdict ([#71](https://github.com/kgorle1111/antstreet/pull/71)); and opt-in **a
 (`audit plan --questions`; its live eval did not show it finds unseen gaps: 4 of 10 held-out rules, [results](bench/results/2026-10-10-spec-gaps/README.md))
 ([#72](https://github.com/kgorle1111/antstreet/pull/72)). Inside Claude Code, a guard blocks the agent from running `antstreet audit` or reading the
 audit store; it is a tripwire, not isolation or a sandbox: a Claude Code mod you have installed can skip it or overrule its denial, and a determined agent can get around
-it ([#75](https://github.com/kgorle1111/antstreet/pull/75)).
+it ([#75](https://github.com/kgorle1111/antstreet/pull/75)). An agent running with bypass permissions can plant such a mod
+itself, in a skills folder, and it loads at your next session without a prompt; `antstreet doctor --mods` lists those mods
+and any that can skip the guard (it detects, it does not prevent).
 
 Next: **`antstreet` on PyPI** (imminent, not published yet), which the Stop hook and a zero-install
 `uvx` audit wait on, and **CI export** for the GitHub Action, then a first-run guide. Planned after
