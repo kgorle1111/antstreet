@@ -62,6 +62,22 @@ Costs are the CLI's client-side estimates. Model: Haiku. Budget: $0.40 per cell.
 Recall is biased down: 16 of the 23 harvested wrong implementations were built against these
 same drafts. See `bench/METHOD.md`.
 
+## E9, checks that cover every rule (2026-10-13-e9-coverage)
+
+E9 from `bench/PREREG.md`, scored from saved cells; no model call. `antstreet fund --coverage` against
+the plain firm and the single agent, 35 tasks x 3 runs, `main` `90138e1`, $0.40 a cell. See
+`2026-10-13-e9-coverage/README.md`.
+
+- **E9 is not shown, and it is not a fair test of the flag.** The CLI's `haiku` alias moved from
+  Haiku 4.5 to Haiku 5.5 during the run: 80 of 105 coverage cells ran on Haiku 4.5, every firm and
+  single cell on Haiku 5.5. Coverage minus firm, paired delivery: -0.2000 [-0.3238, -0.0762];
+  coverage minus single: -0.2476 [-0.3619, -0.1429]. The model change may explain much of that gap (most coverage failures fall in its Haiku 4.5 stretch); with the arms on different models, the run cannot separate the model's effect from the flag's.
+- Delivery: coverage 77/105, firm 98/105, single 103/105. On the 8 tasks where both firm arms ran on
+  Haiku 5.5, coverage minus firm is -0.0833 [-0.2917, +0.0833].
+- Firm minus single (both Haiku 5.5): -0.0476 [-0.1143, +0.0095]. No E9 number compares with
+  blind35, E4 or E4b, which ran on Haiku 4.5.
+- In 12 of the 24 approved coverage cells that failed a hidden check, the gate had shown no gap.
+
 ## Spec-gap questions (2026-10-10-spec-gaps)
 
 SG1: does the `--questions` call ask about rules the drafted checks miss? Haiku, one run per case, hand-checked.

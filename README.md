@@ -79,7 +79,7 @@ and model dispatch are off unless you ask for them. Every command: [docs/CLI.md]
 
 ## 🧪 We measure, and we publish the "no"
 
-Every experiment's rule is fixed in [bench/PREREG.md](bench/PREREG.md) before it runs. Four have
+Every experiment's rule is fixed in [bench/PREREG.md](bench/PREREG.md) before it runs. Five have
 run. **None has shown its benefit, and every one is published.**
 
 The headline loss: a fair, blinded benchmark of the fund. 35 tasks, three runs each,
