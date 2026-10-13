@@ -14,8 +14,8 @@ every result, including the misses, is in [bench/results](bench/results/README.m
 - A budget, a term sheet you approved and a gate that is plain code give you control over what a
   team of agents builds and spends: no worker is hired before you approve, and every dollar is on
   the ledger.
-- Whether a team builds better than one agent is still open. On a blinded 35-task run it did not
-  (64 of 105 against 62 of 105, about 2.4 times the cost, not shown), so the next proof is a
+- Whether a team builds better than one agent is still open. On a blinded 35-task run, a benefit
+  was not shown (64 of 105 against 62 of 105, about 2.4 times the cost), so the next proof is a
   harder benchmark where one agent fails, pre-registered before it runs.
 - Checks the builder never saw matter: in our false-pass audit, **29 of 77 runs (38%)** passed
   every check the model wrote and still failed a hidden check. The caveat, kept on purpose: 17
