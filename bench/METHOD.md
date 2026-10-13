@@ -1,6 +1,7 @@
 # Benchmark method
 
 What the benchmark measures, how, and what its numbers can and cannot support.
+Every experiment also meets the bar in [STANDARDS.md](STANDARDS.md).
 
 ## Question
 

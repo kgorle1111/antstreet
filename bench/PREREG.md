@@ -10,6 +10,8 @@ reason, and the run it affects is reported under both rules. Why these five and 
 
 ## What every experiment shares
 
+The standards every experiment meets, and how each is held, are in [STANDARDS.md](STANDARDS.md).
+
 - **Metrics.** The seven KPIs defined in [METHOD.md](METHOD.md) (delivery rate, false-pass rate,
   cost per delivered task, time to delivery, reliability, investor effort, check quality). Each
   experiment names its primary KPI; the others are reported, not decided on.
