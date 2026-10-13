@@ -188,24 +188,32 @@ def main(
     return _show(args, project, say)
 
 
+STATUS_LINE = (
+    "Early and experimental: in our published benchmark runs a team has not yet shown a benefit "
+    "over a single agent; every result, including the misses, is in bench/results."
+)
+
+
 def _parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--dir", default=".", help="project folder (default: current)")
     parser = argparse.ArgumentParser(
         prog="antstreet",
         description=(
-            "Check an AI coding agent's work against sealed tests it never saw (audit), "
-            "or fund a budget-capped build (experimental)."
+            "Fund an idea: a boss model drafts a term sheet of checks, you approve it, and a team "
+            "of agent workers builds it in budget-capped rounds while a sandboxed gate of plain "
+            "code decides what passed. The same sealed checks can audit someone else's change."
         ),
+        epilog=STATUS_LINE,
     )
     parser.add_argument("--version", action="version", version=f"antstreet {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
-    _audit_parser(sub)  # first: the help lists commands in the order they are added
-
+    # The help lists commands in the order they are added: fund, then audit.
     fund = sub.add_parser(
         "fund",
         parents=[common],
-        help="(experimental) draft a term sheet for an idea, approve it, and build it",
+        help="draft a term sheet for an idea, approve it, and build it",
+        description="Draft a term sheet for an idea, approve it, and build it. " + STATUS_LINE,
     )
     fund.add_argument("idea", help="what to build, in plain words")
     fund.add_argument(
@@ -304,6 +312,7 @@ def _parser() -> argparse.ArgumentParser:
         help="let the critic's fix round reopen a round that closed below its unlock threshold, "
         "as your top-up of it; needs --roles critic (default: off)",
     )
+    _audit_parser(sub)
 
     for name, text in (
         ("resume", "continue an interrupted, paused or stopped run from its ledger"),
@@ -366,6 +375,11 @@ def _parser() -> argparse.ArgumentParser:
         "doctor", parents=[common], help="check that this machine can run antstreet"
     )
     doctor.add_argument("--live", action="store_true", help="verify login with one small real call")
+    doctor.add_argument(
+        "--mods",
+        action="store_true",
+        help="list Claude Code mods from a skills folder and any that can skip the audit guard",
+    )
     sub.add_parser(
         "mcp",
         parents=[common],
@@ -1664,7 +1678,11 @@ def _doctor(args: argparse.Namespace, project: Path, environ: Mapping[str, str],
     from antstreet.doctor import render_doctor, run_doctor
 
     checks = run_doctor(
-        worker_env(environ), project, live=args.live, executable=environ.get(EXECUTABLE_VAR, CLI)
+        worker_env(environ),
+        project,
+        live=args.live,
+        mods=args.mods,
+        executable=environ.get(EXECUTABLE_VAR, CLI),
     )
     say(render_doctor(checks))
     return EXIT_OK if all(c.ok for c in checks) else EXIT_FAILED

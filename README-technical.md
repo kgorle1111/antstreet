@@ -3,12 +3,17 @@
 `antstreet` and `boss` are the same command; `boss` is the bull you talk to. The Python package
 is `antstreet`.
 
-**Coding agents say "done" when it is not. AntStreet makes "done" something you can verify.**
+**AntStreet is a fund for AI coding agents: you approve a term sheet of checks, a team of agents
+builds in budget-capped rounds, and plain code decides what passed.**
 
-You give it an idea and a budget. An LLM boss drafts pytest acceptance checks, and you approve
-them before any code exists. Headless Claude Code agents then build in budget-capped slices. A
-sandboxed gate, not the agents, decides what passed, and every dollar and decision goes on a signed,
-hash-chained ledger.
+You give it an idea and a budget. An LLM boss drafts a term sheet of pytest acceptance checks, and
+you approve it before any code exists. Headless Claude Code agents then build in budget-capped
+slices, and a worker that stops making progress is fired. A sandboxed gate, not the agents, decides
+what passed, and every dollar and decision goes on a signed, hash-chained ledger. The same sealed
+checks can audit a change someone else's agent made (`antstreet audit`).
+
+Early and experimental: in our published benchmark runs a team has not yet shown a benefit over a single agent;
+every result, including the misses, is in [bench/results](bench/results/README.md).
 
 Why: in our benchmark, 29 of 77 runs (38%, 95% interval 28-49%) passed every check the model had
 written and still failed a hidden check it never saw (written by Claude, separately from the agents

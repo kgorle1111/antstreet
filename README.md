@@ -1,6 +1,6 @@
 <div align="center">
 
-# AntStreet: tests your coding agent never saw
+# AntStreet: a fund for AI coding agents
 
 <img src="docs/assets/hero.svg" alt="Checks your AI coding agent's work against tests it never saw." width="100%">
 
@@ -14,13 +14,100 @@
 
 </div>
 
-**AntStreet checks your AI coding agent's work against tests it never saw, so "all tests pass"
-actually means something.**
+**You bring an idea and a budget. AntStreet runs it like a fund: a boss model drafts a term sheet
+of checks, you approve it, and a team of AI coding agents builds it in budget-capped rounds. A
+sandboxed gate of plain code decides what passed, and a signed ledger records every step.**
 
-Your agent writes the code *and* the tests, like a student who writes their own exam. AntStreet is
-the answer key the student never sees.
+Early and experimental: in our published benchmark runs a team has not yet shown a benefit over a single agent;
+every result, including the misses, is in [bench/results](bench/results/README.md).
 
 ## 🚦 In three steps
+
+1. 💡 **Pitch an idea.** `antstreet fund "your idea" --budget 0.40`. The boss, a model, drafts a
+   term sheet: the tasks, the pytest checks each one must pass, and the budget split into rounds.
+2. ✍️ **Approve the term sheet.** You read every check and say yes or no. No worker is hired until
+   you approve, and the text you approved is hashed onto the ledger.
+3. 🐜 **Agents build in funded rounds.** Worker agents build in budget-capped slices, and a worker
+   that stops making progress is fired and replaced once. A sandboxed gate of plain code runs the
+   checks and decides pass or fail. Every dollar, hire, firing and verdict goes on a signed,
+   hash-chained ledger.
+
+The AI drafts. You approve. Plain code decides.
+
+<p align="center">
+<img src="docs/assets/mascot-pig.svg" alt="The pig: the investor, you, who funds the idea and approves the checks" width="30%">
+<img src="docs/assets/mascot-bull.svg" alt="The bull: the boss, which drafts the checks and runs the crew" width="30%">
+<img src="docs/assets/mascot-ant.svg" alt="The ant: a worker agent, building in a capped slice" width="30%">
+</p>
+
+The pig is you, the investor. The bull is the boss, the model that drafts the term sheet. The ants
+are the worker agents.
+
+## 🔭 How it flows
+
+```mermaid
+flowchart LR
+  A["💡 Idea + budget"] --> B["🐂 Boss drafts a term sheet:<br/>tasks, checks, rounds"]
+  B --> C["🐷 You approve it<br/>(hashed, signed)"]
+  C --> D["🐜 Workers build<br/>in capped slices"]
+  D --> E["🧱 Sandboxed gate<br/>runs the checks"]
+  E -- "no progress" --> F["🔥 Worker fired,<br/>replaced once"]
+  F --> D
+  E -- "pass" --> G["🧾 Signed ledger<br/>and board report"]
+```
+
+## 🚀 Quickstart
+
+You need macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/) and
+[Claude Code](https://code.claude.com), logged in (`claude auth login`). AntStreet is coming to
+PyPI; until then, run it from a clone:
+
+```bash
+git clone https://github.com/kgorle1111/antstreet.git ~/antstreet
+cd ~/antstreet && uv sync
+uv run antstreet doctor --live      # checks this machine; two paid calls of at most $0.05 each
+uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
+                                    # in a terminal: read the term sheet, answer y, and it builds
+uv run antstreet report             # the board report for the run
+```
+
+`fund` shows you the term sheet and waits for your yes. With no terminal to ask on (a pipe, CI,
+Claude Code's Bash tool) it builds nothing yet: it prints the term sheet and the one command that
+approves exactly that text. Then the steps are `antstreet approve RUN --sheet VALUE` (as printed),
+`antstreet resume RUN` to build, and `antstreet report`. Optional roles (the critic is the one we suggest)
+and model dispatch are off unless you ask for them. Every command: [docs/CLI.md](docs/CLI.md).
+
+## 🧪 We measure, and we publish the "no"
+
+Every experiment's rule is fixed in [bench/PREREG.md](bench/PREREG.md) before it runs. Five have
+run. **None has shown its benefit, and every one is published.**
+
+The headline loss: a fair, blinded benchmark of the fund. 35 tasks, three runs each,
+$0.40 a task, hidden checks written separately from the agents being measured (by Claude, in a
+different session), validated against a reference solution and planted wrong solutions, and never
+shown to any agent.
+
+| | passed | cost per task |
+|---|---|---|
+| AntStreet (boss + ants) | 64 of 105 (61%) | $0.2149 |
+| one agent | 62 of 105 (59%) | $0.0883 |
+
+**Paired by task, the difference is not shown, and the firm cost about 2.4 times as much.** So the
+fund is **not shown to build better than a single agent**, at about 2.4 times the cost, and we do
+not claim it does. The earlier, rosier headline did not survive a fair re-run. The next test is a harder benchmark, pre-registered, where one agent fails
+([ROADMAP.md](ROADMAP.md)). Details: [blind35 notes](bench/results/2026-10-03-blind35/README.md), [bench/METHOD.md](bench/METHOD.md).
+
+The closest call so far, E4b: the build mode with a fresh-context critic delivered 74 of 105 (70%) against 61% for
+self-review, with the fewest false passes (24%), at about 1.56x the cost per delivered task. The
+pre-registered interval is +0.0952 [-0.0000, +0.1905]: its lower bound is not above zero, so the
+verdict is **not shown**, and we do not round it up.
+[E4b write-up](bench/results/2026-10-07-e4b-critic/README.md).
+
+## 🔍 Audit: the same checks, on someone else's change
+
+The gate also works on its own. AntStreet checks your AI coding agent's work against tests it never
+saw, so "all tests pass" actually means something. Your agent writes the code *and* the tests, like
+a student who writes their own exam; the audit is the answer key the student never sees.
 
 1. 🔏 **Seal.** Before the agent starts, `antstreet audit plan` drafts checks from your change
    request. You read and approve them, and they are sealed with a SHA-256, outside the repo.
@@ -30,7 +117,23 @@ the answer key the student never sees.
    agent's commit in a sandbox and signs a verdict: `refuted`, `unrefuted`, `inconclusive` or
    `no_claim`.
 
-The AI drafts. You and plain code decide.
+In the Python repo your agent will change (a clean working tree), with the clone above:
+
+```bash
+alias antstreet="uv run --project ~/antstreet antstreet"
+antstreet audit plan --request ~/req.txt   # the change request, in plain words, kept outside the repo
+# ... the agent works and commits ...
+antstreet audit check --claim done         # the latest sealed run, against HEAD
+antstreet audit report                     # every verdict, and the false-pass rate
+```
+
+Or run `antstreet audit` on its own: it does whichever step comes next for the repo, seal or check.
+Beside the verdict it also runs a check-strength pass, which flags counted checks that survive
+deliberately broken copies of your changed lines as weak. That is advice only and never changes the
+verdict; `--no-strength` skips it.
+
+`audit plan` makes one model call (Haiku by default) to draft the checks. The checks run with your
+repo's own `.venv` packages, read-only inside the sandbox; nothing is installed.
 
 ## 🎬 See it run
 
@@ -64,7 +167,7 @@ The agent said "done". Two checks it never saw say otherwise. This is the output
 run with a fake model, abridged (each check's code is left out), so the request is a toy one: make
 `slugify` collapse runs of symbols into one hyphen. Every output line is one the real command
 prints; a test re-runs it to keep it that way. Try it on your own repo in
-[the quickstart](#-quickstart).
+[the audit section](#-audit-the-same-checks-on-someone-elses-change).
 
 ## 🧨 The problem
 
@@ -84,17 +187,7 @@ AntStreet's own build runs, not a general agent failure rate. Read the
 The lesson: tests written by the same mind that wrote the code share its blind spots. Checks sealed
 before the work starts, and never shown to the agent, do not.
 
-## 🔭 How it flows
-
-```mermaid
-flowchart LR
-  A["📝 Change request"] --> B["🔏 Checks drafted,<br/>run on the base,<br/>you approve, sealed"]
-  B --> C["🤖 Any agent works<br/>(never sees the checks)"]
-  C --> D["🧱 Sandboxed gate runs<br/>the sealed checks<br/>on its commit"]
-  D --> E["🧾 Signed verdict:<br/>refuted / unrefuted /<br/>inconclusive"]
-```
-
-## ✨ Why it is different
+## ✨ Why the audit is different
 
 | | |
 |---|---|
@@ -104,62 +197,6 @@ flowchart LR
 | 🔎 **It notices cheating** | A change that quotes the sealed checks is flagged, and base tests the agent deleted or broke are listed beside the verdict. |
 | 🔏 **A record you can check** | Every approval and verdict is on a signed, hash-chained ledger, and an automatic decision is never signed in your name. |
 
-## 🚀 Quickstart
-
-You need macOS or Linux, Python 3.12+, [uv](https://docs.astral.sh/uv/) and
-[Claude Code](https://code.claude.com), logged in (`claude auth login`). AntStreet is coming to
-PyPI; until then, run it from a clone:
-
-```bash
-git clone https://github.com/kgorle1111/antstreet.git ~/antstreet
-cd ~/antstreet && uv sync
-```
-
-Then, in the Python repo your agent will change (a clean working tree):
-
-```bash
-alias antstreet="uv run --project ~/antstreet antstreet"
-antstreet audit plan --request ~/req.txt   # the change request, in plain words, kept outside the repo
-# ... the agent works and commits ...
-antstreet audit check --claim done         # the latest sealed run, against HEAD
-antstreet audit report                     # every verdict, and the false-pass rate
-```
-
-Or run `antstreet audit` on its own: it does whichever step comes next for the repo, seal or check.
-Beside the verdict it also runs a check-strength pass, which flags counted checks that survive
-deliberately broken copies of your changed lines as weak. That is advice only and never changes the
-verdict; `--no-strength` skips it.
-
-`audit plan` makes one model call (Haiku by default) to draft the checks. The checks run with your
-repo's own `.venv` packages, read-only inside the sandbox; nothing is installed. Every option:
-[docs/CLI.md](docs/CLI.md).
-
-## 🧪 We measure, and we publish the "no"
-
-Every experiment's rule is fixed in [bench/PREREG.md](bench/PREREG.md) before it runs. Five have
-run. **None has shown its benefit, and every one is published.**
-
-The headline loss: a fair, blinded benchmark of AntStreet's build mode. 35 tasks, three runs each,
-$0.40 a task, hidden checks written separately from the agents being measured (by Claude, in a
-different session), validated against a reference solution and planted wrong solutions, and never
-shown to any agent.
-
-| | passed | cost per task |
-|---|---|---|
-| AntStreet (boss + ants) | 64 of 105 (61%) | $0.2149 |
-| one agent | 62 of 105 (59%) | $0.0883 |
-
-**Paired by task, the difference is not shown, and the firm cost about 2.4 times as much.** So we
-do not claim a team of agents builds better than one agent. The earlier, rosier headline did not
-survive a fair re-run. The value is **verification and control**, which is why the audit leads.
-Details: [blind35 notes](bench/results/2026-10-03-blind35/README.md), [bench/METHOD.md](bench/METHOD.md).
-
-The closest call so far, E4b: the build mode with a fresh-context critic delivered 74 of 105 (70%) against 61% for
-self-review, with the fewest false passes (24%), at about 1.56x the cost per delivered task. The
-pre-registered interval is +0.0952 [-0.0000, +0.1905]: its lower bound is not above zero, so the
-verdict is **not shown**, and we do not round it up.
-[E4b write-up](bench/results/2026-10-07-e4b-critic/README.md).
-
 ## 🛠️ How it's engineered
 
 Built like something you would be happy to inherit.
@@ -167,7 +204,7 @@ Built like something you would be happy to inherit.
 - **5,700+ tests**, no model calls needed (recorded CLI output and fake `claude` executables).
 - **Coverage floor 96%** (line and branch) enforced in CI; about 98% measured when the floor was set.
 - **`mypy --strict`** over `src/`, plus ruff.
-- **A threat model with 72 rows**, each bound to the test for its control
+- **A threat model with 73 rows**, each bound to the test for its control
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
 - **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
@@ -185,35 +222,13 @@ reliability and systems that hold up under a deep review. AntStreet was built wi
 agents and held to the same discipline it sells: every change through a pull request, every claim
 bound to a test, every negative result published.
 
-## 🧰 Advanced and experimental: `antstreet fund`
-
-AntStreet started as a firm of agents: you give it an idea and a budget, the boss drafts checks you
-approve, and budget-capped worker agents build until the gate says pass, with every dollar on the
-ledger.
-
-It works end to end, and it is **not shown to build better than a single agent**, at about 2.4
-times the cost (the table above). Try it if you are curious; do not pick it for results.
-
-```bash
-cd ~/antstreet
-uv run antstreet doctor --live      # checks this machine; two paid calls of at most $0.05 each
-uv run antstreet fund "A function is_palindrome(text) that ignores case, spaces and punctuation." --budget 0.40
-```
-
-The pig is you, the investor. The bull is the boss, the model that drafts the checks. The ants are
-the worker agents. Optional roles (the critic is the one we suggest) and model dispatch are
-off unless you ask for them. Every command: [docs/CLI.md](docs/CLI.md).
-
-<p align="center">
-<img src="docs/assets/mascot-pig.svg" alt="The pig: the investor, you, who funds the idea and approves the checks" width="30%">
-<img src="docs/assets/mascot-bull.svg" alt="The bull: the boss, which drafts the checks and runs the crew" width="30%">
-<img src="docs/assets/mascot-ant.svg" alt="The ant: a worker agent, building in a capped slice" width="30%">
-</p>
-
 ## 🧭 Status and honest limits
 
 Early and pre-release. It works end to end, and:
 
+- **A team has not yet shown a benefit over a single agent** in our published runs (blind35), and no fund
+  experiment since (E1, E3, E4, E4b) has shown its benefit. We do not claim the fund builds
+  better, faster or cheaper.
 - **`unrefuted` is not proof.** The sealed checks catch only what they test, and a model drafts
   them: you reading them before you approve is the control.
 - A determined adversary can forge a pass ([T12](docs/THREAT_MODEL.md#t12), accepted). Do not run
@@ -235,9 +250,13 @@ verdict ([#71](https://github.com/kgorle1111/antstreet/pull/71)); and opt-in **a
 (`audit plan --questions`; its live eval did not show it finds unseen gaps: 4 of 10 held-out rules, [results](bench/results/2026-10-10-spec-gaps/README.md))
 ([#72](https://github.com/kgorle1111/antstreet/pull/72)). Inside Claude Code, a guard blocks the agent from running `antstreet audit` or reading the
 audit store; it is a tripwire, not isolation or a sandbox: a Claude Code mod you have installed can skip it or overrule its denial, and a determined agent can get around
-it ([#75](https://github.com/kgorle1111/antstreet/pull/75)).
+it ([#75](https://github.com/kgorle1111/antstreet/pull/75)). An agent running with bypass permissions can plant such a mod
+itself, in a skills folder, and it loads at your next session without a prompt; `antstreet doctor --mods` lists those mods
+and any that can skip the guard (it detects, it does not prevent).
 
-Next: **`antstreet` on PyPI** (imminent, not published yet), which the Stop hook and a zero-install
+Next for the fund: **a harder benchmark where one agent fails**, pre-registered before it
+runs, with pinned, dated model ids and the arms interleaved. Next for everyone:
+**`antstreet` on PyPI** (imminent, not published yet), which the Stop hook and a zero-install
 `uvx` audit wait on, and **CI export** for the GitHub Action, then a first-run guide. Planned after
 that: the **Agent Honesty Report**, a pre-registered public measurement of how often coding agents
 pass their own tests while hidden checks fail.
