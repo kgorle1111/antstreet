@@ -596,3 +596,12 @@ def test_a_boss_call_counts_the_model_the_cli_reported_not_the_alias_it_was_laun
     (bench.home / "boss_ran").write_text(PINNED)  # `haiku` resolved to the pinned id
     result = _cell(bench, "firm", boss_model="haiku", expect=(PINNED,))
     assert result.models == (PINNED,) and result.counted and result.failure_class is None
+
+
+def test_a_streak_of_cells_naming_no_model_stops_with_its_own_kind_and_fix(bench, capsys):
+    (bench.home / "ran_model").unlink(missing_ok=True)  # the fake worker then names no model
+    code = _cli(bench, "--arms", "single", "--reps", "4", "--jobs", "1", "--expect-models", PINNED)
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "3 cells in a row ended as no_model_recorded" in err
+    assert "named no model" in err and "an alias may have moved" not in err

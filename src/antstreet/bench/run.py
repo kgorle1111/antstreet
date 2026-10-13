@@ -65,6 +65,7 @@ DEFAULT_ARMS = ("single", "firm")  # `single-review` costs a second slice, so it
 INFRA_STREAK_STOP = 3
 # The streak kind of a cell classed `infrastructure` for naming a model outside --expect-models.
 UNEXPECTED_MODEL = "unexpected_model"
+NO_MODEL_RECORDED = "no_model_recorded"
 # What the CLI writes as the model of an assistant message it made up itself (an API error turned
 # into text): it names no model, so it is not a model the cell ran.
 SYNTHETIC_MODEL = "<synthetic>"
@@ -73,6 +74,8 @@ _STREAK_FIX = {
     "usage_limit": "The plan's usage limit is reached; wait for it to reset.",
     UNEXPECTED_MODEL: "The CLI ran a model outside --expect-models: an alias may have moved; pin "
     "the ids (--model, --boss-model, and every tier a --dispatch firm arm may reach).",
+    NO_MODEL_RECORDED: "The CLI logs named no model, so --expect-models could not be checked: "
+    "run `antstreet doctor --live` and check the CLI version prints its model in system/init.",
 }
 _SAVED_FAILURES = "A saved cell is never run again: move the failed cells' folders aside first."
 
@@ -485,12 +488,12 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         print(f"  {task.id:<14} {arm:<6} rep{rep}  {score}  {cost}  {result.outcome}  {verdict}")
         kind = result.outcome.removeprefix("boss:")
         if result.failure_reason is not None and kind not in INFRA_OUTCOMES:
-            kind = UNEXPECTED_MODEL
+            kind = UNEXPECTED_MODEL if result.models else NO_MODEL_RECORDED
         with lock:
             if stop.is_set():  # a cell already running when the run stopped: keep the reason
                 return result
             last, count = streak[0]
-            infra = kind in INFRA_OUTCOMES or kind == UNEXPECTED_MODEL
+            infra = kind in INFRA_OUTCOMES or kind in (UNEXPECTED_MODEL, NO_MODEL_RECORDED)
             count = (count + 1 if kind == last else 1) if infra else 0
             streak[0] = (kind, count)
             if count >= INFRA_STREAK_STOP:
