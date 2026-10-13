@@ -234,7 +234,7 @@ the changed lines and flags a check that passes them all as weak, as advice that
 verdict ([#71](https://github.com/kgorle1111/antstreet/pull/71)); and opt-in **approval as a few yes/no questions**
 (`audit plan --questions`; its live eval did not show it finds unseen gaps: 4 of 10 held-out rules, [results](bench/results/2026-10-10-spec-gaps/README.md))
 ([#72](https://github.com/kgorle1111/antstreet/pull/72)). Inside Claude Code, a guard blocks the agent from running `antstreet audit` or reading the
-audit store; it is a tripwire, not isolation or a sandbox, and a determined agent can get around
+audit store; it is a tripwire, not isolation or a sandbox: a Claude Code mod you have installed can skip it or overrule its denial, and a determined agent can get around
 it ([#75](https://github.com/kgorle1111/antstreet/pull/75)).
 
 Next: **`antstreet` on PyPI** (imminent, not published yet), which the Stop hook and a zero-install
