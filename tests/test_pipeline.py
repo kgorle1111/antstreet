@@ -498,8 +498,10 @@ def test_the_chosen_roles_are_on_the_started_event_the_config_stays_as_it_was(fx
     assert started.data["roles"] == roles
     assert recorded_setup(fx.events()) == Setup(("check_auditor",), "sonnet", 0)
     assert recorded_setup([]) is None
-    # the dispatch keys are written only by a run that turned dispatch (and the cascade) on
-    fields = {f.name for f in dataclasses.fields(FirmConfig)} - {"dispatch", "max_tier", "cascade"}
+    # the dispatch keys are written only by a run that turned dispatch (and the cascade, and
+    # --tier-models) on
+    dispatch_keys = {"dispatch", "max_tier", "cascade", "tier_models"}
+    fields = {f.name for f in dataclasses.fields(FirmConfig)} - dispatch_keys
     assert set(started.data["config"]) == fields
 
 

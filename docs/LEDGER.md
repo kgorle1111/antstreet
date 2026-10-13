@@ -266,6 +266,9 @@ Config keys:
 | `dispatch` | bool | `true` when the run uses `--dispatch rules`. Written only then; a run without it has neither this key nor `max_tier`. |
 | `max_tier` | str | The dearest tier dispatch may use (`--max-tier`, default `sonnet`). Written only with `dispatch`. |
 | `cascade` | bool | `true` when the run uses `--dispatch cascade` (then `dispatch` is `true` too). Written only then; a run without it has no such key. |
+| `tier_models.haiku` | str | `--tier-models`: the pinned model id `haiku` workers are launched with. The `tier_models` object is written only with `--tier-models` (then `dispatch` is `true` too) and holds each tier it pins; a run without it, or started before the key existed, loads with none and launches each tier's alias. Validated again when the run is loaded. |
+| `tier_models.sonnet` | str | The same for `sonnet`. |
+| `tier_models.opus` | str | The same for `opus`. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `antstreet fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
@@ -314,7 +317,7 @@ Example:
 |---|---|---|
 | `worker` | str | The worker's name: `w1`, `w2`, ... in hiring order across the run. |
 | `task` | str | The task id. |
-| `model` | str | The worker model: the run's `--model`, or, under `--dispatch rules`, the tier the term sheet gave this worker (a step up included). A resume runs the worker on this one, not on the config's. |
+| `model` | str | The worker model: the run's `--model`, or, under `--dispatch rules`, the tier the term sheet gave this worker (a step up included), or that tier's pinned id when the run has `config.tier_models`. A resume runs the worker on this one, not on the config's. |
 | `prompt` | str | The builder prompt file the worker runs under. |
 | `profile` | str or null | The worker profile in force (`started`'s `config.profile`, or the task's `dispatch.profile`); `null` for none. |
 | `dispatch` | object | Why this worker is on this model. Only under `--dispatch rules` or `cascade`. Keys below. |
@@ -323,7 +326,7 @@ Dispatch keys:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `tier` | str | `haiku`, `sonnet` or `opus`; the same as `model`. |
+| `tier` | str | `haiku`, `sonnet` or `opus`; the same as `model`, unless the run pins its tiers (`config.tier_models`), when `model` is the pinned id. |
 | `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). Under the cascade, `off` on every rung but the last, which is `default`. |
 | `why` | str | `term sheet` for a task's first worker; for a replacement, `predecessor fired: ` and the gate's reason (`no progress` or `slice limit`) and its stalled slices. |
 | `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier (under the cascade: the last rung, one effort step higher). |

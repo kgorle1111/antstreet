@@ -752,6 +752,9 @@ def test_doctor_reports_failures_with_a_nonzero_exit(boss):
 # --- --dispatch rules ---
 
 
+PINNED = "haiku=claude-haiku-5-5,sonnet=claude-sonnet-5-5"
+
+
 def worker_argv(boss):
     path = boss.project.parent / "worker_argv.txt"
     return [json.loads(line) for line in path.read_text().splitlines()]
@@ -844,6 +847,19 @@ def test_the_investor_can_force_the_firm_route_and_it_is_recorded(boss):
         (["--dispatch", "rules", "--model", "gpt-4"], "--model to be one of haiku, sonnet, opus"),
         (["--dispatch", "rules", "--model", "opus"], "--model opus is above --max-tier sonnet"),
         (["--dispatch", "rules", "--reserve", "0.2"], "--reserve cannot be used with --dispatch"),
+        (["--tier-models", PINNED], "--tier-models needs --dispatch rules or cascade"),
+        (
+            ["--dispatch", "rules", "--model", "claude-haiku-5-5"],
+            "would launch 'haiku'; add --tier-models haiku=claude-haiku-5-5",
+        ),
+        (
+            ["--dispatch", "rules", "--tier-models", "haiku=claude-haiku-5-5"],
+            "--tier-models leaves sonnet on its alias",
+        ),
+        (
+            ["--dispatch", "rules", "--model", "claude-haiku-4-5", "--tier-models", PINNED],
+            "would launch 'claude-haiku-5-5'",
+        ),
     ],
 )
 def test_dispatch_flags_that_cannot_work_together_are_refused_before_anything_is_spent(
@@ -852,6 +868,40 @@ def test_dispatch_flags_that_cannot_work_together_are_refused_before_anything_is
     code, output = boss("fund", "Reverse a string.", "--budget", "0.50", *argv)
     assert code == EXIT_USAGE and text in output
     assert not (boss.project / ".boss").exists()  # not even a run folder
+
+
+def test_a_tier_models_value_that_cannot_pin_the_ladder_is_a_usage_error(boss, capsys):
+    with pytest.raises(SystemExit) as info:
+        boss("fund", "x", "--budget", "0.50", "--dispatch", "rules",
+             "--tier-models", "haiku=claude-opus-5-5")  # fmt: skip
+    assert info.value.code == 2
+    error = capsys.readouterr().err.strip().splitlines()[-1]
+    assert "argument --tier-models: haiku=claude-opus-5-5 is not a haiku model" in error
+    assert not (boss.project / ".boss").exists()
+
+
+def test_pinned_tiers_are_launched_shown_recorded_and_kept_on_resume(boss):
+    (boss.project.parent / "fake_interrupt").write_text("")
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--dispatch", "rules",
+                        "--model", "claude-haiku-5-5", "--tier-models", PINNED)  # fmt: skip
+    assert code == EXIT_INTERRUPTED
+    assert "t1    builder  claude-haiku-5-5  default  sonnet, once" in output
+    assert "Pinned models (--tier-models): haiku=claude-haiku-5-5, sonnet=claude-sonnet-5-5" in (
+        output
+    )
+    (boss.project.parent / "fake_interrupt").unlink()
+    code, _ = boss("resume")
+    assert code == EXIT_OK
+    events = read_events(boss.runs()[0] / "ledger.jsonl")
+    [started] = [e for e in events if e.event is EventType.STARTED]
+    assert started.data["config"]["tier_models"] == {
+        "haiku": "claude-haiku-5-5",
+        "sonnet": "claude-sonnet-5-5",
+    }
+    [hire] = [e for e in events if e.event is EventType.HIRED]
+    assert hire.data["model"] == "claude-haiku-5-5" and hire.data["dispatch"]["tier"] == "haiku"
+    argvs = worker_argv(boss)
+    assert len(argvs) == 2 and all(a[a.index("--model") + 1] == "claude-haiku-5-5" for a in argvs)
 
 
 def test_a_run_started_with_dispatch_resumes_with_dispatch(boss):

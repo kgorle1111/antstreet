@@ -382,6 +382,10 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
     )
     runs.append(firm_events(where("cascade"), ModelScript(
         step(BAD), step(BAD), step(GOOD, "done")), cascaded, config=ladder))  # fmt: skip
+    pins = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
+    pinned = dataclasses.replace(ladder, tier_models=pins)  # --tier-models: hired on the ids
+    runs.append(firm_events(where("cascade-pinned"), ModelScript(
+        step(BAD), step(BAD), step(GOOD, "done")), cascaded, config=pinned))  # fmt: skip
     runs.append(firm_events(where("wrong-model"), ModelScript(
         step(HALF), ran="claude-sonnet-4-5-20250929"), dispatched(), config=on,
         expect=ModelMismatchError))  # fmt: skip
