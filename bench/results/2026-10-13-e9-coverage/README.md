@@ -216,12 +216,12 @@ coverage cells by stretch: {'4.5': 80, '5.5': 25}
 
 == per arm, on the (task, rep) pairs of each coverage stretch
 arm stretch cells delivered false_pass/visible_all capped boss_stopped mean_cost mean_boss_cost median_s mean_visible_checks
-e9-coverage 4.5 80 55 15/70 9 2 0.3802 0.2411 397 10.7
-e9-coverage 5.5 25 22 1/23 0 2 0.0218 0.0177 173 9.7
-e9-firm 4.5 80 74 6/80 0 0 0.0110 0.0062 84 7.9
+e9-coverage 4.5 80 55 15/58 9 2 0.3802 0.2411 397 10.7
+e9-coverage 5.5 25 22 1/22 0 2 0.0218 0.0177 173 9.7
+e9-firm 4.5 80 74 6/76 0 0 0.0110 0.0062 84 7.9
 e9-firm 5.5 25 24 0/24 0 1 0.0104 0.0066 82 7.6
-e9-single 4.5 80 79 0/79 0 0 0.0030 0.0000 20 0.0
-e9-single 5.5 25 24 0/24 0 0 0.0029 0.0000 20 0.0
+e9-single 4.5 80 79 0/0 0 0 0.0030 0.0000 20 0.0
+e9-single 5.5 25 24 0/0 0 0 0.0029 0.0000 20 0.0
 
 == outcomes and hidden-check statuses per arm
 e9-coverage {'completed': 92, 'capped': 9, 'boss:crashed': 3, 'boss:completed': 1} {'passed': 715, 'failed': 61, 'timeout': 1}
@@ -336,7 +336,7 @@ urlquery 3 5.5 boss:crashed redrafts None waived None anchor_missing None weak N
 
 Hypotheses are labelled; the confidence is mine.
 
-**The model change explains most of the gap (confidence about 90%).** Evidence, each from the cells:
+**The model change most likely explains most of the gap (a hypothesis, confidence about 90%; the run cannot separate the two).** Evidence, each from the cells:
 - 25 of the coverage arm's 28 failed cells are in its Haiku 4.5 stretch (55 of 80 delivered there);
   in its Haiku 5.5 stretch it delivered 22 of 25.
 - Paired over the 26 Haiku 4.5 tasks, coverage minus E9's firm (Haiku 5.5) is -0.2308 [-0.3846,

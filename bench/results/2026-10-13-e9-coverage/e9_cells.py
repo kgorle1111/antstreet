@@ -54,6 +54,7 @@ def cell_facts(cell: Path) -> dict[str, Any]:
         "started": os.path.basename(runs[0]) if runs else "",
         "model": ",".join(sorted(models)) or "none (no worker ran)",
         "delivered": delivered,
+        "visible_all": visible_all,
         "false_pass": visible_all and not delivered,
         "outcome": r["outcome"],
         "cost": r["cost_micros"] / 1e6,
@@ -105,7 +106,7 @@ def report(cells: dict[str, list[dict[str, Any]]]) -> None:
     for arm in ARMS:
         for s in ("4.5", "5.5"):
             cs = [c for c in cells[arm] if of(c) == s]
-            visible_all = sum(c["false_pass"] or c["delivered"] for c in cs)
+            visible_all = sum(c["visible_all"] for c in cs)
             print(
                 arm,
                 s,
