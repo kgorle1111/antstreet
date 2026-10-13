@@ -347,7 +347,8 @@ Lines, each naming the plugin's path and never its contents:
 - `FAIL mod <name>@skills-dir`: a plugin from a skills folder with a gating hook.
 - `WARN mod <name>@skills-dir`: a plugin from a skills folder without one, or one that is not
   loaded now (disabled, or a project folder skipped because the workspace is not trusted).
-- `WARN mod <id>`: any other plugin with a gating hook.
+- `WARN mod <id>`: any other enabled plugin with a gating hook. A disabled plugin from elsewhere is not
+  loaded, so it is not inspected; a disabled skills-folder plugin is still reported (above).
 - `FAIL mods` or `FAIL mod <id>`: it could not look. `claude` is missing, a call timed out or
   failed, its output is not the JSON expected, a plugin's validation failed, or more than 100
   plugins are listed. It never reports a clean machine when it could not look.
