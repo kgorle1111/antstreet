@@ -1246,7 +1246,10 @@ def _resume_run(
     try:
         sheet = TermSheet.from_json((paths.root / "term_sheet.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, TermSheetError) as exc:
-        say(f"Run {run} has no usable term sheet ({exc}); it cannot be resumed.")
+        say(
+            f"Run {run} has no usable term sheet ({exc}); it cannot be resumed. "
+            "Start again with `antstreet fund`."
+        )
         return EXIT_FAILED
     try:
         events = paths.events()

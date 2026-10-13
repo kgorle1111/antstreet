@@ -429,6 +429,7 @@ def test_resume_without_a_run_or_before_any_hiring_says_what_to_do(boss):
     (boss.runs()[0] / "term_sheet.json").write_text("{not json")
     code, output = boss("resume")
     assert code == EXIT_FAILED and "no usable term sheet" in output
+    assert "Start again with `antstreet fund`" in output
 
 
 def test_resuming_a_finished_run_changes_nothing_and_spends_nothing(boss):
