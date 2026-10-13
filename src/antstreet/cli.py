@@ -262,6 +262,14 @@ def _parser() -> argparse.ArgumentParser:
         f"(default with it: {dispatching.DEFAULT_MAX_TIER})",
     )
     fund.add_argument(
+        "--tier-models",
+        type=_tier_models_arg,
+        metavar="TIER=ID,...",
+        help="with --dispatch rules or cascade: launch each tier's workers with this pinned model "
+        "id instead of the tier's alias, e.g. haiku=claude-haiku-5-5,sonnet=claude-sonnet-5-5; "
+        "every tier up to --max-tier must be given (default: the aliases)",
+    )
+    fund.add_argument(
         "--spec",
         action="store_true",
         help="the boss's checks must cite the rules of your idea (its own sentences, numbered by "
@@ -548,6 +556,13 @@ def _held_out_arg(text: str) -> int:
     return int(text)
 
 
+def _tier_models_arg(text: str) -> dict[str, str]:
+    try:
+        return dispatching.parse_tier_models(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def _count_arg(text: str) -> int:
     if not text.isdecimal() or int(text) < 1:
         raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of 1 or more")
@@ -816,6 +831,7 @@ def _fund(
             dispatch=policy is not None,
             max_tier=policy.max_tier if policy is not None else dispatching.DEFAULT_MAX_TIER,
             cascade=policy is not None and policy.cascade,
+            tier_models=dict(policy.tier_models) if policy and policy.tier_models else None,
         )
         spec_shown = (
             spec_view(paths.rules, paths.checks, waivers, _gate_file(paths, args.coverage))
@@ -1056,7 +1072,9 @@ def _rule(check: str, ruling: str, run: str, paths: RunPaths, say: Say) -> int:
 def _dispatch_refusal(args: argparse.Namespace) -> str | None:
     """Why the dispatch flags cannot be used together, before anything is spent."""
     if args.dispatch == "off":
-        return "--max-tier needs --dispatch rules or cascade." if args.max_tier else None
+        if args.max_tier:
+            return "--max-tier needs --dispatch rules or cascade."
+        return "--tier-models needs --dispatch rules or cascade." if args.tier_models else None
     tier = dispatching.tier_of(args.model)
     if tier is None:
         return (
@@ -1065,6 +1083,20 @@ def _dispatch_refusal(args: argparse.Namespace) -> str | None:
     top = args.max_tier or dispatching.DEFAULT_MAX_TIER
     if dispatching.rank(tier) > dispatching.rank(top):
         return f"--model {tier} is above --max-tier {top}; raise --max-tier."
+    pins = args.tier_models or {}
+    if args.model != tier and pins.get(tier) != args.model:
+        # Under dispatch a worker is hired by tier: this id would silently run as the alias.
+        return (
+            f"--model {args.model} is a pinned id, but --dispatch hires workers by tier and "
+            f"would launch {pins.get(tier, tier)!r}; add --tier-models {tier}={args.model} (and "
+            "the other tiers up to --max-tier)."
+        )
+    missing = [t for t in dispatching.TIERS[: dispatching.rank(top) + 1] if t not in pins]
+    if pins and missing:
+        return (
+            f"--tier-models leaves {', '.join(missing)} on its alias, and the run may reach it "
+            f"(--max-tier {top}); pin every tier up to --max-tier."
+        )
     if args.reserve is not None:
         return (
             f"--reserve cannot be used with --dispatch {args.dispatch}: the reserve is per model."
@@ -1076,7 +1108,10 @@ def _dispatch_policy(args: argparse.Namespace) -> dispatching.DispatchPolicy | N
     if args.dispatch == "off":
         return None
     return dispatching.DispatchPolicy(
-        args.max_tier or dispatching.DEFAULT_MAX_TIER, args.slice, args.dispatch == "cascade"
+        args.max_tier or dispatching.DEFAULT_MAX_TIER,
+        args.slice,
+        args.dispatch == "cascade",
+        args.tier_models or {},
     )
 
 
