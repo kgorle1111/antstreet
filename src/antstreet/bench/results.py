@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
 
@@ -39,6 +40,8 @@ _FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "held_out_total": (int, _NONE),
     "held_out_wrong": (int, _NONE),
     "final_status": (str, _NONE),
+    "models": (list, _NONE),
+    "failure_reason": (str, _NONE),
 }
 
 
@@ -77,6 +80,12 @@ class CellResult:
     # claim the KPI scorecard's false-pass rate tests. None when no slice ended with a report, and
     # in older results and firm cells; the firm's claim is its checks, not a word, so it has none.
     final_status: str | None = None
+    # Every model id the cell's records name (bench.run.models_used), sorted. None in results
+    # written before the field existed: not recorded, never "none ran".
+    models: tuple[str, ...] | None = None
+    # Why the runner classed the cell `infrastructure` when its outcome does not say (a model
+    # outside --expect-models). None otherwise.
+    failure_reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.arm not in ARMS:
@@ -137,10 +146,23 @@ class CellResult:
                 raise ValueError(f"{path}: field {name!r} has the wrong type: {raw[name]!r}")
         if not all(isinstance(k, str) and isinstance(v, str) for k, v in raw["hidden"].items()):
             raise ValueError(f"{path}: field 'hidden' must map check ids to status strings")
+        if raw.get("models") is not None:
+            if not all(isinstance(m, str) for m in raw["models"]):
+                raise ValueError(f"{path}: field 'models' must be a list of model ids")
+            raw["models"] = tuple(raw["models"])
         try:
             return cls(**raw)
         except ValueError as exc:
             raise ValueError(f"{path}: {exc}") from exc
+
+
+def models_text(results: Sequence[CellResult]) -> str:
+    """The model ids a set of cells ran, for a table: sorted, with the cells that recorded none
+    said apart (results written before `models` existed), never folded into the list."""
+    ids = sorted({m for r in results for m in r.models or ()})
+    unrecorded = sum(r.models is None for r in results)
+    text = ", ".join(ids) if ids else "none recorded"
+    return text + (f" ({unrecorded} cells not recorded)" if ids and unrecorded else "")
 
 
 def cell_dir(results_dir: Path, task: str, arm: str, rep: int) -> Path:
