@@ -48,7 +48,7 @@ from antstreet.rundir import (
     slice_end_fields,
     workspace_bytes,
 )
-from antstreet.runner import SliceRun, deferred_sigint, run_slice
+from antstreet.runner import SliceRun, deferred_sigint, pgid_file, run_slice, stop_orphan
 from antstreet.state import RunState, run_state, slice_history
 from antstreet.termsheet import Round, Task, TermSheet
 from antstreet.worker import (
@@ -70,6 +70,7 @@ SLICE_SHARE = 0.8  # the single-agent benchmark arm caps its one slice at this s
 # The `error` key that books a slice which started and never reported an end (the process running
 # the loop was killed): its spend is unknown, so the report's total reads as a lower bound.
 INTERRUPTED_SLICE = "interrupted_slice"
+STOPPED_PGID = "stopped_pgid"  # on that booking: the worker's group was still running and stopped
 
 SliceRunner = Callable[..., SliceRun]
 Gate = Callable[..., list[CheckResult]]
@@ -1037,6 +1038,27 @@ def interrupted_slices(events: Sequence[Event]) -> list[Event]:
     return [events[i] for i in sorted([*lost, *open_starts.values()])]
 
 
+def _stop_orphans(lost: Sequence[Event], paths: RunPaths) -> dict[int, int]:
+    """Stop the worker each interrupted slice may have left running: the process group stopped,
+    keyed by `id()` of the slice's start. Only a worker's last lost start can own its recorded
+    group (one slice at a time, and every later slice rewrites the file), and its session id is
+    the identity check. Raises `OrphanWorkerError` when a live group cannot be shown to be that
+    worker's: nothing is booked or run, so no second writer joins the workspace."""
+    last = {e.actor: e for e in lost}
+    stopped: dict[int, int] = {}
+    for actor, start in last.items():
+        worker = actor.removeprefix("worker:")
+        session = start.data.get("session")
+        pgid = stop_orphan(
+            pgid_file(paths.log(worker)),
+            session if isinstance(session, str) else None,
+            paths.workspace(worker),
+        )
+        if pgid is not None:
+            stopped[id(start)] = pgid
+    return stopped
+
+
 def _last_slice(events: Sequence[Event]) -> int:
     """Index of the last `slice_end`, or -1 when no slice has ended."""
     return max((i for i, e in enumerate(events) if e.event is EventType.SLICE_END), default=-1)
@@ -1140,10 +1162,14 @@ def run_firm(
     if started_config(events) is None:
         start = Event(run=run_id, round=0, actor="boss", event=EventType.STARTED)
         ledger.append(dataclasses.replace(start, data={"config": config_data(cfg)}))
-    for lost in interrupted_slices(events):
+    lost_slices = interrupted_slices(events)
+    stopped = _stop_orphans(lost_slices, paths)  # before anything is booked or run again
+    for lost in lost_slices:
         record = Recorder(ledger, run_id, lost.round)
-        slice_n = lost.data.get("slice")
-        record(lost.actor, EventType.ERROR, cost_micros=None, data={INTERRUPTED_SLICE: slice_n})
+        data: dict[str, Any] = {INTERRUPTED_SLICE: lost.data.get("slice")}
+        if id(lost) in stopped:
+            data[STOPPED_PGID] = stopped[id(lost)]
+        record(lost.actor, EventType.ERROR, cost_micros=None, data=data)
     firm = _Firm(
         sheet,
         paths,
