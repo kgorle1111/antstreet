@@ -222,6 +222,7 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- The `roman` task's strict check took 13.8 s through the gate, not 0.2 s, and scored two mutants dead by timeout. Rewritten, same meaning: task set hash `ed6fd905c106f6a6`; validation allows 30 s a check again.
 - A worker facing a check that contradicts your idea bent correct code to it instead of disputing
   it. `builder_v5.md` makes the dispute the expected move, and every later brief says how.
 - Ctrl-C during a slice could end in `RuntimeError: release unlocked lock` and a traceback instead of `continue with boss resume`: the interrupt was raised inside a lock wait. It now stops the worker first and is raised afterwards, where no lock is held.
