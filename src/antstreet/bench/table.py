@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from antstreet.bench.results import ARMS, CellResult, load_results
+from antstreet.bench.results import ARMS, CellResult, load_results, models_text
 from antstreet.report import dollars
 from antstreet.stats import md_table, pct, pct_interval, wilson_interval
 
@@ -145,13 +145,17 @@ def _values(label: str, values: Sequence[str]) -> str:
 def render_table(results: Sequence[CellResult]) -> str:
     if not results:
         raise ValueError("cannot tabulate an empty result set")
-    header = " | ".join(
-        [
-            _values("Task set", [r.set_hash for r in results]),
-            _values("Model", [r.model for r in results]),
-            _values("Budget per cell", [dollars(r.budget_micros) for r in results]),
-        ]
-    )
+    parts = [
+        _values("Task set", [r.set_hash for r in results]),
+        _values("Model", [r.model for r in results]),
+        _values("Budget per cell", [dollars(r.budget_micros) for r in results]),
+    ]
+    if any(r.models is not None for r in results):  # results older than the field: as they were
+        # `Model` is what was asked for; this is what every cell's records say ran, per arm.
+        arms = [a for a in ARMS if any(r.arm == a for r in results)]
+        ran = [f"{a} {models_text([r for r in results if r.arm == a])}" for a in arms]
+        parts.append("Models run: " + "; ".join(ran))
+    header = " | ".join(parts)
     mixed = any(
         len({getattr(r, f) for r in results}) > 1 for f in ("set_hash", "model", "budget_micros")
     )

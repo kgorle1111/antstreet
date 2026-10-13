@@ -9,6 +9,7 @@ Hidden checks and the reference solution are never copied into a workspace or a 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import sys
@@ -37,6 +38,7 @@ from antstreet.gate import run_gate
 from antstreet.held_out import MAX_HELD_OUT
 from antstreet.kpi import single_final_status
 from antstreet.ledger import Event, EventType, LedgerWriter, total, totals_by
+from antstreet.redact import safe_text
 from antstreet.report import build_report
 from antstreet.rundir import Recorder, RunPaths
 from antstreet.runner import run_slice
@@ -61,9 +63,16 @@ DEFAULT_ARMS = ("single", "firm")  # `single-review` costs a second slice, so it
 # A run stops once this many cells in a row end in the same infrastructure failure: a dead login
 # or a spent plan fails every later cell too, instantly (202 cells on 2026-10-07).
 INFRA_STREAK_STOP = 3
+# The streak kind of a cell classed `infrastructure` for naming a model outside --expect-models.
+UNEXPECTED_MODEL = "unexpected_model"
+# What the CLI writes as the model of an assistant message it made up itself (an API error turned
+# into text): it names no model, so it is not a model the cell ran.
+SYNTHETIC_MODEL = "<synthetic>"
 _STREAK_FIX = {
     "login": cli.LOGIN_FIX,
     "usage_limit": "The plan's usage limit is reached; wait for it to reset.",
+    UNEXPECTED_MODEL: "The CLI ran a model outside --expect-models: an alias may have moved; pin "
+    "the ids (--model, --boss-model, and every tier a --dispatch firm arm may reach).",
 }
 _SAVED_FAILURES = "A saved cell is never run again: move the failed cells' folders aside first."
 
@@ -82,6 +91,7 @@ def run_cell(
     firm_args: Sequence[str] = (),
     held_out: int = 0,
     coverage: bool = False,
+    expect_models: Sequence[str] = (),
 ) -> CellResult:
     """Run one cell, or return its saved result if it already ran.
 
@@ -89,6 +99,10 @@ def run_cell(
     added to
     `firm_args`, so the result records it); the single arm ignores it. `coverage` adds
     `--coverage` to the firm arm the same way.
+
+    `expect_models`, when given, are the only model ids the cell may name (`models_used`): one
+    that names another is classed `infrastructure` with the reason, so it is never counted, and a
+    saved cell that named another (or recorded none) is refused rather than reused.
     """
     if type(held_out) is not int or not 0 <= held_out <= MAX_HELD_OUT:
         raise ValueError(
@@ -108,6 +122,12 @@ def run_cell(
             raise RuntimeError(
                 f"{out} was run with other options (task set, model, budget or --firm-args); "
                 "give this run its own --out"
+            )
+        if expect_models and (saved.models is None or _unexpected(saved.models, expect_models)):
+            ran = "no record of its models" if saved.models is None else ", ".join(saved.models)
+            raise RuntimeError(
+                f"{out} was saved with {ran}, not only --expect-models "
+                f"{','.join(expect_models)}; move the folder aside to rerun it"
             )
         return saved
     if out.is_dir() and any(out.iterdir()):  # a cut-off run's ledger would be read as this cell's
@@ -136,9 +156,14 @@ def run_cell(
     outcome = _outcome(events)
     closed = next((e for e in reversed(events) if e.event is EventType.ROUND_CLOSED), None)
     spend = total(events)
-    failure = None
+    models = models_used(out, events)
+    unexpected = _unexpected(models, expect_models) if expect_models else []
+    failure = reason = None
     if outcome.removeprefix("boss:") in INFRA_OUTCOMES:
         failure = "infrastructure"  # recorded even when the product passed: the cell is excluded
+    elif unexpected:  # what was measured is not the model asked for, whatever it scored
+        failure = "infrastructure"
+        reason = f"ran {', '.join(unexpected)}, not in --expect-models {','.join(expect_models)}"
     elif not passed:
         failure = "unlabelled"
     result = CellResult(
@@ -163,9 +188,58 @@ def run_cell(
         held_out_total=held_out_total,
         held_out_wrong=held_out_wrong,
         final_status=None if arm == "firm" else single_final_status(events),
+        models=models,
+        failure_reason=reason,
     )
     result.save(out)
     return result
+
+
+def models_used(out: Path, events: Sequence[Event]) -> tuple[str, ...]:
+    """Every model id a cell's records name, sorted: each worker log's `system/init` and
+    assistant turns (the model the CLI says it ran; `<synthetic>` names none), and each boss or role
+    call's `model` on the ledger. Those calls keep no stream log, so theirs is the id they were
+    launched with, not one the CLI reported."""
+    found: set[str] = set()
+    for log in sorted([*out.glob("logs/*.jsonl"), *out.glob(".boss/runs/*/logs/*.jsonl")]):
+        found |= _log_models(log)
+    calls = (EventType.BOSS_CALL, EventType.ROLE_CALL)
+    found |= {e.data["model"] for e in events if e.event in calls and "model" in e.data}
+    # A model id is CLI output: cut and masked before it is saved or printed.
+    return tuple(sorted({safe_text(str(m), limit=80) for m in found} - {SYNTHETIC_MODEL, ""}))
+
+
+def _log_models(path: Path) -> set[str]:
+    found: set[str] = set()
+    with path.open(encoding="utf-8", errors="replace") as lines:
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            message = event.get("message")
+            if event.get("type") == "system" and event.get("subtype") == "init":
+                model = event.get("model")
+            elif event.get("type") == "assistant" and isinstance(message, dict):
+                model = message.get("model")
+            else:
+                continue
+            if isinstance(model, str):
+                found.add(model)
+    return found
+
+
+def _unexpected(models: Sequence[str], expected: Sequence[str]) -> list[str]:
+    return [m for m in models if m not in expected]
+
+
+def _expect_models_arg(text: str) -> tuple[str, ...]:
+    ids = tuple(x.strip() for x in text.split(","))
+    if not all(ids):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a comma-separated list of model ids")
+    return ids
 
 
 def slice_caps(budget_micros: int, review: bool) -> list[int]:
@@ -338,6 +412,13 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         action="store_true",
         help="the firm arm runs `antstreet fund --coverage` (rules covered, stub-checked checks)",
     )
+    parser.add_argument(
+        "--expect-models",
+        type=_expect_models_arg,
+        metavar="ID[,ID...]",
+        help="the only model ids a cell may name; a cell whose logs or boss calls name another "
+        "is an infrastructure failure, never counted (default: no check)",
+    )
     parser.add_argument("--jobs", type=int, default=2, help="cells to run at once")
     parser.add_argument("--dry-run", action="store_true", help="list the cells and exit")
     args = parser.parse_args(argv)
@@ -382,19 +463,25 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
             firm_args=shlex.split(args.firm_args),
             held_out=args.held_out,
             coverage=args.coverage,
+            expect_models=args.expect_models or (),
         )
         verdict = "PASS" if result.passed else f"fail ({result.failure_class})"
+        if result.failure_reason is not None:
+            verdict = f"infrastructure: {result.failure_reason}"
         score = f"{result.hidden_passed}/{result.hidden_total} hidden"
         if result.held_out_total is not None:
             score += f", {result.held_out_passed}/{result.held_out_total} held-out"
         cost = f"${usd(result.cost_micros)}"
         print(f"  {task.id:<14} {arm:<6} rep{rep}  {score}  {cost}  {result.outcome}  {verdict}")
         kind = result.outcome.removeprefix("boss:")
+        if result.failure_reason is not None and kind not in INFRA_OUTCOMES:
+            kind = UNEXPECTED_MODEL
         with lock:
             if stop.is_set():  # a cell already running when the run stopped: keep the reason
                 return result
             last, count = streak[0]
-            count = (count + 1 if kind == last else 1) if kind in INFRA_OUTCOMES else 0
+            infra = kind in INFRA_OUTCOMES or kind == UNEXPECTED_MODEL
+            count = (count + 1 if kind == last else 1) if infra else 0
             streak[0] = (kind, count)
             if count >= INFRA_STREAK_STOP:
                 stop.set()

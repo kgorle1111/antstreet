@@ -619,8 +619,8 @@ def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(prod
         assert json_type(value) in declared(documented[key]), key
     assert example.actor == "role:critic" and example.cost_micros is not None
     # Who writes it: `Pipeline._book`, through `ledger_fields`, always in round 0, and the
-    # examiner's `run_examiner`. `report.py` reads the events; nothing else names the type or the
-    # helper.
+    # examiner's `run_examiner`. `report.py` and `bench/run.py` (the models a cell ran) read the
+    # events; nothing else names the type or the helper.
     book = inspect.getsource(pipeline.Pipeline._book)
     assert "ledger_fields(" in book and "EventType.ROLE_CALL" in book
     assert "Recorder(self.ledger, self.run_id, 0)(spec.actor," in book
@@ -630,7 +630,7 @@ def test_the_role_call_section_matches_the_helper_and_names_its_two_writers(prod
         for p in SRC.rglob("*.py")
         if p not in own and ("ledger_fields" in read(p) or "ROLE_CALL" in read(p))
     )
-    assert callers == ["budget.py", "pipeline.py", "report.py"], (
+    assert callers == ["bench/run.py", "budget.py", "pipeline.py", "report.py"], (
         f"a new module touches role_call: {callers}"
     )
     assert "ledger_fields" not in read(SRC / "report.py")

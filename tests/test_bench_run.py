@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT
 
+from antstreet.bench.kpi import build_columns, render_cards
 from antstreet.bench.results import CellResult, cell_dir, load_results
-from antstreet.bench.run import main, run_cell
+from antstreet.bench.run import main, models_used, run_cell
+from antstreet.bench.table import render_table
 from antstreet.bench.tasks import load_task, load_tasks, task_set_hash
 from antstreet.ledger import EventType, read_events
 from antstreet.rundir import RunPaths
@@ -64,7 +66,14 @@ elif argv[argv.index("--tools") + 1] == "":
         draft = json.load(open(os.path.join(home, "draft.json")))
     say(result | {{"total_cost_usd": 0.004, "structured_output": draft}})
 else:
-    say({INIT!r})
+    ran = os.path.join(home, "ran_model")  # the model the worker's stream names, when set
+    if os.path.exists(ran):
+        model = open(ran).read()
+        say({INIT!r} | {{"model": model}})
+        say({{"type": "assistant", "message": {{"model": model, "content": []}}}})
+        say({{"type": "assistant", "message": {{"model": "<synthetic>", "content": []}}}})
+    else:
+        say({INIT!r})
     open("slugify.py", "w").write(open(os.path.join(home, "product.py")).read())
     say(result | {{"total_cost_usd": 0.006,
                   "structured_output": {{"status": "done", "reason": "wrote it", "junk": "x"}}}})
@@ -423,3 +432,120 @@ def test_runner_records_infrastructure_for_a_prefixed_outcome_that_passed(bench,
 def test_runner_leaves_a_passing_ordinary_cell_unclassified_and_counted(bench):
     result = bench("single")
     assert result.passed and result.failure_class is None and result.counted
+
+
+# --- the models a cell ran, and --expect-models (E9: an alias moved mid-run) ---
+
+PINNED = "claude-haiku-5-5"
+
+
+def _cell(bench, arm, *, ran=PINNED, expect=(), boss_model=PINNED, rep=1):
+    (bench.home / "ran_model").write_text(ran)
+    (bench.home / "product.py").write_text(REFERENCE)
+    return run_cell(
+        TASK, arm, rep, bench.results, environ=bench.environ, set_hash="abc123",
+        budget_micros=400_000, model=PINNED, boss_model=boss_model, expect_models=expect,
+    )  # fmt: skip
+
+
+def test_each_cell_records_the_models_its_logs_and_boss_calls_name(bench):
+    single = _cell(bench, "single")
+    assert single.models == (PINNED,)  # init and turns; `<synthetic>` names no model
+    firm = _cell(bench, "firm", ran="claude-haiku-4-5", boss_model="haiku")
+    assert firm.models == ("claude-haiku-4-5", "haiku")  # the worker's stream, the boss's launch
+    saved = CellResult.load(cell_dir(bench.results, "slugify", "firm", 1) / "result.json")
+    assert saved == firm and firm.failure_reason is None and firm.counted
+
+
+def test_a_cell_that_ran_a_model_outside_expect_models_is_infrastructure_even_if_it_passed(bench):
+    result = _cell(bench, "single", ran="claude-haiku-4-5-20251001", expect=(PINNED,))
+    assert result.passed and result.failure_class == "infrastructure" and not result.counted
+    assert result.failure_reason == (
+        "ran claude-haiku-4-5-20251001, not in --expect-models claude-haiku-5-5"
+    )
+    assert result.outcome == "completed"  # the worker's own outcome is kept
+
+
+def test_a_firm_boss_launched_on_an_alias_is_outside_pinned_expect_models(bench):
+    result = _cell(bench, "firm", boss_model="haiku", expect=(PINNED,))
+    assert result.failure_class == "infrastructure" and result.failure_reason is not None
+    assert "ran haiku, not in" in result.failure_reason
+
+
+def test_a_cell_inside_expect_models_is_counted_as_before(bench):
+    for arm in ("single", "firm"):
+        result = _cell(bench, arm, expect=(PINNED, "claude-opus-5-5"))
+        assert result.passed and result.failure_class is None and result.counted
+
+
+def test_a_saved_cell_is_not_reused_under_expect_models_it_breaks_or_did_not_record(bench):
+    _cell(bench, "single", ran="claude-haiku-4-5")
+    with pytest.raises(RuntimeError, match="saved with claude-haiku-4-5, not only --expect"):
+        _cell(bench, "single", expect=(PINNED,))
+    path = cell_dir(bench.results, "slugify", "single", 1) / "result.json"
+    raw = json.loads(path.read_text())
+    del raw["models"], raw["failure_reason"]  # a result written before the fields existed
+    path.write_text(json.dumps(raw))
+    old = CellResult.load(path)
+    assert old.models is None and old.failure_reason is None
+    with pytest.raises(RuntimeError, match="no record of its models"):
+        _cell(bench, "single", expect=(PINNED,))
+    assert _cell(bench, "single") == old  # without the option the saved cell stands
+
+
+def test_a_result_whose_models_are_not_a_list_of_ids_is_refused(bench):
+    _cell(bench, "single")
+    path = cell_dir(bench.results, "slugify", "single", 1) / "result.json"
+    raw = json.loads(path.read_text())
+    for bad in ("claude-haiku-5-5", [1], {"a": "b"}):
+        path.write_text(json.dumps(raw | {"models": bad}))
+        with pytest.raises(ValueError, match="models"):
+            CellResult.load(path)
+
+
+def test_the_command_checks_expect_models_says_why_and_stops_on_a_streak(bench, capsys):
+    (bench.home / "ran_model").write_text("claude-haiku-4-5")
+    code = _cli(bench, "--arms", "single", "--reps", "4", "--jobs", "1",
+                "--expect-models", f"{PINNED}, claude-opus-5-5")  # fmt: skip
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "infrastructure: ran claude-haiku-4-5, not in --expect-models " in captured.out
+    assert "3 cells in a row ended as unexpected_model" in captured.err
+    assert "an alias may have moved" in captured.err
+    assert [r.failure_class for r in load_results(bench.results)] == ["infrastructure"] * 3
+
+
+def test_an_empty_expect_models_id_is_a_usage_error(bench, capsys):
+    with pytest.raises(SystemExit) as info:
+        _cli(bench, "--expect-models", "claude-haiku-5-5,,x")
+    assert info.value.code == 2
+    assert "is not a comma-separated list of model ids" in capsys.readouterr().err
+
+
+def test_the_table_and_the_kpi_card_show_the_model_ids_each_arm_ran(bench):
+    _cell(bench, "single")
+    _cell(bench, "firm", ran="claude-sonnet-5-5")
+    results = load_results(bench.results)
+    header = render_table(results).splitlines()[0]
+    assert header.endswith(
+        "| Models run: single claude-haiku-5-5; firm claude-haiku-5-5, claude-sonnet-5-5"
+    )
+    rows = render_cards(build_columns([bench.results])).splitlines()
+    [row] = [line for line in rows if "models run" in line]
+    assert "| claude-haiku-5-5, claude-sonnet-5-5 |" in row and "| claude-haiku-5-5 |" in row
+
+
+def test_models_are_read_from_init_and_every_assistant_turn_of_every_worker_log(tmp_path):
+    run_logs = tmp_path / ".boss" / "runs" / "r1" / "logs"
+    run_logs.mkdir(parents=True)
+    lines = [
+        {"type": "system", "subtype": "init", "model": "claude-haiku-4-5-20251001"},
+        {"type": "assistant", "message": {"model": "claude-haiku-5-5"}},  # moved mid-session
+        {"type": "assistant", "message": {"model": "<synthetic>"}},
+        {"type": "result", "modelUsage": {"claude-opus-5-5": {}}},  # not a turn: not read
+        {"type": "system", "subtype": "thinking_tokens", "model": "ignored"},
+    ]
+    text = "\n".join(json.dumps(x) for x in lines) + "\nnot json\n[1]\n"
+    (run_logs / "w1.jsonl").write_text(text)
+    (run_logs / "w1-s1.prompt.txt").write_text('{"type": "assistant"}')  # not a stream log
+    assert models_used(tmp_path, []) == ("claude-haiku-4-5-20251001", "claude-haiku-5-5")
