@@ -100,7 +100,9 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   pipeline's `_settled`, `require_approval`) only ever see events that passed this.
   `LedgerWriter` runs the same check when it opens, so it never appends to a ledger the key does
   not vouch for.
-- Anchor. After every append, once the project has a key, `LedgerWriter` replaces (atomically:
+- Anchor. After every append, once the project has a key, and once when it opens an empty ledger
+  (an anchor of 0 lines, so a crash between the first line and its anchor leaves an unanchored
+  line, not a missing anchor), `LedgerWriter` replaces (atomically:
   temporary file, `fsync`, rename, `fsync` of the folder) `<project>/.boss/anchors/<run id>`, a JSON
   object `{"lines": N, "last": "<SHA-256 of line N>", "mac": "<HMAC with the investor key over the
   run id, N and that hash>"}`. A reader that passes the key path refuses a ledger with fewer than
