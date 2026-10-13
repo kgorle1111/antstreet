@@ -201,13 +201,20 @@ def run_cell(
 def models_used(out: Path, events: Sequence[Event]) -> tuple[str, ...]:
     """Every model id a cell's records name, sorted: each worker log's `system/init` and
     assistant turns (the model the CLI says it ran; `<synthetic>` names none), and each boss or role
-    call's `model` on the ledger. Those calls keep no stream log, so theirs is the id they were
-    launched with, not one the CLI reported."""
+    call's model on the ledger: `model_observed`, the id the CLI reported for that call, or, on a
+    ledger written before that field or a call that reported none, the `model` it was launched
+    with (an alias then stays visible, so --expect-models still refuses it)."""
     found: set[str] = set()
     for log in sorted([*out.glob("logs/*.jsonl"), *out.glob(".boss/runs/*/logs/*.jsonl")]):
         found |= _log_models(log)
     calls = (EventType.BOSS_CALL, EventType.ROLE_CALL)
-    found |= {e.data["model"] for e in events if e.event in calls and "model" in e.data}
+    for e in events:
+        if e.event in calls:
+            observed, launched = e.data.get("model_observed"), e.data.get("model")
+            if isinstance(observed, str) and observed:
+                found.add(observed)
+            elif isinstance(launched, str):
+                found.add(launched)
     # A model id is CLI output: cut and masked before it is saved or printed.
     return tuple(sorted({safe_text(str(m), limit=80) for m in found} - {SYNTHETIC_MODEL, ""}))
 

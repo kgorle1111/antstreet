@@ -60,7 +60,10 @@ elif os.path.exists(os.path.join(home, "login_broken")):
     say(result | {{"is_error": True, "api_error_status": 401, "terminal_reason": "api_error",
                   "total_cost_usd": 0, "modelUsage": {{}}}})
 elif argv[argv.index("--tools") + 1] == "":
-    say({BOSS_INIT!r})
+    # the boss's init names the model it was launched with, as the CLI does
+    boss_ran = os.path.join(home, "boss_ran")  # what the boss's init names, when set
+    named = open(boss_ran).read() if os.path.exists(boss_ran) else argv[argv.index("--model") + 1]
+    say({BOSS_INIT!r} | {{"model": named}})
     draft = {DRAFT!r}
     if os.path.exists(os.path.join(home, "draft.json")):
         draft = json.load(open(os.path.join(home, "draft.json")))
@@ -587,3 +590,9 @@ def test_the_table_does_not_warn_for_a_firm_that_stepped_up_to_another_family(be
     _cell(bench, "firm", rep=1)
     _cell(bench, "firm", rep=2, ran="claude-sonnet-5-5")  # a step up, not drift
     assert "WARNING: results mix" not in render_table(load_results(bench.results))
+
+
+def test_a_boss_call_counts_the_model_the_cli_reported_not_the_alias_it_was_launched_with(bench):
+    (bench.home / "boss_ran").write_text(PINNED)  # `haiku` resolved to the pinned id
+    result = _cell(bench, "firm", boss_model="haiku", expect=(PINNED,))
+    assert result.models == (PINNED,) and result.counted and result.failure_class is None

@@ -87,9 +87,10 @@ Experiments therefore pass pinned ids (`claude-haiku-5-5`, `claude-sonnet-5-5`,
 - Each result's `models` is every id the cell's records name, sorted: from each worker log
   (`logs/*.jsonl`, or the firm run's `logs/*.jsonl`), the `system/init` event's `model` and every
   assistant turn's `message.model`, which is the CLI's own report; `<synthetic>` (an API error the
-  CLI wrote as a turn) names no model and is left out. The boss's and the roles' calls keep no
-  stream log, so for them it is the `model` their `boss_call` or `role_call` event records, the id
-  they were launched with. Results written before the field have `models: null`, shown as not
+  CLI wrote as a turn) names no model and is left out. For the boss's and the roles' calls it is
+  the `model_observed` their `boss_call` or `role_call` event records, the id the CLI reported for
+  that call; on a ledger written before that field, or a call that reported none, it is the
+  `model` it was launched with, so an alias stays visible and `--expect-models` refuses it. Results written before the field have `models: null`, shown as not
   recorded, never as none.
 - With `--expect-models ID[,ID...]`, a cell that names any other id is an **infrastructure**
   failure, whatever its product scored, with `failure_reason` naming the id: what was measured is
