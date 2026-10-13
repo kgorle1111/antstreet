@@ -195,6 +195,7 @@ def test_ledger_fields_book_a_roles_spend_under_its_own_actor():
     assert event.data == {
         "role": "tester",
         "model": "haiku",
+        "model_observed": None,
         "prompt": "term_sheet_v1.md",
         "skills": [],
         "cap_micros": role.cap_micros,

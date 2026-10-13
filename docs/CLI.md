@@ -231,7 +231,7 @@ Argument: `run`, a run id. Default: the latest run in the folder.
 
 ## `antstreet report`
 
-`antstreet report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39).
+`antstreet report [--dir DIR] [RUN]`. Prints the board report of a run, computed from its ledger. A run with held-out checks shows their result apart from the visible checks (`Held-out checks: 2 of 3 passed on the product; the workers never saw them.`); a run that asked for them and got none says why. One line says whether the checks ran sandboxed (`Checks ran sandboxed: 12 of 12.`), with a WARNING when any ran unconfined and "not recorded" for a ledger written before the flag existed (T39). A Models section lists, for the boss's and each role's calls, the model asked for and the one the CLI reported running (`boss  sonnet -> claude-sonnet-5-5 (1 call)`); a ledger written before `model_observed` existed says "not recorded".
 
 A **KPIs** section follows the spend. All of it comes from the ledger: `Delivered` (every check
 passes on the assembled product, or NO, or "not recorded" for a ledger with no product verdict),

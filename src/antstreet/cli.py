@@ -664,6 +664,7 @@ def _fund(
                 data={
                     "purpose": purpose,
                     "model": args.boss_model,
+                    "model_observed": usage.model_observed,
                     "thinking_tokens": args.boss_thinking,
                     "outcome": outcome,
                     **({"prompt": RULES_PROMPT, "rules": len(rules.scorable)} if rules else {}),
