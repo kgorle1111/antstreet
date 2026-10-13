@@ -136,7 +136,7 @@ repo's own `.venv` packages, read-only inside the sandbox; nothing is installed.
 
 ## 🧪 We measure, and we publish the "no"
 
-Every experiment's rule is fixed in [bench/PREREG.md](bench/PREREG.md) before it runs. Four have
+Every experiment's rule is fixed in [bench/PREREG.md](bench/PREREG.md) before it runs. Five have
 run. **None has shown its benefit, and every one is published.**
 
 The headline loss: a fair, blinded benchmark of AntStreet's build mode. 35 tasks, three runs each,

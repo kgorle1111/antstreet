@@ -148,6 +148,7 @@ paired 95% interval did not clear the bar.
 | E4b | The same critic with room to finish: does it beat self-review? | **Not shown, by the slimmest margin; strongest positive trend so far** (+0.0952 [-0.0000, +0.1905]; 70% delivered against 61%, about 1.56x the cost per delivered task; see [write-up](bench/results/2026-10-07-e4b-critic/README.md)) |
 | E5 | Is the firm more reliable across five runs? | Pre-registered, not run |
 | E6 | Does dispatch lower cost per delivered task? | Pre-registered, not run |
+| E9 | Do checks that must cover every rule (`fund --coverage`) raise delivery? | **Not shown, and not a fair test**: 80 of 105 coverage cells ran on Haiku 4.5, every firm cell on Haiku 5.5 (-0.2000 [-0.3238, -0.0762]; see [write-up](bench/results/2026-10-13-e9-coverage/README.md)) |
 | E7 | Does `audit` catch false "done" claims? | Planned, not yet pre-registered |
 | Honesty Report | How often do coding agents pass their own tests while hidden checks fail? | Planned, not yet pre-registered |
 | Spec | Does `--spec` make the boss write stronger checks? | **First test missed its bar** ([write-up](bench/results/2026-10-03-spec-p1/README.md)); the larger run waits on a better draft |
