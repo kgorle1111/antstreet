@@ -33,7 +33,7 @@ cells**. All three arms share the commit, not the model. The arms also ran one a
 one arm and not the others.
 
 **No absolute number here compares with earlier results.** blind35, E4 and E4b ran on Haiku 4.5
-(blind35: firm 64/105, single 62/105). E9's firm and single ran on Haiku 5.5 and deliver 98/105 and
+(blind35's worker logs say `claude-haiku-4-5-20251001`; it delivered firm 64/105, single 62/105). E9's firm and single ran on Haiku 5.5 and deliver 98/105 and
 103/105. Cost does not compare either: the CLI prices Haiku 5.5 about a tenth of Haiku 4.5 per
 token, so the $0.40 cap is a different constraint on each model.
 
