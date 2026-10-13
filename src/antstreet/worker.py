@@ -140,12 +140,26 @@ def disputed_checks(status: Mapping[str, Any] | None, allowed: Collection[str]) 
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        check, reason = item.get("check"), item.get("reason")
-        if not isinstance(check, str) or check not in allowed or check in found:
+        check, reason = _check_id(item.get("check")), item.get("reason")
+        if check is None or check not in allowed or check in found:
             continue
         if isinstance(reason, str) and reason.strip():
             found[check] = _one_line(reason, MAX_DISPUTE_REASON_CHARS)
     return found
+
+
+# A check id (termsheet._ID_RE) at the start of the field, then the end or a character no id has.
+_LEADING_ID_RE = re.compile(r"([A-Za-z0-9_-]{1,32})(?![A-Za-z0-9_-])")
+
+
+def _check_id(raw: object) -> str | None:
+    """The check id a dispute names. Live Haiku 5.5 workers wrote `c07 (test_c07.py): ...` in
+    this field, and an exact match dropped every such dispute; only the leading id counts, so a
+    dispute still never names a check the worker did not put first."""
+    if not isinstance(raw, str):
+        return None
+    match = _LEADING_ID_RE.match(raw.strip())
+    return match.group(1) if match else None
 
 
 def _one_line(text: str, limit: int) -> str:

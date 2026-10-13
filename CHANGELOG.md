@@ -222,6 +222,8 @@ what changed for someone using the tool, not which commit did it.
 
 ### Fixed
 
+- A dispute naming its check as `c07 (test_c07.py): ...`, as every live Haiku 5.5 dispute did,
+  was dropped and the correct product fired. A dispute now names the check id it starts with.
 - A worker facing a check that contradicts your idea bent correct code to it instead of disputing
   it. `builder_v5.md` makes the dispute the expected move, and every later brief says how.
 - Ctrl-C during a slice could end in `RuntimeError: release unlocked lock` and a traceback instead of `continue with boss resume`: the interrupt was raised inside a lock wait. It now stops the worker first and is raised afterwards, where no lock is held.

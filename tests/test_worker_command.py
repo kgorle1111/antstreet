@@ -198,6 +198,28 @@ def test_a_malformed_dispute_does_not_hide_a_valid_one_beside_it():
     assert disputed_checks(status, {"c01", "c02"}) == {"c02": "contradicts the idea"}
 
 
+@pytest.mark.parametrize(
+    "named",
+    [
+        # Haiku 5.5, readiness run d2 and the R4 eval, 2026-10-13: every dispute was shaped so.
+        'c07 (test_c07.py): test_spaces_become_underscores asserts slugify("Hello World")',
+        "c07 (test_c07.py)",
+        "c07: expects underscores",
+        "  c07  ",
+    ],
+)
+def test_a_dispute_naming_the_check_id_first_is_read_as_that_check(named):
+    status = {"disputed_checks": [dispute(named)]}
+    assert disputed_checks(status, {"c06", "c07"}) == {"c07": "contradicts the idea"}
+
+
+@pytest.mark.parametrize(
+    "named", ["c070", "c07x (test)", "test_c07.py", "the check c07", "(c07)", "", "c06, c07"]
+)
+def test_a_dispute_names_only_the_whole_id_it_starts_with(named):
+    assert disputed_checks({"disputed_checks": [dispute(named)]}, {"c07"}) == {}
+
+
 def test_a_dispute_reason_is_redacted_and_cut_before_it_can_reach_the_ledger():
     secret = "sk-ant-" + "a" * 40
     [reason] = disputed_checks(
