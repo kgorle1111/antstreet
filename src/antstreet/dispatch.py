@@ -10,6 +10,7 @@ before the sheet can be approved and again before a worker is hired. A worker is
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -34,6 +35,9 @@ ROUTE_ONE_AGENT, ROUTE_FIRM = "one_agent", "firm"
 ROUTES = (ROUTE_ONE_AGENT, ROUTE_FIRM)
 ESCALATING_FIRINGS = frozenset({"no progress", "slice limit"})  # the gate's own words (rule.decide)
 _SHOWN_FILES = 6
+# A model id `--tier-models` may pin a tier to: it becomes one argv element of the worker's CLI, so
+# nothing a shell or the CLI's own option parser could read as more than a name.
+_MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,10 +48,18 @@ class DispatchPolicy:
     max_tier: str
     slice_micros: int  # the run's --slice
     cascade: bool = False  # `--dispatch cascade`: the ladder, and a start tier chosen from data
+    # `--tier-models`: tier -> the pinned model id a worker on that tier is launched with. Empty
+    # (the default) launches the tier name itself, the CLI's alias.
+    tier_models: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.max_tier not in TIERS:
             raise ValueError(f"max_tier must be one of {TIERS}, got {self.max_tier!r}")
+        if self.tier_models and (problems := tier_models_problems(self.tier_models)):
+            raise ValueError("tier_models: " + "; ".join(problems))
+
+    def model_for(self, tier: str) -> str:
+        return model_for(tier, self.tier_models)
 
 
 def rank(tier: str) -> int:
@@ -58,6 +70,46 @@ def tier_of(model: str) -> str | None:
     """The tier of a model alias or full id, None when it is none of the whitelisted families."""
     name = model.lower()
     return next((t for t in TIERS if t in name), None)
+
+
+def model_for(tier: str, tier_models: Mapping[str, str] | None) -> str:
+    """The `--model` a worker on `tier` is launched with: its pinned id, else the tier's alias."""
+    return (tier_models or {}).get(tier, tier)
+
+
+def tier_models_problems(tier_models: object) -> list[str]:
+    """Every reason `tier_models` cannot pin the ladder. Each key a tier, each value a plain model
+    id of that tier's own family: `haiku=claude-opus-5-5` would put opus prices behind a haiku
+    reserve and a haiku row on the term sheet."""
+    if not isinstance(tier_models, Mapping) or not tier_models:
+        return ["must map at least one tier to a model id"]
+    problems = []
+    for tier, model in tier_models.items():
+        if tier not in TIERS:
+            problems.append(f"{_shown(tier)} is not one of {list(TIERS)}")
+        elif not isinstance(model, str) or not _MODEL_ID.fullmatch(model):
+            problems.append(
+                f"{tier}={_shown(model)} is not a model id (letters, digits, '.', '_', '-'; "
+                "at most 64)"
+            )
+        elif tier_of(model) != tier:
+            problems.append(f"{tier}={model} is not a {tier} model")
+    return problems
+
+
+def parse_tier_models(text: str) -> dict[str, str]:
+    """`haiku=ID,sonnet=ID,...` as a mapping, or ValueError naming what is wrong."""
+    models: dict[str, str] = {}
+    for part in text.split(","):
+        tier, sep, model = (x.strip() for x in part.partition("="))
+        if not sep:
+            raise ValueError(f"{_shown(part)} is not TIER=MODEL")
+        if tier in models:
+            raise ValueError(f"tier {_shown(tier)} is given twice")
+        models[tier] = model
+    if problems := tier_models_problems(models):
+        raise ValueError("; ".join(problems))
+    return models
 
 
 def thinking_for(effort: str, default: int | None) -> int | None:
@@ -523,7 +575,7 @@ def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
             (
                 *lead,
                 safe_text(d.agent, limit=12),
-                safe_text(d.tier, limit=8),
+                safe_text(view.policy.model_for(d.tier), limit=64),
                 safe_text(d.effort, limit=8),
                 _if_fired(sheet, d, view),
                 "-" if chars is None else f"~{chars / 1000:.1f}k chars",
@@ -541,6 +593,9 @@ def render_table(sheet: TermSheet, view: DispatchView) -> list[str]:
             f"Router's start for {task_id}: {start.get('tier')}/{start.get('effort')}, "
             + safe_text(str(start.get("why", "")), limit=160)
         )
+    if view.policy.tier_models:
+        pins = ", ".join(f"{t}={m}" for t, m in sorted(view.policy.tier_models.items()))
+        lines.append(f"Pinned models (--tier-models): {safe_text(pins, limit=240)}")
     run = view.run
     held = "off" if not run.held_out else str(run.held_out)
     lines.append(
