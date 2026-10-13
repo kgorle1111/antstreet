@@ -48,10 +48,11 @@ Measured 2026-10-13 on the fake CLI (no model was called; $0 spent).
 | result with an unparseable status | 2 | 2/2 | 0/2 | 0 | 0 | 0 | $0.0000 | $0.0000 |
 | Ctrl-C mid-slice (the CLI reports its cost) | 2 | 2/2 | 0/2 | 0 | 0 | 2 | $0.0050 | $0.0050 |
 | `antstreet` SIGKILLed mid-slice | 2 | 2/2 | 0/2 | 0 | 0 | 2 | $0.0050 | $0.0050 |
+| `antstreet` SIGKILLed mid-slice, its worker left running | 2 | 2/2 | 0/2 | 0 | 0 | 2 | $0.0050 | $0.0050 |
 | `antstreet` killed between a ledger write and its anchor | 12 | 10/12 | 2/12 | 0 | 0 | 2 | $0.0000 | $0.0007 |
 | a second `resume` while the first runs | 1 | 1/1 | 0/1 | 0 | 0 | 1 | $0.0100 | $0.0000 |
 
-Across 25 faulted trials: 23 recovered, 2 escalated cleanly, 0 double-spends, 0 silent losses,
+Across 27 faulted trials: 25 recovered, 2 escalated cleanly, 0 double-spends, 0 silent losses,
 every ledger verified, and a further `resume` changed nothing in any of them.
 
 ## What the table shows
@@ -72,6 +73,15 @@ every ledger verified, and a further `resume` changed nothing in any of them.
   $0.004 draft is the waste. Two others (after a `slice_start`, before the worker started) are
   booked as unknown cost although nothing was spent: the ledger cannot tell a slice that never
   started from one killed at once, so it says "unknown" rather than "free".
+- **A worker left running is stopped before its slice runs again.** The worker runs in a session
+  of its own, so a SIGKILL of `antstreet` does not reach it: it can go on writing its workspace.
+  The runner records its process group in `logs/<worker>.pgid` (next to its log) right after
+  launch and removes it once the slice's group is stopped. `resume` reads it before booking the
+  interrupted slice: a live group whose command line holds the slice's session id is stopped
+  (SIGTERM, then SIGKILL) and the booking says so (`stopped_pgid`); a live group that cannot be
+  shown to be the worker (its id reused, or only the worker's tool commands left) is never
+  signalled, and `resume` refuses, books nothing and says what to do. The trial's fake worker
+  records every later worker call made while it still runs: none was.
 - **Two resumes cannot run one run at once.** The second is refused (the run is still being
   written by another process) and the ledger is byte for byte unchanged; the first finishes.
 
@@ -94,6 +104,10 @@ every ledger verified, and a further `resume` changed nothing in any of them.
 - `hang` and `gibberish` model a worker that dies without a result. A real CLI stopped at its
   timeout usually prints one with its cost; then the slice is booked exactly.
 - The benchmark runner (`bench/run.py`) resumes whole cells, not slices; it was not faulted here.
+- A worker left running is found only through `logs/<worker>.pgid`: a run started before this
+  file existed, or an `antstreet` killed in the microseconds between launching the worker and
+  writing it, resumes as before (the slice is booked, a worker may still run). Stopping needs
+  `/bin/ps` (macOS, Linux); without it a live group cannot be verified and `resume` refuses.
 
 Rerun: `uv run pytest -o addopts="" tests/test_fault_injection.py` (about a minute), or print the
 table with `uv run python tests/fault_support.py`.

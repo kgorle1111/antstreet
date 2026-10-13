@@ -352,6 +352,11 @@ A replacement, stepped up one tier by `--dispatch rules`:
   `cap_micros`. The same slice number started again means the first was lost, and is charged too.
   The next run of the loop (`antstreet resume`) also books such a slice as an `error` with
   `interrupted_slice` and a cost of `null`, so the spend a report shows is marked as a lower bound.
+- The worker's process group id is not a key here: `slice_start` is written before the worker
+  exists, so that a crash never leaves spend without a start. The runner keeps it in
+  `logs/<worker>.pgid` while the slice runs; `resume` stops a worker still running there, when
+  its command line holds this event's `session`, before it books the slice (`stopped_pgid` on
+  that `error`), and refuses when it cannot show the group is the worker.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -874,6 +879,7 @@ Example, built with the `Event` class:
 | `isolation` | str | The problems found, joined by `; `. Written for an isolation failure. |
 | `model` | str | The launched tier and the model the CLI reported, when they differ (T69), or that it reported none. Written under `--dispatch rules` instead of `isolation`, after the slice's `slice_end`; `stopped` follows. |
 | `interrupted_slice` | int | The slice number of the `slice_start` this books (written instead of the two keys above). |
+| `stopped_pgid` | int | With `interrupted_slice`, only when the slice's worker was still running: the process group `resume` stopped before booking it (its command line held the slice's `session`). Absent in runs written before it. |
 
 Example:
 
@@ -891,6 +897,12 @@ A slice whose process was killed, booked when the run is resumed:
 
 ```json
 {"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"interrupted_slice": 1}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-13T09:02:11.418224+00:00", "v": 1}
+```
+
+The same, when its worker was still running and `resume` stopped it first:
+
+```json
+{"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"interrupted_slice": 1, "stopped_pgid": 48213}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-13T09:40:52.107313+00:00", "v": 1}
 ```
 
 ### `audited`
