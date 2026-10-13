@@ -169,8 +169,9 @@ Added 2026-10-10, after E4b's result and before any E4c run.
   critic cap + the 900 s critic limit) with those three commits ported to it, on branch
   `bench/e4c-runner` (the write-up records its SHA); a run from a later main (builder_v5) is not
   E4c.
-- **Arm.** firm on blind35, 35 tasks x 3 reps, Haiku boss and workers, `--budget 0.40
-  --firm-args "--slice 0.20 --roles critic --fix-budget 0.30 --fix-after-stop"`, fresh in its own
+- **Arm.** firm on blind35, 35 tasks x 3 reps, Haiku boss and workers pinned to
+  `claude-haiku-4-5-20251001` (`--model` and `--boss-model`), the model E4's and E4b's cells ran on,
+  `--budget 0.40 --firm-args "--slice 0.20 --roles critic --fix-budget 0.30 --fix-after-stop"`, fresh in its own
   `--out` (`bench/results/raw/e4c-critic-fix-after-stop`). E4's self-review cells and E4b's cells
   are not rerun.
 - **Primary KPI and decision.** As E4: delivery, paired by task, 10,000 task resamples, seed 0.
@@ -303,6 +304,8 @@ equal compute in the literature. They stay off by default and are not claimed to
 - 2026-10-07, before any E4b result was read: the critic call's time limit rises from 300 s to 900 s for E4b. In the first 7 E4b cells, 4 critic calls hit the 300 s limit (E4 had 1 in 105), so with the $0.40 cap the time limit, not the critic, would have decided them. Those 7 cells are set aside unread and E4b restarts from zero with both changes; everything else is unchanged.
 - 2026-10-10: added E4c (the E4b critic with --fix-after-stop), before any E4c run.
 - 2026-10-10: added E9 (the firm with `--coverage` against a same-commit firm and single agent), before any E9 run.
+- 2026-10-13, before any E4c run: E4c pins `claude-haiku-4-5-20251001`. The CLI's `haiku` alias now resolves to `claude-haiku-5-5` (seen in E9's cells), while E4's self-review cells, E4c's baseline, ran on `claude-haiku-4-5-20251001`; without the pin E4c would compare two models. Nothing else changes.
 - 2026-10-10: added SG1 (spec-gap questions, known and held-out sets), before any live run of it.
 - 2026-10-10, after the SG1 runs: the "about $0.30 a set" cost line was 6 times low (measured $1.72 a set, thinking tokens were not counted); `estimate` is corrected. Nothing else in SG1 changed; the result is in `bench/results/2026-10-10-spec-gaps/README.md`.
 - 2026-10-10, after the SG1 runs, wording only: the registered `live` command lacked the `--out <file>` the runner requires (the runs passed it), and the code now stops only on the registered login and usage-limit failures (any other failed call scores as missed, as registered; no SG1 call failed that way). No rule or bar changed.
+- 2026-10-13, after the E9 run (a record, not a change to its rule): E9's runner passed the `haiku` alias, and the alias moved from `claude-haiku-4-5-20251001` to `claude-haiku-5-5` while the arms ran one after another, so 80 of the coverage arm's cells ran on Haiku 4.5 and every firm and single cell on Haiku 5.5. E9's verdict stands as computed; its write-up reports it as not a fair test of `--coverage`. Later experiments pin dated model ids.

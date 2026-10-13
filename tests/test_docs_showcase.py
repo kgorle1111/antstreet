@@ -219,9 +219,9 @@ def test_the_e4b_and_experiment_figures_are_the_write_ups(text):
         for r in table(section(read(ROOT / "ROADMAP.md"), "Experiments: we publish the no"))
     }
     ran = {k for k, status in rows.items() if status.startswith("**Not shown")}
-    assert ran == {"E1", "E3", "E4", "E4b"}
+    assert ran == {"E1", "E3", "E4", "E4b", "E9"}
     assert not any(s.startswith("**Shown") for s in rows.values())
-    assert "Four have run. **None has shown its benefit, and every one is published.**" in text
+    assert "Five have run. **None has shown its benefit, and every one is published.**" in text
 
 
 def test_the_audit_output_shown_is_what_a_real_audit_prints(tmp_path):
