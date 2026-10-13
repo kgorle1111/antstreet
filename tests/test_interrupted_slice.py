@@ -5,17 +5,21 @@ slice had a `slice_start` and nothing else, so its spend was on no ledger line a
 Spend read as a complete figure when it was not. The CLI was billed for that slice either way.
 """
 
+import signal
+import subprocess
+import sys
+
 import pytest
 
 from antstreet import budget
 from antstreet.approval import content_hashes
 from antstreet.errors import Outcome
-from antstreet.firm import INTERRUPTED_SLICE, run_firm
+from antstreet.firm import INTERRUPTED_SLICE, STOPPED_PGID, run_firm
 from antstreet.gate import CheckResult, CheckStatus
 from antstreet.ledger import Event, EventType, LedgerWriter, read_events, total
 from antstreet.report import build_report, render_report
 from antstreet.rundir import RunPaths
-from antstreet.runner import SliceRun
+from antstreet.runner import OrphanWorkerError, SliceRun, pgid_file
 from antstreet.stream import Usage
 from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 from antstreet.worker import IsolationError
@@ -139,3 +143,69 @@ def test_a_slice_that_ended_or_failed_isolation_is_not_booked_again(tmp_path):
     assert interrupted(events) == []
     assert [e.event for e in events].count(EventType.ERROR) == 1
     assert total(events).unknown_cost_events == 1
+
+
+def left_running(paths, *marker):
+    """A process in a session of its own, recorded as the slice's worker group, as a killed
+    `antstreet` leaves it; `marker` goes on its command line."""
+    sleeper = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)", *marker], start_new_session=True
+    )
+    pgid_file(paths.log("w1")).write_text(f"{sleeper.pid}\n")
+    return sleeper
+
+
+def killed_mid_slice(tmp_path):
+    paths = start(tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        firm(paths, worker(KeyboardInterrupt()))
+    paths.log("w1").parent.mkdir(parents=True, exist_ok=True)
+    [start_] = [e for e in read_events(paths.ledger) if e.event is EventType.SLICE_START]
+    return paths, start_.data["session"]
+
+
+def test_a_worker_still_running_is_stopped_before_its_slice_is_booked_and_run_again(tmp_path):
+    paths, session = killed_mid_slice(tmp_path)
+    orphan = left_running(paths, "--session-id", session)
+    seen = []
+    replacement = worker(6_000)
+
+    def run(spec, workspace, log_path, *, env):
+        seen.append(orphan.poll())  # the orphan was stopped (and only then) a slice runs again
+        return replacement(spec, workspace, log_path, env=env)
+
+    try:
+        assert firm(paths, run).all_passed
+    finally:
+        orphan.kill()
+    assert seen == [-signal.SIGTERM]
+    [booked] = interrupted(read_events(paths.ledger))
+    assert booked.data == {INTERRUPTED_SLICE: 1, STOPPED_PGID: orphan.pid}
+    assert not pgid_file(paths.log("w1")).exists()
+
+
+def test_a_live_group_that_is_not_the_workers_is_never_signalled_and_nothing_is_booked(tmp_path):
+    paths, _ = killed_mid_slice(tmp_path)
+    stranger = left_running(paths, "--session-id", "not-this-slice")  # the id was reused
+    before = read_events(paths.ledger)
+    try:
+        with pytest.raises(OrphanWorkerError, match=rf"process group {stranger.pid} may still"):
+            firm(paths, worker(6_000))
+        assert stranger.poll() is None  # alive: an unverified process is never killed
+    finally:
+        stranger.kill()
+        stranger.wait()
+    assert read_events(paths.ledger) == before  # nothing booked, nobody hired, nothing run
+    assert pgid_file(paths.log("w1")).exists()  # the refusal holds until a human acts
+
+
+def test_a_recorded_group_that_has_ended_changes_nothing(tmp_path):
+    # As a run older than the recorded group (no file): the slice is booked as it always was.
+    paths, session = killed_mid_slice(tmp_path)
+    ended = left_running(paths, "--session-id", session)
+    ended.kill()
+    ended.wait()
+    assert firm(paths, worker(6_000)).all_passed
+    [booked] = interrupted(read_events(paths.ledger))
+    assert booked.data == {INTERRUPTED_SLICE: 1}
+    assert not pgid_file(paths.log("w1")).exists()

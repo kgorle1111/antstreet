@@ -13,6 +13,9 @@ Faults, each injected at worker call `n` (`$HOME/fault` holds `<n>:<kind>`):
     gibberish       the worker prints bytes that are not the stream format and exits 0
     garbled_result  a well-formed result whose status is not the schema's (cost known)
     kill_antstreet  the `antstreet` process is SIGKILLed mid-slice, after the call was billed
+    orphan_worker   as kill_antstreet, but the worker keeps running (it is in a session of its
+                    own, out of reach of the kill); every later worker call records whether it
+                    is still alive in `$HOME/overlap`: two writers in one workspace
     block           the worker waits for `$HOME/release` (two resumes racing for one run)
 
 `crash_at_line=K` kills `antstreet` after ledger line K is written and before its anchor is.
@@ -25,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -53,11 +57,14 @@ BOSS_USD = 0.004
 TURN_USD = 0.01  # each worker call; the CLI reports a session's cumulative total, as the real one
 GOOD_FROM = 2  # the worker's product passes from its second call on: a clean run is two slices
 SLICE_TIMEOUT_S = 2.0
-WORKER_FAULTS = ("kill_worker", "hang", "gibberish", "garbled_result", "ctrl_c", "kill_antstreet")
+WORKER_FAULTS = (
+    "kill_worker", "hang", "gibberish", "garbled_result", "ctrl_c", "kill_antstreet",
+    "orphan_worker",
+)  # fmt: skip
 POINTS = (1, 2)  # the first slice (a new session) and the second (a resumed one)
 
 FAKE_CLAUDE = f"""#!{sys.executable}
-import json, os, signal, sys, time
+import json, os, signal, subprocess, sys, time
 argv = sys.argv[1:]
 home = os.environ["HOME"]
 say = lambda e: print(json.dumps(e), flush=True)
@@ -88,6 +95,12 @@ if not resume and os.path.exists(path):
 calls = os.path.join(home, "calls")
 n = int(open(calls).read()) + 1 if os.path.exists(calls) else 1
 open(calls, "w").write(str(n))
+orphan = os.path.join(home, "orphan.pid")
+if os.path.exists(orphan):   # a worker left running by a killed `antstreet`: is it still there?
+    stat = subprocess.run(["/bin/ps", "-o", "stat=", "-p", open(orphan).read()],
+                          capture_output=True, text=True).stdout.strip()
+    if stat and not stat.startswith("Z"):
+        open(os.path.join(home, "overlap"), "a").write(str(n) + chr(10))
 turns = int(open(path).read()) + 1 if resume else 1
 open(path, "w").write(str(turns))
 init = {INIT!r} | {{"session_id": sid}}
@@ -102,6 +115,15 @@ if fault == "kill_worker":
 if fault == "kill_antstreet":
     os.kill(os.getppid(), signal.SIGKILL)
     sys.exit(1)
+if fault == "orphan_worker":   # `antstreet` dies; this worker, in its own session, runs on
+    recorded = os.path.join("..", "..", "logs", os.path.basename(os.getcwd()) + ".pgid")
+    for _ in range(500):   # the runner records the group right after launch: wait for it
+        if os.path.exists(recorded):
+            break
+        time.sleep(0.01)
+    open(orphan, "w").write(str(os.getpid()))
+    os.kill(os.getppid(), signal.SIGKILL)
+    time.sleep(120)
 if fault == "hang":
     time.sleep(120)
 if fault == "ctrl_c":   # the investor presses Ctrl-C; the CLI reports what it spent, then stops
@@ -335,7 +357,30 @@ def worker_fault(root: Path, kind: str, point: int) -> Trial:
         if step.code >= 0 and step.code != EXIT_INTERRUPTED:  # killed by a signal, or Ctrl-C
             break
         step = lab.drive("resume", timeout_s=SLICE_TIMEOUT_S)
-    return lab.finish(kind, point)
+    return lab.finish(kind, point, orphan_problems(root))
+
+
+def orphan_problems(root: Path) -> list[str]:
+    """What the orphaned worker of an `orphan_worker` trial did wrong; it is killed if alive."""
+    problems = []
+    overlap = root / "overlap"
+    if overlap.exists():
+        calls = overlap.read_text().split()
+        problems.append(f"worker calls {calls} ran while the orphaned worker still ran")
+    pid_file = root / "orphan.pid"
+    if pid_file.exists():
+        pid = int(pid_file.read_text())
+        if alive(pid):
+            problems.append(f"the orphaned worker {pid} was left running")
+            os.kill(pid, signal.SIGKILL)
+    return problems
+
+
+def alive(pid: int) -> bool:
+    """A live process (a zombie writes nothing and may have lost its reaper)."""
+    ps = ["/bin/ps", "-o", "stat=", "-p", str(pid)]
+    stat = subprocess.run(ps, capture_output=True, text=True).stdout.strip()
+    return bool(stat) and not stat.startswith("Z")
 
 
 def anchor_crash(root: Path, line: int) -> Trial:
@@ -397,6 +442,7 @@ ROWS = (
     ("garbled_result", "result with an unparseable status"),
     ("ctrl_c", "Ctrl-C mid-slice (the CLI reports its cost)"),
     ("kill_antstreet", "`antstreet` SIGKILLed mid-slice"),
+    ("orphan_worker", "`antstreet` SIGKILLed mid-slice, its worker left running"),
     ("anchor_crash", "`antstreet` killed between a ledger write and its anchor"),
     ("concurrent_resume", "a second `resume` while the first runs"),
 )

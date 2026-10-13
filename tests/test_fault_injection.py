@@ -23,7 +23,7 @@ from fault_support import (
 )
 
 from antstreet.cli import EXIT_INTERRUPTED, EXIT_OK
-from antstreet.firm import INTERRUPTED_SLICE
+from antstreet.firm import INTERRUPTED_SLICE, STOPPED_PGID
 from antstreet.ledger import Event, EventType
 
 # The trials share one fixture (about 30 runs, threaded); under xdist they stay on one worker.
@@ -117,6 +117,19 @@ def test_a_killed_antstreet_books_the_slice_it_lost(trials):
         assert [(e.actor, e.data[INTERRUPTED_SLICE], e.cost_micros) for e in lost] == [
             ("worker:w1", t.point, None)
         ]
+
+
+def test_a_worker_left_running_by_a_killed_antstreet_is_stopped_before_the_slice_runs_again(
+    trials,
+):
+    # `start_new_session` keeps the worker out of reach of a SIGKILL of `antstreet`; resume must
+    # stop it before booking its slice and hiring again, or two agents write one workspace.
+    for t in named(trials, "orphan_worker"):
+        assert t.steps[0].code < 0 and t.recovered, t.point
+        assert t.problems == (), t.problems  # no call ran beside it, and it is not left running
+        [lost] = [e for e in t.events if e.event is EventType.ERROR and INTERRUPTED_SLICE in e.data]
+        assert lost.data[INTERRUPTED_SLICE] == t.point
+        assert isinstance(lost.data[STOPPED_PGID], int)
 
 
 def test_ctrl_c_mid_slice_loses_the_cost_the_cli_reported(trials):
