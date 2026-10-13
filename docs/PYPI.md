@@ -5,7 +5,7 @@ workers builds it in budget-capped rounds. Workers that stop making progress are
 gate of plain code, not a model, decides what passed, and every step goes on a signed, hash-chained
 ledger.**
 
-Early and experimental: in our published benchmark runs a team has not yet beaten a single agent;
+Early and experimental: in our published benchmark runs a team has not yet shown a benefit over a single agent;
 every result, including the misses, is in
 [bench/results](https://github.com/kgorle1111/antstreet/tree/main/bench/results).
 
@@ -56,7 +56,7 @@ A verdict is `refuted`, `unrefuted`, `inconclusive` or `no_claim`.
 ## What we measured
 
 The fund: on a blinded 35-task benchmark (three runs each, $0.40 a task) the team passed 64 of 105
-and one agent 62 of 105; paired by task the difference is not shown, and the team cost about 2.4
+and one agent 62 of 105; paired by task the delivery benefit was not shown, and the team cost about 2.4
 times as much. We do not claim a team builds better, faster or cheaper.
 
 Why sealed checks matter: 29 of 77 runs (38%, 95% interval 28-49%) passed every check the model had
@@ -73,8 +73,8 @@ AntStreet's own build runs, not a general agent failure rate.
 - In a fund run, held-out checks (`--held-out`) are never shown to a worker. In an audit, the agent
   never sees the checks: they are kept in a store outside the repo.
 - In an audit, only checks that fail on the base commit are counted.
-- pytest runs in an OS sandbox (macOS seatbelt, Linux bwrap); every approval, payment and verdict
-  goes on a signed, hash-chained ledger.
+- pytest runs in an OS sandbox (macOS seatbelt, Linux bwrap); approvals, top-ups, verdicts and the
+  estimated cost of each model call go on a signed, hash-chained ledger.
 - It does not show that code is correct. A pass means no counted check failed, nothing more.
 - Python with pytest only, with checks a model drafted and you approved; weak checks give weak
   verdicts.

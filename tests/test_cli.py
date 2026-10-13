@@ -917,4 +917,4 @@ def test_the_help_lists_fund_first_then_audit_and_states_the_status(capsys):
     text = " ".join(capsys.readouterr().out.split())
     assert "{fund,audit," in text
     assert text.index("Fund an idea") < text.index("audit someone else's change")
-    assert "a team has not yet beaten a single agent" in text
+    assert "a team has not yet shown a benefit over a single agent" in text

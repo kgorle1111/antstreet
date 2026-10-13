@@ -189,8 +189,8 @@ def main(
 
 
 STATUS_LINE = (
-    "Early and experimental: in our published benchmark runs a team has not yet beaten a single "
-    "agent; every result, including the misses, is in bench/results."
+    "Early and experimental: in our published benchmark runs a team has not yet shown a benefit "
+    "over a single agent; every result, including the misses, is in bench/results."
 )
 
 
