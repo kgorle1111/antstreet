@@ -911,9 +911,10 @@ def test_verify_without_runs_or_with_an_unknown_or_hostile_run_is_a_usage_error(
         assert code == EXIT_USAGE and "No run" in text
 
 
-def test_the_help_lists_audit_first_and_marks_fund_experimental(capsys):
+def test_the_help_lists_fund_first_then_audit_and_states_the_status(capsys):
     with pytest.raises(SystemExit):
         main(["--help"])
-    text = capsys.readouterr().out
-    assert "{audit,fund," in text
-    assert "fund                (experimental)" in text
+    text = " ".join(capsys.readouterr().out.split())
+    assert "{fund,audit," in text
+    assert text.index("Fund an idea") < text.index("audit someone else's change")
+    assert "a team has not yet beaten a single agent" in text
