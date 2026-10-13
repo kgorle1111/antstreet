@@ -37,6 +37,7 @@ from pathlib import Path
 from boss_init import BOSS_INIT
 
 from antstreet.cli import EXIT_FAILED, EXIT_INTERRUPTED, EXIT_OK
+from antstreet.errors import INFRASTRUCTURE
 from antstreet.ledger import Event, EventType, read_events, total
 
 CHECK = "from rev import reverse\n\ndef test_word():\n    assert reverse('ab') == 'ba'\n"
@@ -213,17 +214,26 @@ class Trial:
 
 
 def double_spends(events: Sequence[Event], billed_micros: int) -> int:
-    """Each way a slice can be paid twice: booked twice, run again after it was booked, or more
+    """Each way a slice can be paid twice: booked twice, run again after it was booked, another
+    bought before the gate judged the one just paid for (its work is paid for again), or more
     booked than was billed (a session's cumulative total counted twice)."""
     ends = Counter((e.actor, e.data.get("slice")) for e in events if e.event is EventType.SLICE_END)
     count = sum(n - 1 for n in ends.values() if n > 1)
     ended: set[tuple[str, object]] = set()
+    ungraded: dict[str, object] = {}  # worker -> its last paid slice the gate has not judged
     for e in events:
         key = (e.actor, e.data.get("slice"))
         if e.event is EventType.SLICE_END:
             ended.add(key)
-        elif e.event is EventType.SLICE_START and key in ended:
-            count += 1
+            if e.data.get("outcome") not in INFRASTRUCTURE:  # never gated: it did no work
+                ungraded[e.actor] = e.data.get("slice")
+        elif e.event is EventType.CHECK_RESULT and "worker" in e.data:
+            actor = f"worker:{e.data['worker']}"
+            if ungraded.get(actor) == e.data.get("slice"):
+                del ungraded[actor]
+        elif e.event is EventType.SLICE_START:
+            count += key in ended
+            count += ungraded.pop(e.actor, None) is not None
     return count + (total(events).cost_micros > billed_micros)
 
 

@@ -11,11 +11,20 @@ import re
 
 import pytest
 from docs_support import DOCS, read
-from fault_support import BASELINE_LINES, POINTS, ROWS, WORKER_FAULTS, all_trials, summary, table
+from fault_support import (
+    BASELINE_LINES,
+    POINTS,
+    ROWS,
+    WORKER_FAULTS,
+    all_trials,
+    double_spends,
+    summary,
+    table,
+)
 
 from antstreet.cli import EXIT_INTERRUPTED, EXIT_OK
 from antstreet.firm import INTERRUPTED_SLICE
-from antstreet.ledger import EventType
+from antstreet.ledger import Event, EventType
 
 # The trials share one fixture (about 30 runs, threaded); under xdist they stay on one worker.
 pytestmark = pytest.mark.xdist_group("fault-injection")
@@ -44,6 +53,35 @@ def test_no_fault_pays_for_a_slice_twice(trials):
     assert {(t.fault, t.point): t.double_spends for t in trials if t.double_spends} == {}
     for t in trials:
         assert t.booked_micros <= t.billed_micros, (t.fault, t.point)
+
+
+def test_a_crash_between_two_ledger_lines_never_buys_an_extra_slice(trials):
+    [clean] = named(trials, "none")
+    extra = {
+        t.point: t.billed_micros - clean.billed_micros
+        for t in named(trials, "anchor_crash")
+        if t.recovered
+    }
+    assert extra == dict.fromkeys(range(3, BASELINE_LINES + 1), 0)
+
+
+def test_the_double_spend_count_sees_each_way_to_pay_twice():
+    def ev(kind, slice_n=1, cost=0, **data):
+        return Event(run="r", round=1, actor="worker:w1", event=kind, cost_micros=cost,
+                     data={"slice": slice_n, **data})  # fmt: skip
+
+    start, gated = ev(EventType.SLICE_START), Event(
+        run="r", round=1, actor="gate", event=EventType.CHECK_RESULT,
+        data={"check": "c01", "status": "failed", "worker": "w1", "slice": 1},
+    )  # fmt: skip
+    end = ev(EventType.SLICE_END, cost=10, outcome="completed")
+    assert double_spends([start, end, gated], 10) == 0
+    assert double_spends([start, end, gated, end], 20) == 1  # booked twice
+    assert double_spends([start, end, gated, start], 10) == 1  # run again after its end
+    assert double_spends([start, end, ev(EventType.SLICE_START, 2)], 10) == 1  # never judged
+    assert double_spends([start, end, gated], 9) == 1  # more booked than billed
+    lost = ev(EventType.SLICE_END, cost=None, outcome="login")  # no work: nothing to judge
+    assert double_spends([start, lost, ev(EventType.SLICE_START, 2)], 0) == 0
 
 
 def test_every_trial_delivers_or_stops_saying_what_to_do(trials):
