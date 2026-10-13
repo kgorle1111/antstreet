@@ -123,8 +123,8 @@ def run_cell(
                 f"{out} was run with other options (task set, model, budget or --firm-args); "
                 "give this run its own --out"
             )
-        if expect_models and (saved.models is None or _unexpected(saved.models, expect_models)):
-            ran = "no record of its models" if saved.models is None else ", ".join(saved.models)
+        if expect_models and (not saved.models or _unexpected(saved.models, expect_models)):
+            ran = ", ".join(saved.models) if saved.models else "no record of its models"
             raise RuntimeError(
                 f"{out} was saved with {ran}, not only --expect-models "
                 f"{','.join(expect_models)}; move the folder aside to rerun it"
@@ -164,6 +164,9 @@ def run_cell(
     elif unexpected:  # what was measured is not the model asked for, whatever it scored
         failure = "infrastructure"
         reason = f"ran {', '.join(unexpected)}, not in --expect-models {','.join(expect_models)}"
+    elif expect_models and not models:  # nothing names a model: the guard cannot vouch for it
+        failure = "infrastructure"
+        reason = f"no model id recorded, so --expect-models {','.join(expect_models)} is unchecked"
     elif not passed:
         failure = "unlabelled"
     result = CellResult(

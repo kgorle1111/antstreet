@@ -142,6 +142,18 @@ def _values(label: str, values: Sequence[str]) -> str:
     return f"{label}: " + ", ".join(sorted(set(values)))
 
 
+def _drifted(results: Sequence[CellResult]) -> bool:
+    """An arm whose recorded models name one family under two ids: an alias that resolved to two
+    models, or an alias beside a pinned id. A firm cell legitimately runs several families (boss,
+    workers, a step up), so families are compared, not whole records."""
+    for arm in {r.arm for r in results}:
+        ids = {m for r in results if r.arm == arm and r.models for m in r.models}
+        for family in ("haiku", "sonnet", "opus"):
+            if len({m for m in ids if family in m.lower()}) > 1:
+                return True
+    return False
+
+
 def render_table(results: Sequence[CellResult]) -> str:
     if not results:
         raise ValueError("cannot tabulate an empty result set")
@@ -158,7 +170,7 @@ def render_table(results: Sequence[CellResult]) -> str:
     header = " | ".join(parts)
     mixed = any(
         len({getattr(r, f) for r in results}) > 1 for f in ("set_hash", "model", "budget_micros")
-    )
+    ) or _drifted(results)
     out = [header] + ([MIXED_WARNING] if mixed else []) + [""]
 
     summaries = summarize(results)

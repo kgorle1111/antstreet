@@ -549,3 +549,41 @@ def test_models_are_read_from_init_and_every_assistant_turn_of_every_worker_log(
     (run_logs / "w1.jsonl").write_text(text)
     (run_logs / "w1-s1.prompt.txt").write_text('{"type": "assistant"}')  # not a stream log
     assert models_used(tmp_path, []) == ("claude-haiku-4-5-20251001", "claude-haiku-5-5")
+
+
+def test_a_cell_whose_logs_name_no_model_is_not_counted_under_expect_models(bench):
+    (bench.home / "product.py").write_text(REFERENCE)
+    (bench.home / "ran_model").unlink(missing_ok=True)  # the fake worker then names no model
+    result = run_cell(
+        TASK, "single", 1, bench.results, environ=bench.environ, set_hash="abc123",
+        budget_micros=400_000, model=PINNED, boss_model=PINNED, expect_models=(PINNED,),
+    )  # fmt: skip
+    assert result.models == () and result.passed and not result.counted
+    assert result.failure_class == "infrastructure"
+    assert (
+        result.failure_reason
+        == "no model id recorded, so --expect-models claude-haiku-5-5 is unchecked"
+    )
+
+
+def test_a_saved_cell_with_an_empty_model_record_is_not_reused_under_expect_models(bench):
+    _cell(bench, "single")
+    path = cell_dir(bench.results, "slugify", "single", 1) / "result.json"
+    raw = json.loads(path.read_text())
+    raw["models"] = []
+    path.write_text(json.dumps(raw))
+    with pytest.raises(RuntimeError, match="no record of its models"):
+        _cell(bench, "single", expect=(PINNED,))
+
+
+def test_the_table_warns_when_one_family_ran_under_two_ids_in_an_arm(bench):
+    _cell(bench, "firm", rep=1)
+    _cell(bench, "firm", rep=2, ran="claude-haiku-4-5-20251001")  # the alias moved mid-run
+    text = render_table(load_results(bench.results))
+    assert "WARNING: results mix" in text
+
+
+def test_the_table_does_not_warn_for_a_firm_that_stepped_up_to_another_family(bench):
+    _cell(bench, "firm", rep=1)
+    _cell(bench, "firm", rep=2, ran="claude-sonnet-5-5")  # a step up, not drift
+    assert "WARNING: results mix" not in render_table(load_results(bench.results))
