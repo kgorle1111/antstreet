@@ -128,15 +128,15 @@ def test_the_showcase_has_its_sections():
     heads = re.findall(r"^## (.+)$", read(README), re.M)
     assert [h.split(" ", 1)[1] for h in heads] == [
         "In three steps",
-        "See it run",
-        "The problem",
         "How it flows",
-        "Why it is different",
         "Quickstart",
         'We measure, and we publish the "no"',
+        "Audit: the same checks, on someone else's change",
+        "See it run",
+        "The problem",
+        "Why the audit is different",
         "How it's engineered",
         "Built by",
-        "Advanced and experimental: `antstreet fund`",
         "Status and honest limits",
         "Where it's going (planned, not built)",
         "Contributing",
@@ -188,17 +188,32 @@ def test_the_hero_is_small_light_dark_and_still_without_motion():
     assert ".bg{fill:#0f1b2d}" in hero, "navy is the fallback when media queries are not honoured"
 
 
-def test_the_audit_comes_first_and_fund_is_labelled_experimental():
+def test_the_fund_leads_with_its_status_line_and_the_audit_follows():
     body = read(README)
-    head = " ".join(body[: body.index("## 🎬")].split())
+    head = " ".join(body[: body.index("## 🔭")].split())
+    assert head.startswith('<div align="center"> # AntStreet: a fund for AI coding agents'), (
+        "the title names the fund"
+    )
+    assert (
+        "a boss model drafts a term sheet of checks, you approve it, and a team of AI coding "
+        "agents builds it in budget-capped rounds" in head
+    )
+    assert (
+        "Early and experimental: in our published benchmark runs a team has not yet beaten a "
+        "single agent; every result, including the misses, is in [bench/results]" in head
+    )
+    assert body.index("antstreet fund") < body.index("antstreet audit plan")
+    assert body.index("## 🚦") < body.index("## 🔍 Audit")
+    audit = " ".join(section(body, "🔍 Audit: the same checks, on someone else's change").split())
     assert (
         "AntStreet checks your AI coding agent's work against tests it never saw, so \"all tests "
-        'pass" actually means something.' in head
+        'pass" actually means something.' in audit
     )
-    assert "like a student who writes their own exam" in head and "answer key" in head
-    assert body.index("antstreet audit plan") < body.index("antstreet fund")
-    fund = " ".join(section(body, "🧰 Advanced and experimental: `antstreet fund`").split())
-    assert "**not shown to build better than a single agent**, at about 2.4 times the cost" in fund
+    assert "like a student who writes their own exam" in audit and "answer key" in audit
+    measured = " ".join(section(body, '🧪 We measure, and we publish the "no"').split())
+    assert (
+        "**not shown to build better than a single agent**, at about 2.4 times the cost" in measured
+    )
     assert "uvx antstreet" not in body, "not on PyPI yet: uvx antstreet does not resolve"
     assert "python -m boss" not in body and "python -m antstreet" not in body
 
