@@ -38,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from antstreet.gate import Check, run_gate, run_tree
+from antstreet.gate import TREE_TEST_TIMEOUT_S, TREE_TIMEOUT_S, Check, run_gate, run_tree
 from antstreet.termsheet import CheckSpec, check_file_problems
 
 MIN_HIDDEN_CHECKS = 5
@@ -53,6 +53,7 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}\Z")
 _MUTANT_RE = re.compile(r"^[a-z0-9][a-z0-9_]{1,60}\Z")
 _META_KEYS = {"id", "title", "difficulty"}
 _IMPORTED_KEYS = {"source", "test_path", "test_count"}
+_IMPORTED_OPTIONAL = {"suite_timeout_s", "test_timeout_s"}
 IMPORTED_SOURCES = ("nl2repo",)
 
 
@@ -67,6 +68,8 @@ class ImportedMeta:
     source: str  # one of IMPORTED_SOURCES
     test_path: str  # where the hidden tree goes inside the product, e.g. "tests"
     test_count: int  # tests the external suite has; a shortfall in a run counts as failed
+    suite_timeout_s: float | None = None  # whole-suite cap; None: gate.TREE_TIMEOUT_S
+    test_timeout_s: float | None = None  # cap per test phase; None: gate.TREE_TEST_TIMEOUT_S
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,14 +129,31 @@ def load_task(root: Path) -> BenchTask:
 
 
 def _load_imported(task: str, raw: object) -> ImportedMeta:
-    if not isinstance(raw, dict) or set(raw) != _IMPORTED_KEYS:
-        raise TaskError(task, [f"meta.json imported must have exactly {sorted(_IMPORTED_KEYS)}"])
+    if (
+        not isinstance(raw, dict)
+        or not _IMPORTED_KEYS <= set(raw) <= _IMPORTED_KEYS | _IMPORTED_OPTIONAL
+    ):
+        raise TaskError(
+            task,
+            [
+                f"meta.json imported must have {sorted(_IMPORTED_KEYS)} "
+                f"and may have {sorted(_IMPORTED_OPTIONAL)}"
+            ],
+        )
     count = raw["test_count"]
     if type(count) is not int or count < 1:
         raise TaskError(task, ["imported.test_count must be a whole number of at least 1"])
     if not all(isinstance(raw[k], str) for k in ("source", "test_path")):
         raise TaskError(task, ["imported.source and imported.test_path must be strings"])
-    return ImportedMeta(raw["source"], raw["test_path"], count)
+    limits = {k: raw.get(k) for k in sorted(_IMPORTED_OPTIONAL)}
+    for key, value in limits.items():
+        if value is not None and (type(value) not in (int, float) or not 0 < value <= 86400):
+            raise TaskError(
+                task, [f"imported.{key} must be a number of seconds above 0, at most 86400"]
+            )
+    return ImportedMeta(
+        raw["source"], raw["test_path"], count, limits["suite_timeout_s"], limits["test_timeout_s"]
+    )
 
 
 def load_tasks(tasks_dir: Path) -> list[BenchTask]:
@@ -394,18 +414,28 @@ def _imported_gate_problems(task: BenchTask, meta: ImportedMeta) -> list[str]:
 def grade_imported(task: BenchTask, workspace: Path) -> dict[str, str]:
     """Node id -> status of every hidden test on this product, always `test_count` entries or more.
 
-    A test that never ran (collection error, timeout, a missing product) is a failure, so the pass
-    fraction is over the suite and not over whatever happened to get collected.
+    A test that never ran (collection error, a missing product) is a failure, and one the suite cap
+    cut off is a `timeout`, so the pass fraction is over the suite and not over whatever happened
+    to get collected. A test that hit its own time limit is a `timeout` too: never a pass.
     """
     meta = task.imported
     assert meta is not None  # callers branch on task.imported
     support = task.support_dir if task.support_dir.is_dir() else None
     seen: dict[str, str] = {}
+    missing_status = "failed"
     if workspace.is_dir():
-        run = run_tree(workspace, task.hidden_dir, meta.test_path, support=support)
+        run = run_tree(
+            workspace,
+            task.hidden_dir,
+            meta.test_path,
+            support=support,
+            timeout_s=meta.suite_timeout_s or TREE_TIMEOUT_S,
+            test_timeout_s=meta.test_timeout_s or TREE_TEST_TIMEOUT_S,
+        )
         seen = {node: str(status) for node, status in run.tests.items()}
+        missing_status = "timeout" if run.timed_out else "failed"
     for i in range(1, meta.test_count - len(seen) + 1):
-        seen[f"(not run {i})"] = "failed"
+        seen[f"(not run {i})"] = missing_status
     return seen
 
 
