@@ -25,8 +25,10 @@ passes `--expect-models`; **rule** that every experiment does.
 
 ## S3. Arms interleaved
 
-All arms of an experiment run in one invocation, task by task (`--arms single firm`), so nothing
-outside the repository, such as a model alias or a provider change, can differ between arms.
+All arms of an experiment run in one invocation, task by task (`--arms single firm`), so the cells
+being compared run close together in time. That shrinks, but does not remove, the chance that
+something outside the repository (a model alias, a provider change, machine load) differs between
+arms; S2's model guard catches the model case, and the rest is reported when found.
 **Rule**; the runner orders cells task by task when given several arms.
 
 ## S4. Tasks the models have not seen
