@@ -1,18 +1,26 @@
-# AntStreet roadmap: tests your coding agent never saw
+# AntStreet roadmap: a fund for AI coding agents
 
-AntStreet checks your AI coding agent's work against tests it never saw, so "all tests pass"
-actually means something. You seal checks before the agent starts; a sandboxed gate outside the
-agent tests its "done" afterwards; every verdict lands on a ledger you can verify. The AI drafts;
-you and plain code decide.
+AntStreet is a fund for AI coding agents. You bring an idea and a budget; a boss model drafts a
+term sheet of checks; you approve it; a team of agent workers builds it in budget-capped rounds,
+and workers that stop making progress are fired. A sandboxed gate of plain code decides pass or
+fail, and every step goes on a signed, hash-chained ledger. The same sealed checks can audit a
+change someone else's agent made. The AI drafts; you and plain code decide.
+
+Early and experimental: in our published benchmark runs a team has not yet beaten a single agent;
+every result, including the misses, is in [bench/results](bench/results/README.md).
 
 ## Why it matters
 
-- Agents say "done" and mean "I stopped". In our false-pass audit, **29 of 77 runs (38%)** passed
-  every check the model wrote and still failed a hidden check it never saw.
-- The caveat, kept on purpose: 17 small Python tasks, one model writing both checks and code, and
-  under a stricter count it is 16 of 77 (21%). [Read the audit](bench/results/2026-10-03-false-pass-audit/README.md).
-- Either way, "the agent's own tests pass" says little. Checks it never saw, which you approved,
-  say more.
+- A budget, a term sheet you approved and a gate that is plain code give you control over what a
+  team of agents builds and spends: no worker is hired before you approve, and every dollar is on
+  the ledger.
+- Whether a team builds better than one agent is still open. On a blinded 35-task run it did not
+  (64 of 105 against 62 of 105, about 2.4 times the cost, not shown), so the next proof is a
+  harder benchmark where one agent fails, pre-registered before it runs.
+- Checks the builder never saw matter: in our false-pass audit, **29 of 77 runs (38%)** passed
+  every check the model wrote and still failed a hidden check. The caveat, kept on purpose: 17
+  small Python tasks, one model writing both checks and code, and under a stricter count it is 16
+  of 77 (21%). [Read the audit](bench/results/2026-10-03-false-pass-audit/README.md).
 
 This page lists what works today, what is being built, and what we measured and dropped. No dates.
 Item ids (`B..`) point at [docs/BACKLOG.md](docs/BACKLOG.md), where every item has its reason and
@@ -95,6 +103,10 @@ On `main`, pre-release (not on PyPI yet). Each item links the pull request that 
 
 Up next, each in its own pull request.
 
+- **A harder benchmark where one agent fails, pre-registered**: the next fund proof. Tasks a single
+  agent fails often enough to leave room for a team, with the rule fixed in
+  [bench/PREREG.md](bench/PREREG.md) before the run, pinned and dated model ids, and the arms
+  interleaved. If the team does not beat one agent there, we publish that too.
 - **`antstreet` on PyPI**, so nothing needs a clone (B41). Publishing is imminent but not done; the
   one-command audit and the Stop hook rely on `uvx antstreet`.
 - **CI export** (`audit export`, B78): carry a sealed run to CI so the GitHub Action needs no
@@ -102,10 +114,10 @@ Up next, each in its own pull request.
 
 ## Next
 
-- **First run**: a short `--help`, a timed fresh-machine run published in the README, a first-run
-  guide, and a few good first issues.
 - **Evidence**: a new task-set version that fixes the defects an eval audit found, keeping old
   results reproducible, and the false-pass audit's scripts committed.
+- **First run**: a short `--help`, a timed fresh-machine run published in the README, a first-run
+  guide, and a few good first issues.
 
 ## Later
 
@@ -154,12 +166,13 @@ paired 95% interval did not clear the bar.
 
 The result we lead with is a loss. On a blinded 35-task run, a team of agents delivered 64 of 105
 against one agent's 62 of 105, at about 2.4 times the cost, and the difference is not shown. So we
-don't claim a team builds better. What AntStreet adds is verification and control, which is why
-the audit is the front door. [Write-up](bench/results/2026-10-03-blind35/README.md).
+don't claim a team builds better yet. The fund stays the focus, and the harder pre-registered
+benchmark under Now is how we find out. [Write-up](bench/results/2026-10-03-blind35/README.md).
 
 ## Not doing
 
-- **Selling "a team of agents builds better."** We measured it and it didn't.
+- **Claiming "a team of agents builds better"** before a pre-registered run shows it. Our fair run
+  so far did not.
 - **An LLM judge deciding pass or fail.** Tests decide.
 - **A model reading the audited agent's own words.** That's a channel to the verdict (B81).
 - **Quoting a catch rate** before one is measured on real repositories.
