@@ -5,13 +5,15 @@ its tiers launches the same model on every hire, a step up and a resume included
 """
 
 import pytest
-from test_firm import BAD, C01, C02, GOOD, STARTED, run, step
+from test_firm import BAD, C01, C02, GOOD, STARTED, events_of, run, step
 from test_firm_dispatch import ModelScript, hired, planned
 
 from antstreet import dispatch
 from antstreet.dispatch import DispatchPolicy, DispatchView, RunLevel
 from antstreet.firm import FirmConfig, config_data, config_from_data
+from antstreet.ledger import EventType
 from antstreet.rundir import RunPaths
+from antstreet.worker import ModelMismatchError
 
 PINS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
 PINNED = FirmConfig(dispatch=True, tier_models=PINS)
@@ -86,7 +88,9 @@ def test_a_ledger_written_before_the_key_existed_loads_and_launches_the_aliases(
 
 
 def test_each_hire_launches_its_tiers_pinned_id_and_the_ledger_keeps_the_tier(paths):
-    worker = ModelScript(step(BAD), step(BAD), step(GOOD, "done"))
+    # The CLI reports exactly the id it was launched with, so the check below is not satisfied by a
+    # made-up id that merely contains the pin.
+    worker = ModelScript(step(BAD), step(BAD), step(GOOD, "done"), ran=lambda spec: spec.model)
     report, _ = run(paths, worker, planned(), config=PINNED)
     assert report.all_passed
     assert [s.model for s in worker.specs] == ["claude-haiku-5-5"] * 2 + ["claude-sonnet-5-5"]
@@ -94,13 +98,24 @@ def test_each_hire_launches_its_tiers_pinned_id_and_the_ledger_keeps_the_tier(pa
     assert first["model"] == "claude-haiku-5-5" and first["dispatch"]["tier"] == "haiku"
     assert second["model"] == "claude-sonnet-5-5" and second["dispatch"]["tier"] == "sonnet"
     assert second["dispatch"]["from_tier"] == "haiku"
+    ran = [e.data["model_id"] for e in events_of(paths, EventType.SLICE_END)]
+    assert ran == ["claude-haiku-5-5"] * 2 + ["claude-sonnet-5-5"]
+
+
+def test_a_pinned_hire_the_cli_runs_on_another_snapshot_of_its_family_stops_the_run(paths):
+    worker = ModelScript(step(BAD), ran="claude-haiku-4-5-20251001")
+    with pytest.raises(
+        ModelMismatchError,
+        match="launched 'claude-haiku-5-5', but the CLI ran 'claude-haiku-4-5-20251001'",
+    ):
+        run(paths, worker, planned(), config=PINNED)
 
 
 def test_a_resumed_run_hires_the_step_up_on_the_pin_its_started_config_recorded(paths):
-    first = ModelScript(step(BAD), KeyboardInterrupt())
+    first = ModelScript(step(BAD), KeyboardInterrupt(), ran=lambda spec: spec.model)
     with pytest.raises(KeyboardInterrupt):
         run(paths, first, planned(), config=PINNED)
-    resumed = ModelScript(step(BAD), step(GOOD, "done"))
+    resumed = ModelScript(step(BAD), step(GOOD, "done"), ran=lambda spec: spec.model)
     resumed.totals = dict(first.totals)
     report, _ = run(paths, resumed, planned(), config=STARTED)
     assert report.all_passed
