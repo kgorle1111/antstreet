@@ -45,8 +45,9 @@ MIN_HIDDEN_CHECKS = 5
 MIN_MUTANTS = 3
 MUTANT_TIMEOUT_S = 10.0  # per check; a wrong solution that hangs a check has failed it
 # Per check, when validating a task: proves the reference passes and an empty workspace fails, not
-# speed. 30 s flagged valid tasks as broken on a loaded machine (`roman` under parallel suites).
-VALIDATE_TIMEOUT_S = 120.0
+# speed. Was 120 s from 2026-10-10 to 2026-10-13, as a symptom fix for the `roman` strict check,
+# which the gate plugin's comparison guard made 300x slower (see bench/PREREG.md).
+VALIDATE_TIMEOUT_S = 30.0
 MUTANTS_DIR = "mutants"
 DIFFICULTIES = ("easy", "medium", "hard")
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}\Z")

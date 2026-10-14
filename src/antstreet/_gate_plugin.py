@@ -86,8 +86,12 @@ _GUARDED_OPS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast
 # file name, which `compile` lets the product choose.
 _check_globals: list[dict[str, Any]] = []
 _matchers: dict[int, weakref.ref[ApproxBase]] = {}  # by id; an approx object is unhashable
-# kn: entries for dead matchers are never pruned and `_honest` walks a whole value per comparison;
-# both are bounded by one check's size. Prune on a weakref callback if a check ever builds millions.
+# kn: entries for dead matchers are never pruned (bounded by one check's size). `_honest` walks the
+# whole value on every guarded comparison, so a check's cost is container size x comparisons run:
+# `s in big_dict` in a loop over N items costs N x len(big_dict) (roman's strict check took 13.8 s
+# instead of 0.2 s). Checks must look big containers up with an unguarded call such as `.get()`.
+# Upgrade: skip the walk for operands the check built itself (no product code can reach them), or
+# prune dead matchers on a weakref callback if a check ever builds millions.
 _pytest_approx = pytest.approx
 
 

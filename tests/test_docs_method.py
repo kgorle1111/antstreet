@@ -33,7 +33,8 @@ def text() -> str:
 def test_the_task_set_and_its_hash_are_the_ones_on_disk(text):
     original = original_tasks()  # the history: the first 17 and the hash re-encoding
     assert f"the same {len(original)} task files" in text
-    assert "`c130282a6eec5fe8` after" in text and task_set_hash(original) == "c130282a6eec5fe8"
+    assert "`c130282a6eec5fe8` after" in text and task_set_hash(original) == "42c28f8aab61d518"
+    assert "`42c28f8aab61d518`" in text  # the roman strict rewrite of 2026-10-13 moved it
     tasks = load_tasks(ROOT / "bench" / "tasks")  # and the set as it is now
     assert f"the set has {len(tasks)} tasks, hash `{task_set_hash(tasks)}`" in text
 
