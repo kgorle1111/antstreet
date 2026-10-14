@@ -57,7 +57,11 @@ from antstreet.approval import (
     spec_view,
 )
 from antstreet.boss import (
+    DEFAULT_CAP_MICROS,
     DEFAULT_MODEL,
+    DEFAULT_TIMEOUT_S,
+    MAX_CAP_MICROS,
+    MAX_TIMEOUT_S,
     RULES_PROMPT,
     BossError,
     Draft,
@@ -100,6 +104,7 @@ from antstreet.ledger import (
 )
 from antstreet.limits import RunLimits
 from antstreet.pipeline import (
+    Caps,
     Pipeline,
     Plan,
     RolesError,
@@ -270,6 +275,14 @@ def _parser() -> argparse.ArgumentParser:
         f"(default with it: {dispatching.DEFAULT_MAX_TIER})",
     )
     fund.add_argument(
+        "--tier-models",
+        type=_tier_models_arg,
+        metavar="TIER=ID,...",
+        help="with --dispatch rules or cascade: launch each tier's workers with this pinned model "
+        "id instead of the tier's alias, e.g. haiku=claude-haiku-5-5,sonnet=claude-sonnet-5-5; "
+        "every tier up to --max-tier must be given (default: the aliases)",
+    )
+    fund.add_argument(
         "--spec",
         action="store_true",
         help="the boss's checks must cite the rules of your idea (its own sentences, numbered by "
@@ -293,6 +306,26 @@ def _parser() -> argparse.ArgumentParser:
         "--boss-thinking",
         type=_tokens_arg,
         help="thinking tokens the boss may use per call; 0 turns thinking off (default: the CLI's)",
+    )
+    fund.add_argument(
+        "--boss-cap",
+        type=_call_cap_arg,
+        help=f"dollar cap on each of the boss's calls (default: ${usd(DEFAULT_CAP_MICROS)}; "
+        f"at most ${usd(MAX_CAP_MICROS)})",
+    )
+    fund.add_argument(
+        "--boss-timeout",
+        type=_timeout_arg,
+        help=f"seconds each of the boss's calls may run (default: {DEFAULT_TIMEOUT_S:g}; "
+        f"at most {MAX_TIMEOUT_S:g})",
+    )
+    fund.add_argument(
+        "--role-cap",
+        action="append",
+        type=_role_cap_arg,
+        metavar="ROLE=USD",
+        help="dollar cap on each call of one role, e.g. critic=1.00; repeat for more roles "
+        f"(default: the role's own; at most ${usd(MAX_CAP_MICROS)})",
     )
     fund.add_argument(
         "--worker-thinking",
@@ -556,10 +589,74 @@ def _seconds_arg(text: str) -> float:
     return seconds
 
 
+def _call_cap_arg(text: str) -> int:
+    micros = usd_arg(text)
+    if micros > MAX_CAP_MICROS:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is above the ${usd(MAX_CAP_MICROS)} a single call may be capped at"
+        )
+    return micros
+
+
+def _timeout_arg(text: str) -> float:
+    try:
+        seconds = float(text)
+    except ValueError:
+        seconds = 0.0
+    if not 0 < seconds <= MAX_TIMEOUT_S:  # NaN fails too
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a number of seconds above 0 and at most {MAX_TIMEOUT_S:g}"
+        )
+    return seconds
+
+
+def _role_cap_arg(text: str) -> tuple[str, int]:
+    name, sep, amount = text.partition("=")
+    if not sep or name.strip() not in registry():
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not ROLE=USD with a role `antstreet roles` lists, e.g. critic=1.00"
+        )
+    return name.strip(), _call_cap_arg(amount)
+
+
+def _caps(args: argparse.Namespace, roles: Sequence[str]) -> Caps | str:
+    """The cap flags as a Caps, or why they are refused: a role capped twice, or capped but
+    not run (its cap would silently do nothing)."""
+    given = args.role_cap or []
+    names = [name for name, _ in given]
+    if twice := sorted({n for n in names if names.count(n) > 1}):
+        return f"--role-cap names {', '.join(twice)} more than once."
+    running = set(roles) | ({"examiner"} if args.held_out > 0 else set())
+    if idle := sorted(set(names) - running):
+        return (
+            f"--role-cap names {', '.join(idle)}, which this run does not call; "
+            "add it to --roles (the examiner comes with --held-out)."
+        )
+    return Caps(args.boss_cap, args.boss_timeout, tuple(sorted(given)))
+
+
+def _caps_line(caps: Caps) -> str:
+    """The caps the investor set, said before anything is spent on them."""
+    parts = []
+    if caps.boss_micros is not None:
+        parts.append(f"boss calls capped at ${usd(caps.boss_micros)}")
+    if caps.boss_timeout_s is not None:
+        parts.append(f"boss calls time out after {caps.boss_timeout_s:g}s")
+    parts += [f"{name} calls capped at ${usd(micros)}" for name, micros in caps.roles]
+    return "Caps set for this run: " + "; ".join(parts) + "."
+
+
 def _held_out_arg(text: str) -> int:
     if not text.isdecimal() or int(text) > MAX_HELD_OUT:
         raise argparse.ArgumentTypeError(f"{text!r} is not a whole number from 0 to {MAX_HELD_OUT}")
     return int(text)
+
+
+def _tier_models_arg(text: str) -> dict[str, str]:
+    try:
+        return dispatching.parse_tier_models(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _count_arg(text: str) -> int:
@@ -626,6 +723,10 @@ def _fund(
     if args.fix_after_stop and "critic" not in roles:
         say("--fix-after-stop needs --roles critic: only the critic's findings make a fix round.")
         return EXIT_USAGE
+    caps = _caps(args, roles)
+    if isinstance(caps, str):
+        say(caps)
+        return EXIT_USAGE
     rules: spec.Split | None = None
     if args.spec or args.coverage:
         refusal = _spec_refusal(args, roles)
@@ -649,6 +750,8 @@ def _fund(
         paths.rules.write_text(spec.dumps(rules), encoding="utf-8")
     waivers: dict[str, str] = {}  # rules the boss left untested, with its reasons
     say(f"Run {run_id}: drafting the term sheet...")
+    if caps.given():
+        say(_caps_line(caps))
     with paths.writer() as ledger:
         record = Recorder(ledger, run_id, round=0)
 
@@ -664,6 +767,7 @@ def _fund(
                 data={
                     "purpose": purpose,
                     "model": args.boss_model,
+                    "model_observed": usage.model_observed,
                     "thinking_tokens": args.boss_thinking,
                     "outcome": outcome,
                     **({"prompt": RULES_PROMPT, "rules": len(rules.scorable)} if rules else {}),
@@ -677,6 +781,8 @@ def _fund(
                 checks_dir,
                 env=env,
                 model=args.boss_model,
+                cap_micros=caps.boss_micros or DEFAULT_CAP_MICROS,
+                timeout_s=caps.boss_timeout_s or DEFAULT_TIMEOUT_S,
                 executable=executable,
                 max_tasks=args.max_tasks,
                 thinking_tokens=args.boss_thinking,
@@ -744,7 +850,7 @@ def _fund(
 
         policy = _dispatch_policy(args)
         pipe = Pipeline(
-            Setup(roles, args.boss_model, args.boss_thinking, args.fix_after_stop),
+            Setup(roles, args.boss_model, args.boss_thinking, args.fix_after_stop, caps),
             project, paths, ledger, run_id, env, executable, ask, say, policy,
         )  # fmt: skip
         try:
@@ -830,6 +936,7 @@ def _fund(
             dispatch=policy is not None,
             max_tier=policy.max_tier if policy is not None else dispatching.DEFAULT_MAX_TIER,
             cascade=policy is not None and policy.cascade,
+            tier_models=dict(policy.tier_models) if policy and policy.tier_models else None,
         )
         spec_shown = (
             spec_view(paths.rules, paths.checks, waivers, _gate_file(paths, args.coverage))
@@ -1070,7 +1177,9 @@ def _rule(check: str, ruling: str, run: str, paths: RunPaths, say: Say) -> int:
 def _dispatch_refusal(args: argparse.Namespace) -> str | None:
     """Why the dispatch flags cannot be used together, before anything is spent."""
     if args.dispatch == "off":
-        return "--max-tier needs --dispatch rules or cascade." if args.max_tier else None
+        if args.max_tier:
+            return "--max-tier needs --dispatch rules or cascade."
+        return "--tier-models needs --dispatch rules or cascade." if args.tier_models else None
     tier = dispatching.tier_of(args.model)
     if tier is None:
         return (
@@ -1079,6 +1188,20 @@ def _dispatch_refusal(args: argparse.Namespace) -> str | None:
     top = args.max_tier or dispatching.DEFAULT_MAX_TIER
     if dispatching.rank(tier) > dispatching.rank(top):
         return f"--model {tier} is above --max-tier {top}; raise --max-tier."
+    pins = args.tier_models or {}
+    if args.model != tier and pins.get(tier) != args.model:
+        # Under dispatch a worker is hired by tier: this id would silently run as the alias.
+        return (
+            f"--model {args.model} is a pinned id, but --dispatch hires workers by tier and "
+            f"would launch {pins.get(tier, tier)!r}; add --tier-models {tier}={args.model} (and "
+            "the other tiers up to --max-tier)."
+        )
+    missing = [t for t in dispatching.TIERS[: dispatching.rank(top) + 1] if t not in pins]
+    if pins and missing:
+        return (
+            f"--tier-models leaves {', '.join(missing)} on its alias, and the run may reach it "
+            f"(--max-tier {top}); pin every tier up to --max-tier."
+        )
     if args.reserve is not None:
         return (
             f"--reserve cannot be used with --dispatch {args.dispatch}: the reserve is per model."
@@ -1090,7 +1213,10 @@ def _dispatch_policy(args: argparse.Namespace) -> dispatching.DispatchPolicy | N
     if args.dispatch == "off":
         return None
     return dispatching.DispatchPolicy(
-        args.max_tier or dispatching.DEFAULT_MAX_TIER, args.slice, args.dispatch == "cascade"
+        args.max_tier or dispatching.DEFAULT_MAX_TIER,
+        args.slice,
+        args.dispatch == "cascade",
+        args.tier_models or {},
     )
 
 

@@ -120,7 +120,8 @@ if argv[argv.index("--tools") + 1] == "":   # the boss or a role
         import time; time.sleep(30)
     scripted = answer(who)
     log(who, unscripted=scripted is None, model=argv[argv.index("--model") + 1],
-        thinking=os.environ.get("MAX_THINKING_TOKENS", "unset"))
+        thinking=os.environ.get("MAX_THINKING_TOKENS", "unset"),
+        cap=argv[argv.index("--max-budget-usd") + 1])
     open(os.path.join(folder, "last_" + who + ".txt"), "w").write(prompt)
     if scripted is None or scripted.get("fail"):
         cost = (scripted or {{}}).get("cost", 0.002)
@@ -415,6 +416,9 @@ KPIs
 Workers
   w1 on t1 (haiku): completed, status done: "wrote rev.py", 1 slice(s)
 
+Models (boss and role calls: requested, then what the CLI reported)
+  boss  haiku -> claude-haiku-4-5-20251001 (1 call)
+
 Run folder: PROJECT/.boss/runs/RUN  (built files: PROJECT/.boss/runs/RUN/product)"""
 
 
@@ -495,8 +499,10 @@ def test_the_chosen_roles_are_on_the_started_event_the_config_stays_as_it_was(fx
     assert started.data["roles"] == roles
     assert recorded_setup(fx.events()) == Setup(("check_auditor",), "sonnet", 0)
     assert recorded_setup([]) is None
-    # the dispatch keys are written only by a run that turned dispatch (and the cascade) on
-    fields = {f.name for f in dataclasses.fields(FirmConfig)} - {"dispatch", "max_tier", "cascade"}
+    # the dispatch keys are written only by a run that turned dispatch (and the cascade, and
+    # --tier-models) on
+    dispatch_keys = {"dispatch", "max_tier", "cascade", "tier_models"}
+    fields = {f.name for f in dataclasses.fields(FirmConfig)} - dispatch_keys
     assert set(started.data["config"]) == fields
 
 

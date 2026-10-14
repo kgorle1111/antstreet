@@ -68,6 +68,7 @@ def write_stories(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
 ) -> tuple[Stories, Usage]:
     """One call; the stories pass `story_problems` or this raises `RoleOutputError` listing every
@@ -89,6 +90,7 @@ def write_stories(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
     )
     try:
@@ -303,6 +305,7 @@ def review_stories(
     env: Mapping[str, str],
     model: str,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
 ) -> tuple[StoryReview, Usage]:
     """One call: the idea and the stories go to the user agent, which says what is missing or
@@ -321,6 +324,7 @@ def review_stories(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
     )
     try:

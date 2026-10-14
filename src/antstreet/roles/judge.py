@@ -281,6 +281,7 @@ def judge_artifact(
     model: str,
     calibration: Calibration | None = None,
     executable: str = CLI,
+    role_caps: Mapping[str, int] | None = None,
     thinking_tokens: int | None = None,
     timeout_s: float = 300.0,
 ) -> tuple[Judgement, Usage]:
@@ -299,6 +300,7 @@ def judge_artifact(
         env=env,
         model=model,
         executable=executable,
+        role_caps=role_caps,
         thinking_tokens=thinking_tokens,
         timeout_s=timeout_s,
     )

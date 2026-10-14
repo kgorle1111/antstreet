@@ -163,6 +163,7 @@ otherwise.
 |---|---|---|
 | `purpose` | str | `term_sheet` for `antstreet fund`, `audit_checks` for `antstreet audit plan`, `spec_gaps` for the questions of `antstreet audit plan --questions`, `coverage_redraft` for a redraft `antstreet fund --coverage` asked for (one event per redraft, after the `term_sheet` one). |
 | `model` | str | The boss model, from `--boss-model`. |
+| `model_observed` | str or null | The model the CLI's `system/init` event says the call ran (for example `claude-haiku-4-5-20251001`), next to the requested `model`; `null` when no init arrived (the call failed before it, or timed out). Events written before this key existed lack it, and `antstreet report` says "not recorded" for them. |
 | `thinking_tokens` | int or null | The thinking budget from `--boss-thinking`; `null` means the CLI's own default. |
 | `outcome` | str | How the call ended: an outcome name such as `completed`, `timeout` or `crashed`. `completed` is also used for a paid call whose draft was unusable or invalid. |
 | `prompt` | str | Only with `--spec`: `term_sheet_v3.md`, the prompt that asks for rule citations. |
@@ -171,7 +172,7 @@ otherwise.
 Example:
 
 ```json
-{"actor": "boss", "billing": "subscription", "cost_micros": 4000, "data": {"model": "haiku", "outcome": "completed", "purpose": "term_sheet", "thinking_tokens": null}, "event": "boss_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:35.110818+00:00", "v": 1}
+{"actor": "boss", "billing": "subscription", "cost_micros": 4000, "data": {"model": "haiku", "model_observed": "claude-haiku-4-5-20251001", "outcome": "completed", "purpose": "term_sheet", "thinking_tokens": null}, "event": "boss_call", "round": 0, "run": "20260930T110134Z-365351", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T11:01:35.110818+00:00", "v": 1}
 ```
 
 ### `role_call`
@@ -188,7 +189,7 @@ Example:
     (cost 0, outcome `skipped`) when round 1 could not then fund a worker slice. It adds
     `requested`, `kept` and `problems`. `antstreet fund --held-out N` calls it through
     `Pipeline.examine`.
-- `antstreet report` reads these events for its Roles section.
+- `antstreet report` reads these events for its Roles and Models sections.
 - `budget.remaining` reads them to charge a timed-out call at its `cap_micros` (below).
 - Cost and tokens: the call's usage. `cost_micros` is `null` if the call did not report one, and 0
   for a call that was not made (`outcome` `not_called` or `skipped`). Billing is `api` or
@@ -197,7 +198,8 @@ Example:
 | Key | Type | Meaning |
 |---|---|---|
 | `role` | str | The role's name, the part of the actor after `role:`. |
-| `model` | str | The model the call used. |
+| `model` | str | The model the call asked for. |
+| `model_observed` | str or null | The model the CLI's `system/init` event says the call ran, next to the requested `model`; `null` when no init arrived, and for a call that was not made (`not_called`, `skipped`). Events written before this key existed lack it, and `antstreet report` says "not recorded" for them. |
 | `prompt` | str | The prompt file the role runs under. |
 | `skills` | list | The skill ids appended to that prompt, in order. Empty if none. |
 | `cap_micros` | int | The role's per-call cap. When `cost_micros` is `null` (killed at its timeout) and the outcome is not an infrastructure failure, `budget.remaining` charges this against the event's round. Older events lack it and are charged 0. |
@@ -225,7 +227,7 @@ call per rubric and build.
 Example, a critic's call written by a run with every role:
 
 ```json
-{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cap_micros": 400000, "cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
+{"actor": "role:critic", "billing": "subscription", "cost_micros": 4000, "data": {"cap_micros": 400000, "cycle": 1, "detail": "1 verified, 0 rejected", "model": "haiku", "model_observed": "claude-haiku-4-5-20251001", "outcome": "completed", "prompt": "critic_v1.md", "rejected": 0, "result": "ok", "role": "critic", "skills": ["critic/tracing-each-stated-rule-through-the-code", "critic/writing-a-minimal-failing-test", "critic/boundaries-the-idea-names"], "verified": 1}, "event": "role_call", "round": 0, "run": "20260930T184138Z-128493", "tokens_cached": 0, "tokens_in": 10, "tokens_out": 5, "ts": "2026-09-30T18:41:40.854167+00:00", "v": 1}
 ```
 
 ### `started`
@@ -243,7 +245,7 @@ Example, a critic's call written by a run with every role:
 | Key | Type | Meaning |
 |---|---|---|
 | `config` | object | The run's `FirmConfig`. Keys below. |
-| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `antstreet approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`), and `fix_after_stop` (true, only when `--fix-after-stop` was given; absent means off). |
+| `roles` | object | The roles the investor chose; when `--roles` named some, and always on a run awaiting `antstreet approve`. Keys `names` (list: the sorted role names), `model` (str: the model every role call uses, from `--boss-model`) and `thinking_tokens` (int or null: `--boss-thinking`), `fix_after_stop` (true, only when `--fix-after-stop` was given; absent means off), and `caps` (object, only when `--boss-cap`, `--boss-timeout` or `--role-cap` was given; absent means every default): its keys are only those given, `boss_micros` (int: `--boss-cap`), `boss_timeout_s` (float: `--boss-timeout`) and `roles` (object: role name to the micro-dollar cap of each of its calls, `--role-cap`). A run with a cap flag and no roles still records `roles`, with `names` empty, so `antstreet resume` keeps the caps; a recorded value out of bounds is ignored and the default applies. |
 
 Config keys:
 
@@ -266,6 +268,9 @@ Config keys:
 | `dispatch` | bool | `true` when the run uses `--dispatch rules`. Written only then; a run without it has neither this key nor `max_tier`. |
 | `max_tier` | str | The dearest tier dispatch may use (`--max-tier`, default `sonnet`). Written only with `dispatch`. |
 | `cascade` | bool | `true` when the run uses `--dispatch cascade` (then `dispatch` is `true` too). Written only then; a run without it has no such key. |
+| `tier_models.haiku` | str | `--tier-models`: the pinned model id `haiku` workers are launched with. The `tier_models` object is written only with `--tier-models` (then `dispatch` is `true` too) and holds each tier it pins; a run without it, or started before the key existed, loads with none and launches each tier's alias. Validated again when the run is loaded. |
+| `tier_models.sonnet` | str | The same for `sonnet`. |
+| `tier_models.opus` | str | The same for `opus`. |
 | `plan_pause_at` | float or null | A fraction of a plan window. The run pauses once a slice reports a window this full and work is left; `null` turns the pause off. `antstreet fund` has no option for it, so it is 0.95. |
 
 Example, a run without roles:
@@ -314,7 +319,7 @@ Example:
 |---|---|---|
 | `worker` | str | The worker's name: `w1`, `w2`, ... in hiring order across the run. |
 | `task` | str | The task id. |
-| `model` | str | The worker model: the run's `--model`, or, under `--dispatch rules`, the tier the term sheet gave this worker (a step up included). A resume runs the worker on this one, not on the config's. |
+| `model` | str | The worker model: the run's `--model`, or, under `--dispatch rules`, the tier the term sheet gave this worker (a step up included), or that tier's pinned id when the run has `config.tier_models`. A resume runs the worker on this one, not on the config's. |
 | `prompt` | str | The builder prompt file the worker runs under. |
 | `profile` | str or null | The worker profile in force (`started`'s `config.profile`, or the task's `dispatch.profile`); `null` for none. |
 | `dispatch` | object | Why this worker is on this model. Only under `--dispatch rules` or `cascade`. Keys below. |
@@ -323,7 +328,7 @@ Dispatch keys:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `tier` | str | `haiku`, `sonnet` or `opus`; the same as `model`. |
+| `tier` | str | `haiku`, `sonnet` or `opus`; the same as `model`, unless the run pins its tiers (`config.tier_models`), when `model` is the pinned id. |
 | `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). Under the cascade, `off` on every rung but the last, which is `default`. |
 | `why` | str | `term sheet` for a task's first worker; for a replacement, `predecessor fired: ` and the gate's reason (`no progress` or `slice limit`) and its stalled slices. |
 | `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier (under the cascade: the last rung, one effort step higher). |

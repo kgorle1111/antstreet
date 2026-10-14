@@ -1,6 +1,7 @@
 # Benchmark method
 
 What the benchmark measures, how, and what its numbers can and cannot support.
+Every experiment also meets the bar in [STANDARDS.md](STANDARDS.md).
 
 ## Question
 
@@ -21,8 +22,12 @@ than a single agent given the idea directly?
   The hash encoding was made unambiguous on 2026-09-30: the same 17 task files were
   `7a212cdcc5f4f466` before and are `c130282a6eec5fe8` after. Results recorded under the old
   value ran against identical files.
-- On 2026-10-02, 18 tasks were added, and on 2026-10-03 24 more: the set has 59 tasks, hash `0a83fc97a753b08c`. Every result
-  recorded before then ran on the original 17, whose files and hash are unchanged.
+- On 2026-10-02, 18 tasks were added, and on 2026-10-03 24 more: the set has 59 tasks, hash `ed6fd905c106f6a6`. Every result
+  recorded before then ran on the original 17, whose files and hash were unchanged then.
+- On 2026-10-13 the `roman` strict check (one of the original 17) was rewritten to run faster, with
+  the same meaning (see `PREREG.md`). The 59-task set moved from `0a83fc97a753b08c` to the hash
+  above and the original 17 from `c130282a6eec5fe8` to `42c28f8aab61d518`. Results recorded under
+  the old values ran on the old roman file.
 - `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
   make old and new results look like they ran against different tasks. A test pins the hash.
 
@@ -76,6 +81,30 @@ tests instead of hidden checks written here.
   whose task set, model, budget or `--firm-args` differ from the run's is refused, not reused: a
   second firm arm (another `--firm-args`) needs its own `--out`.
 - A third arm, `single-review`, is the single arm with a self-review slice; see its own section.
+
+## Models
+
+`--model` and `--boss-model` are what a cell asks for, not proof of what ran: an alias such as
+`haiku` is resolved by the CLI, and E9 was confounded when the alias moved to a new model mid-run.
+Experiments therefore pass pinned ids (`claude-haiku-5-5`, `claude-sonnet-5-5`,
+`claude-opus-5-5`), never aliases, and every cell records and checks what ran.
+
+- Each result's `models` is every id the cell's records name, sorted: from each worker log
+  (`logs/*.jsonl`, or the firm run's `logs/*.jsonl`), the `system/init` event's `model` and every
+  assistant turn's `message.model`, which is the CLI's own report; `<synthetic>` (an API error the
+  CLI wrote as a turn) names no model and is left out. For the boss's and the roles' calls it is
+  the `model_observed` their `boss_call` or `role_call` event records, the id the CLI reported for
+  that call; on a ledger written before that field, or a call that reported none, it is the
+  `model` it was launched with, so an alias stays visible and `--expect-models` refuses it. Results written before the field have `models: null`, shown as not
+  recorded, never as none.
+- With `--expect-models ID[,ID...]`, a cell that names any other id is an **infrastructure**
+  failure, whatever its product scored, with `failure_reason` naming the id: what was measured is
+  not the model the experiment is about. It is excluded from every figure and moved aside and rerun
+  like any other infrastructure cell, and three in a row stop the run (`unexpected_model`), since
+  a moved alias fails every later cell too. A saved cell is reused only if its `models` are all
+  expected.
+- The table's header and the KPI card's `models run` row list the ids per arm or column, excluded
+  cells included, so a mixed run is visible at a glance.
 - The single arm gets one slice. The firm may use several within the same budget: the gate's
   feedback between slices is part of what is being measured.
 

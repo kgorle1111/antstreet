@@ -123,6 +123,9 @@ class FirmConfig:
     max_tier: str = dispatch_module.DEFAULT_MAX_TIER  # the dearest tier dispatch may use
     # `--dispatch cascade`: with dispatch on, the ladder of dispatch.ladder, not one step up
     cascade: bool = False
+    # `--tier-models`: with dispatch on, tier -> the pinned model id its workers are launched with.
+    # None launches the tier's alias, which the CLI may move to a new model mid-experiment (E9).
+    tier_models: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         check_thinking(self.thinking_tokens)
@@ -133,6 +136,12 @@ class FirmConfig:
             )
         if type(self.cascade) is not bool or (self.cascade and not self.dispatch):
             raise ValueError(f"cascade must be a bool and needs dispatch, got {self.cascade!r}")
+        if self.tier_models is not None:
+            problems = dispatch_module.tier_models_problems(self.tier_models)
+            if not self.dispatch:
+                problems.append("needs dispatch")
+            if problems:
+                raise ValueError("tier_models: " + "; ".join(problems))
         if self.reserve_micros == budget.MODEL_RESERVE:
             object.__setattr__(self, "reserve_micros", budget.reserve_for(self.model))
         if type(self.held_out) is not int or not 0 <= self.held_out <= held_out_store.MAX_HELD_OUT:
@@ -145,7 +154,9 @@ class FirmConfig:
         """What dispatch allows in this run; None when `--dispatch` is off."""
         if not self.dispatch:
             return None
-        return dispatch_module.DispatchPolicy(self.max_tier, self.slice_micros, self.cascade)
+        return dispatch_module.DispatchPolicy(
+            self.max_tier, self.slice_micros, self.cascade, dict(self.tier_models or {})
+        )
 
 
 def config_data(config: FirmConfig) -> dict[str, Any]:
@@ -156,6 +167,8 @@ def config_data(config: FirmConfig) -> dict[str, Any]:
         del data["dispatch"], data["max_tier"]
     if not config.cascade:
         del data["cascade"]
+    if config.tier_models is None:
+        del data["tier_models"]
     return data
 
 
@@ -722,7 +735,8 @@ class _Firm:
         hired: dict[str, Any] = {"worker": name, "task": task.id, "model": self.config.model}
         hired |= {"prompt": BUILDER_PROMPT, "profile": self.config.profile}
         if hire is not None and task.dispatch is not None:
-            hired |= {"model": hire.tier, "profile": task.dispatch.profile}
+            model = dispatch_module.model_for(hire.tier, self.config.tier_models)
+            hired |= {"model": model, "profile": task.dispatch.profile}
             hired["dispatch"] = hire.data()
             if current is not None:
                 self.say(_stepped_up(current, name, hire, self.config.cascade))

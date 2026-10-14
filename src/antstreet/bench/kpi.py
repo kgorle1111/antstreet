@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
-from antstreet.bench.results import CellResult, cell_dir, load_results
+from antstreet.bench.results import CellResult, cell_dir, load_results, models_text
 from antstreet.bench.table import _counted, _duration, _visible_pass
 from antstreet.kpi import investor_questions, single_said_done
 from antstreet.ledger import Event, LedgerError
@@ -52,6 +52,7 @@ class KpiCard:
     question_runs: int  # counted cells whose count is recorded
     wrong_checks: int | None  # boss checks the reference solution fails; None: not measured
     boss_checks: int | None  # boss checks in the cells where that was measured
+    models: str = "none recorded"  # the model ids the column's cells ran (results.models_text)
 
 
 def _said_done(r: CellResult, ledger: Sequence[Event] | None) -> bool | None:
@@ -112,6 +113,7 @@ def kpi_card(
         question_runs=len(asked) if arm == "firm" else len(cells),
         wrong_checks=sum(r.wrong_checks or 0 for r in measured) if measured else None,
         boss_checks=sum(r.visible_total or 0 for r in measured) if measured else None,
+        models=models_text(results),
     )
 
 
@@ -181,6 +183,7 @@ def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
         ("5 Reliability (pass^k)", [_reliability(c) for _, c in columns]),
         ("6 Investor questions", [_questions(c) for _, c in columns]),
         ("7 Check quality", [_check_quality(c) for _, c in columns]),
+        ("  models run (excluded cells too)", [c.models for _, c in columns]),
     ]
     mixed = len({c.task_sets for _, c in columns}) > 1
     out = [SETS_WARNING, ""] if mixed else []
@@ -190,6 +193,7 @@ def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
         f"  {label}: {c.counted} cells over {c.tasks} tasks ({c.infrastructure} excluded)"
         for label, c in columns
     ]
+
     return "\n".join([*out, "", NOTE]) + "\n"
 
 

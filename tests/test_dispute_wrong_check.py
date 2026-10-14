@@ -64,6 +64,20 @@ def test_a_worker_that_disputes_the_wrong_check_is_asked_about_not_fired(tmp_pat
     assert (paths.product / "vowels.py").read_text() == CORRECT  # the correct code is delivered
 
 
+def test_a_dispute_naming_the_check_as_live_haiku_did_is_asked_about_not_fired(tmp_path):
+    # Readiness run d2: both workers filled `disputed_checks` with "c07 (test_c07.py): ...", an
+    # exact id match dropped it, and the correct product was fired twice. Same shape on c05 here.
+    paths, sheet = live_run(tmp_path)
+    live_shape = dispute('c05 (test_c05.py): asserts count_vowels("h3ll0!") == 1', C05_IS_WRONG)
+    worker = Script(vowels(CORRECT, "done", disputes=[live_shape]))
+    report, _ = run(paths, worker, sheet, answers=["d"])
+    [disputed] = events_of(paths, EventType.DISPUTED)
+    assert disputed.data["check"] == "c05" and disputed.data["worker"] == "w1"
+    assert events_of(paths, EventType.FIRED) == [] and len(worker.specs) == 1
+    assert [e.data["ruling"] for e in events_of(paths, EventType.RULED)] == ["dropped"]
+    assert report.all_passed and (paths.product / "vowels.py").read_text() == CORRECT
+
+
 def test_with_nobody_to_rule_the_disputed_task_is_set_aside_not_fired(tmp_path):
     paths, sheet = live_run(tmp_path)
     worker = Script(vowels(CORRECT, "done"), vowels(CORRECT, disputes=[dispute("c05", "wrong")]))

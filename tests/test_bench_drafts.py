@@ -374,7 +374,7 @@ def test_a_damaged_draft_file_is_named_before_anything_is_spent(env, stub_score,
 def test_the_real_task_set_is_listed_under_its_pinned_hash(capsys):
     assert main(["--tasks", str(REAL_TASKS), "--out", "/nonexistent/unused", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "task set 0a83fc97a753b08c: 59 drafts, 59 to make" in out
+    assert "task set ed6fd905c106f6a6: 59 drafts, 59 to make" in out
 
 
 def test_tasks_are_validated_before_the_first_paid_call(env, monkeypatch):
