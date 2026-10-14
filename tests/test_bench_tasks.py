@@ -6,7 +6,15 @@ from pathlib import Path
 import pytest
 from changed_tasks import select, validate_cached
 
-from antstreet.bench.tasks import TaskError, load_task, load_tasks, task_set_hash, validate_task
+from antstreet.bench.tasks import (
+    MUTANT_TIMEOUT_S,
+    TaskError,
+    load_task,
+    load_tasks,
+    task_set_hash,
+    validate_task,
+)
+from antstreet.gate import CheckStatus, run_gate
 
 TASKS = Path(__file__).parent.parent / "bench" / "tasks"
 
@@ -27,8 +35,10 @@ def problems(task_dir) -> list[str]:
 
 # What the benchmark arms are scored against: the idea, hidden checks and reference of all 17
 # tasks. It must not move when mutants are added: results recorded under it stay comparable.
-SHIPPED_SET_HASH = "0a83fc97a753b08c"  # 59 tasks since 2026-10-03
-ORIGINAL_SET_HASH = "c130282a6eec5fe8"  # the first 17, which every earlier result ran on
+SHIPPED_SET_HASH = "ed6fd905c106f6a6"  # 59 tasks; roman strict check rewritten 2026-10-13
+# The first 17, which every earlier result ran on. Was c130282a6eec5fe8 until the roman strict check
+# was rewritten on 2026-10-13 (bench/PREREG.md): earlier results ran on the old roman file.
+ORIGINAL_SET_HASH = "42c28f8aab61d518"
 
 
 def test_every_shipped_task_is_valid():
@@ -39,6 +49,24 @@ def test_every_shipped_task_is_valid():
     # only which of them are run through the gate.
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda t: validate_cached(t, validate_task), select(tasks)))
+
+
+def test_every_shipped_reference_passes_its_checks_inside_the_mutant_limit():
+    """A mutant is scored dead when a check times out at MUTANT_TIMEOUT_S, so a reference check that
+    is slow through the gate's comparison guard (`s in big_dict` in a loop walks the dict each time)
+    kills its mutants by timeout instead of by what they got wrong. Validation's own limit is too
+    loose to see this; the limit here is the one mutants are held to."""
+
+    def slow(task):
+        results = run_gate(
+            task.reference_dir, task.hidden_dir, task.hidden_checks(), timeout_s=MUTANT_TIMEOUT_S
+        )
+        return [r.check_id for r in results if r.status is CheckStatus.TIMEOUT]
+
+    tasks = select(load_tasks(TASKS))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        found = {t.id: ids for t, ids in zip(tasks, pool.map(slow, tasks), strict=True) if ids}
+    assert found == {}, f"reference checks over {MUTANT_TIMEOUT_S}s through the gate: {found}"
 
 
 def test_the_shipped_task_set_hash_is_pinned():
