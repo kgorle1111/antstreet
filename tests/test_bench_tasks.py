@@ -11,6 +11,7 @@ from antstreet.bench.tasks import (
     TaskError,
     load_task,
     load_tasks,
+    task_set_digest,
     task_set_hash,
     validate_task,
 )
@@ -170,3 +171,48 @@ def test_set_hash_is_stable_and_changes_with_any_file(task_dir):
     check = task_dir / "hidden_checks" / "test_basic.py"
     check.write_text(check.read_text() + "\n# edited\n")
     assert task_set_hash([load_task(task_dir)]) != before
+
+
+@pytest.fixture
+def pool(tmp_path):
+    """A private two-task pool, mutants included, that a test can edit."""
+    target = tmp_path / "pool"
+    for name in ("slugify", "calc"):
+        shutil.copytree(TASKS / name, target / name)
+    return target
+
+
+def test_set_digest_is_the_full_sha256_and_stable(pool):
+    digest = task_set_digest(pool)
+    assert len(digest) == 64 and set(digest) <= set("0123456789abcdef")
+    assert task_set_digest(pool) == digest
+
+
+def test_set_digest_covers_mutants_unlike_the_set_hash(pool):
+    mutant = next((pool / "slugify" / "mutants").rglob("*.py"))
+    digest, short = task_set_digest(pool), task_set_hash(load_tasks(pool))
+    mutant.write_bytes(mutant.read_bytes() + b"#")
+    assert task_set_digest(pool) != digest
+    assert task_set_hash(load_tasks(pool)) == short
+
+
+def test_set_digest_changes_when_a_file_is_added_or_a_provenance_file_edited(pool):
+    before = task_set_digest(pool)
+    (pool / "calc" / "provenance.json").write_text("{}")
+    added = task_set_digest(pool)
+    (pool / "calc" / "provenance.json").write_text('{"a": 1}')
+    assert len({before, added, task_set_digest(pool)}) == 3
+
+
+@pytest.mark.parametrize("junk", [".DS_Store", "slugify/.hidden", "slugify/__pycache__/x.pyc"])
+def test_set_digest_refuses_dotfiles_and_pycache(pool, junk):
+    target = pool / junk
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"x")
+    with pytest.raises(TaskError, match=r"remove it and rerun"):
+        task_set_digest(pool)
+
+
+def test_set_digest_refuses_a_missing_pool(tmp_path):
+    with pytest.raises(TaskError, match="not a directory"):
+        task_set_digest(tmp_path / "nope")
