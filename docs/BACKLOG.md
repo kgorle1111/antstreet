@@ -72,7 +72,7 @@ Status: `open` (not started), `building` (in progress), `done` (say where), `won
 |---|---|---|---|
 | B36 | Three runs per arm on the hardened code | Cost | done: `bench/results/2026-09-30-final3/` (both arms, 3 runs, 51 cells each; single arm at dca56c1, firm arm at a886934); its single arm had an extra hidden-checks sentence the firm lacked, so `2026-10-03-blind35` supersedes it as a comparison |
 | B37 | Replay: stop at DONE like the live loop | The live loop never funds past DONE, so replay's extra walk changes no figure today | done: fix(replay): a worker whose task is done is not walked past that point |
-| B38 | More tasks: about 60 paired tasks are needed to see a 20-point difference | 17 exist | done: 59 tasks in `bench/tasks` (hash `0a83fc97a753b08c`; 18 added 2026-10-02, 24 on 2026-10-03) and 8 multi-file tasks in `bench/tasks-multi` |
+| B38 | More tasks: about 60 paired tasks are needed to see a 20-point difference | 17 exist | done: 59 tasks in `bench/tasks` (hash `ed6fd905c106f6a6`, was `0a83fc97a753b08c` until the roman check rewrite of 2026-10-13; 18 added 2026-10-02, 24 on 2026-10-03) and 8 multi-file tasks in `bench/tasks-multi` |
 
 ## Packaging and release
 

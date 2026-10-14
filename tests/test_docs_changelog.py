@@ -109,7 +109,10 @@ def test_figures_the_changelog_states_match_the_code_and_the_repository(text):
     )
     tasks = load_tasks(ROOT / "bench" / "tasks")
     assert f"{len(tasks)} tasks" in text
-    assert "`c130282a6eec5fe8`" in text and task_set_hash(original_tasks()) == "c130282a6eec5fe8"
+    assert "`c130282a6eec5fe8`" in text  # the 2026-09-30 re-encoding, as it was then
+    assert (
+        task_set_hash(original_tasks()) == "42c28f8aab61d518"
+    )  # moved by the 2026-10-13 roman fix
 
 
 def test_the_new_names_and_figures_are_real(text):
