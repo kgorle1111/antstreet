@@ -30,6 +30,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import math
 import re
 import subprocess
 import sys
@@ -38,7 +39,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from antstreet.gate import Check, run_gate, run_tree
+from antstreet.gate import Check, CheckStatus, run_gate, run_tree
 from antstreet.termsheet import CheckSpec, check_file_problems
 
 MIN_HIDDEN_CHECKS = 5
@@ -141,10 +142,59 @@ def load_tasks(tasks_dir: Path) -> list[BenchTask]:
     return [load_task(p) for p in sorted(tasks_dir.iterdir()) if (p / "meta.json").is_file()]
 
 
-def validate_task(task: BenchTask) -> None:
-    problems = structural_problems(task) or gate_problems(task)
+def validate_task(
+    task: BenchTask,
+    *,
+    reference_runs: int = 1,
+    check_budget_s: float | None = None,
+    min_mutants: int = 0,
+    timeout_kills: bool = True,
+) -> None:
+    """Raise TaskError unless the task is valid. The defaults are the shipped-task rules.
+
+    The options make it stricter, for tasks whose checks must also be fast and stable:
+    `reference_runs` runs the reference that many times and every check must pass every time;
+    `check_budget_s` caps each hidden check's gate time on the reference (the slowest run counts);
+    `min_mutants` demands that many mutants on top of MIN_MUTANTS; `timeout_kills=False` counts a
+    mutant as killed only when some check FAILS, not when a check merely times out.
+    Imported tasks have no reference or mutants, so the options do not apply to them.
+    """
+    _validate_options(reference_runs, check_budget_s, min_mutants)
+    problems = structural_problems(task)
+    if not problems and not task.imported and len(task.mutants()) < min_mutants:
+        problems.append(
+            f"has {len(task.mutants())} mutants, strict validation needs at least {min_mutants}; "
+            "add wrong solutions under mutants/, each breaking one rule the checks should catch"
+        )
+    problems = problems or gate_problems(
+        task,
+        reference_runs=reference_runs,
+        check_budget_s=check_budget_s,
+        timeout_kills=timeout_kills,
+    )
     if problems:
         raise TaskError(task.id, problems)
+
+
+def _validate_options(reference_runs: int, check_budget_s: float | None, min_mutants: int) -> None:
+    if (
+        isinstance(reference_runs, bool)
+        or not isinstance(reference_runs, int)
+        or reference_runs < 1
+    ):
+        raise ValueError(f"reference_runs must be an integer >= 1, got {reference_runs!r}")
+    if isinstance(min_mutants, bool) or not isinstance(min_mutants, int) or min_mutants < 0:
+        raise ValueError(f"min_mutants must be an integer >= 0, got {min_mutants!r}")
+    if check_budget_s is not None and not (
+        isinstance(check_budget_s, int | float)
+        and not isinstance(check_budget_s, bool)
+        and math.isfinite(check_budget_s)
+        and check_budget_s > 0
+    ):
+        raise ValueError(
+            f"check_budget_s must be a positive finite number of seconds or None, "
+            f"got {check_budget_s!r}"
+        )
 
 
 def structural_problems(task: BenchTask) -> list[str]:
@@ -230,29 +280,56 @@ def _imported_modules(tree: ast.Module) -> set[str]:
     return modules
 
 
-def gate_problems(task: BenchTask) -> list[str]:
+def gate_problems(
+    task: BenchTask,
+    *,
+    reference_runs: int = 1,
+    check_budget_s: float | None = None,
+    timeout_kills: bool = True,
+) -> list[str]:
     if task.imported:
         return _imported_gate_problems(task, task.imported)
     checks = task.hidden_checks()
     with tempfile.TemporaryDirectory(prefix="boss_bench_empty_") as empty:
         on_empty = run_gate(Path(empty), task.hidden_dir, checks, timeout_s=VALIDATE_TIMEOUT_S)
-    on_reference = run_gate(
-        task.reference_dir, task.hidden_dir, checks, timeout_s=VALIDATE_TIMEOUT_S
-    )
     problems = [
         f"hidden check {r.check_id} does not fail on an empty workspace ({r.status})"
         for r in on_empty
         if r.status != "failed"
     ]
-    problems += [
-        f"hidden check {r.check_id} does not pass on the reference ({r.detail})"
-        for r in on_reference
-        if not r.passed
-    ]
-    return problems + _mutant_gate_problems(task, checks)
+    slowest: dict[str, float] = {}
+    for run in range(1, reference_runs + 1):
+        on_reference = run_gate(
+            task.reference_dir, task.hidden_dir, checks, timeout_s=VALIDATE_TIMEOUT_S
+        )
+        again = f" on reference run {run} of {reference_runs}" if reference_runs > 1 else ""
+        for r in on_reference:
+            slowest[r.check_id] = max(slowest.get(r.check_id, 0.0), r.duration_s)
+            if not r.passed:
+                hint = (
+                    "; if it passes on other runs the check or reference is flaky, so remove "
+                    "the nondeterminism (clock, randomness, ordering, shared files)"
+                    if reference_runs > 1
+                    else ""
+                )
+                problems.append(
+                    f"hidden check {r.check_id} does not pass on the reference{again} "
+                    f"({r.detail}){hint}"
+                )
+    if check_budget_s is not None:
+        problems += [
+            f"hidden check {cid} took {secs:.2f}s on the reference, over the "
+            f"{check_budget_s:g}s budget; compare whole structures once instead of looping "
+            "guarded comparisons, or shrink its input"
+            for cid, secs in slowest.items()
+            if secs > check_budget_s
+        ]
+    return problems + _mutant_gate_problems(task, checks, timeout_kills)
 
 
-def _mutant_gate_problems(task: BenchTask, checks: list[Check]) -> list[str]:
+def _mutant_gate_problems(
+    task: BenchTask, checks: list[Check], timeout_kills: bool = True
+) -> list[str]:
     mutants = task.mutants()
     if not mutants:
         return []
@@ -265,6 +342,13 @@ def _mutant_gate_problems(task: BenchTask, checks: list[Check]) -> list[str]:
         results = run_gate(mutant, task.hidden_dir, checks, timeout_s=MUTANT_TIMEOUT_S)
         if all(r.passed for r in results):
             return f"mutant {mutant.name} passes every hidden check, so it is not a wrong solution"
+        if not timeout_kills and not any(r.status is CheckStatus.FAILED for r in results):
+            hung = ", ".join(r.check_id for r in results if r.status is CheckStatus.TIMEOUT)
+            return (
+                f"mutant {mutant.name} is only killed by a timeout (check {hung} exceeded "
+                f"{MUTANT_TIMEOUT_S:g}s), not by a failing assertion; add a check that fails "
+                "this mutant quickly, or drop the mutant if it only hangs"
+            )
         return None
 
     # Each gate run is its own pytest processes, so threads only wait; this keeps validation quick.
