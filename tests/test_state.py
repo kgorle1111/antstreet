@@ -1,7 +1,13 @@
 from antstreet.errors import Outcome
 from antstreet.ledger import Event, EventType
 from antstreet.rule import SliceRecord
-from antstreet.state import fired_workers, run_state, slice_history, worker_tasks
+from antstreet.state import (
+    fired_workers,
+    last_check_statuses,
+    run_state,
+    slice_history,
+    worker_tasks,
+)
 
 
 def ev(actor, event, **fields) -> Event:
@@ -218,6 +224,23 @@ def test_a_stop_holds_until_the_investor_resumes_and_a_later_stop_holds_again():
     assert not run_state([hired, stop, by_investor], ["t1"]).stopped
     assert run_state([hired, stop, by_investor, stop], ["t1"]).stopped
     assert not run_state([hired, by_investor], ["t1"]).stopped
+
+
+def test_last_check_statuses_are_the_workers_latest_and_skip_held_out_and_dropped_checks():
+    held_out = check("w1", 3, "h1", "timeout")
+    held_out.data["scope"] = "held_out"
+    product = ev("gate", EventType.CHECK_RESULT, data={"check": "c02", "status": "timeout"})
+    dropped = {"task": "t1", "worker": "w1", "check": "c04", "ruling": "dropped"}
+    events = [
+        *EVENTS,
+        check("w1", 3, "c04", "timeout"),
+        held_out,
+        product,  # the final product's result names no worker
+        ev("investor", EventType.RULED, data=dropped),
+    ]
+    assert last_check_statuses(events, "w1") == {"c01": "passed", "c02": "passed"}
+    assert last_check_statuses(events, "w2") == {"c03": "timeout"}
+    assert last_check_statuses(events, "w9") == {}
 
 
 def test_locked_rounds_are_the_ones_that_closed_below_their_threshold():

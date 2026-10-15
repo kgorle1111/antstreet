@@ -204,7 +204,7 @@ Built like something you would be happy to inherit.
 - **5,700+ tests**, no model calls needed (recorded CLI output and fake `claude` executables).
 - **Coverage floor 96%** (line and branch) enforced in CI; about 98% measured when the floor was set.
 - **`mypy --strict`** over `src/`, plus ruff.
-- **A threat model with 73 rows**, each bound to the test for its control
+- **A threat model with 74 rows**, each bound to the test for its control
   ([THREAT_MODEL.md](docs/THREAT_MODEL.md)).
 - **A signed, hash-chained ledger**: edit a line and the chain breaks.
 - **A sandboxed gate**: macOS seatbelt; Linux `bwrap`, run and required in CI.
