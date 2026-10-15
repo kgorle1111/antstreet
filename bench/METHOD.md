@@ -30,6 +30,11 @@ than a single agent given the idea directly?
   the old values ran on the old roman file.
 - `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
   make old and new results look like they ran against different tasks. A test pins the hash.
+- A private task set is pre-registered by a different value, a full 64-hex SHA-256 digest over every
+  file in the folder, mutants and hidden checks included. `python3 -I scripts/verify_task_set.py DIR
+  --expect DIGEST` recomputes it with the standard library alone, prints it with the 16-hex hash,
+  and exits 1 if the folder differs. It shows the files are unchanged since registration, not when
+  any run happened.
 
 ## Imported tasks
 
