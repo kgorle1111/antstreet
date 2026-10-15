@@ -73,6 +73,9 @@ def main(argv: list[str]) -> int:
     if not _HEX64.fullmatch(expect):
         print(f"--expect must be 64 lowercase hex characters, got {args.expect!r}", file=sys.stderr)
         return 2
+    if args.dir.is_symlink():
+        print(f"{args.dir} is a symlink; pass the real folder", file=sys.stderr)
+        return 2
     if not args.dir.is_dir():
         print(f"{args.dir} is not a directory", file=sys.stderr)
         return 2

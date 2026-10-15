@@ -53,6 +53,13 @@ def test_the_script_refuses_what_the_library_refuses(tmp_path):
     assert run.returncode == 2 and "remove it and rerun" in run.stderr
 
 
+def test_the_script_refuses_a_pool_passed_as_a_symlink(tmp_path):
+    link = tmp_path / "linked"
+    link.symlink_to(POOLS[1], target_is_directory=True)
+    run = verify(link, task_set_digest(POOLS[1]))
+    assert run.returncode == 2 and "is a symlink" in run.stderr
+
+
 def test_the_script_imports_only_the_standard_library():
     tree = ast.parse(SCRIPT.read_text())
     imported = {

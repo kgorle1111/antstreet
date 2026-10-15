@@ -485,6 +485,8 @@ def task_set_digest(pool_dir: Path) -> str:
     A dotfile, `__pycache__` or symlink is refused, never skipped: what is skipped differs between
     machines, and the digest must not.
     """
+    if pool_dir.is_symlink():
+        raise TaskError(pool_dir.name, [f"{pool_dir} is a symlink; pass the real folder"])
     if not pool_dir.is_dir():
         raise TaskError(pool_dir.name, [f"{pool_dir} is not a directory"])
     files: list[tuple[str, Path]] = []
