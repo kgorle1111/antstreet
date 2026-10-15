@@ -60,6 +60,7 @@ VALIDATOR_FILES = (
     "src/antstreet/gate.py",
     "src/antstreet/sandbox.py",
     "src/antstreet/_gate_plugin.py",
+    "src/antstreet/_tree_plugin.py",
 )
 
 

@@ -84,7 +84,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .task-cache
-          key: task-validation-${{ runner.os }}-${{ hashFiles('bench/tasks/**', 'bench/tasks-multi/**', 'src/antstreet/bench/tasks.py', 'src/antstreet/gate.py', 'src/antstreet/sandbox.py', 'src/antstreet/_gate_plugin.py', 'uv.lock', 'pyproject.toml') }}
+          key: task-validation-${{ runner.os }}-${{ hashFiles('bench/tasks/**', 'bench/tasks-multi/**', 'src/antstreet/bench/tasks.py', 'src/antstreet/gate.py', 'src/antstreet/sandbox.py', 'src/antstreet/_gate_plugin.py', 'src/antstreet/_tree_plugin.py', 'uv.lock', 'pyproject.toml') }}
           restore-keys: task-validation-${{ runner.os }}-
 
       # --locked fails if uv.lock is out of date, so CI installs exactly what was tested locally.

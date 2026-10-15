@@ -390,3 +390,67 @@ def test_method_states_the_format_and_command_the_code_uses():
     assert "python -m antstreet.bench.imported nl2repo <task-dir> <dest-root>" in body
     assert "Not comparable with the external leaderboard" in body
     assert "--continue-on-collection-errors" in body
+
+
+# --- time limits -------------------------------------------------------------------------------
+
+HANG_TEST = "import time\n\ndef test_hangs():\n    time.sleep(8)\n\ndef test_fine():\n    pass\n"
+
+
+def set_limits(task: BenchTask, **limits: object) -> BenchTask:
+    meta = json.loads((task.root / "meta.json").read_text())
+    meta["imported"].update(limits)
+    (task.root / "meta.json").write_text(json.dumps(meta))
+    return load_task(task.root)
+
+
+def test_a_hanging_hidden_test_is_a_timeout_and_the_rest_are_graded(task, tmp_path):
+    (task.hidden_dir / "test_c.py").write_text(HANG_TEST)
+    task = set_limits(task, test_count=8, test_timeout_s=1)
+    hidden = grade_imported(task, product(tmp_path, UPPER))
+    assert hidden["tests/test_c.py::test_hangs"] == "timeout"
+    assert hidden["tests/test_c.py::test_fine"] == "passed"
+    assert {n: s for n, s in hidden.items() if n in NODES} == {
+        n: "failed" if n in FAILS else "passed" for n in NODES
+    }
+
+
+def test_tests_cut_off_by_the_suite_cap_are_timeouts_never_passes(task, tmp_path):
+    (task.hidden_dir / "test_c.py").write_text(HANG_TEST)
+    task = set_limits(task, test_count=8, suite_timeout_s=4, test_timeout_s=60)
+    hidden = grade_imported(task, product(tmp_path, UPPER))
+    assert len(hidden) == 8
+    assert hidden["tests/test_c.py::test_hangs"] == "timeout"  # running when the cap hit
+    assert hidden["(not run 1)"] == "timeout"  # test_fine never started
+    assert hidden["tests/test_a.py::test_upper"] == "passed"  # finished before: kept
+
+
+def test_the_limits_are_optional_numbers_in_meta_json(task):
+    assert (task.imported.suite_timeout_s, task.imported.test_timeout_s) == (None, None)
+    loaded = set_limits(task, suite_timeout_s=900, test_timeout_s=2.5)
+    assert (loaded.imported.suite_timeout_s, loaded.imported.test_timeout_s) == (900, 2.5)
+
+
+def test_validation_runs_the_suite_under_the_task_s_own_limits(task, monkeypatch):
+    import antstreet.bench.tasks as tasks_module
+
+    seen: list[dict[str, object]] = []
+    real = tasks_module.run_tree
+
+    def recording(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        seen.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tasks_module, "run_tree", recording)
+    validate_task(set_limits(task, suite_timeout_s=900, test_timeout_s=2.5))
+    assert seen, "validation never ran the hidden tree"
+    assert all((k["timeout_s"], k["test_timeout_s"]) == (900, 2.5) for k in seen)
+
+
+@pytest.mark.parametrize("bad", [0, -5, "30", True, 86401, [1]])
+def test_a_bad_limit_is_refused_at_load(task, bad):
+    meta = json.loads((task.root / "meta.json").read_text())
+    meta["imported"]["test_timeout_s"] = bad
+    (task.root / "meta.json").write_text(json.dumps(meta))
+    with pytest.raises(TaskError, match="test_timeout_s"):
+        load_task(task.root)

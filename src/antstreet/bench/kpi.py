@@ -53,6 +53,7 @@ class KpiCard:
     wrong_checks: int | None  # boss checks the reference solution fails; None: not measured
     boss_checks: int | None  # boss checks in the cells where that was measured
     models: str = "none recorded"  # the model ids the column's cells ran (results.models_text)
+    timeout_cells: int = 0  # counted cells with a hidden check that hit a time limit
 
 
 def _said_done(r: CellResult, ledger: Sequence[Event] | None) -> bool | None:
@@ -114,11 +115,13 @@ def kpi_card(
         wrong_checks=sum(r.wrong_checks or 0 for r in measured) if measured else None,
         boss_checks=sum(r.visible_total or 0 for r in measured) if measured else None,
         models=models_text(results),
+        timeout_cells=sum(bool(r.hidden_timeouts) for r in cells),
     )
 
 
 def _delivery(c: KpiCard) -> str:
     out = rate(c.delivered, c.counted, counts="after", empty="n/a (0 cells)")
+    out += f"; {c.timeout_cells} with a timed-out hidden check" if c.timeout_cells else ""
     return out + (f"; {c.infrastructure} infrastructure excluded" if c.infrastructure else "")
 
 

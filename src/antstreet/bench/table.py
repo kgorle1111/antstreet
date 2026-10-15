@@ -50,6 +50,8 @@ class ArmSummary:
     held_out_wrong_cells: int | None = None  # cells with at least one wrong held-out check
     median_duration_s: float | None = None  # wall clock per counted cell; None with no cells
     reliable_tasks: int = 0  # tasks whose every counted run passed (pass^k over k runs)
+    hidden_timeouts: int = 0  # hidden checks that hit a time limit, in the counted cells
+    timeout_cells: int = 0  # counted cells with at least one of them
 
 
 def _counted(results: Sequence[CellResult]) -> list[CellResult]:
@@ -101,6 +103,8 @@ def _summarize_arm(arm: str, results: Sequence[CellResult]) -> ArmSummary:
         reliable_tasks=sum(
             all(r.passed for r in cells if r.task == task) for task in {r.task for r in cells}
         ),
+        hidden_timeouts=sum(r.hidden_timeouts for r in cells),
+        timeout_cells=sum(bool(r.hidden_timeouts) for r in cells),
     )
 
 
@@ -216,6 +220,13 @@ def render_table(results: Sequence[CellResult]) -> str:
         rows,
     )
 
+    for s in summaries:
+        if s.hidden_timeouts:  # a timeout is a failed check, but not a wrong answer: shown apart
+            out += [
+                "",
+                f"Timed out ({s.arm}): {s.hidden_timeouts} hidden checks in {s.timeout_cells} "
+                "cells hit a time limit; they count as failed, not as wrong answers.",
+            ]
     firm = next((s for s in summaries if s.arm == "firm"), None)
     if firm is not None:
         out += [
