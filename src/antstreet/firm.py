@@ -39,7 +39,7 @@ from antstreet.gate import Check, CheckResult, run_gate
 from antstreet.ledger import Event, EventType, LedgerWriter
 from antstreet.redact import safe_text
 from antstreet.roles.builders import builder_system_prompt
-from antstreet.rule import Decision, FiringPolicy, Verdict, decide
+from antstreet.rule import Decision, FiringPolicy, Verdict, attributable, decide
 from antstreet.rundir import (
     Recorder,
     RunPaths,
@@ -49,7 +49,7 @@ from antstreet.rundir import (
     workspace_bytes,
 )
 from antstreet.runner import SliceRun, deferred_sigint, pgid_file, run_slice, stop_orphan
-from antstreet.state import RunState, run_state, slice_history
+from antstreet.state import RunState, last_check_statuses, run_state, slice_history
 from antstreet.termsheet import Round, Task, TermSheet
 from antstreet.worker import (
     IsolationError,
@@ -554,6 +554,9 @@ class _Firm:
         fired = next(e for e in reversed(events) if _fired(e, ts.current))
         evidence = fired.data.get("evidence")
         stalled = evidence.get("stalled_slices", 0) if isinstance(evidence, dict) else 0
+        why_not = attributable(
+            slice_history(events).get(ts.current, []), last_check_statuses(events, ts.current)
+        )
         return dispatch_module.replacement_hire(
             d,
             previous,
@@ -564,6 +567,7 @@ class _Firm:
             slice_micros=self._slice_micros(task),
             one_agent=self.sheet.route == dispatch_module.ROUTE_ONE_AGENT,
             cascade=self.config.cascade,
+            not_attributable=why_not,
         )
 
     def _reserve_of(self, task: Task, state: RunState, hire: dispatch_module.Hire | None) -> int:
@@ -751,9 +755,9 @@ class _Firm:
                     "(raise the budget or edit the term sheet, then `antstreet resume`)"
                 )
             return (
-                "cascade: the last worker was not fired on the gate's evidence, or the next rung "
-                "is not funded in the round; the investor decides (top up the round, then "
-                "`antstreet resume`)"
+                "cascade: the last worker was not fired on the gate's evidence, its failure may "
+                "not be the model's (a timeout or crash), or the next rung is not funded in the "
+                "round; the investor decides (top up the round, then `antstreet resume`)"
             )
         if len(workers) < limit:
             return "one agent: no stronger worker to hire"

@@ -9,12 +9,17 @@ the boss wrote wrong checks, and correct workers stalled on them until the rule 
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 from antstreet.errors import INFRASTRUCTURE, Outcome
+from antstreet.gate import CheckStatus
+
+# Slice outcomes that may be the harness's doing rather than the model's: the wall-clock limit, or
+# a run with no usable result. Still counted by `decide`; never a reason to buy a stronger model.
+NOT_THE_MODELS = frozenset({Outcome.TIMEOUT, Outcome.CRASHED})
 
 
 class Decision(StrEnum):
@@ -70,14 +75,13 @@ def decide(
         raise ValueError("decide needs a non-empty history and a non-empty task_checks")
 
     latest = history[-1]
+    counted, window = _stall_window(history)
+    stalled = len(window)
     seen: set[str] = set()
     raised: set[str] = set()
-    counted = stalled = spent = unknown = 0
+    spent = unknown = 0
     for record in history:
         raised |= record.disputed
-        if record.outcome not in INFRASTRUCTURE:
-            counted += 1
-            stalled = 0 if record.passing - seen else stalled + 1
         seen |= record.passing
         if record.cost_micros is None:
             unknown += 1
@@ -121,3 +125,38 @@ def decide(
     if stalled >= policy.stall_slices:
         return verdict(Decision.FIRE, "no progress")
     return verdict(Decision.CONTINUE, "progressing")
+
+
+def _stall_window(history: Sequence[SliceRecord]) -> tuple[int, list[SliceRecord]]:
+    """How many slices count against the worker, and the counted slices since its last new passing
+    check (the ones `decide` calls stalled). Infrastructure slices are never in it, but the checks
+    they show passing still count as seen."""
+    seen: set[str] = set()
+    counted = 0
+    window: list[SliceRecord] = []
+    for record in history:
+        if record.outcome not in INFRASTRUCTURE:
+            counted += 1
+            window = [] if record.passing - seen else [*window, record]
+        seen |= record.passing
+    return counted, window
+
+
+def attributable(
+    history: Sequence[SliceRecord], last_check_statuses: Mapping[str, str]
+) -> str | None:
+    """Why a firing may not be the model's fault, or None when it is.
+
+    Pure, so a replay of the ledger gets the answer the live run got. `last_check_statuses` is,
+    per check of the task, the last status the gate gave this worker (`state.last_check_statuses`).
+    Not attributable: a slice of the stall window ended on the wall-clock limit or with no usable
+    result, or a check still fails only because the gate stopped it on its own time limit. A
+    stronger model is not paid for a failure no model can fix.
+    """
+    for record in _stall_window(history)[1]:
+        if record.outcome in NOT_THE_MODELS:
+            return f"slice {record.slice} ended {record.outcome.value}"
+    timed_out = sorted(c for c, s in last_check_statuses.items() if s == CheckStatus.TIMEOUT)
+    if timed_out:
+        return f"check {', '.join(timed_out)} last ended timeout"
+    return None
