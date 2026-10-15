@@ -388,12 +388,25 @@ def _cases(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> int | None:
     return n
 
 
+def _tree_limits(meta: ImportedMeta) -> tuple[float, float]:
+    """The task's own (suite, per-test) limits, so validation and grading cut at the same points."""
+    return meta.suite_timeout_s or TREE_TIMEOUT_S, meta.test_timeout_s or TREE_TEST_TIMEOUT_S
+
+
 def _imported_gate_problems(task: BenchTask, meta: ImportedMeta) -> list[str]:
     """An empty product must pass nothing, and the suite must have run at all: a sandbox or an
     import the gate lacks that kills every test would otherwise look like a hard task."""
     support = task.support_dir if task.support_dir.is_dir() else None
     with tempfile.TemporaryDirectory(prefix="boss_bench_empty_") as empty:
-        got = run_tree(Path(empty), task.hidden_dir, meta.test_path, support=support)
+        suite_s, test_s = _tree_limits(meta)
+        got = run_tree(
+            Path(empty),
+            task.hidden_dir,
+            meta.test_path,
+            support=support,
+            timeout_s=suite_s,
+            test_timeout_s=test_s,
+        )
     if not got.tests:
         return [f"hidden tree produced no results on an empty product ({got.detail})"]
     seen = {node.split("::")[0] for node in got.tests}
@@ -425,13 +438,14 @@ def grade_imported(task: BenchTask, workspace: Path) -> dict[str, str]:
     seen: dict[str, str] = {}
     missing_status = "failed"
     if workspace.is_dir():
+        suite_s, test_s = _tree_limits(meta)
         run = run_tree(
             workspace,
             task.hidden_dir,
             meta.test_path,
             support=support,
-            timeout_s=meta.suite_timeout_s or TREE_TIMEOUT_S,
-            test_timeout_s=meta.test_timeout_s or TREE_TEST_TIMEOUT_S,
+            timeout_s=suite_s,
+            test_timeout_s=test_s,
         )
         seen = {node: str(status) for node, status in run.tests.items()}
         missing_status = "timeout" if run.timed_out else "failed"

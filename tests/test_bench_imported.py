@@ -431,6 +431,22 @@ def test_the_limits_are_optional_numbers_in_meta_json(task):
     assert (loaded.imported.suite_timeout_s, loaded.imported.test_timeout_s) == (900, 2.5)
 
 
+def test_validation_runs_the_suite_under_the_task_s_own_limits(task, monkeypatch):
+    import antstreet.bench.tasks as tasks_module
+
+    seen: list[dict[str, object]] = []
+    real = tasks_module.run_tree
+
+    def recording(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        seen.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tasks_module, "run_tree", recording)
+    validate_task(set_limits(task, suite_timeout_s=900, test_timeout_s=2.5))
+    assert seen, "validation never ran the hidden tree"
+    assert all((k["timeout_s"], k["test_timeout_s"]) == (900, 2.5) for k in seen)
+
+
 @pytest.mark.parametrize("bad", [0, -5, "30", True, 86401, [1]])
 def test_a_bad_limit_is_refused_at_load(task, bad):
     meta = json.loads((task.root / "meta.json").read_text())
