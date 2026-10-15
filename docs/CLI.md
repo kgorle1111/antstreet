@@ -624,6 +624,10 @@ and line.
 
 Runs benchmark cells (one task, one arm, one repetition) and scores each with the task's hidden
 checks. A cell whose `result.json` already exists is skipped, so a run can be repeated to finish.
+A hidden check that hits a time limit is recorded as `timeout`: it counts as failed, and the
+table and `kpi` report it apart from a wrong answer. The limits (60 s per check, 180 s per
+imported suite, 30 s per imported test, the last two settable per task) are in `docs/SANDBOX.md`,
+"Time limits", and `bench/METHOD.md`.
 
 | Option | Default | Meaning |
 |---|---|---|

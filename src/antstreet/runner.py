@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import errno
 import os
 import queue
+import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterable, Iterator, Mapping
@@ -40,6 +43,11 @@ _EOF = object()
 
 class WorkspaceError(Exception):
     """The workspace is unsafe to launch a worker in."""
+
+
+class OrphanWorkerError(Exception):
+    """The worker of an interrupted slice may still be running: resuming would add a second
+    writer to its workspace."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,23 +98,43 @@ def run_slice(
         stderr_tail: collections.deque[str] = collections.deque(maxlen=STDERR_TAIL_LINES)
         lines: queue.Queue[object] = queue.Queue()
         start = time.monotonic()
-        proc = subprocess.Popen(
-            argv,
-            cwd=workspace,
-            env=dict(env),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            errors="replace",
-            start_new_session=True,
-        )
+        path = _resolve(executable, env)
+        go_read, go_write = os.pipe()
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-I", "-S", "-c", _GO_SHIM, str(go_read), path, *argv],
+                cwd=workspace,
+                env=dict(env),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                errors="replace",
+                start_new_session=True,
+                pass_fds=(go_read,),
+            )
+        except BaseException:
+            os.close(go_write)
+            raise
+        finally:
+            os.close(go_read)
         threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True).start()
         drain = threading.Thread(target=_drain, args=(proc.stderr, stderr_tail), daemon=True)
         drain.start()
 
         timed_out = False
         try:
+            # The CLI starts only once its group is on record, so `resume` can find every worker
+            # that ever spent: an antstreet killed before then closes the pipe, and the shim exits
+            # without running the CLI. A failed record raises here; finally stops the shim.
+            try:
+                _record_pgid(pgid_file(log_path), proc.pid)  # its own session, so pgid == pid
+                with contextlib.suppress(BrokenPipeError):  # the shim died: read as a crash
+                    message = memoryview(_go_message(env))
+                    while message:
+                        message = message[os.write(go_write, message) :]
+            finally:
+                os.close(go_write)
             with log_path.open("a", encoding="utf-8") as log:
                 timed_out = _consume(
                     proc,
@@ -126,6 +154,7 @@ def run_slice(
             if proc.poll() is None:
                 _stop(proc, grace_s)
             _kill_group(proc.pid)  # reap anything the worker left behind in its process group
+            pgid_file(log_path).unlink(missing_ok=True)  # nothing of this slice is left running
 
         drain.join(timeout=grace_s)  # the outcome may rest on the last stderr line
         stderr_text = redact("".join(stderr_tail), secrets)
@@ -274,6 +303,139 @@ def _stop(proc: subprocess.Popen[str], grace_s: float) -> None:
             continue
     _kill_group(proc.pid)
     proc.wait()
+
+
+def pgid_file(log_path: Path) -> Path:
+    """Where a running slice keeps its worker's process group id, next to the worker's log.
+
+    It is not on the ledger: `slice_start` is written before the worker exists (so a crash never
+    leaves spend without a start), and a worker runs one slice at a time, so one file per worker
+    is enough. The runner removes it once the slice's group is stopped, so a file that is still
+    there belongs to a slice whose `antstreet` died with the worker possibly still running.
+    """
+    return log_path.with_suffix(".pgid")
+
+
+# Runs as the worker's process until the go message comes, then becomes the CLI by exec. The env
+# comes through the pipe because Python's own start adds to its environment (LC_CTYPE, and on
+# macOS __CF_USER_TEXT_ENCODING); the CLI must get exactly what the runner was given. Signals
+# Python ignores at start are restored first, as subprocess does for any child.
+_GO_SHIM = """
+import os, signal, sys
+chunks = []
+while chunk := os.read(int(sys.argv[1]), 1 << 16):
+    chunks.append(chunk)
+size, _, body = b"".join(chunks).partition(b"\\n")
+if not size.isdigit() or int(size) != len(body):
+    sys.exit(75)  # antstreet died before the worker's group was recorded: never run the CLI
+os.close(int(sys.argv[1]))
+for name in ("SIGPIPE", "SIGXFZ", "SIGXFSZ"):
+    if hasattr(signal, name):
+        signal.signal(getattr(signal, name), signal.SIG_DFL)
+env = dict(entry.split(b"=", 1) for entry in body.split(b"\\0")[:-1])
+os.execve(sys.argv[2], sys.argv[3:], env)
+"""
+
+
+def _go_message(env: Mapping[str, str]) -> bytes:
+    """The worker's env, length-prefixed so a message cut short by a crash is never a go."""
+    body = b"".join(os.fsencode(k) + b"=" + os.fsencode(v) + b"\0" for k, v in env.items())
+    return str(len(body)).encode() + b"\n" + body
+
+
+def _resolve(executable: str, env: Mapping[str, str]) -> str:
+    """The path the CLI is exec'd from, found on the worker's PATH as Popen would find it. A
+    missing CLI raises here, before anything is launched, as it did when Popen ran it."""
+    if os.sep in executable:
+        return executable  # relative to the workspace, the child's cwd, as before
+    found = shutil.which(executable, path=os.pathsep.join(os.get_exec_path(dict(env))))
+    if found is None:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), executable)
+    return found
+
+
+def _record_pgid(path: Path, pgid: int) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(f"{pgid}\n", encoding="utf-8")
+    # No fsync: the threat is antstreet killed, not the machine; a power loss ends the worker too.
+    os.replace(tmp, path)  # a reader sees the whole id or no file
+
+
+def stop_orphan(
+    path: Path, marker: str | None, workspace: Path, grace_s: float = DEFAULT_GRACE_S
+) -> int | None:
+    """Stop the worker an interrupted slice may have left running (`start_new_session` puts it
+    out of reach of a SIGKILL of `antstreet`), so a resumed run never has two writers in one
+    workspace. Returns the process group stopped, or None when nothing was running (or no group
+    was recorded: a run older than this file, or a crash before the worker existed).
+
+    A group is stopped only when one of its live members' command lines holds `marker` (the
+    slice's session id, which is on the worker's command line): a recorded id can be reused by an
+    unrelated process. Raises OrphanWorkerError, without signalling anything, when the group is
+    alive and that cannot be shown, and when it would not stop.
+    """
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    pgid = int(text) if text.isdigit() else 0
+
+    def refuse(why: str) -> OrphanWorkerError:
+        return OrphanWorkerError(
+            f"{why}: worker process group {pgid or text!r} may still be running in {workspace}; "
+            f"stop it or wait for it to end (or, if it is not the worker, delete {path})"
+        )
+
+    if pgid <= 1 or pgid == os.getpgrp():  # 0 and 1 address whole sets of processes
+        raise refuse("the recorded process group is not a worker's")
+    members = _members(pgid)
+    if not members:
+        path.unlink(missing_ok=True)
+        return None
+    if members is None or not marker or not any(marker in cmd for _, cmd in members):
+        raise refuse("it cannot be shown to be this slice's worker")
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            break
+        except PermissionError:  # macOS: the leader exited; signal the members one by one
+            for pid, _ in members or ():
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(pid, sig)
+        deadline = time.monotonic() + grace_s
+        while (members := _members(pgid)) != [] and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if members == []:
+            break
+    if members != []:  # still alive, or ps could no longer tell: never read as stopped
+        raise refuse("it did not stop on SIGKILL")
+    path.unlink(missing_ok=True)
+    return pgid
+
+
+def _members(pgid: int) -> list[tuple[int, str]] | None:
+    """The live members of a process group with their command lines; None when `ps` cannot
+    tell. A zombie is not live: it writes nothing, and its reaper may be gone."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return []
+    except PermissionError:
+        pass  # alive but not ours, or a macOS group whose leader exited: ask ps
+    try:
+        out = subprocess.run(
+            ["/bin/ps", "-A", "-ww", "-o", "pid=,pgid=,stat=,command="],
+            capture_output=True, text=True, errors="replace", timeout=10, check=True,
+        ).stdout  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found: list[tuple[int, str]] = []
+    for line in out.splitlines():
+        fields = line.split(None, 3)
+        if len(fields) >= 3 and fields[1] == str(pgid) and not fields[2].startswith("Z"):
+            found.append((int(fields[0]), fields[3] if len(fields) == 4 else ""))
+    return found
 
 
 def _kill_group(pid: int) -> None:

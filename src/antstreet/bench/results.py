@@ -109,6 +109,11 @@ class CellResult:
         return sum(status == "passed" for status in self.hidden.values())
 
     @property
+    def hidden_timeouts(self) -> int:
+        """Hidden checks that hit a time limit: failed, and counted apart from a wrong answer."""
+        return sum(status == "timeout" for status in self.hidden.values())
+
+    @property
     def hidden_total(self) -> int:
         return len(self.hidden)
 

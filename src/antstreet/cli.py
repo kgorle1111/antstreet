@@ -120,7 +120,7 @@ from antstreet.roles.builders import PROFILES
 from antstreet.roles.org import org_chart, render_org
 from antstreet.rule import FiringPolicy
 from antstreet.rundir import Recorder, RunPaths
-from antstreet.runner import run_slice
+from antstreet.runner import OrphanWorkerError, run_slice
 from antstreet.signing import SigningError
 from antstreet.state import run_state
 from antstreet.stream import Usage
@@ -1304,6 +1304,8 @@ def _run(
         say(f"Stopped: the wrong model ran ({exc}). The slice was booked; nothing more was spent.")
     except NotApprovedError as exc:
         say(f"Stopped: {exc}. Nothing was spent.")
+    except OrphanWorkerError as exc:  # two agents must never write one workspace
+        say(f"Stopped: {exc}; then `antstreet resume {run_id}`. Nothing was booked or spent.")
     except KeyboardInterrupt:
         say(f"Interrupted. Nothing is lost: continue with `antstreet resume {run_id}`.")
         return EXIT_INTERRUPTED
@@ -1386,7 +1388,10 @@ def _resume_run(
     try:
         sheet = TermSheet.from_json((paths.root / "term_sheet.json").read_text(encoding="utf-8"))
     except (OSError, ValueError, TermSheetError) as exc:
-        say(f"Run {run} has no usable term sheet ({exc}); it cannot be resumed.")
+        say(
+            f"Run {run} has no usable term sheet ({exc}); it cannot be resumed. "
+            "Start again with `antstreet fund`."
+        )
         return EXIT_FAILED
     try:
         events = paths.events()
