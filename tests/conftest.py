@@ -20,6 +20,7 @@ SLOW = (
     "tests/test_firm_simulation.py",
     "tests/test_pipeline.py",
     "tests/test_docs_ledger.py",
+    "tests/test_fault_injection.py",  # ~30 whole runs, each killed, resumed and verified
     "tests/test_audit_check.py",
     "tests/test_audit_report.py",
     "tests/test_audit_strength.py",
