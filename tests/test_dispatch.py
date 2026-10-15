@@ -230,7 +230,9 @@ def test_none_never_steps_and_a_ceiling_below_opus_is_kept():
     assert capped.tier == "sonnet"  # --max-tier is a ceiling even if the sheet says opus
 
 
-def fired(reason, *, one_agent=False, remaining=800_000, escalate_to="sonnet"):
+def fired(
+    reason, *, one_agent=False, remaining=800_000, escalate_to="sonnet", not_attributable=None
+):
     d = Dispatch("builder", None, "haiku", "default", escalate_to, 2, None, ())
     return replacement_hire(
         d,
@@ -241,7 +243,23 @@ def fired(reason, *, one_agent=False, remaining=800_000, escalate_to="sonnet"):
         remaining_micros=remaining,
         slice_micros=100_000,
         one_agent=one_agent,
+        not_attributable=not_attributable,
     )
+
+
+@pytest.mark.parametrize("reason", ["no progress", "slice limit"])
+def test_a_firing_that_may_not_be_the_models_steps_nothing_not_even_the_effort(reason):
+    hire = fired(reason, not_attributable="slice 2 ended timeout")
+    assert (hire.tier, hire.effort, hire.from_tier) == ("haiku", "default", "haiku")
+    assert hire.refused == (
+        "not stepped up, the failure may not be the model's: slice 2 ended timeout"
+    )
+    assert fired(reason, one_agent=True, not_attributable="slice 2 ended crashed") is None
+
+
+def test_a_non_escalating_firing_keeps_its_own_refusal_whatever_attributable_says():
+    hire = fired("disputed", not_attributable="slice 1 ended timeout")
+    assert hire.refused == "this firing does not step a worker up"
 
 
 @pytest.mark.parametrize("reason", ["no progress", "slice limit"])

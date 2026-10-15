@@ -3,7 +3,8 @@ import json
 import pytest
 
 from antstreet.errors import INFRASTRUCTURE, Outcome
-from antstreet.rule import Decision, FiringPolicy, SliceRecord, Verdict, decide
+from antstreet.gate import CheckStatus
+from antstreet.rule import Decision, FiringPolicy, SliceRecord, Verdict, attributable, decide
 
 CHECKS = frozenset({"a", "b", "c"})
 POLICY = FiringPolicy(stall_slices=2, max_slices=6)
@@ -358,3 +359,47 @@ def test_every_slice_with_unknown_cost_is_counted() -> None:
     v = run(rec(1, cost=None), rec(2, cost=None), rec(3, {"a"}, cost=50))
     assert v.evidence["unknown_cost_slices"] == 2
     assert v.evidence["spent_micros"] == 50
+
+
+# --- attributable: is a firing the model's to fix? ---
+
+
+def test_a_stall_of_real_failures_is_the_models() -> None:
+    history = [rec(1, {"a"}), rec(2, {"a"}), rec(3, {"a"}, outcome=Outcome.CAPPED)]
+    assert attributable(history, {"a": "passed", "b": "failed", "c": "failed"}) is None
+
+
+@pytest.mark.parametrize("outcome", [Outcome.TIMEOUT, Outcome.CRASHED])
+def test_a_timeout_or_crash_in_the_stall_window_is_not_the_models(outcome: Outcome) -> None:
+    history = [rec(1, {"a"}), rec(2, {"a"}, outcome=outcome), rec(3, {"a"})]
+    assert run(*history).reason == "no progress"  # decide still counts it, unchanged
+    assert attributable(history, {"a": "passed", "b": "failed"}) == f"slice 2 ended {outcome}"
+
+
+def test_a_timeout_before_the_last_progress_is_outside_the_stall_window() -> None:
+    history = [rec(1, outcome=Outcome.TIMEOUT), rec(2, {"a"}), rec(3, {"a"}), rec(4, {"a"})]
+    assert run(*history).evidence["stalled_slices"] == 2
+    assert attributable(history, {"a": "passed", "b": "failed"}) is None
+
+
+def test_an_uncounted_infrastructure_slice_is_not_a_reason() -> None:
+    history = [rec(1, {"a"}), rec(2, outcome=Outcome.API_ERROR), rec(3, {"a"}), rec(4, {"a"})]
+    assert attributable(history, {"a": "passed", "b": "failed"}) is None
+
+
+def test_a_check_the_gate_stopped_on_its_time_limit_is_not_the_models() -> None:
+    history = [rec(1, {"a"}), rec(2, {"a"})]
+    statuses = {"a": "passed", "c": "timeout", "b": CheckStatus.TIMEOUT}
+    assert attributable(history, statuses) == "check b, c last ended timeout"
+
+
+def test_attributable_is_pure_a_replayed_history_gets_the_live_answer() -> None:
+    live = [rec(1, {"a"}), rec(2, {"a"}, outcome=Outcome.TIMEOUT), rec(3, {"a"})]
+    # What an offline replay holds: the same records rebuilt from their JSON form.
+    rows = json.loads(json.dumps([[r.slice, r.outcome, sorted(r.passing)] for r in live]))
+    replayed = tuple(rec(n, set(p), outcome=Outcome(o)) for n, o, p in rows)
+    statuses = {"a": "passed", "b": "failed"}
+    answers = {attributable(live, statuses), attributable(replayed, dict(statuses))}
+    assert answers == {"slice 2 ended timeout"}
+    assert attributable(live, statuses) == "slice 2 ended timeout"  # nothing was consumed
+    assert statuses == {"a": "passed", "b": "failed"}  # nor changed
