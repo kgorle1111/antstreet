@@ -111,7 +111,7 @@ def test_the_engineering_figures_are_the_repos(text):
     assert re.search(r"^strict = true", read(ROOT / "pyproject.toml"), re.M)
     assert "`mypy --strict`" in text and "typed-mypy%20strict" in text
     threats = re.findall(r"^\| T(\d+) ", read(DOCS / "THREAT_MODEL.md"), re.M)
-    assert len(threats) == 73 and "A threat model with 73 rows" in text
+    assert len(threats) == 74 and "A threat model with 74 rows" in text
     decisions = re.findall(r"^### D\d+:", read(DOCS / "DECISIONS.md"), re.M)
     assert len(decisions) == 46 and "**46 recorded design decisions**" in text
     experiments = re.findall(r"^## E\d+[a-z]?\. ", read(ROOT / "bench" / "PREREG.md"), re.M)
