@@ -182,8 +182,9 @@ def validate_task(
     The options make it stricter, for tasks whose checks must also be fast and stable:
     `reference_runs` runs the reference that many times and every check must pass every time;
     `check_budget_s` caps each hidden check's gate time on the reference (the slowest run counts);
-    `min_mutants` demands that many mutants on top of MIN_MUTANTS; `timeout_kills=False` counts a
-    mutant as killed only when some check FAILS, not when a check merely times out.
+    `min_mutants` demands at least that many mutants (MIN_MUTANTS still applies);
+    `timeout_kills=False` counts a mutant as killed only when some check FAILS, not when a check
+    merely times out.
     Imported tasks have no reference or mutants, so the options do not apply to them.
     """
     _validate_options(reference_runs, check_budget_s, min_mutants)
