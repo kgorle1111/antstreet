@@ -258,6 +258,10 @@ class LedgerWriter:
                         _unadopted(self.path, run, unsigned_lines(self.path), self._lines)
                     )
                 self._key = signing.load_or_create_key(self._key_path)
+                if not self._lines:
+                    # Anchored before its first line: a crash between that line and its anchor
+                    # then leaves one unanchored line, which is accepted, not a missing anchor.
+                    signing.write_anchor(self._key_path, run, 0, GENESIS)
         except BaseException:
             fcntl.flock(fh, fcntl.LOCK_UN)
             fh.close()

@@ -433,3 +433,14 @@ def test_the_command_is_named_and_its_out_option_says_what_it_does() -> None:
     assert parser.prog == "python -m antstreet.bench.table"
     out = next(a for a in parser._actions if "--out" in a.option_strings)
     assert out.help == "write the table here instead of stdout"
+
+
+def test_timed_out_hidden_checks_are_counted_apart_from_failed_ones() -> None:
+    slow = cell(hidden={"a": "passed", "b": "timeout", "c": "timeout"})
+    plain = cell(task="t2", hidden=HALF)
+    [summary] = summarize([slow, plain])
+    assert (summary.hidden_timeouts, summary.timeout_cells) == (2, 1)
+    assert slow.hidden_passed == 1 and not slow.passed  # a timeout is never a pass
+    text = render_table([slow, plain])
+    assert "Timed out (single): 2 hidden checks in 1 cells hit a time limit" in text
+    assert "Timed out" not in render_table([plain])

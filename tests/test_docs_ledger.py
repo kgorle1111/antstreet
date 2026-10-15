@@ -9,6 +9,8 @@ import dataclasses
 import inspect
 import json
 import re
+import subprocess
+import sys
 from collections import defaultdict
 from dataclasses import fields
 
@@ -27,7 +29,7 @@ from antstreet.roles import examiner, registry
 from antstreet.roles.base import RoleSpec, ledger_fields
 from antstreet.roles.examiner import run_examiner
 from antstreet.rundir import RunPaths
-from antstreet.runner import SliceRun
+from antstreet.runner import SliceRun, pgid_file
 from antstreet.stream import Usage
 from antstreet.termsheet import CheckSpec, Round, Task, TermSheet
 from antstreet.worker import IsolationError, ModelMismatchError
@@ -153,6 +155,33 @@ def firm_events(tmp_path, worker, s=None, *, answers=(), config=None, expect=Non
 
 
 # --- the real CLI against a fake `claude`, for boss_call and the investor's own events -------
+
+
+def firm_killed_events(tmp_path, *, left_running=False):
+    """A run killed while slice 1 ran, then resumed: the resume books the lost slice. With
+    `left_running`, its worker is still running and the resume stops it first."""
+    worker = Script(KeyboardInterrupt(), step(GOOD, "done"))
+    with pytest.raises(KeyboardInterrupt):
+        firm_events(tmp_path, worker)
+    paths = RunPaths(tmp_path)
+    [start] = [e for e in read_events(paths.ledger) if e.event is EventType.SLICE_START]
+    sleep = [sys.executable, "-c", "import time; time.sleep(60)", "--session-id"]
+    orphan = subprocess.Popen([*sleep, start.data["session"]], start_new_session=True)
+    if left_running:
+        paths.log("w1").parent.mkdir(parents=True, exist_ok=True)
+        pgid_file(paths.log("w1")).write_text(str(orphan.pid))
+    else:
+        orphan.kill()
+    try:
+        with LedgerWriter(paths.ledger) as ledger:
+            run_firm(
+                sheet(), paths, ledger, "r1", env={"HOME": "/h"}, ask=lambda q: "n",
+                say=lambda _: None, slice_runner=worker, gate=run_gate, sleep=lambda _: None,
+            )  # fmt: skip
+    finally:
+        orphan.kill()
+        orphan.wait()
+    return read_events(paths.ledger)
 
 
 def cli_events(tmp_path, *, binary=None, answers=("a",), extra=()):
@@ -355,6 +384,8 @@ def produced(tmp_path_factory) -> dict[str, list[Event]]:
         limits=RunLimits(max_slices=1))))  # fmt: skip
     runs.append(firm_events(where("isolation"), Script(IsolationError("tools differ")),
                             expect=IsolationError))  # fmt: skip
+    runs.append(firm_killed_events(where("killed")))
+    runs.append(firm_killed_events(where("left-running"), left_running=True))
     runs.append(firm_events(where("declined"), Script(step(HALF, cost=100_000)), two_rounds,
                             answers=["n"]))  # fmt: skip
     runs.append(firm_events(where("held-out"), Script(step(GOOD, "done")), held=True))

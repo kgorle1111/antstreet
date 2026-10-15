@@ -404,6 +404,27 @@ def test_a_crash_between_the_line_and_its_anchor_is_not_a_tamper_and_the_next_ap
     run.events()
 
 
+def test_a_crash_between_the_first_line_and_its_anchor_is_not_a_tamper(run, monkeypatch):
+    # Found by the fault harness (tests/test_fault_injection.py): `antstreet fund` killed after
+    # its first line (the boss's call) and before that line's anchor left a signed line with no
+    # anchor at all, which `verify` and every later writer refused as a deleted anchor.
+    real = signing.write_anchor
+
+    def killed_at_the_first_anchor(key_file, run_id, lines, last):
+        if lines == 1:
+            raise SystemExit("killed")
+        real(key_file, run_id, lines, last)
+
+    monkeypatch.setattr(signing, "write_anchor", killed_at_the_first_anchor)
+    with pytest.raises(SystemExit), run.writer() as ledger:
+        ledger.append(boss_call(1))
+    monkeypatch.undo()
+    assert len(run.events()) == 1
+    honest(run, boss_call(2))  # the next append anchors both lines
+    found = read_anchor(run.investor_key, load_key(run.investor_key), "r1")
+    assert found.lines == 2 and len(run.events()) == 2  # type: ignore[union-attr]
+
+
 def test_a_cut_off_last_line_is_repaired_without_disturbing_the_anchor(run):
     ledger_of(run, 4)
     with run.ledger.open("ab") as fh:

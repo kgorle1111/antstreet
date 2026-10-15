@@ -88,8 +88,8 @@ def test_the_guard_resolves_relative_imports(tmp_path):
 def _all_modules() -> list[str]:
     names = []
     for p in sorted(SRC.rglob("*.py")):
-        # _gate_plugin deletes its own file when imported: it is only ever loaded by the gate.
-        if p.name in ("__main__.py", "_gate_plugin.py"):
+        # The two plugins are only ever loaded by the gate, with their placeholders filled in.
+        if p.name in ("__main__.py", "_gate_plugin.py", "_tree_plugin.py"):
             continue
         parts = ("antstreet", *p.relative_to(SRC).with_suffix("").parts)
         names.append(".".join(parts).removesuffix(".__init__"))
