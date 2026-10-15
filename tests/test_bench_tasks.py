@@ -216,3 +216,10 @@ def test_set_digest_refuses_dotfiles_and_pycache(pool, junk):
 def test_set_digest_refuses_a_missing_pool(tmp_path):
     with pytest.raises(TaskError, match="not a directory"):
         task_set_digest(tmp_path / "nope")
+
+
+def test_set_digest_refuses_a_pool_that_is_a_symlink(pool, tmp_path):
+    link = tmp_path / "linked-pool"
+    link.symlink_to(pool, target_is_directory=True)
+    with pytest.raises(TaskError, match="is a symlink"):
+        task_set_digest(link)
