@@ -567,3 +567,13 @@ def test_a_firm_ledger_is_read_with_its_project_key_so_a_keyless_append_is_not_c
     with LedgerWriter(plain / "ledger.jsonl") as ledger:
         ledger.append(Event(run="r1", round=1, actor="worker:solo", event=EventType.SLICE_START))
     assert kpi.load_ledger(plain) is not None
+
+
+def test_delivery_names_the_cells_with_a_timed_out_hidden_check():
+    cells = [
+        cell(),
+        cell(rep=2, hidden={"a": "timeout"}),
+    ]
+    card = kpi_card(cells)
+    assert card.timeout_cells == 1 and card.delivered == 1
+    assert "(1/2); 1 with a timed-out hidden check" in render_cards([("c", card)])

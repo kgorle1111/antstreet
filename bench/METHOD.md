@@ -57,8 +57,17 @@ tests instead of hidden checks written here.
   cannot run code, the model is Haiku, and the budget is the cell budget. The boss's checks cannot
   be scored against a reference, so `wrong_checks` is not measured, and the draft evaluation does
   not apply to these tasks.
-- Limit: the tree runs in one pytest process under a single timeout. A hang loses every test,
-  including the ones that would have passed.
+- Time limits: the tree runs in one pytest process under a suite cap of 180 s, and each test
+  (setup, call and teardown separately) gets 30 s of wall clock inside it. Both can be set per
+  task with `imported.suite_timeout_s` and `imported.test_timeout_s` in `meta.json` (a whole
+  number or decimal of seconds, at most 86400; the task set hash covers them). A test that hits
+  its own limit is `timeout` and the rest of the suite is graded as usual. A test that ignores the
+  alarm is cut by the suite cap: the tests finished by then keep their status, the one running
+  and the tests that never started are `timeout`. A `timeout` counts as failed for the pass
+  fraction and the cell, but the table and the scorecard count it apart from a wrong answer
+  ("Timed out" line, "with a timed-out hidden check"). Ceiling: the progress log that
+  keeps results after a suite kill is unsigned (T12), and tests after a hung one are not run
+  individually; add that when a suite is found whose uninterruptible hang is common.
 
 ## Arms
 
