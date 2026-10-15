@@ -12,7 +12,7 @@ from antstreet.bench.kpi import build_columns, render_cards
 from antstreet.bench.results import CellResult, cell_dir, load_results
 from antstreet.bench.run import main, models_used, run_cell
 from antstreet.bench.table import render_table
-from antstreet.bench.tasks import load_task, load_tasks, task_set_hash
+from antstreet.bench.tasks import load_task, load_tasks, task_set_digest, task_set_hash
 from antstreet.ledger import EventType, read_events
 from antstreet.rundir import RunPaths
 
@@ -605,3 +605,48 @@ def test_a_streak_of_cells_naming_no_model_stops_with_its_own_kind_and_fix(bench
     err = capsys.readouterr().err
     assert "3 cells in a row ended as no_model_recorded" in err
     assert "named no model" in err and "an alias may have moved" not in err
+
+
+def test_a_wrong_expect_set_digest_stops_the_run_before_any_cell(bench, capsys):
+    (bench.home / "logged_out").write_text("")  # the digest is checked before the login is
+    right = task_set_digest(TASK.root.parent)
+    wrong = "0" * 64
+    assert _cli(bench, "--expect-set-digest", wrong) == 1
+    err = capsys.readouterr().err
+    assert wrong in err and right in err and "task set digest" in err
+    assert "claude auth login" not in err
+    assert not (bench.home / "argv.log").exists() and not bench.results.exists()
+
+
+def test_a_wrong_expect_set_digest_stops_a_dry_run_too(bench, capsys):
+    assert _cli(bench, "--dry-run", "--expect-set-digest", "f" * 64) == 1
+    captured = capsys.readouterr()
+    assert "cells" not in captured.out and "f" * 64 in captured.err
+    assert not bench.results.exists()
+
+
+def test_the_expect_set_digest_covers_the_whole_folder_not_the_only_selection(bench, capsys):
+    whole = task_set_digest(TASK.root.parent)
+    assert _cli(bench, "--dry-run", "--expect-set-digest", whole) == 0
+    assert "slugify firm rep1" in capsys.readouterr().out
+    assert _cli(bench, "--arms", "single", "--expect-set-digest", whole.upper()) == 0
+    assert [r.task for r in load_results(bench.results)] == ["slugify"]
+
+
+def test_a_malformed_expect_set_digest_is_a_usage_error(bench, capsys):
+    for bad in ("abc", "g" * 64, "ab" * 33, "ed6fd905c106f6a6"):  # the 16-hex hash is not a digest
+        with pytest.raises(SystemExit) as info:
+            _cli(bench, "--expect-set-digest", bad)
+        assert info.value.code == 2
+        assert "64 hex characters" in capsys.readouterr().err
+    assert not bench.results.exists()
+
+
+def test_a_pool_with_a_stray_file_is_refused_not_hashed_around_it(bench, tmp_path, capsys):
+    pool = tmp_path / "pool"
+    shutil.copytree(TASK.root, pool / "slugify")
+    (pool / ".DS_Store").write_bytes(b"x")
+    (bench.home / "product.py").write_text(REFERENCE)
+    argv = ["--tasks", str(pool), "--out", str(bench.results), "--budget", "0.40"]
+    assert main([*argv, "--expect-set-digest", "0" * 64], environ=bench.environ) == 1
+    assert "remove it and rerun" in capsys.readouterr().err and not bench.results.exists()
