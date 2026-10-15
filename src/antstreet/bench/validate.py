@@ -17,10 +17,10 @@ from antstreet.bench.tasks import (
     VALIDATE_TIMEOUT_S,
     BenchTask,
     TaskError,
-    load_tasks,
+    load_task,
     validate_task,
 )
-from antstreet.gate import run_gate
+from antstreet.gate import GateError, run_gate
 
 STRICT: dict[str, Any] = {
     "reference_runs": 3,
@@ -34,9 +34,12 @@ def _slowest(task: BenchTask) -> str:
     """The reference's slowest hidden check, from an extra gate run."""
     if task.imported:
         return "slowest check n/a (imported task)"
-    results = run_gate(
-        task.reference_dir, task.hidden_dir, task.hidden_checks(), timeout_s=VALIDATE_TIMEOUT_S
-    )
+    try:
+        results = run_gate(
+            task.reference_dir, task.hidden_dir, task.hidden_checks(), timeout_s=VALIDATE_TIMEOUT_S
+        )
+    except GateError as exc:  # the task already passed; a timing line is not worth the summary
+        return f"slowest check n/a ({exc})"
     worst = max(results, key=lambda r: r.duration_s, default=None)
     if worst is None:
         return "slowest check n/a (no checks)"
@@ -56,8 +59,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    tasks = load_tasks(args.dir)
-    if not tasks:
+    folders = sorted(p for p in args.dir.iterdir() if (p / "meta.json").is_file())
+    if not folders:
         print(
             f"error: no tasks in {args.dir} (a task folder has a meta.json); nothing validated",
             file=sys.stderr,
@@ -65,7 +68,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     options = STRICT if args.strict else {}
     failed = 0
-    for task in tasks:
+    for folder in folders:
+        try:
+            task = load_task(folder)
+        except TaskError as exc:  # one malformed task must not hide the verdict on the others
+            failed += 1
+            print(f"FAIL {folder.name}")
+            for problem in exc.problems:
+                print(f"  - {problem}")
+            continue
         try:
             validate_task(task, **options)
         except TaskError as exc:
@@ -76,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         print(f"ok   {task.id}  {_slowest(task)}")
     mode = " (strict)" if args.strict else ""
-    print(f"{len(tasks) - failed} of {len(tasks)} tasks passed{mode}")
+    print(f"{len(folders) - failed} of {len(folders)} tasks passed{mode}")
     return 1 if failed else 0
 
 

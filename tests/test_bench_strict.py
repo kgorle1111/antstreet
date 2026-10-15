@@ -183,3 +183,28 @@ def test_cli_strict_passes_a_task_that_meets_every_bound(tmp_path, capsys, monke
     monkeypatch.setitem(bench_validate.STRICT, "check_budget_s", 60.0)
     assert bench_validate.main([str(tasks), "--strict"]) == 0
     assert "1 of 1 tasks passed (strict)" in capsys.readouterr().out
+
+
+def test_cli_reports_a_malformed_task_and_still_validates_the_others(tmp_path, capsys):
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    make_task(tasks)
+    (tasks / "broken").mkdir()
+    (tasks / "broken" / "meta.json").write_text("{not json")
+    assert bench_validate.main([str(tasks)]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL broken" in out and "ok   demo" in out and "1 of 2 tasks passed" in out
+
+
+def test_cli_keeps_its_summary_when_the_timing_run_hits_a_gate_error(tmp_path, capsys, monkeypatch):
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    make_task(tasks)
+
+    def no_gate(*args: object, **kwargs: object) -> None:
+        raise bench_validate.GateError("sandbox unavailable")
+
+    monkeypatch.setattr(bench_validate, "run_gate", no_gate)
+    assert bench_validate.main([str(tasks)]) == 0
+    out = capsys.readouterr().out
+    assert "slowest check n/a (sandbox unavailable)" in out and "1 of 1 tasks passed" in out
