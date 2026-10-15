@@ -100,7 +100,9 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md), [CLI.md](CLI.md).
   pipeline's `_settled`, `require_approval`) only ever see events that passed this.
   `LedgerWriter` runs the same check when it opens, so it never appends to a ledger the key does
   not vouch for.
-- Anchor. After every append, once the project has a key, `LedgerWriter` replaces (atomically:
+- Anchor. After every append, once the project has a key, and once when it opens an empty ledger
+  (an anchor of 0 lines, so a crash between the first line and its anchor leaves an unanchored
+  line, not a missing anchor), `LedgerWriter` replaces (atomically:
   temporary file, `fsync`, rename, `fsync` of the folder) `<project>/.boss/anchors/<run id>`, a JSON
   object `{"lines": N, "last": "<SHA-256 of line N>", "mac": "<HMAC with the investor key over the
   run id, N and that hash>"}`. A reader that passes the key path refuses a ledger with fewer than
@@ -353,6 +355,13 @@ A replacement, stepped up one tier by `--dispatch rules`:
   `cap_micros` and `session` only, and no `task`.
 - A `slice_start` with no `slice_end` after it (the run was killed) is charged to its round at its
   `cap_micros`. The same slice number started again means the first was lost, and is charged too.
+  The next run of the loop (`antstreet resume`) also books such a slice as an `error` with
+  `interrupted_slice` and a cost of `null`, so the spend a report shows is marked as a lower bound.
+- The worker's process group id is not a key here: `slice_start` is written before the worker
+  exists, so that a crash never leaves spend without a start. The runner keeps it in
+  `logs/<worker>.pgid` while the slice runs; `resume` stops a worker still running there, when
+  its command line holds this event's `session`, before it books the slice (`stopped_pgid` on
+  that `error`), and refuses when it cannot show the group is the worker.
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -855,16 +864,27 @@ Example, built with the `Event` class:
 ### `error`
 
 - Actor: `worker:<name>`
-- Round: the current round
-- Cost: `null`, because a worker that never started cannot prove it cost nothing.
+- Round: the current round; for `interrupted_slice`, the round of the `slice_start` it books
+- Cost: `null`, because a worker that never started cannot prove it cost nothing, and a slice
+  killed with the process that ran it reported no cost.
 - Written by `firm.py` (and by the benchmark's single arm, as `worker:solo`) when the CLI's
   `system/init` shows the worker is not in the configuration that was launched, or when a hook
   event appears anywhere later in the stream. `stopped` follows.
+- Written by `firm.py` when the loop starts (`antstreet resume`) for each `slice_start` that no
+  `slice_end` or `error` of the same worker followed and that is not booked yet: the process
+  running the slice was killed or interrupted (G11 in `ops/fund-readiness-2026-10-13.md`). The CLI
+  was billed for that slice, so `report` adds it to the "event(s) of unknown cost" next to the
+  total. It moves no money: `budget.remaining` already charges such a slice at its `cap_micros`.
+  When the killed slice was a resume of a session and a later slice resumes the same session, that
+  later slice's cost includes the lost one's spend, and the event only says the figure was once
+  incomplete.
 
 | Key | Type | Meaning |
 |---|---|---|
 | `isolation` | str | The problems found, joined by `; `. Written for an isolation failure. |
 | `model` | str | The launched tier and the model the CLI reported, when they differ (T69), or that it reported none. Written under `--dispatch rules` instead of `isolation`, after the slice's `slice_end`; `stopped` follows. |
+| `interrupted_slice` | int | The slice number of the `slice_start` this books (written instead of the two keys above). |
+| `stopped_pgid` | int | With `interrupted_slice`, only when the slice's worker was still running: the process group `resume` stopped before booking it (its command line held the slice's `session`). Absent in runs written before it. |
 
 Example:
 
@@ -876,6 +896,18 @@ A model that is not the one launched, under `--dispatch rules`:
 
 ```json
 {"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"model": "launched 'haiku', but the CLI ran 'claude-sonnet-4-5-20250929'"}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-04T11:10:14.869643+00:00", "v": 1}
+```
+
+A slice whose process was killed, booked when the run is resumed:
+
+```json
+{"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"interrupted_slice": 1}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-13T09:02:11.418224+00:00", "v": 1}
+```
+
+The same, when its worker was still running and `resume` stopped it first:
+
+```json
+{"actor": "worker:w1", "billing": "unknown", "cost_micros": null, "data": {"interrupted_slice": 1, "stopped_pgid": 48213}, "event": "error", "round": 1, "run": "r1", "tokens_cached": 0, "tokens_in": 0, "tokens_out": 0, "ts": "2026-10-13T09:40:52.107313+00:00", "v": 1}
 ```
 
 ### `audited`

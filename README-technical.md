@@ -579,6 +579,7 @@ Early. It works end to end and the tests are deep, but it is pre-release.
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why it is built this way: what was rejected and the evidence |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Each threat, its control, the test that proves it, and what is accepted |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | The gate's OS sandbox: what it denies, what it allows, the probes, what is not verified |
+| [docs/RECOVERY.md](docs/RECOVERY.md) | Crash and resume under injected faults: recovery rate, double-spends, money a fault wastes |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | Everything skipped or deferred, with a status |
 | [bench/METHOD.md](bench/METHOD.md) | What the benchmark measures, the draft evaluation of the boss's checks, and what the numbers can support |
 | [CHANGELOG.md](CHANGELOG.md) | What changed |

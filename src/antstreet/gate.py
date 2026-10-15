@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import importlib.util
+import json
 import os
 import re
 import secrets
@@ -32,6 +33,7 @@ from antstreet.sandbox import Sandbox, SandboxMode, SandboxUnavailable, python_r
 
 DEFAULT_TIMEOUT_S = 60.0
 TREE_TIMEOUT_S = 180.0  # a whole imported test suite in one pytest process
+TREE_TEST_TIMEOUT_S = 30.0  # one phase (setup, call, teardown) of one test of such a suite
 SANDBOX_ENV = "BOSS_GATE_SANDBOX"
 AUDIT_HOME_ENV = "BOSS_AUDIT_HOME"  # a store outside the project that a check must not read
 OUTPUT_TAIL_CHARS = 4000
@@ -43,6 +45,8 @@ _COPY_IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "*.pyc", "
 # outside the process that runs worker code (a container or an out-of-process runner), parked until
 # untrusted ideas are supported; the planned runner is in docs/SANDBOX.md.
 _PLUGIN_SOURCE = Path(__file__).with_name("_gate_plugin.py")
+_TREE_PLUGIN_SOURCE = Path(__file__).with_name("_tree_plugin.py")
+_TIMEOUT_MARK = "boss-test-timeout"  # what _tree_plugin puts in a timed-out test's failure
 _PROOF_MAX_BYTES = 512  # a proof is "<n> <n> <64 hex>"; never read more of a file the check wrote
 # Not `-m pytest`: the plugin folder joins sys.path first, the workspace still does not. A repo's
 # own site-packages joins last, after pytest is imported, and never through `site`: its `.pth` files
@@ -254,14 +258,20 @@ def _run_one(
 
 
 def _pytest_cmd(
-    tmp: Path, args: list[str], report: Path, tool: Sandbox | None, site: str, *anchors: Path
+    tmp: Path,
+    args: list[str],
+    report: Path,
+    plugin: str,
+    tool: Sandbox | None,
+    site: str,
+    *anchors: Path,
 ) -> list[str]:
     # Whole-tree runs (imported benchmark tasks) only: no signed proof, so a product written to
     # fake its own test results can (T12). A single check goes through `run_gate`'s plugin path.
     cmd = [
-        sys.executable, "-I", "-B", "-c", _BOOTSTRAP, "", site, *args,
+        sys.executable, "-I", "-B", "-c", _BOOTSTRAP, str(tmp / "plugin"), site, *args,
         "-c", str(tmp / "pytest.ini"), "--rootdir", str(tmp), "-p", "no:cacheprovider",
-        f"--junitxml={report}", "-q", "--no-header",
+        "-p", plugin, f"--junitxml={report}", "-q", "--no-header",
     ]  # fmt: skip
     if tool is not None:
         cmd = _wrap(tool, cmd, tmp, Path(site) if site else None, *anchors)
@@ -357,6 +367,7 @@ class TreeResult:
     duration_s: float
     sandboxed: bool
     missing_modules: tuple[str, ...]  # modules the tests failed to import, sorted
+    timed_out: bool = False  # the suite cap killed the run; `tests` then holds what had finished
 
 
 _MISSING_MODULE = re.compile(r"No module named '([^'.]+)")
@@ -374,6 +385,7 @@ def run_tree(
     *,
     support: Path | None = None,
     timeout_s: float = TREE_TIMEOUT_S,
+    test_timeout_s: float = TREE_TEST_TIMEOUT_S,
     sandbox: SandboxMode | None = None,
     pythonpath: Sequence[str] = DEFAULT_PYTHONPATH,
     site_packages: Path | None = None,
@@ -384,13 +396,22 @@ def run_tree(
     `support` (harness-owned files, e.g. a shim for a third-party import) is laid over the copy's
     root. `pythonpath` and `site_packages` are as for `run_gate`. A test passes only when it ran
     and was neither failed, errored nor skipped. Collection errors do not stop the run
-    (`--continue-on-collection-errors`). Without a clean exit there may be no report at all (a
-    timeout, a crash); then `tests` is empty and `detail` says why.
+    (`--continue-on-collection-errors`).
+
+    Two limits, both wall clock: `test_timeout_s` for each phase of one test, enforced inside the
+    run by `_tree_plugin` (a hanging test is reported as `timeout`; the others still report), and
+    `timeout_s` for the whole run, enforced from outside for what ignores the first. When the
+    suite cap kills the run, `tests` holds the tests that had finished, plus the one that was
+    running as `timeout`; `timed_out` is set and the tests that never started are absent. With a
+    crash and no report at all, `tests` is empty and `detail` says why.
     """
     mode = sandbox_mode(os.environ) if sandbox is None else sandbox
     if importlib.util.find_spec("pytest") is None:
         raise GateError("pytest is not installed in the environment running boss")
     ini = _ini(pythonpath)
+    for name, value in (("timeout_s", timeout_s), ("test_timeout_s", test_timeout_s)):
+        if not 0 < value < float("inf"):
+            raise GateError(f"{name} must be a positive number of seconds, not {value!r}")
     workspace, tree = Path(workspace).resolve(), Path(tree).resolve()
     rel = PurePosixPath(test_path)
     if rel.is_absolute() or ".." in rel.parts or rel.parts in ((), (".",)):
@@ -418,17 +439,30 @@ def run_tree(
             shutil.copytree(support, ws, dirs_exist_ok=True)
         (tmp / "pytest.ini").write_text(ini)
         (tmp / "home").mkdir()
-        report = tmp / "report.xml"
+        report, progress = tmp / "report.xml", tmp / "progress.jsonl"
+        plugin = f"_boss_tree_{secrets.token_hex(8)}"
+        (tmp / "plugin").mkdir()
+        (tmp / "plugin" / f"{plugin}.py").write_text(
+            _TREE_PLUGIN_SOURCE.read_text()
+            .replace("@LIMIT@", repr(test_timeout_s))
+            .replace("@PROGRESS@", str(progress))
+        )
         # xunit1 puts the test's file on every testcase, which is how a node id is rebuilt.
         args = [str(rel), "--continue-on-collection-errors", "-o", "junit_family=xunit1"]
         start = time.monotonic()
         exit_code, output, timed_out = _run_bounded(
-            _pytest_cmd(tmp, args, report, tool, site, workspace, tree), ws, _env(tmp), timeout_s
+            _pytest_cmd(tmp, args, report, plugin, tool, site, workspace, tree),
+            ws,
+            _env(tmp),
+            timeout_s,
         )
         duration = time.monotonic() - start
         tail, sandboxed = output[-OUTPUT_TAIL_CHARS:], tool is not None
         if timed_out:
-            return TreeResult({}, None, f"exceeded {timeout_s}s", tail, duration, sandboxed, ())
+            tests = _progress_statuses(progress, "ws/")
+            late = sum(s is CheckStatus.TIMEOUT for s in tests.values())
+            detail = f"suite exceeded {timeout_s}s with {late} test(s) running or unfinished"
+            return TreeResult(tests, None, detail, tail, duration, sandboxed, (), True)
         try:
             text = report.read_text(encoding="utf-8")
             tests = _tree_statuses(ET.fromstring(text), "ws/")
@@ -438,6 +472,8 @@ def run_tree(
     passed = sum(s is CheckStatus.PASSED for s in tests.values())
     missing = missing_modules(text)
     detail = f"{passed} of {len(tests)} passed"
+    if hung := sum(s is CheckStatus.TIMEOUT for s in tests.values()):
+        detail += f" ({hung} timed out)"
     return TreeResult(tests, exit_code, detail, tail, duration, sandboxed, missing)
 
 
@@ -454,7 +490,28 @@ def _tree_statuses(root: ET.Element, under: str) -> dict[str, CheckStatus]:
         node = "::".join(p for p in parts if p)
         ok = not any(case.find(tag) is not None for tag in ("failure", "error", "skipped"))
         status = CheckStatus.PASSED if ok else CheckStatus.FAILED
+        if not ok and _TIMEOUT_MARK in ET.tostring(case, encoding="unicode"):
+            status = CheckStatus.TIMEOUT
         # A repeated id (a hostile or odd suite) keeps the worse verdict.
-        if tests.get(node) is not CheckStatus.FAILED:
+        if tests.get(node) not in (CheckStatus.FAILED, CheckStatus.TIMEOUT):
             tests[node] = status
+    return tests
+
+
+def _progress_statuses(progress: Path, under: str) -> dict[str, CheckStatus]:
+    """Node id -> status from the plugin's progress log, for a run killed before JUnit was written.
+    A test that started and never finished was the one running at the kill: `timeout`."""
+    tests: dict[str, CheckStatus] = {}
+    try:
+        lines = progress.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return tests
+    for line in lines:
+        try:
+            tag, node = json.loads(line)
+            status = CheckStatus.TIMEOUT if tag == "start" else CheckStatus(tag)
+        except (ValueError, TypeError):
+            continue  # a torn last line from the kill, or a line the product wrote
+        if isinstance(node, str):
+            tests[node.removeprefix(under)] = status
     return tests

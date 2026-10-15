@@ -48,7 +48,8 @@ write of a run is tried, i.e. after every write that came before it. The runs ar
     run id, log paths; session uuids are renamed in order of appearance) and the two things a
     resume legitimately leaves behind, are the same sequence of (round, actor, event, cost,
     tokens, billing, data). The two things: an orphaned `slice_start` (it stays on the ledger and
-    stays charged) and a `reassigned` whose `hired` was lost (written again on resume);
+    stays charged, and the resume books it as an `error` of unknown cost) and a `reassigned`
+    whose `hired` was lost (written again on resume);
   * the workers were briefed the same way: same prompt, cap and resume flag for every finished
     slice, in order, and the same true cost;
   * the reports are the same, and so are the product and every workspace, byte for byte; and the
@@ -111,7 +112,7 @@ from antstreet import budget as budget_mod
 from antstreet import firm as firm_mod
 from antstreet.approval import content_hashes
 from antstreet.errors import INFRASTRUCTURE, Outcome
-from antstreet.firm import FirmConfig, FirmReport, run_firm
+from antstreet.firm import INTERRUPTED_SLICE, FirmConfig, FirmReport, run_firm
 from antstreet.gate import Check, CheckResult, CheckStatus
 from antstreet.ledger import Event, EventType, LedgerWriter, read_events
 from antstreet.limits import RunLimits
@@ -1187,8 +1188,9 @@ def _canon(
 ) -> list[tuple]:
     """The events that describe the run, without what is not part of its meaning (see the module
     docstring): timestamps, run id and log paths; session uuids, renamed in order of appearance;
-    slice_starts that never ended (orphans); a `reassigned` whose hire never followed (a hire the
-    crash lost, written again on resume); and, if asked, pauses."""
+    slice_starts that never ended (orphans) and the `error` a resume books each one with; a
+    `reassigned` whose hire never followed (a hire the crash lost, written again on resume); and,
+    if asked, pauses."""
     keep: list[Event] = []
     last_end = max((i for i, e in enumerate(events) if e.event is SLICE_END), default=-1)
     for i, e in enumerate(events):
@@ -1212,6 +1214,8 @@ def _canon(
                 continue
         if drop_pauses and e.event is EventType.PAUSED:
             continue
+        if e.event is EventType.ERROR and INTERRUPTED_SLICE in e.data:
+            continue  # the resume's booking of an orphan: it goes with the orphan (R7)
         keep.append(e)
     sessions: dict[str, str] = {}
     out = []
