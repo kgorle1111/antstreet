@@ -178,14 +178,17 @@ def _rescue(cells: Sequence[tuple[CellResult, Sequence[Event]]]) -> tuple[RouteR
             if rank[tier] < rank[was]:
                 continue
             worker = str(hired.data.get("worker"))
-            checks = frozenset(
-                str(e.data["check"])
-                for e in events
-                if e.event is EventType.CHECK_RESULT
-                and e.data.get("worker") == worker
-                and e.data.get("scope") != HELD_OUT_SCOPE
-                and "check" in e.data
-            ) - dropped
+            checks = (
+                frozenset(
+                    str(e.data["check"])
+                    for e in events
+                    if e.event is EventType.CHECK_RESULT
+                    and e.data.get("worker") == worker
+                    and e.data.get("scope") != HELD_OUT_SCOPE
+                    and "check" in e.data
+                )
+                - dropped
+            )
             records = history.get(worker, [])
             reached = bool(checks) and any(
                 decide(checks, records[:n], FiringPolicy()).decision is Decision.DONE
