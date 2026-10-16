@@ -222,6 +222,33 @@ counted beside it. A figure the data cannot give is shown as "n/a" or "not recor
    the counted cells where `wrong_checks` was measured, without an interval (the checks of one draft
    are not independent). "n/a" for the single arm, "not measured" where it was not.
 
+**Step-up rescue** (printed under the table, not an eighth row: the seven stay fixed). It asks
+whether paying for a stronger worker after the first was fired bought a delivery. From `hired`
+events, slice events and the cell's hidden result only; no ledger key was added for it.
+
+- A **step-up** is a `hired` event whose `data.dispatch.from_tier` is set and whose
+  `data.dispatch.tier` ranks above it (`haiku` < `sonnet` < `opus`). A replacement on the same
+  tier (the effort step, or the same model hired again under `--no-step-up`) is counted apart as a
+  **same-tier replacement** and is never a step-up.
+- A **visible rescue** is a step-up whose own worker's slice history reaches DONE when read by
+  `rule.decide` on `state.slice_history`, the function the live firm uses, against the checks the
+  gate reported for that worker (held-out and dropped checks left out).
+- A **delivered rescue** is a visible rescue in a counted cell where every hidden check passed. A
+  **false rescue** is a visible rescue in a cell where one did not.
+- The **rescue rate** is delivered rescues over step-ups, with a Wilson 95% interval and the number
+  of step-ups. With no step-up the line says "no step-ups", never 0/0.
+- **$/rescue** is the known cost of every step-up worker's slices over the delivered rescues, the
+  spend on step-ups that failed included. A slice of unknown cost (`cost_micros` null, or an
+  `interrupted_slice` error of that worker) makes it a lower bound, marked as such, never counted
+  as 0. With no delivered rescue it is "n/a" and the spend is shown.
+- Figures are split by the route the investor approved (`approved.data.route`: `firm` or
+  `one_agent`; `no route recorded` for a run without `--dispatch`). Under `--no-step-up` the
+  one-agent route hires no replacement at all while the firm route hires a same-model one, so a
+  rescue figure is only compared within one route. Cells whose ledger was not found are counted
+  beside it and are in no figure. Infrastructure cells are left out. The single arm hires no
+  replacement: "n/a".
+- Every figure is tested on synthetic ledgers only; no recorded run has a step-up yet.
+
 **Counting rule for investor questions.** One question is one decision the run needed from the
 investor, and the count is the number of these ledger events:
 
