@@ -512,8 +512,10 @@ solved", it says so. A test in `tests/test_docs_objections.py` pins the numbers 
    checks ([T44](docs/THREAT_MODEL.md#t44)); the benchmark scores on hidden checks and on known-wrong
    mutants ([bench/METHOD.md](bench/METHOD.md)); the gate plugin rewrites comparisons in the
    check so a value that equals everything fails (`src/antstreet/_gate_plugin.py`,
-   [T12](docs/THREAT_MODEL.md#t12)); `audit` flags a change that copies a sealed test name or
-   string literal (T53). Limit: the examiner is a model, so held-out
+   [T12](docs/THREAT_MODEL.md#t12)); `audit` flags a change whose added lines copy a sealed test name (four or more
+   underscore-separated parts) or a string literal of 16 or more characters that the request does
+   not itself contain, and such a leak makes an otherwise passing audit inconclusive (T53); shorter
+   names and literals are not caught. Limit: the examiner is a model, so held-out
    checks can share a blind spot with the visible ones.
 4. **"Malicious dependencies via `pip install`."** A worker has only `Read`, `Write` and `Edit`
    on its own folder, no shell (`WORKER_TOOLS` in `src/antstreet/worker.py`), so it cannot run
@@ -534,8 +536,9 @@ solved", it says so. A test in `tests/test_docs_objections.py` pins the numbers 
    reserve held back for one overshoot, and the run has hard limits on spend, slices, workers and
    wall clock (T33). A worker is fired after `--stall-slices`
    (default 2) counted slices in a row with no new passing check, or after `--max-slices`
-   (default 6) slices; with `--dispatch`, its task then gets one step-up at most
-   (T67). Fault injection ran 27 trials with 0 double-spends and 0
+   (default 6) slices; with `--dispatch rules`, its task then gets one step-up at most
+   (T67); with `--dispatch cascade` it may climb one rung per verified failure, up to the
+   ladder's length (four workers at most) and only while the round can fund the next tier (T71). Fault injection ran 27 trials with 0 double-spends and 0
    silent losses ([docs/RECOVERY.md](docs/RECOVERY.md)). Residual: one response that costs more
    than the reserve still overshoots its cap, and costs are the CLI's estimates.
 7. **"Approval fatigue: people stop reading the checks." Open, and the weakest point.** The
