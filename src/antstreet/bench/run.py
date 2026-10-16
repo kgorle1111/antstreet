@@ -11,8 +11,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
+import shutil
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -25,8 +28,10 @@ from antstreet.bench.results import ARMS, INFRA_OUTCOMES, CellResult, cell_dir
 from antstreet.bench.score import count_wrong_checks
 from antstreet.bench.tasks import (
     BenchTask,
+    TaskError,
     grade_imported,
     load_tasks,
+    task_set_digest,
     task_set_hash,
     validate_task,
 )
@@ -255,6 +260,16 @@ def _expect_models_arg(text: str) -> tuple[str, ...]:
     return ids
 
 
+def _set_digest_arg(text: str) -> str:
+    digest = text.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a task-set digest: it is 64 hex characters (the 16-hex task-set "
+            "hash is not enough)"
+        )
+    return digest
+
+
 def slice_caps(budget_micros: int, review: bool) -> list[int]:
     """Caps of the single agent's slices; they sum to at most SLICE_SHARE of the cell budget."""
     total = max(1, int(budget_micros * SLICE_SHARE))
@@ -432,12 +447,50 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
         help="the only model ids a cell may name; a cell whose logs or boss calls name another "
         "is an infrastructure failure, never counted (default: no check)",
     )
+    parser.add_argument(
+        "--expect-set-digest",
+        type=_set_digest_arg,
+        metavar="HEX",
+        help="the pre-registered 64-hex digest of the whole --tasks folder (before --only); a "
+        "different folder is refused before anything runs, --dry-run included (default: no check)",
+    )
     parser.add_argument("--jobs", type=int, default=2, help="cells to run at once")
     parser.add_argument("--dry-run", action="store_true", help="list the cells and exit")
     args = parser.parse_args(argv)
     environ = os.environ if environ is None else environ
 
-    every_task = load_tasks(args.tasks)
+    tasks_dir: Path = args.tasks
+    snapshot: tempfile.TemporaryDirectory[str] | None = None  # removed when main returns
+    if args.expect_set_digest:
+        # Digest and load one private copy, so an edit to the live folder, before the first cell
+        # or hours into the run, never runs under the registered digest.
+        if args.tasks.is_symlink():  # copytree would follow it and the digest never see it
+            print(
+                f"refused before any cell: {args.tasks} is a symlink; pass the real folder",
+                file=sys.stderr,
+            )
+            return 1
+        snapshot = tempfile.TemporaryDirectory(prefix="antstreet_tasks_")
+        tasks_dir = Path(snapshot.name) / (args.tasks.resolve().name or "tasks")
+        try:
+            shutil.copytree(args.tasks, tasks_dir, symlinks=True)
+        except OSError as exc:
+            print(f"refused before any cell: cannot copy {args.tasks}: {exc}", file=sys.stderr)
+            return 1
+        try:
+            digest = task_set_digest(tasks_dir)
+        except TaskError as exc:
+            print(f"refused before any cell: {exc}", file=sys.stderr)
+            return 1
+        if digest != args.expect_set_digest:
+            print(
+                f"refused before any cell: task set digest of {args.tasks} is {digest}, but "
+                f"--expect-set-digest is {args.expect_set_digest}. The folder is not the one that "
+                "was registered: restore it, or pass the digest of the folder you mean to run.",
+                file=sys.stderr,
+            )
+            return 1
+    every_task = load_tasks(tasks_dir)
     set_hash = task_set_hash(every_task)
     tasks = [t for t in every_task if not args.only or t.id in args.only]
     if not tasks:

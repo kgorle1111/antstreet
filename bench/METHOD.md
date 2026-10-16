@@ -36,6 +36,22 @@ than a single agent given the idea directly?
   and exits 1 if the folder differs. It shows the files are unchanged since registration, not when
   any run happened.
 
+## Strict validation (opt-in)
+
+`validate_task` has keyword-only options that make it stricter; the defaults are the rules above,
+so shipped tasks validate exactly as before. `reference_runs=N` runs the reference N times and every
+check must pass every time (flakiness). `check_budget_s` caps each hidden check's gate time on the
+reference. `min_mutants` demands that many mutants. `timeout_kills=False` counts a mutant as killed
+only when some check fails: a mutant that only hangs a check is reported, because a timeout proves
+the check is slow, not that it catches the wrong behaviour. They do not apply to imported tasks.
+
+```bash
+uv run python -m antstreet.bench.validate bench/tasks            # as CI validates
+uv run python -m antstreet.bench.validate <dir> --strict         # x3, 1 s/check, >= 8 mutants, FAIL-only kills
+```
+
+The command prints each task's slowest check and exits 1 with what failed and what to change.
+
 ## Imported tasks
 
 A task from an external benchmark can be run through both arms, graded by that benchmark's own

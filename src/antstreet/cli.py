@@ -301,6 +301,13 @@ def _parser() -> argparse.ArgumentParser:
         "--max-minutes", type=_minutes_arg, help="stop the run after this much wall-clock time"
     )
     fund.add_argument("--no-firing", action="store_true", help="keep funding stalled workers")
+    fund.add_argument(
+        "--no-step-up",
+        action="store_true",
+        help="with --dispatch rules or cascade: never replace a fired worker with a stronger one "
+        "(the term sheet says 'if fired: same model'); the control arm when measuring whether "
+        "the step-up helps",
+    )
     fund.add_argument("--boss-model", default=DEFAULT_MODEL, help="model for the boss's own calls")
     fund.add_argument(
         "--boss-thinking",
@@ -898,6 +905,7 @@ def _fund(
                     profile=args.profile,
                     policy=policy,
                     reads=reads,
+                    step_up=not args.no_step_up,
                 )
             else:
                 planned = dispatching.plan_dispatch(
@@ -906,6 +914,7 @@ def _fund(
                     profile=args.profile,
                     policy=policy,
                     reads=reads,
+                    step_up=not args.no_step_up,
                 )
             if refused := dispatching.dispatch_problems(planned, policy):
                 reason = "the dispatch cannot run: " + "; ".join(refused)
@@ -1177,6 +1186,8 @@ def _rule(check: str, ruling: str, run: str, paths: RunPaths, say: Say) -> int:
 def _dispatch_refusal(args: argparse.Namespace) -> str | None:
     """Why the dispatch flags cannot be used together, before anything is spent."""
     if args.dispatch == "off":
+        if args.no_step_up:
+            return "--no-step-up needs --dispatch rules or cascade."
         if args.max_tier:
             return "--max-tier needs --dispatch rules or cascade."
         return "--tier-models needs --dispatch rules or cascade." if args.tier_models else None
