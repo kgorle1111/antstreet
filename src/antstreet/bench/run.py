@@ -13,7 +13,9 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -457,9 +459,26 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
     args = parser.parse_args(argv)
     environ = os.environ if environ is None else environ
 
+    tasks_dir: Path = args.tasks
+    snapshot: tempfile.TemporaryDirectory[str] | None = None  # removed when main returns
     if args.expect_set_digest:
+        # Digest and load one private copy, so an edit to the live folder, before the first cell
+        # or hours into the run, never runs under the registered digest.
+        if args.tasks.is_symlink():  # copytree would follow it and the digest never see it
+            print(
+                f"refused before any cell: {args.tasks} is a symlink; pass the real folder",
+                file=sys.stderr,
+            )
+            return 1
+        snapshot = tempfile.TemporaryDirectory(prefix="antstreet_tasks_")
+        tasks_dir = Path(snapshot.name) / (args.tasks.resolve().name or "tasks")
         try:
-            digest = task_set_digest(args.tasks)
+            shutil.copytree(args.tasks, tasks_dir, symlinks=True)
+        except OSError as exc:
+            print(f"refused before any cell: cannot copy {args.tasks}: {exc}", file=sys.stderr)
+            return 1
+        try:
+            digest = task_set_digest(tasks_dir)
         except TaskError as exc:
             print(f"refused before any cell: {exc}", file=sys.stderr)
             return 1
@@ -471,7 +490,7 @@ def main(argv: Sequence[str] | None = None, *, environ: Mapping[str, str] | None
                 file=sys.stderr,
             )
             return 1
-    every_task = load_tasks(args.tasks)
+    every_task = load_tasks(tasks_dir)
     set_hash = task_set_hash(every_task)
     tasks = [t for t in every_task if not args.only or t.id in args.only]
     if not tasks:

@@ -8,11 +8,18 @@ from pathlib import Path
 import pytest
 from boss_init import BOSS_INIT
 
+import antstreet.bench.run as run_module
 from antstreet.bench.kpi import build_columns, render_cards
 from antstreet.bench.results import CellResult, cell_dir, load_results
 from antstreet.bench.run import main, models_used, run_cell
 from antstreet.bench.table import render_table
-from antstreet.bench.tasks import load_task, load_tasks, task_set_digest, task_set_hash
+from antstreet.bench.tasks import (
+    BenchTask,
+    load_task,
+    load_tasks,
+    task_set_digest,
+    task_set_hash,
+)
 from antstreet.ledger import EventType, read_events
 from antstreet.rundir import RunPaths
 
@@ -631,6 +638,38 @@ def test_the_expect_set_digest_covers_the_whole_folder_not_the_only_selection(be
     assert "slugify firm rep1" in capsys.readouterr().out
     assert _cli(bench, "--arms", "single", "--expect-set-digest", whole.upper()) == 0
     assert [r.task for r in load_results(bench.results)] == ["slugify"]
+
+
+def test_the_digest_run_loads_the_snapshot_it_hashed_not_the_live_folder(
+    bench, tmp_path, monkeypatch
+):
+    pool = tmp_path / "pool"
+    shutil.copytree(TASK.root, pool / "slugify")
+    registered = task_set_digest(pool)
+    real_load = run_module.load_tasks
+    seen: list[tuple[Path, str]] = []
+
+    def load_after_an_edit(folder: Path) -> list[BenchTask]:
+        # the live folder changes between the digest and the load
+        (pool / "slugify" / "idea.md").write_text("Build something else entirely.")
+        seen.append((folder, (folder / "slugify" / "idea.md").read_text()))
+        return real_load(folder)
+
+    monkeypatch.setattr(run_module, "load_tasks", load_after_an_edit)
+    argv = ["--tasks", str(pool), "--out", str(bench.results), "--budget", "0.40", "--dry-run"]
+    assert main([*argv, "--expect-set-digest", registered], environ=bench.environ) == 0
+    ((loaded_from, idea),) = seen
+    assert loaded_from != pool and "something else" not in idea
+
+
+def test_a_symlinked_tasks_folder_is_refused_before_it_is_copied(bench, tmp_path, capsys):
+    link = tmp_path / "linked"
+    link.symlink_to(TASK.root.parent, target_is_directory=True)
+    argv = ["--tasks", str(link), "--out", str(bench.results), "--budget", "0.40", "--dry-run"]
+    code = main(
+        [*argv, "--expect-set-digest", task_set_digest(TASK.root.parent)], environ=bench.environ
+    )
+    assert code == 1 and "is a symlink" in capsys.readouterr().err
 
 
 def test_a_malformed_expect_set_digest_is_a_usage_error(bench, capsys):
