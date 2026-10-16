@@ -30,6 +30,27 @@ than a single agent given the idea directly?
   the old values ran on the old roman file.
 - `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
   make old and new results look like they ran against different tasks. A test pins the hash.
+- A private task set is pre-registered by a different value, a full 64-hex SHA-256 digest over every
+  file in the folder, mutants and hidden checks included. `python3 -I scripts/verify_task_set.py DIR
+  --expect DIGEST` recomputes it with the standard library alone, prints it with the 16-hex hash,
+  and exits 1 if the folder differs. It shows the files are unchanged since registration, not when
+  any run happened.
+
+## Strict validation (opt-in)
+
+`validate_task` has keyword-only options that make it stricter; the defaults are the rules above,
+so shipped tasks validate exactly as before. `reference_runs=N` runs the reference N times and every
+check must pass every time (flakiness). `check_budget_s` caps each hidden check's gate time on the
+reference. `min_mutants` demands that many mutants. `timeout_kills=False` counts a mutant as killed
+only when some check fails: a mutant that only hangs a check is reported, because a timeout proves
+the check is slow, not that it catches the wrong behaviour. They do not apply to imported tasks.
+
+```bash
+uv run python -m antstreet.bench.validate bench/tasks            # as CI validates
+uv run python -m antstreet.bench.validate <dir> --strict         # x3, 1 s/check, >= 8 mutants, FAIL-only kills
+```
+
+The command prints each task's slowest check and exits 1 with what failed and what to change.
 
 ## Imported tasks
 

@@ -37,7 +37,9 @@ External benchmarks are preferred when they post-date the models' training. For 
 example NL2Repo-Bench, whose libraries are famous), results are split by how likely the model has
 seen the code, and "unseen" is never claimed. Internal tasks written for an experiment stay private
 until it runs; their set's SHA-256 is in the pre-registration before any cell, and the tasks are
-published with the results. **Rule**; the task-set hash is **checked** by the runner and the tests.
+published with the results. **Rule**. **Enforced** once a run passes `--expect-set-digest`, which refuses a folder that is not
+the registered one before any cell; without it the runner only compares the 16-hex task-set hash
+when resuming a saved cell, and the tests pin the shipped sets' hashes.
 
 ## S5. Difficulty selected on separate runs
 
