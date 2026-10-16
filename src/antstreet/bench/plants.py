@@ -138,6 +138,10 @@ def materialize(
     project = session_dir / "proj"
     run_dir = project / ".boss" / "runs" / source.name
     key_path = root / "keys" / f"{sid}.json"
+    for folder in (root / "keys", root / "sessions"):
+        # The sid is predictable, so a linked folder could put the key in the reviewer's project.
+        if folder.is_symlink():
+            raise PlantError(f"{folder} must be a real folder, not a symlink")
     if key_path.exists() or key_path.is_symlink():
         raise PlantError(f"the key {key_path} already exists: use a new out_root or another seed")
     (root / "sessions").mkdir(exist_ok=True)
@@ -301,6 +305,8 @@ def _write_new(path: Path, data: bytes) -> None:
 
 def _write_key(path: Path, text: str) -> None:
     path.parent.mkdir(mode=0o700, exist_ok=True)
+    if path.parent.is_symlink():  # created by someone else since the check in materialize
+        raise PlantError(f"{path.parent} must be a real folder, not a symlink")
     path.parent.chmod(0o700)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:

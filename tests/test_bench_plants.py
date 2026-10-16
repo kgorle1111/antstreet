@@ -1,5 +1,5 @@
 """The planted-check harness core: a draft copied into a scratch session, plants chosen by seed,
-and the key kept outside the reviewer's folder (bench/METHOD.md, "Planted checks")."""
+and the key kept outside the reviewer's folder (bench/review_study/README.md)."""
 
 from __future__ import annotations
 
@@ -110,6 +110,19 @@ def test_the_key_is_outside_the_session_and_only_its_owner_can_read_it(source, t
     assert stat.S_IMODE(session.key_path.stat().st_mode) == 0o600
     assert stat.S_IMODE((root / "keys").stat().st_mode) == 0o700
     assert list((root / "sessions").rglob("*.json")) == [session.run_dir / "term_sheet.json"]
+
+
+def test_a_keys_folder_linked_into_the_session_is_refused(source, tmp_path):
+    seed = planted_seed(1)
+    # Learn the session id, then point `keys` at that session's own project and try again.
+    sid = materialize(source, TASK, out(tmp_path, "probe"), seed, kinds=KINDS).sid
+    root = out(tmp_path, "attack")
+    target = root / "sessions" / sid / "proj"
+    target.mkdir(parents=True)
+    (root / "keys").symlink_to(target, target_is_directory=True)
+    with pytest.raises(PlantError, match="must be a real folder"):
+        materialize(source, TASK, root, seed, kinds=KINDS)
+    assert not list(target.glob("*.json"))
 
 
 def test_the_key_names_each_plant_its_kind_and_the_planted_files_hash(source, tmp_path):
@@ -268,6 +281,6 @@ def test_a_sessions_folder_symlinked_out_of_out_root_is_refused(source, tmp_path
     root = out(tmp_path)
     elsewhere = out(tmp_path, "elsewhere")
     (root / "sessions").symlink_to(elsewhere, target_is_directory=True)
-    with pytest.raises(PlantError, match="not under out_root"):
+    with pytest.raises(PlantError, match="must be a real folder"):
         materialize(source, TASK, root, 1, kinds=KINDS)
     assert list(elsewhere.iterdir()) == []
