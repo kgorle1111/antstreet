@@ -301,6 +301,7 @@ Useful options for `antstreet fund` (every option is in [docs/CLI.md](docs/CLI.m
 | `--held-out N` | Checks an examiner writes that no worker sees, run on the finished product (0 to 8) | 0 |
 | `--coverage` | Before any worker is paid: the boss redrafts (at most twice) while a rule of your idea has no check or a check passes on a stub product; approving waives what is left (turns on `--spec`) | off |
 | `--dispatch MODE` | `off`, or `rules`: choose each task's agent, model and effort, shown in the term sheet | off |
+| `--no-step-up` | with `--dispatch`: never replace a fired worker with a stronger model (the control arm for measuring the step-up) | off |
 | `--max-tasks N` | Let the boss split the work into up to N tasks | 1 |
 | `--parallel N` | Work on up to N tasks at once; one worker per task | 1 |
 | `--profile NAME` | Add a worker profile's skills to the builder prompt; `antstreet roles` lists them | none |

@@ -845,6 +845,8 @@ def test_the_investor_can_force_the_firm_route_and_it_is_recorded(boss):
     ("argv", "text"),
     [
         (["--max-tier", "opus"], "--max-tier needs --dispatch rules"),
+        (["--no-step-up"], "--no-step-up needs --dispatch rules or cascade"),
+        (["--dispatch", "off", "--no-step-up"], "--no-step-up needs --dispatch rules or cascade"),
         (["--dispatch", "rules", "--model", "gpt-4"], "--model to be one of haiku, sonnet, opus"),
         (["--dispatch", "rules", "--model", "opus"], "--model opus is above --max-tier sonnet"),
         (["--dispatch", "rules", "--reserve", "0.2"], "--reserve cannot be used with --dispatch"),
@@ -969,3 +971,14 @@ def test_the_help_lists_fund_first_then_audit_and_states_the_status(capsys):
     assert "{fund,audit," in text
     assert text.index("Fund an idea") < text.index("audit someone else's change")
     assert "a team has not yet shown a benefit over a single agent" in text
+
+
+@pytest.mark.parametrize("mode", ["rules", "cascade"])
+def test_no_step_up_puts_none_in_every_tasks_dispatch_and_the_approved_sheet(boss, mode):
+    code, output = boss("fund", "Reverse a string.", "--budget", "0.50", "--dispatch", mode,
+                        "--no-step-up")  # fmt: skip
+    assert code == EXIT_OK
+    [run_dir] = boss.runs()
+    saved = json.loads((run_dir / "term_sheet.json").read_text())
+    assert [t["dispatch"]["escalate_to"] for t in saved["tasks"]] == ["none"]
+    assert "sonnet, once" not in output
