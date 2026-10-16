@@ -501,6 +501,11 @@ def task_set_digest(pool_dir: Path) -> str:
             files.append((rel.as_posix(), path))
     digest = hashlib.sha256()
     for rel_posix, path in sorted(files, key=lambda f: f[0].encode()):
-        for chunk in (rel_posix.encode(), path.read_bytes()):
+        try:
+            content = path.read_bytes()
+        except OSError as exc:
+            why = f"cannot read {path} ({exc.strerror}); fix its permissions and rerun"
+            raise TaskError(pool_dir.name, [why]) from exc
+        for chunk in (rel_posix.encode(), content):
             digest.update(len(chunk).to_bytes(8, "big") + chunk)
     return digest.hexdigest()
