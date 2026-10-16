@@ -534,7 +534,7 @@ solved", it says so. A test in `tests/test_docs_objections.py` pins the numbers 
    reserve held back for one overshoot, and the run has hard limits on spend, slices, workers and
    wall clock (T33). A worker is fired after `--stall-slices`
    (default 2) counted slices in a row with no new passing check, or after `--max-slices`
-   (default 6) slices; its task then gets one step-up at most
+   (default 6) slices; with `--dispatch`, its task then gets one step-up at most
    (T67). Fault injection ran 27 trials with 0 double-spends and 0
    silent losses ([docs/RECOVERY.md](docs/RECOVERY.md)). Residual: one response that costs more
    than the reserve still overshoots its cap, and costs are the CLI's estimates.
