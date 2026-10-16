@@ -60,6 +60,14 @@ def test_the_script_refuses_a_pool_passed_as_a_symlink(tmp_path):
     assert run.returncode == 2 and "is a symlink" in run.stderr
 
 
+@pytest.mark.parametrize("meta", ["null", "[]", '{"id": 7}', "{}"])
+def test_a_meta_json_of_the_wrong_shape_exits_2(tmp_path, meta):
+    (tmp_path / "demo").mkdir()
+    (tmp_path / "demo" / "meta.json").write_text(meta)
+    run = verify(tmp_path, "0" * 64)
+    assert run.returncode == 2 and "string id" in run.stderr
+
+
 def test_the_script_imports_only_the_standard_library():
     tree = ast.parse(SCRIPT.read_text())
     imported = {
