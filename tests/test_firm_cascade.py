@@ -217,3 +217,17 @@ def test_boss_routing_prints_the_view_for_a_project_with_and_without_runs(boss):
     code, output = boss("routing")
     assert code == EXIT_OK and "Runs read: 1; left out: 0" in output
     assert "files=1 checks=1-2  fresh" in output and "measured" not in output.split("Priors")[0]
+
+
+def test_no_step_up_climbs_no_rung_and_asks_the_investor(paths):
+    one = cascade_sheet()
+    policy = DispatchPolicy(CONFIG.max_tier, CONFIG.slice_micros, cascade=True)
+    s = plan_cascade(
+        one, starts={"t1": "haiku"}, profile=None, policy=policy, reads={}, step_up=False
+    )
+    assert s.tasks[0].dispatch.escalate_to == "none" and s.tasks[0].dispatch.max_workers == 1
+    worker = ModelScript(*[step(BAD)] * 4)
+    report, _ = run(paths, worker, s, config=CONFIG)
+    assert not report.all_passed
+    assert [h["model"] for h in hired(paths)] == ["haiku"]
+    assert {m for m, _ in ran(worker)} == {"haiku"}

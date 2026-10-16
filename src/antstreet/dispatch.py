@@ -288,14 +288,20 @@ def plan_dispatch(
     profile: str | None,
     policy: DispatchPolicy,
     reads: Mapping[str, tuple[str, ...]],
+    step_up: bool = True,
 ) -> TermSheet:
     """The sheet with its route and every task's dispatch filled from the rules. Today every rule
     resolves to one answer: the run's own tier, default effort, a step up one tier if the thinnest
-    round can fund it, two workers per task (one when the one-agent route has no step to offer)."""
+    round can fund it, two workers per task (one when the one-agent route has no step to offer).
+    `step_up=False` (`--no-step-up`) writes `escalate_to = none` for every task, so a fired worker
+    is replaced on the same model: the control arm of a step-up experiment, with the same route,
+    bundle bound and pinned model ids as the arm that steps up."""
     route = route_of(sheet)
     thinnest = min(r.budget_micros for r in sheet.rounds)
     up = TIERS[rank(tier) + 1] if rank(tier) < rank(policy.max_tier) else None
-    if up is None:
+    if not step_up:
+        escalate_to = NO_ESCALATION
+    elif up is None:
         escalate_to = tier  # the top tier: only the effort can step up
     else:
         escalate_to = up if fits(up, thinnest, policy.slice_micros) else NO_ESCALATION
@@ -319,10 +325,12 @@ def plan_cascade(
     profile: str | None,
     policy: DispatchPolicy,
     reads: Mapping[str, tuple[str, ...]],
+    step_up: bool = True,
 ) -> TermSheet:
     """The sheet with each task's dispatch filled for the cascade: `starts` (task id -> start tier,
     from `routing.choose_start`), effort `off`, the ladder's ceiling in `escalate_to`, and one
-    worker per rung from the start tier up."""
+    worker per rung from the start tier up. `step_up=False` (`--no-step-up`) climbs no rung:
+    `escalate_to = none` and one worker, so a verified failure goes straight to the investor."""
     tasks = tuple(
         dataclasses.replace(
             t,
@@ -331,8 +339,8 @@ def plan_cascade(
                 profile,
                 starts[t.id],
                 "off",
-                policy.max_tier,
-                len(rungs_from(starts[t.id], policy.max_tier)),
+                policy.max_tier if step_up else NO_ESCALATION,
+                len(rungs_from(starts[t.id], policy.max_tier)) if step_up else 1,
                 None,
                 reads.get(t.id, ()),
             ),
