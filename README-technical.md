@@ -485,6 +485,71 @@ What it does and does not protect, honestly:
 - The timing file is a local measurement, not evidence: anything that can write the project can
   edit it, and it is never signed.
 
+## Common objections
+
+Seven critiques reviewers raise, answered with what the repo can show. Where the answer is "not
+solved", it says so. A test in `tests/test_docs_objections.py` pins the numbers and code facts below.
+
+1. **"Garbage in, garbage out: the boss writes wrong checks and workers build to them." Open.**
+   A worker can dispute a check, which never counts as a pass and goes to you for a ruling
+   (T38); #104 fixed a bug that dropped disputes whose id carried a
+   file name (live, same setup, N=5: 0/5 reached your ruling before, 5/5 after; the commit
+   message has the figures). It does not remove the problem. In `blind35` the boss wrote 28 wrong
+   checks out of 813 (the reference solution fails them), and in the `final3` firm arm all 4
+   firings were in cells with a wrong check the worker had not disputed
+   ([bench/results/README.md](bench/results/README.md), "Disputes and firings"). The critic
+   arm in E4b still passed 19 of 80 cells that cleared every visible check and then failed a
+   hidden one, a 24% false-pass rate; plain self-review was 39% (34/88)
+   ([E4b](bench/results/2026-10-07-e4b-critic/README.md), KPI 2). The false-pass rate is
+   reported beside the delivery rate in every benchmark table. The control that remains is you
+   reading the checks.
+2. **"Parts pass, the whole fails." Not shown.** Each task is built in its own workspace and
+   `product/` is assembled from each task's best worker. Two things aim at the join: the bundle
+   names what a task's checks import from the tasks it reads (names only, and dropped first when
+   the bundle is over its size bound, T66), and the held-out
+   checks run on the assembled `product/` ([T44](docs/THREAT_MODEL.md#t44)). No benchmark
+   isolates integration failures, so we have no number for how often these catch one.
+3. **"Test-hacking: return the literals the test expects."** Workers never see the held-out
+   checks ([T44](docs/THREAT_MODEL.md#t44)); the benchmark scores on hidden checks and on known-wrong
+   mutants ([bench/METHOD.md](bench/METHOD.md)); the gate plugin rewrites comparisons in the
+   check so a value that equals everything fails (`src/antstreet/_gate_plugin.py`,
+   [T12](docs/THREAT_MODEL.md#t12)); `audit` flags a change whose added lines copy a sealed test name (four or more
+   underscore-separated parts) or a string literal of 16 or more characters that the request does
+   not itself contain, and such a leak makes an otherwise passing audit inconclusive (T53); shorter
+   names and literals are not caught. Limit: the examiner is a model, so held-out
+   checks can share a blind spot with the visible ones.
+4. **"Malicious dependencies via `pip install`."** A worker has only `Read`, `Write` and `Edit`
+   on its own folder, no shell (`WORKER_TOOLS` in `src/antstreet/worker.py`), so it cannot run
+   an installer. The gate's sandbox denies all network ([T13](docs/THREAT_MODEL.md#t13),
+   [docs/SANDBOX.md](docs/SANDBOX.md)) and `bwrap` on Linux is required in CI
+   ([T39](docs/THREAT_MODEL.md#t39)). Residual: product code can import a package that is
+   already installed on your machine, and with no working sandbox a check has your full access.
+5. **"Signing every event costs more than the API calls."** Every ledger line is chained and
+   carries an HMAC-SHA256 under `.boss/investor.key`, and the tail is anchored after each append
+   (`src/antstreet/ledger.py`, `signing.py`). One line is written per slice start, slice end,
+   check result, decision and so on, not per token: the two-slice run in
+   [docs/RECOVERY.md](docs/RECOVERY.md) writes 12 lines. Measured 2026-10-16 on an M-series Mac:
+   the HMAC is about 1.5 µs for a 600-byte line, and a whole signed, anchored, fsynced append is
+   about 0.26 ms (0.05 ms unsigned); a benchmark cell averaged $0.37 in E4 ([E4](bench/results/2026-10-07-e4-critic/README.md)). Reproduce
+   the HMAC: `python3 -c "import hmac,hashlib,timeit as t;k=b'k'*32;m=b'x'*600;print(t.timeit(lambda:hmac.new(k,m,hashlib.sha256).hexdigest(),number=10**5)*10)"`
+   (microseconds per call). Not measured: Linux, or a disk where `fsync` really flushes.
+6. **"A stuck worker drains the budget in a loop."** Each slice has a dollar cap with a
+   reserve held back for one overshoot, and the run has hard limits on spend, slices, workers and
+   wall clock (T33). A worker is fired after `--stall-slices`
+   (default 2) counted slices in a row with no new passing check, or after `--max-slices`
+   (default 6) slices; with `--dispatch rules`, its task then gets one step-up at most
+   (T67); with `--dispatch cascade` it may climb one rung per verified failure, up to the
+   ladder's length (four workers at most) and only while the round can fund the next tier (T71). Fault injection ran 27 trials with 0 double-spends and 0
+   silent losses ([docs/RECOVERY.md](docs/RECOVERY.md)). Residual: one response that costs more
+   than the reserve still overshoots its cap, and costs are the CLI's estimates.
+7. **"Approval fatigue: people stop reading the checks." Open, and the weakest point.** The
+   approval questions (`--questions`) are not shown to find rules the checks miss: 4 of 10 on a
+   held-out set, against a bar of 5 of 10, interval 17 to 69 percent
+   ([spec-gaps](bench/results/2026-10-10-spec-gaps/README.md)). `--spec` coverage shows which
+   rules no check cites and flags citations it cannot confirm
+   (T55 to T58). No study has tested
+   whether people catch a bad check when shown one.
+
 ## Limits
 
 What AntStreet does not do, in plain words. Each links to its row in the [threat model](docs/THREAT_MODEL.md).
