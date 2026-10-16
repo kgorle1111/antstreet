@@ -293,9 +293,10 @@ def plan_dispatch(
     """The sheet with its route and every task's dispatch filled from the rules. Today every rule
     resolves to one answer: the run's own tier, default effort, a step up one tier if the thinnest
     round can fund it, two workers per task (one when the one-agent route has no step to offer).
-    `step_up=False` (`--no-step-up`) writes `escalate_to = none` for every task, so a fired worker
-    is replaced on the same model: the control arm of a step-up experiment, with the same route,
-    bundle bound and pinned model ids as the arm that steps up."""
+    `step_up=False` (`--no-step-up`) writes `escalate_to = none` for every task: on the firm route
+    a fired worker is replaced on the same model; on the one-agent route nobody replaces it (one
+    worker, as when no stronger tier fits). The control arm of a step-up experiment, with the same
+    route, bundle bound and pinned model ids as the arm that steps up."""
     route = route_of(sheet)
     thinnest = min(r.budget_micros for r in sheet.rounds)
     up = TIERS[rank(tier) + 1] if rank(tier) < rank(policy.max_tier) else None
