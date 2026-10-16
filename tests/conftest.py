@@ -29,6 +29,8 @@ SLOW = (
     "tests/test_runner.py::test_a_slice_can_be_stopped_from_another_thread_and_its_cost_is_still_read",
     "tests/test_runner.py::test_worker_ignoring_sigint_and_sigterm_is_still_killed",
 )
+# Fixture check files are data (a boss draft's checks, kept byte for byte), not this suite's tests.
+collect_ignore_glob = ["fixtures/*"]
 SHARD_ENV = "BOSS_SHARD"
 TIMEOUT_ENV = "BOSS_TEST_TIMEOUT_S"
 _REAL_STDERR = None
