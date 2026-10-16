@@ -119,7 +119,7 @@ def test_the_lookalike_rules_do_not_let_a_real_secret_through(text, masked):
 
 def test_recorded_fixtures_need_no_redaction():
     # Over-redaction would corrupt worker logs; the sanitized probe recordings must pass through.
-    for path in sorted((Path(__file__).parent / "fixtures").iterdir()):
+    for path in sorted(p for p in (Path(__file__).parent / "fixtures").rglob("*") if p.is_file()):
         text = path.read_text()
         assert redact(text) == text, path.name
 

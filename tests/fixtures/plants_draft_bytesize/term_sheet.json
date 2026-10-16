@@ -1,0 +1,71 @@
+{
+  "idea": "Create a Python module `bytesize.py` (standard library only) with two functions:\n\n    parse_size(text: str) -> int\n    format_size(n: int, binary: bool = True) -> str\n\n`parse_size` turns strings such as `1.5 KiB`, `2MB`, `512` and `10 gib` into a number of bytes.\n`format_size` turns a number of bytes into a short human-readable string.\n\nParsing:\n\n1. The text is a number, optionally followed by a unit. Spaces and tabs may appear between the\n   number and the unit (`1.5 KiB`, `1.5KiB` and `1.5 \\t KiB` are the same), and whitespace may\n   surround the whole text. With no unit the number is a count of bytes: `512` is 512.\n2. A number is one or more ASCII digits 0-9, optionally followed by a `.` and one or more digits.\n   `.5`, `5.`, `1.5.5`, `1,5`, `1e3`, `1_000`, a sign (`-1 KB` and `+1 KB` are both invalid),\n   and non-ASCII digits are not numbers. Digits with a space inside (`1 000 KB`) are invalid.\n3. Units are case-insensitive, so `kib`, `KIB` and `KiB` are the same unit. The decimal units are\n   `KB`, `MB`, `GB`, `TB` and `PB`, which are 1000, 1000**2, 1000**3, 1000**4 and 1000**5 bytes.\n   The binary units are `KiB`, `MiB`, `GiB`, `TiB` and `PiB`, which are 1024, 1024**2, 1024**3,\n   1024**4 and 1024**5 bytes. `B` is one byte. The single letters `K`, `M`, `G`, `T` and `P` are\n   short for the binary units, so `1K` is 1024. `Kb` is the same as `KB` (1000), not kilobits.\n4. The result is an `int`. The number times the unit size is computed exactly, and when it is not a\n   whole number of bytes it is rounded to the nearest byte, with a half rounding up: `1.5 B` is 2,\n   `2.5 B` is 3, `0.5 B` is 1, `0.4 B` is 0 and `0.1 KiB` (102.4 bytes) is 102. Large values are\n   exact: `9007199254740993` is 9007199254740993 and `123456789.123456789 GB` is\n   123456789123456789.\n5. `parse_size` raises `ValueError` for anything else: the empty string or only whitespace, a unit\n   without a number (`KB`), an unknown unit (`1 XB`, `1 Ki`, `1 KBB`, `1 kilobyte`, `1 bytes`), a\n   unit with a space inside (`1 K B`), anything after the unit, and any other characters. Input\n   that is not a `str` (an int, a float, None, bytes) raises `TypeError`.\n\nFormatting:\n\n6. `format_size` takes an int `n` of zero or more. A negative `n` raises `ValueError`, and an `n`\n   that is not an `int` (a float, a str, None, or a `bool`) raises `TypeError`.\n7. With `binary=True` the units are `B`, `KiB`, `MiB`, `GiB`, `TiB`, `PiB` and the step is 1024.\n   With `binary=False` they are `B`, `KB`, `MB`, `GB`, `TB`, `PB` and the step is 1000. The unit is\n   the largest one whose size is at most `n`; below one step the result is just the byte count:\n   `0` is `0 B`, `1023` is `1023 B`, `1024` is `1 KiB`, and with `binary=False` `999` is `999 B`\n   and `1000` is `1 KB`. There is no unit above PiB or PB: 1024**6 is `1024 PiB`.\n8. The number shown is `n` divided by the unit size, rounded to one decimal digit, a half rounding\n   up (exactly, not through binary floating point), and written without the decimal when it is\n   zero: 1536 is `1.5 KiB`, 2048 is `2 KiB`, 1280 is `1.3 KiB` (exactly 1.25), and with\n   `binary=False` 1050 is `1.1 KB`, 1150 is `1.2 KB` and 1950 is `2 KB`. A byte count is written\n   as a plain integer with no decimal.\n9. If the rounded number reaches the step (1024, or 1000 with `binary=False`) the next larger unit\n   is used instead, and the number is worked out again from that unit, so 1048575 is `1 MiB` and\n   not `1024 KiB`, and 999950 with `binary=False` is `1 MB`. Just below that boundary the lower\n   unit stays: 1048524 is `1023.9 KiB`.\n10. The number and the unit are separated by a single space, and the result is a `str`. Large\n    values are exact; there is no limit on `n`.",
+  "budget_micros": 400000,
+  "rounds": [
+    {
+      "n": 1,
+      "budget_micros": 400000,
+      "unlock_checks": 8
+    }
+  ],
+  "checks": [
+    {
+      "id": "c01",
+      "description": "parse_size basic parsing with binary units",
+      "file": "test_c01.py",
+      "task": "bytesize-impl"
+    },
+    {
+      "id": "c02",
+      "description": "parse_size unit variants (decimal, binary, single letter, no unit)",
+      "file": "test_c02.py",
+      "task": "bytesize-impl"
+    },
+    {
+      "id": "c03",
+      "description": "parse_size whitespace, case-insensitivity, and rounding",
+      "file": "test_c03.py",
+      "task": "bytesize-impl"
+    },
+    {
+      "id": "c04",
+      "description": "parse_size error handling (ValueError and TypeError)",
+      "file": "test_c04.py",
+      "task": "bytesize-impl"
+    },
+    {
+      "id": "c05",
+      "description": "format_size basic binary unit formatting",
+      "file": "test_c05.py",
+      "task": "bytesize-impl"
+    },
+    {
+      "id": "c06",
+      "description": "format_size unit selection for binary and decimal units",
+      "file": "test_c06.py",
+      "task": "bytesize-impl"
+    },
+    {
+      "id": "c07",
+      "description": "format_size rounding and step-up to larger unit",
+      "file": "test_c07.py",
+      "task": "bytesize-impl"
+    },
+    {
+      "id": "c08",
+      "description": "format_size error handling (ValueError and TypeError)",
+      "file": "test_c08.py",
+      "task": "bytesize-impl"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "bytesize-impl",
+      "brief": "Create bytesize.py module with parse_size(text: str) -> int converting human-readable byte sizes (e.g. '1.5 KiB', '2MB', '512') to bytes, and format_size(n: int, binary=True) -> str converting bytes to human-readable format. Parse rules: strict number format (no signs/exponents/underscores), case-insensitive units, binary units K/M/G/T/P (1024^n), decimal units KB/MB/GB/TB/PB (1000^n), whitespace between number and unit allowed, half-up rounding. Format rules: choose largest unit where size fits, round to 1 decimal (0 decimals if .0), step to next unit if rounded value reaches step boundary (1024 or 1000), space between number and unit.",
+      "paths": [
+        "bytesize.py"
+      ]
+    }
+  ],
+  "approved_by_investor": true
+}
