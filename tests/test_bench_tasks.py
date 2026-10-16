@@ -222,6 +222,12 @@ def test_set_digest_reports_an_unreadable_file_as_a_task_error(pool):
     secret = next(p for p in pool.rglob("*.py") if p.is_file())
     secret.chmod(0)
     try:
+        try:
+            secret.read_bytes()
+        except OSError:
+            pass
+        else:  # root, or a filesystem that ignores modes: there is no unreadable file to test
+            pytest.skip("file modes are not enforced for this user")
         with pytest.raises(TaskError, match="cannot read"):
             task_set_digest(pool)
     finally:
