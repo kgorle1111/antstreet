@@ -218,6 +218,16 @@ def test_set_digest_refuses_a_missing_pool(tmp_path):
         task_set_digest(tmp_path / "nope")
 
 
+def test_set_digest_reports_an_unreadable_file_as_a_task_error(pool):
+    secret = next(p for p in pool.rglob("*.py") if p.is_file())
+    secret.chmod(0)
+    try:
+        with pytest.raises(TaskError, match="cannot read"):
+            task_set_digest(pool)
+    finally:
+        secret.chmod(0o644)
+
+
 def test_set_digest_refuses_a_pool_that_is_a_symlink(pool, tmp_path):
     link = tmp_path / "linked-pool"
     link.symlink_to(pool, target_is_directory=True)
