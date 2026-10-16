@@ -379,3 +379,36 @@ def test_a_sheet_with_dispatch_round_trips_and_hashes_differently(tmp_path):
         hashlib.sha256(s.to_json().encode()).hexdigest()
         == content_hashes(s, tmp_path)["term_sheet"]
     )
+
+
+# --- --no-step-up: the control arm ---
+
+
+def test_no_step_up_writes_escalate_to_none_for_every_task_and_changes_nothing_else():
+    two = sheet(extra=(Task("t2", "Create up.py.", ("up.py",)),))
+    on = planned(two)
+    off = plan_dispatch(two, tier="haiku", profile=None, policy=POLICY, reads={}, step_up=False)
+    assert [t.dispatch.escalate_to for t in on.tasks] == ["sonnet", "sonnet"]
+    assert [t.dispatch.escalate_to for t in off.tasks] == ["none", "none"]
+    same = [dataclasses.replace(t.dispatch, escalate_to="sonnet") for t in off.tasks]
+    assert same == [t.dispatch for t in on.tasks]  # tier, effort, workers, slice: all identical
+    assert off.route == on.route == "firm"
+
+
+def test_no_step_up_is_in_the_approval_hash_and_the_table_says_same_model(tmp_path):
+    two = sheet(extra=(Task("t2", "Create up.py.", ("up.py",)),))
+    for name in ("test_c01.py", "test_c02.py"):
+        (tmp_path / name).write_text("def test_x():\n    pass\n")
+    on = planned(two)
+    off = plan_dispatch(two, tier="haiku", profile=None, policy=POLICY, reads={}, step_up=False)
+    assert content_hashes(on, tmp_path)["term_sheet"] != content_hashes(off, tmp_path)["term_sheet"]
+    view = DispatchView(POLICY, RunLevel("haiku", "off", 0, 1), 2, {})
+    assert "same model" in "\n".join(dispatch.render_table(off, view))
+    assert "sonnet, once" in "\n".join(dispatch.render_table(on, view))
+
+
+def test_no_step_up_at_the_top_tier_does_not_even_step_the_effort():
+    off = plan_dispatch(
+        sheet(), tier="sonnet", profile=None, policy=POLICY, reads={}, step_up=False
+    )
+    assert off.tasks[0].dispatch.escalate_to == "none"

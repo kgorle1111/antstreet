@@ -575,3 +575,27 @@ def test_sentinels_in_held_out_other_tasks_checks_the_key_and_hidden_checks_reac
             assert sentinel not in text
     t1_texts = [x.prompt for x in worker.specs if "Create rev.py" in x.prompt]
     assert t1_texts and all("OTHER-TASK-SENTINEL" not in t for t in t1_texts)
+
+
+# --- --no-step-up: the control arm ---
+
+
+def _two_task_sheet(step_up):
+    return plan_dispatch(
+        sheet(two_tasks=True),
+        tier="haiku",
+        profile=None,
+        policy=DispatchPolicy(ON.max_tier, ON.slice_micros),
+        reads={},
+        step_up=step_up,
+    )
+
+
+@pytest.mark.parametrize(("step_up", "second"), [(True, "sonnet"), (False, "haiku")])
+def test_a_fired_worker_is_replaced_one_tier_up_only_without_no_step_up(paths, step_up, second):
+    shout = "def shout(s):\n    return s.upper() + '!'\n"
+    worker = ModelScript(
+        step(BAD), step(BAD), step(GOOD, "done"), step(shout, "done", name="up.py")
+    )
+    run(paths, worker, _two_task_sheet(step_up), config=ON)
+    assert [h["model"] for h in hired(paths) if h["task"] == "t1"] == ["haiku", second]

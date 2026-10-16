@@ -238,6 +238,9 @@ Everything above holds; the differences are these. Off, none of it runs, and `ru
    and `routing.choose_start` picks the tier with the least expected cost (D46). `plan_cascade`
    puts it in the sheet as the task's `tier`, with effort `off`, `escalate_to` the run's top tier
    and one worker per rung. The table prints the kind and `prior` or `measured, n=...`.
+   With `--no-step-up`, `plan_dispatch` and `plan_cascade` write `escalate_to = none` instead (and one
+   worker under the cascade): the sheet and its approval hash carry the choice, so nothing new is
+   recorded and a resume needs no flag.
 2. **Climb.** `dispatch.cascade_hire` hires the next rung of `dispatch.ladder` only for a firing the
    gate decided (`no progress`, `slice limit`) and only if the round can fund that tier. The next
    worker gets the predecessor's findings through the same reassignment brief as before. After the
