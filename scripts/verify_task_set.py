@@ -53,7 +53,10 @@ def set_hash(pool: Path) -> str:
     """Tasks are the subfolders holding meta.json, ordered by the id inside it."""
     tasks = []
     for meta in sorted(pool.glob("*/meta.json")):
-        tasks.append((json.loads(meta.read_text())["id"], meta.parent))
+        data = json.loads(meta.read_text())
+        if not isinstance(data, dict) or not isinstance(data.get("id"), str):
+            raise ValueError(f"{meta} must be a JSON object with a string id")
+        tasks.append((data["id"], meta.parent))
     digest = hashlib.sha256()
     for _, root in sorted(tasks, key=lambda t: t[0]):
         mutants = root / "mutants"
