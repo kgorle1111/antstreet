@@ -110,6 +110,7 @@ One row per file under `src/antstreet/`, `src/antstreet/roles/`, `src/antstreet/
 | `bench/table.py` | The results table with intervals. | Count an infrastructure failure in a rate; treat unknown cost as 0. |
 | `bench/kpi.py` | The fixed KPI scorecard of benchmark results: one column per folder, arm, model, budget and firm options. | Count an infrastructure failure in a figure; show an unknown cost or an unrecorded figure as 0; pool columns that share a label. |
 | `bench/tasks.py` | Task format, validation, the task set hash. | Accept a task whose checks pass on an empty workspace or fail on its reference. |
+| `bench/validate.py` | `python -m antstreet.bench.validate DIR [--strict]`: validates every task in a folder; strict adds the opt-in time, flakiness, mutant-count and FAIL-only-kill bounds. | Exit 0 for a task that fails a bound, or count a timeout as a kill under `--strict`. |
 
 Prompts are files, not code. The boss and the benchmark use `src/antstreet/prompts/term_sheet_v1.md`
 (one task), `term_sheet_v2.md` (several tasks), `term_sheet_v3.md` (one task whose checks cite the
