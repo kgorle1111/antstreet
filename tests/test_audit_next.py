@@ -3,6 +3,7 @@ does; `--stop-hook` is the same check for the plugin's Stop hook, and never show
 the agent."""
 
 import json
+import re
 import shutil
 
 import pytest
@@ -166,8 +167,11 @@ def _assert_no_check_text(said: str) -> None:
     for check in DRAFT["checks"]:
         assert check["description"] not in said
         assert check["code"] not in said
-    for text in (MARKER, "test_collapses_runs_of_symbols", "assert", "c01", "c02"):
+    for text in (MARKER, "test_collapses_runs_of_symbols", "assert"):
         assert text not in said
+    # Whole ids only: the run id is random hex and can contain "c01" inside it.
+    for check_id in ("c01", "c02"):
+        assert not re.search(rf"(?<![0-9a-z]){check_id}(?![0-9a-z])", said), check_id
 
 
 def test_without_a_request_it_names_the_run_and_the_request_it_checks_against(audit):
