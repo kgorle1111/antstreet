@@ -332,7 +332,7 @@ Dispatch keys:
 | `effort` | str | `off` (thinking 0), `default` (the run's own) or `high` (`dispatch.HIGH_THINKING_TOKENS`). Under the cascade, `off` on every rung but the last, which is `default`. |
 | `why` | str | `term sheet` for a task's first worker; for a replacement, `predecessor fired: ` and the gate's reason (`no progress` or `slice limit`) and its stalled slices. |
 | `from_tier` | str | The fired predecessor's tier. Only on a replacement. Equal to `tier` when the replacement was not stepped up in tier (under the cascade: the last rung, one effort step higher). |
-| `refused` | str | Why the step the task allowed was not taken (the round could not fund the next tier, or stepping up is off for the task). Only on a replacement. |
+| `refused` | str | Why the step the task allowed was not taken (the round could not fund the next tier, stepping up is off for the task, or the failure may not be the model's: a slice of the stall window ended `timeout` or `crashed`, or a check last ended `timeout`, `rule.attributable`). Only on a replacement. |
 
 Example:
 

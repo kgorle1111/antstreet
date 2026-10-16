@@ -86,6 +86,20 @@ def slice_history(events: Sequence[Event]) -> dict[str, list[SliceRecord]]:
     return history
 
 
+def last_check_statuses(events: Sequence[Event], worker: str) -> dict[str, str]:
+    """Per check, the last status the gate gave `worker` after one of its slices: what
+    `rule.attributable` reads. Held-out results and dropped checks are left out, as in
+    `slice_history`: neither may decide anything about a worker."""
+    dropped = ruled(events, DROPPED)
+    statuses: dict[str, str] = {}
+    for e in events:
+        if e.data.get("scope") == HELD_OUT_SCOPE or e.event is not EventType.CHECK_RESULT:
+            continue
+        if e.data.get("worker") == worker and "slice" in e.data and "check" in e.data:
+            statuses[str(e.data["check"])] = str(e.data.get("status"))
+    return {c: s for c, s in statuses.items() if c not in dropped}
+
+
 def _inherited_disputes(events: Sequence[Event], settled: frozenset[str]) -> dict[str, set[str]]:
     """Per worker, the checks that workers hired earlier for the same task disputed and the
     investor has not ruled on. A dispute is about a check, not about the worker who raised it: the

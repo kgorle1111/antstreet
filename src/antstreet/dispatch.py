@@ -412,9 +412,12 @@ def replacement_hire(
     slice_micros: int,
     one_agent: bool,
     cascade: bool = False,
+    not_attributable: str | None = None,
 ) -> Hire | None:
     """Who replaces a fired worker, or None for nobody. A step up happens only for a firing the
-    gate decided on evidence (`ESCALATING_FIRINGS`). On the one-agent route a replacement that is
+    gate decided on evidence (`ESCALATING_FIRINGS`) that is the model's to fix: `not_attributable`
+    (`rule.attributable`) says why it may not be, and the replacement is then hired like one for
+    any other firing, with that reason in `refused`. On the one-agent route a replacement that is
     not stronger is not worth paying for, so there is none; in the firm it is hired as before.
     Under the cascade the next rung is hired, or nobody (`cascade_hire`)."""
     if cascade:
@@ -426,8 +429,12 @@ def replacement_hire(
             max_tier=max_tier,
             remaining_micros=remaining_micros,
             slice_micros=slice_micros,
+            not_attributable=not_attributable,
         )
-    if fired_for in ESCALATING_FIRINGS:
+    if fired_for in ESCALATING_FIRINGS and not_attributable is not None:
+        refused = f"not stepped up, the failure may not be the model's: {not_attributable}"
+        step = Step(previous.tier, previous.effort, False, refused)
+    elif fired_for in ESCALATING_FIRINGS:
         step = escalate(
             previous.tier,
             previous.effort,
@@ -453,12 +460,16 @@ def cascade_hire(
     max_tier: str,
     remaining_micros: int,
     slice_micros: int,
+    not_attributable: str | None = None,
 ) -> Hire | None:
     """The next rung's worker, or None when the ladder stops and the investor is asked. A rung is
-    climbed only after a firing the gate decided on evidence (`ESCALATING_FIRINGS`): an unverified
-    failure never moves the ladder. None too when the task allows no step, the ladder is at its
-    end, or the round cannot fund the next rung (the same `fits` test as a v1 step)."""
+    climbed only after a firing the gate decided on evidence (`ESCALATING_FIRINGS`) that is the
+    model's to fix (`not_attributable` is None): an unverified failure, or one a stronger model
+    cannot fix, never moves the ladder. None too when the task allows no step, the ladder is at
+    its end, or the round cannot fund the next rung (the same `fits` test as a v1 step)."""
     if fired_for not in ESCALATING_FIRINGS or d.escalate_to == NO_ESCALATION:
+        return None
+    if not_attributable is not None:
         return None
     top = TIERS[min(rank(d.escalate_to), rank(max_tier))]
     rung = next_rung(previous.tier, previous.effort, top)

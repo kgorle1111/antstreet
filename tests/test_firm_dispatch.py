@@ -26,10 +26,12 @@ from antstreet.approval import content_hashes
 from antstreet.dispatch import DispatchPolicy, plan_dispatch
 from antstreet.errors import Outcome
 from antstreet.firm import FirmConfig
+from antstreet.gate import CheckStatus, run_gate
 from antstreet.ledger import Event, EventType, LedgerWriter, read_events
 from antstreet.report import build_report, render_report
-from antstreet.rule import FiringPolicy
+from antstreet.rule import FiringPolicy, attributable
 from antstreet.rundir import RunPaths
+from antstreet.state import last_check_statuses, slice_history
 from antstreet.termsheet import Round
 from antstreet.worker import (
     SCHEMA_TOOL,
@@ -275,6 +277,67 @@ def test_a_slice_limit_firing_steps_up_too(paths):
     assert (
         hired(paths)[1]["dispatch"]["from_tier"] == "haiku" and hired(paths)[1]["model"] == "sonnet"
     )
+
+
+SHOUT = step("def shout(s):\n    return s.upper() + '!'\n", "done", name="up.py")  # task t2
+
+
+@pytest.mark.parametrize("outcome", [Outcome.TIMEOUT, Outcome.CRASHED])
+def test_a_stall_with_a_timed_out_or_crashed_slice_hires_the_same_tier_and_says_why(paths, outcome):
+    worker = ModelScript(step(BAD, outcome=outcome), step(BAD), step(GOOD, "done"), SHOUT)
+    report, _ = run(paths, worker, planned(sheet(two_tasks=True)), config=ON)
+    assert report.all_passed
+    [fired] = events_of(paths, EventType.FIRED)
+    assert fired.data["reason"] == "no progress"  # the rule fired it as before
+    first, second, _ = hired(paths)
+    assert (first["model"], second["model"]) == ("haiku", "haiku")
+    assert second["dispatch"] == {
+        "tier": "haiku",
+        "effort": "default",
+        "why": "predecessor fired: no progress, 2 stalled slices",
+        "from_tier": "haiku",
+        "refused": f"not stepped up, the failure may not be the model's: slice 1 ended {outcome}",
+    }
+    assert [s.model for s in worker.specs] == ["haiku"] * 4
+
+
+def test_on_the_one_agent_route_a_stall_no_model_can_fix_hires_nobody(paths):
+    worker = ModelScript(step(BAD, outcome=Outcome.TIMEOUT), step(BAD))
+    run(paths, worker, planned(), config=ON)
+    assert [h["model"] for h in hired(paths)] == ["haiku"]
+    [abandoned] = events_of(paths, EventType.ABANDONED)
+    assert abandoned.data["reason"] == "one agent: no stronger worker to hire"
+
+
+def test_a_check_the_gate_timed_out_hires_the_same_tier_and_says_why(paths):
+    def gate_times_out_c01_for_w1(workspace, checks_dir, checks):
+        results = run_gate(workspace, checks_dir, checks)
+        if workspace.name != "w1":
+            return results
+        return [
+            dataclasses.replace(r, status=CheckStatus.TIMEOUT) if r.check_id == "c01" else r
+            for r in results
+        ]
+
+    worker = ModelScript(step(HALF), step(HALF), step(HALF), step(GOOD, "done"), SHOUT)
+    s = planned(sheet(two_tasks=True))
+    run(paths, worker, s, config=ON, gate=gate_times_out_c01_for_w1)
+    second = hired(paths)[1]
+    assert second["model"] == "haiku" and "from_tier" in second["dispatch"]
+    assert second["dispatch"]["refused"] == (
+        "not stepped up, the failure may not be the model's: check c01 last ended timeout"
+    )
+    # Offline, the ledger alone gives the answer the live run acted on.
+    events = read_events(paths.ledger)
+    replayed = attributable(slice_history(events)["w1"], last_check_statuses(events, "w1"))
+    assert replayed == "check c01 last ended timeout"
+
+
+def test_a_stall_of_capped_slices_failing_for_real_still_steps_up(paths):
+    worker = ModelScript(step(BAD, outcome=Outcome.CAPPED), step(BAD), step(GOOD, "done"))
+    run(paths, worker, planned(), config=ON)
+    second = hired(paths)[1]
+    assert second["model"] == "sonnet" and "refused" not in second["dispatch"]
 
 
 def test_a_step_the_round_cannot_fund_steps_the_effort_instead_and_says_why(paths):

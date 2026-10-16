@@ -48,6 +48,15 @@ def ran(worker):
     return [(s.model, s.thinking_tokens) for s in worker.specs]
 
 
+@pytest.mark.parametrize("outcome", [Outcome.TIMEOUT, Outcome.CRASHED])
+def test_a_stall_a_stronger_model_cannot_fix_climbs_no_rung(paths, outcome):
+    worker = ModelScript(step(BAD, outcome=outcome), step(BAD))
+    run(paths, worker, cascade_sheet(), config=CONFIG)
+    assert [h["model"] for h in hired(paths)] == ["haiku"]
+    [abandoned] = events_of(paths, EventType.ABANDONED)
+    assert "its failure may not be the model's (a timeout or crash)" in abandoned.data["reason"]
+
+
 def test_a_task_that_keeps_failing_climbs_the_whole_ladder_in_order_and_then_stops(paths):
     worker = ModelScript(*[step(BAD)] * 8)
     report, said = run(paths, worker, cascade_sheet(), config=CONFIG)

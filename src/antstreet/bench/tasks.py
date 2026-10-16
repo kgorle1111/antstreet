@@ -559,6 +559,45 @@ def task_set_hash(tasks: list[BenchTask]) -> str:
             skipped = "__pycache__" in path.parts or path.is_relative_to(task.mutants_dir)
             if path.is_file() and not skipped:
                 # Length-prefixed, so where a name ends and its content begins is unambiguous.
-                for part in (str(path.relative_to(task.root.parent)).encode(), path.read_bytes()):
+                for part in (
+                    path.relative_to(task.root.parent).as_posix().encode(),
+                    path.read_bytes(),
+                ):
                     digest.update(len(part).to_bytes(8, "big") + part)
     return digest.hexdigest()[:16]
+
+
+def task_set_digest(pool_dir: Path) -> str:
+    """Full SHA-256 over every file in a task pool, for pre-registering a private set.
+
+    Unlike `task_set_hash` (16 hex, scored files only) this covers mutants, hidden checks and any
+    provenance file, so a published folder can be proven byte-identical to the one registered.
+    Same length-prefixed encoding; files ordered by posix path, which puts task ids in order.
+    scripts/verify_task_set.py re-implements this with the stdlib alone: change both together.
+    A dotfile, `__pycache__` or symlink is refused, never skipped: what is skipped differs between
+    machines, and the digest must not.
+    """
+    if pool_dir.is_symlink():
+        raise TaskError(pool_dir.name, [f"{pool_dir} is a symlink; pass the real folder"])
+    if not pool_dir.is_dir():
+        raise TaskError(pool_dir.name, [f"{pool_dir} is not a directory"])
+    files: list[tuple[str, Path]] = []
+    for path in pool_dir.rglob("*"):
+        rel = path.relative_to(pool_dir)
+        for part in rel.parts:
+            if part == "__pycache__" or part.startswith("."):
+                raise TaskError(pool_dir.name, [f"{part!r} found at {path}; remove it and rerun"])
+        if path.is_symlink():
+            raise TaskError(pool_dir.name, [f"symlink found at {path}; remove it and rerun"])
+        if path.is_file():
+            files.append((rel.as_posix(), path))
+    digest = hashlib.sha256()
+    for rel_posix, path in sorted(files, key=lambda f: f[0].encode()):
+        try:
+            content = path.read_bytes()
+        except OSError as exc:
+            why = f"cannot read {path} ({exc.strerror}); fix its permissions and rerun"
+            raise TaskError(pool_dir.name, [why]) from exc
+        for chunk in (rel_posix.encode(), content):
+            digest.update(len(chunk).to_bytes(8, "big") + chunk)
+    return digest.hexdigest()
