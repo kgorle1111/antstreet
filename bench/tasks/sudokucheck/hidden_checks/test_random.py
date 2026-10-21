@@ -14,14 +14,19 @@ def units_of(cell):
 def slow_answer(grid):
     """Every pair of cells that share a digit and a unit, found the long way round."""
     kinds = {"row": 0, "col": 1, "box": 2}
+    # Cells grouped by digit first: the gate guards every comparison in this file, and comparing
+    # all 3,240 pairs per grid cost seconds through it (bench/METHOD.md, check cost).
+    by_digit = {}
+    for cell in CELLS:
+        digit = grid[cell[0]][cell[1]]
+        if digit:
+            by_digit.setdefault(digit, []).append(cell)
     found, cells = set(), set()
-    for a, b in combinations(CELLS, 2):
-        digit = grid[a[0]][a[1]]
-        if digit == 0 or digit != grid[b[0]][b[1]]:
-            continue
-        for kind, index in units_of(a) & units_of(b):
-            found.add((kind, index, digit))
-            cells |= {a, b}
+    for digit, group in by_digit.items():
+        for a, b in combinations(group, 2):
+            for kind, index in units_of(a) & units_of(b):
+                found.add((kind, index, digit))
+                cells |= {a, b}
     return sorted(found, key=lambda v: (kinds[v[0]], v[1], v[2])), sorted(cells)
 
 
