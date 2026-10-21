@@ -12,9 +12,9 @@ that already wraps it: `bench/score.py` (`count_wrong_checks`, `score_draft`) an
                    letter or digit of a str changed). Oracle: the reference solution passes the
                    original and fails the planted check.
   vacuous          each test function keeps its imports and asserts only that the imported names
-                   exist. Oracle: still fails on an empty workspace (so T08 does not catch it),
-                   passes on a stub product defining those names with no logic, which the original
-                   fails.
+                   exist (`is not None`). Oracle: passes on the reference solution, still fails on
+                   an empty workspace (so T08 does not catch it), and passes on a stub product
+                   defining those names with no logic, which the original fails.
   under_specified  one assert (or one of several test functions) is dropped. Oracle: the reference
                    still passes, and some mutant the original killed survives the planted check.
 """
@@ -270,7 +270,9 @@ def _product_imports(stmts: Sequence[ast.stmt]) -> list[_Imported]:
 
 
 def _existence(item: _Imported) -> str:
-    return f"assert callable({item.bound})" if item.name else f"assert {item.bound} is not None"
+    # Not `callable(...)`: an imported constant (`UNITS = (...)`) exists but is not callable, and
+    # the vacuous check must still pass on a correct product. The oracle checks that it does.
+    return f"assert {item.bound} is not None"
 
 
 class Vacuous:
@@ -309,8 +311,10 @@ class Vacuous:
         return data
 
     def oracle(self, original: bytes, planted: bytes, file: str, task: BenchTask) -> OracleResult:
-        del task  # a vacuous check is judged on a stub and an empty workspace, not the reference
         check = Check(check_id_of(file), file)
+        # A plant the reference fails is wrong, not vacuous: it must never be keyed vacuous.
+        if _wrong_on_reference(task, file, planted):
+            return OracleResult(False, "reference solution: planted fails")
         try:
             stub_files = _stub(planted)
         except Inapplicable as exc:
@@ -330,6 +334,7 @@ class Vacuous:
         holds = not empty and new_passes and not orig_passes
         return OracleResult(
             holds,
+            "reference solution: planted passes; "
             f"empty workspace: planted {'is refused' if empty else 'fails'}; "
             f"stub product: planted {_verb(new_passes)}, original {_verb(orig_passes)}",
         )
@@ -373,8 +378,15 @@ def _drops(text: _Text, tree: ast.Module) -> list[tuple[int, int]]:
                 if isinstance(stmt, ast.Assert) and text.owns_lines(stmt):
                     end_line = stmt.end_lineno or stmt.lineno
                     found.append((text.line_start(stmt.lineno), text.line_end(end_line)))
+    # The block each test function sits in: the module, or its `Test*` class.
+    parents = {id(fn): tree.body for fn in tree.body if _is_test(fn)}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            parents |= {id(fn): node.body for fn in node.body if _is_test(fn)}
     if len(functions) >= 2:
         for fn in functions:
+            if len(parents[id(fn)]) < 2:  # dropping it would leave an empty class: not Python
+                continue
             first = fn.decorator_list[0].lineno if fn.decorator_list else fn.lineno
             start = text.line_start(first)
             # Take the blank lines above it too, so the spacing between the

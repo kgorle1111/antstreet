@@ -3,10 +3,12 @@ the real bench task's reference solution and mutants (bench/review_study/README.
 
 from __future__ import annotations
 
+import ast
 import difflib
 import json
 import random
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -21,7 +23,7 @@ from antstreet.bench.plant_kinds import (
 )
 from antstreet.bench.plants import KINDS, PlantError, materialize, plant_one, select_plants
 from antstreet.bench.tasks import load_task
-from antstreet.gate import Check
+from antstreet.gate import Check, run_gate
 from antstreet.termsheet import empty_checks_problems
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,7 +111,7 @@ def test_vacuous_keeps_the_imports_and_asserts_only_that_the_names_exist():
     assert draw(Vacuous(), "c04", 0) == (
         b"def test_parse_size_errors():\n"
         b"    from bytesize import parse_size\n"
-        b"    assert callable(parse_size)"
+        b"    assert parse_size is not None"
     )
 
 
@@ -233,7 +235,7 @@ def test_vacuous_is_not_caught_by_the_empty_workspace_validation(source, tmp_pat
     checks = [Check(p["check_id"], p["file"]) for p in key["plants"]]
     assert empty_checks_problems(checks, session.run_dir / "checks") == []
     for plant in key["plants"]:
-        assert b"callable(" in (session.run_dir / "checks" / plant["file"]).read_bytes()
+        assert b" is not None" in (session.run_dir / "checks" / plant["file"]).read_bytes()
 
 
 @pytest.mark.slow
@@ -252,3 +254,76 @@ def test_the_same_seed_gives_the_same_session_with_the_real_kinds(source, tmp_pa
         for p in json.loads(a.key_path.read_text())["plants"]
         if p["status"] == "shown"
     )
+
+
+# --- review fixes (PR #116) -------------------------------------------------------------------
+
+# A check that imports a constant: `_BINARY` is a tuple in the real bytesize reference.
+IMPORTS_A_CONSTANT = (
+    b"def test_units():\n"
+    b"    from bytesize import _BINARY, parse_size\n"
+    b'    assert _BINARY[1] == "KiB"\n'
+    b'    assert parse_size("1 KiB") == 1024\n'
+)
+
+
+def test_vacuous_asserts_existence_in_a_form_a_constant_also_satisfies():
+    planted = Vacuous().plant(IMPORTS_A_CONSTANT, random.Random(0))
+    assert b"callable(" not in planted
+    assert b"assert _BINARY is not None" in planted and b"assert parse_size is not None" in planted
+
+
+@pytest.mark.slow
+def test_a_vacuous_plant_of_a_check_importing_a_constant_passes_the_reference():
+    task = load_task(TASK_DIR)
+    outcome = plant_one(Vacuous(), IMPORTS_A_CONSTANT, "test_units.py", task, random.Random(0))
+    assert outcome.data is not None and outcome.oracle.holds, outcome.oracle.detail
+    (result,) = run_gate(task.reference_dir, *_one_check(outcome.data))
+    assert result.passed, result.output_tail
+
+
+@pytest.mark.slow
+def test_the_vacuous_oracle_rejects_a_plant_the_reference_fails():
+    """`assert callable(_BINARY)` fails on the reference: wrong, not vacuous. Empty fails, the stub
+    passes and the original fails the stub, so only a reference run can tell."""
+    task = load_task(TASK_DIR)
+    wrong = (
+        b"def test_units():\n"
+        b"    from bytesize import _BINARY, parse_size\n"
+        b"    assert callable(_BINARY)\n"
+        b"    assert callable(parse_size)\n"
+    )
+    result = Vacuous().oracle(IMPORTS_A_CONSTANT, wrong, "test_units.py", task)
+    assert result.holds is False and "reference" in result.detail
+
+
+def _one_check(data: bytes) -> tuple[Path, list[Check]]:
+    folder = Path(tempfile.mkdtemp(prefix="boss_test_"))
+    (folder / "test_units.py").write_bytes(data)
+    return folder, [Check("units", "test_units.py")]
+
+
+ONLY_METHOD_IN_A_CLASS = (
+    b"def test_a():\n"
+    b'    assert parse_size("1 K") == 1024\n'
+    b"\n"
+    b"\n"
+    b"class TestB:\n"
+    b"    def test_b(self):\n"
+    b'        assert parse_size("1 KB") == 1000\n'
+)
+
+
+def test_under_specified_never_empties_a_test_class():
+    for seed in range(30):
+        planted = UnderSpecified().plant(ONLY_METHOD_IN_A_CLASS, random.Random(seed))
+        tree = ast.parse(planted)  # still Python
+        (cls,) = [n for n in tree.body if isinstance(n, ast.ClassDef)]
+        assert [f.name for f in cls.body] == ["test_b"]
+
+
+def test_the_study_readme_describes_the_validation_and_rngs_the_code_uses():
+    text = " ".join((ROOT / "bench" / "review_study" / "README.md").read_text().split())
+    assert "validated structurally" not in text and "termsheet.validate" in text
+    assert "one 64-bit seed per plant" in text
+    assert "their kinds and the kinds' choices" not in text
