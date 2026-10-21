@@ -212,6 +212,18 @@ def test_auto_and_require_return_the_tool_when_it_works(tmp_path, mode):
     assert found == Sandbox("bwrap", str(tool))
 
 
+def test_require_says_what_the_tool_itself_said_when_it_fails(tmp_path):
+    # A CI image that breaks the sandbox must say how, not only "not working".
+    fake_tool(
+        tmp_path / "bin", "bwrap", "echo 'bwrap: setting up uid map: Permission denied' >&2; exit 1"
+    )
+    with pytest.raises(SandboxUnavailable) as excinfo:
+        select(SandboxMode.REQUIRE, {"PATH": str(tmp_path / "bin")}, system="Linux")
+    said = str(excinfo.value)
+    assert "install bubblewrap" in said
+    assert "bwrap exited 1: bwrap: setting up uid map: Permission denied" in said
+
+
 def test_missing_hints_name_the_tool_and_the_fix_per_platform():
     assert "install bubblewrap" in missing_hint("Linux")
     assert "sandbox-exec" in missing_hint("Darwin") and "macOS" in missing_hint("Darwin")
