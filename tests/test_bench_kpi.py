@@ -767,10 +767,15 @@ def graded(worker: str, task: str, status: str, check: str = "v1", **extra: obje
               status=status, **extra)  # fmt: skip
 
 
+def closed(passed: int, total: int) -> Event:
+    return ev("boss", EventType.ROUND_CLOSED, passed=passed, total=total, unlocked=True)
+
+
 def split_ledger(status_a: str = "passed", status_b: str = "passed") -> list[Event]:
+    passed = (status_a == "passed") + (status_b == "passed")
     return [
         hired_on("w1", "ta"), hired_on("w2", "tb"),
-        graded("w1", "ta", status_a), graded("w2", "tb", status_b),
+        graded("w1", "ta", status_a), graded("w2", "tb", status_b), closed(passed, 2),
     ]  # fmt: skip
 
 
@@ -820,6 +825,7 @@ def test_9_only_the_last_hired_worker_of_a_task_stands_for_it():
     ledger = [
         hired_on("w1", "ta"), graded("w1", "ta", "failed"), hired_on("w3", "ta"),
         hired_on("w2", "tb"), graded("w3", "ta", "passed"), graded("w2", "tb", "passed"),
+        closed(2, 2),
     ]  # fmt: skip
     assert integration(cell(hidden=FAIL), ledger) == (1, 1)
 
@@ -865,3 +871,31 @@ def test_9_the_single_arm_is_n_a_and_the_table_keeps_seven_rows():
     assert "n/a (the single arm has no split)" in shown
     numbered = [ln for ln in shown.splitlines() if ln[:3] in {f"| {n}" for n in range(1, 10)}]
     assert len(numbered) == 7  # METHOD fixes seven: the supplement is no eighth row
+
+
+def test_9_a_task_never_hired_cannot_hide_behind_the_tasks_that_were():
+    # t1 and t2 pass their visible checks, the money ran out before t3 was hired: 2 of 3 passed
+    ledger = [*split_ledger()[:-1], closed(2, 3)]
+    assert integration(cell(hidden=FAIL), ledger) == (1, 0)
+
+
+def test_9_a_run_with_no_closed_round_has_not_shown_the_sheet_passed():
+    assert integration(cell(hidden=FAIL), split_ledger()[:-1]) == (1, 0)
+
+
+def test_9_the_product_comes_from_the_best_worker_not_the_last_hired():
+    def slice_end(worker: str) -> Event:
+        return ev(f"worker:{worker}", EventType.SLICE_END, slice=1, outcome="completed",
+                  status={"status": "continuing"})  # fmt: skip
+
+    ledger = [
+        hired_on("w1", "ta"), slice_end("w1"),
+        *[graded("w1", "ta", "failed" if c == "c4" else "passed", check=c) for c in
+          ("c1", "c2", "c3", "c4")],
+        ev("investor", EventType.RULED, ruling="dropped", check="c4"),
+        ev("boss", EventType.FIRED, worker="w1", reason="no progress"),
+        hired_on("w2", "ta"),  # never graded: must not discard w1's work
+        hired_on("w3", "tb"), slice_end("w3"), graded("w3", "tb", "passed", check="c5"),
+        closed(4, 4),
+    ]  # fmt: skip
+    assert integration(cell(hidden=FAIL), ledger) == (1, 1)

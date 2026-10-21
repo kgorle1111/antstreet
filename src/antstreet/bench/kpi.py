@@ -27,7 +27,7 @@ from antstreet.report import dollars
 from antstreet.rule import Decision, FiringPolicy, decide
 from antstreet.rulings import DROPPED, ruled
 from antstreet.rundir import RunPaths
-from antstreet.state import last_check_statuses, slice_history, worker_tasks
+from antstreet.state import last_check_statuses, run_state, slice_history, worker_tasks
 from antstreet.stats import md_table, pct, rate
 
 CellKey = tuple[str, str, int]  # (task, arm, rep)
@@ -153,17 +153,20 @@ def _split(events: Sequence[Event]) -> bool:
 
 
 def _integration_failure(r: CellResult, events: Sequence[Event]) -> bool:
-    """A split cell where each task's last-hired worker passed every visible check the gate last
-    graded it on (`state.last_check_statuses`: held-out and dropped checks left out; no graded
-    check is not a pass), yet at least one hidden check did not pass. Each part looked right alone
-    and the assembled product is wrong."""
+    """A split cell whose whole term sheet passed its visible checks (the last `round_closed` has
+    passed == total > 0, so a task never hired, e.g. the money ran out, cannot hide), where each
+    hired task's `best` worker (`state.run_state`: the one the product is assembled from) passed
+    every visible check the gate last graded it on (`state.last_check_statuses`: held-out and
+    dropped checks left out; no graded check is not a pass), yet at least one hidden check did not
+    pass. Each part looked right alone and the assembled product is wrong."""
     if not _split(events) or not r.hidden or r.passed:
         return False
-    last: dict[str, str] = {}  # task -> its last-hired worker
-    for worker, task in worker_tasks(events).items():
-        last[task] = worker
-    for worker in last.values():
-        statuses = last_check_statuses(events, worker)
+    closed = [e.data for e in events if e.event is EventType.ROUND_CLOSED]
+    if not closed or not closed[-1].get("total") or closed[-1].get("passed") != closed[-1]["total"]:
+        return False
+    tasks = run_state(events, sorted(set(worker_tasks(events).values()))).tasks
+    for state in tasks.values():
+        statuses = last_check_statuses(events, state.best) if state.best else {}
         if not statuses or any(s != "passed" for s in statuses.values()):
             return False
     return True

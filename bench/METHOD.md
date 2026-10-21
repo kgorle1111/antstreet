@@ -258,16 +258,23 @@ stay fixed). It asks how often a split of the work was each part right and the w
 the cell's ledger and hidden result only; no ledger key was added for it.
 
 - A **split cell** is a counted cell whose ledger holds `hired` events (`data.worker`,
-  `data.task`) for at least two distinct tasks.
-- An **integration failure** is a split cell where, for each task, the last-hired worker's last
-  gate results (`check_result` events carrying that `worker` and a `slice`, read by
-  `state.last_check_statuses`: held-out and dropped checks left out) are all `passed`, and the cell
-  has at least one hidden check that did not pass (`failed` or `timeout`). A task with no graded
-  check is not a pass; a cell with no hidden result is not counted.
+  `data.task`) for at least two distinct tasks. The split is read from the hirings, not from the
+  term sheet (the ledger does not carry its task list), so a sheet that stopped before a second
+  task was hired is not a split. That under-counts splits, never integration failures.
+- An **integration failure** is a split cell where all of these hold: the last `round_closed` has
+  `passed == total > 0` (the whole term sheet's visible checks passed, so a task that was never
+  hired, e.g. the money ran out, cannot hide; a run with no closed round is not counted); for each
+  hired task, the worker the product is assembled from (`state.run_state(...).tasks[t].best`, as
+  `rundir.assemble_product` picks it) has last gate results (`check_result` events carrying that
+  `worker` and a `slice`, read by `state.last_check_statuses`: held-out and dropped checks left
+  out) that are all `passed`, a task with no graded check not being a pass; and the cell has at
+  least one hidden check that did not pass (`failed` or `timeout`). A cell with no hidden result is
+  a split cell, never a failure.
 - Reported per column as failures over split cells with a Wilson 95% interval and the number of
   split cells. With no split cell the line says so, never 0/0. The single arm: "n/a". Cells whose
   ledger was not found are counted beside it and are in no figure.
-- Fired earlier workers are not judged: only the worker that ended each task stands for it.
+- Fired workers are not judged unless they are the task's best: only the worker the product is
+  assembled from stands for a task.
 
 **Counting rule for investor questions.** One question is one decision the run needed from the
 investor, and the count is the number of these ledger events:
