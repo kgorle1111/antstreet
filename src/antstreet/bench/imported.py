@@ -194,6 +194,14 @@ def convert_clitoolbench(
     src: Path, dest_root: Path, task_id: str | None = None, *, stdout_match: str = "em"
 ) -> Path:
     """Write a frozen CLI-Tool-Bench task as an imported task: one hidden test per frozen case."""
+    return _convert(src, dest_root, task_id, stdout_match)[0]
+
+
+def _convert(
+    src: Path, dest_root: Path, task_id: str | None, stdout_match: str
+) -> tuple[Path, dict[str, Any]]:
+    """The task written, and the frozen data it came from: cases.json is read exactly once, so
+    what is converted is what is replay-checked even if the file changes underneath."""
     if stdout_match not in STDOUT_MATCHES:
         raise ConvertError(f"stdout_match must be one of {STDOUT_MATCHES}, not {stdout_match!r}")
     _check_plain_tree(src)
@@ -251,7 +259,7 @@ def convert_clitoolbench(
         },
     }
     (dest / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
-    return dest
+    return dest, data
 
 
 def clean_reason(text: object) -> str:
@@ -271,11 +279,18 @@ def _read_bounded(path: Path, limit: int) -> str:
         if path.is_symlink():
             raise ConvertError(f"{path} is a symlink; the frozen task must be plain files") from exc
         raise ConvertError(f"cannot read {path}: {exc.strerror}") from exc
-    with os.fdopen(fd, "rb") as handle:
-        info = os.fstat(handle.fileno())
-        if not stat.S_ISREG(info.st_mode):
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):  # a folder opens on macOS; a fifo too
             raise ConvertError(f"{path} is not a regular file")
-        data = handle.read(limit + 1)
+        handle = os.fdopen(fd, "rb")
+    except BaseException:
+        os.close(fd)
+        raise
+    try:
+        with handle:
+            data = handle.read(limit + 1)
+    except OSError as exc:
+        raise ConvertError(f"cannot read {path}: {exc.strerror}") from exc
     if len(data) > limit:
         raise ConvertError(f"{path} is larger than {limit} bytes")
     try:
@@ -357,7 +372,7 @@ def _load_frozen(path: Path) -> dict[str, Any]:
         _DIR_NAME.match(d) for d in data["ignore_dirs"]
     ):
         raise ConvertError(f"{path}: ignore_dirs must be a list of folder names")
-    if not _str_list(data["flags"], 50) or not isinstance(data["dropped"], list):
+    if not _plain_list(data["flags"], 50) or not isinstance(data["dropped"], list):
         raise ConvertError(f"{path}: flags must be a list of strings and dropped a list")
     _check_oracle(path, data.get("oracle"))
     cases = data.get("cases")
@@ -391,7 +406,7 @@ def _check_oracle(path: Path, oracle: object) -> None:
             raise ConvertError(f"{path}: oracle.{key} must be a short string")
     if not isinstance(oracle["commit"], str) or not _COMMIT.match(oracle["commit"]):
         raise ConvertError(f"{path}: oracle.commit must be a 40-hex git sha")
-    if not _str_list(oracle["deps"], 500):
+    if not _plain_list(oracle["deps"], 500):
         raise ConvertError(f"{path}: oracle.deps must be a list of strings")
     programs = oracle["programs"]
     if not _str_list(programs, 10) or not programs or not all(_PROGRAM.match(p) for p in programs):
@@ -512,6 +527,14 @@ def _str_list(value: object, limit: int) -> bool:
         isinstance(value, list)
         and len(value) <= limit
         and all(isinstance(v, str) and len(v) <= 500 for v in value)
+    )
+
+
+def _plain_list(value: object, limit: int) -> bool:
+    """A list of strings with no control characters: they are printed to the owner's terminal."""
+    return _str_list(value, limit) and not any(
+        _CONTROL.search(v)
+        for v in value  # type: ignore[attr-defined]
     )
 
 
@@ -805,14 +828,13 @@ def _replay_entries(cases: list[dict[str, Any]], programs: dict[str, str]) -> li
     return entries
 
 
-def replay_check(task: BenchTask, src: Path) -> ReplayReport:
+def replay_check(task: BenchTask, data: dict[str, Any]) -> ReplayReport:
     """Grade a product that plays back the frozen outputs, through the real sandboxed gate.
 
     Run by `--all`. A case the playback cannot identify still runs (it counts for the time) but
     is not required to pass; every case it can identify must, or the frozen outputs are not
     reachable by any product. Seconds over REPLAY_MAX_S mean a correct product could time out.
     """
-    data = _load_frozen(src / "cases.json")
     programs = _modules(data["oracle"]["programs"])
     entries = _replay_entries(data["cases"], programs)
     with tempfile.TemporaryDirectory(prefix="clitb_replay_") as raw:
@@ -927,40 +949,49 @@ def convert_clitoolbench_all(
         {"task": clean_reason(task), "stage": "freeze", "reason": clean_reason(reason)}
         for task, reason in sorted(skipped.items())
     ]
-    for src in tasks:
-        staging = Path(tempfile.mkdtemp(prefix="staging-", dir=dest_root))
-        stage, task_name = "convert", src.name
-        try:
-            dest = convert_clitoolbench(src, staging, stdout_match=stdout_match)
-            data = _load_frozen(src / "cases.json")
-            task_name = data["task"]
-            stage = "validate"
-            task = load_task(dest)
-            validate_task(task)
-            stage = "replay"
-            report = replay_check(task, src)
-            if report.problem:
-                raise ConvertError(report.problem)
-            if (dest_root / dest.name).exists():
-                raise ConvertError(f"{dest_root / dest.name} already exists")
-            dest.rename(dest_root / dest.name)
-            kept.append(
-                {
+    # Every task is staged first and moved into dest_root only after all of them were judged,
+    # so a run that aborts (a GateError, an interrupt) leaves no task half moved in.
+    stagings: list[Path] = []
+    passed: list[tuple[Path, dict[str, Any]]] = []
+    try:
+        for src in tasks:
+            staging = Path(tempfile.mkdtemp(prefix="staging-", dir=dest_root))
+            stagings.append(staging)
+            stage, task_name = "convert", clean_reason(src.name)
+            try:
+                dest, data = _convert(src, staging, None, stdout_match)
+                task_name = data["task"]
+                stage = "validate"
+                task = load_task(dest)
+                validate_task(task)
+                stage = "replay"
+                report = replay_check(task, data)
+                if report.problem:
+                    raise ConvertError(report.problem)
+                row = {
                     "task": task_name,
                     "id": dest.name,
                     "cases": len(data["cases"]),
                     "oracle": {
                         k: clean_reason(data["oracle"][k]) for k in ("url", "commit", "licence")
                     },
-                    "python": data["oracle"]["python"],
+                    "python": clean_reason(data["oracle"]["python"]),
                     "replay_s": round(report.seconds, 1),
                     "replay_unverified": list(report.unverified),
                 }
-            )
-        except (ConvertError, TaskError) as exc:
-            dropped.append({"task": task_name, "stage": stage, "reason": clean_reason(exc)})
-        finally:
-            shutil.rmtree(staging)  # made by this call; empty after a kept task's rename
+                passed.append((dest, row))
+            except (ConvertError, TaskError, OSError) as exc:
+                dropped.append({"task": task_name, "stage": stage, "reason": clean_reason(exc)})
+        for dest, row in passed:
+            if (dest_root / dest.name).exists():
+                reason = clean_reason(f"{dest_root / dest.name} already exists")
+                dropped.append({"task": row["task"], "stage": "convert", "reason": reason})
+                continue
+            dest.rename(dest_root / dest.name)
+            kept.append(row)
+    finally:
+        for staging in stagings:
+            shutil.rmtree(staging, ignore_errors=True)  # made by this call
     manifest = {
         "format": MANIFEST_FORMAT,
         "seed": index.get("seed") if _is_int(index.get("seed")) else None,
@@ -1040,7 +1071,7 @@ def _warn_flags(dest: Path) -> None:
     provenance = json.loads((dest / "provenance.json").read_text(encoding="utf-8"))
     for flag in provenance["flags"]:
         detail = f" ({', '.join(provenance['oracle']['deps'])})" if "third_party" in flag else ""
-        print(f"warning: {dest.name}: {flag}{detail}", file=sys.stderr)
+        print(f"warning: {clean_reason(f'{dest.name}: {flag}{detail}')}", file=sys.stderr)
 
 
 if __name__ == "__main__":

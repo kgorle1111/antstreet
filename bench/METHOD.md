@@ -135,20 +135,38 @@ repo is already gone. So it is frozen once and then runs offline in our sandbox.
 - Boundaries. `start.py`, every install command and every oracle run in the freeze's own process
   inside the container, so the container is the only boundary; the `CLITOOLBENCH_IN_CONTAINER=1`
   check is an accident guard (it stops a run on the host by mistake), not a security boundary.
-  Both containers run as the owner's uid with `--cap-drop ALL`, `--security-opt
-  no-new-privileges`, `--pids-limit 512`, `--memory 4g`, `--cpus 2`, the checkout read-only, and
-  a wall-clock limit per phase (`CLITB_PHASE_LIMIT_S`, default 6 h: macOS has no `timeout`, so a
-  background watchdog runs `docker stop`, and `--stop-timeout 10` turns that into a kill). Phase
-  install has the network, because it clones each oracle and pip-installs it, which runs the
-  oracle's `setup.py` and build backend with network; phase run, which generates the cases and
-  runs every oracle, has `--network none` (no LAN, no `host.docker.internal`), and only it mounts
-  `<out-dir>`, which must be empty, outside the repository and not under a dot folder of
-  `$HOME`. The image writes only `/repo`, `/test_data` and `/clitb-work`; an adapter that needs
-  another writable path is skipped with that reason. The converter then treats the freeze output
-  as hostile: any symlink, device or fifo refuses its task (or the whole run, at the top level),
-  every read is bounded and does not follow links, and every reason printed or recorded is cut to
-  300 characters with control characters removed. Grading always runs in the OS sandbox
-  (`BOSS_GATE_SANDBOX=off` does not apply to imported tasks; no working sandbox is an error).
+  Three containers run as the owner's uid with `--cap-drop ALL`, `--security-opt
+  no-new-privileges`, `--pids-limit 512`, `--memory 4g`, `--cpus 2`, the host aliases
+  `host.docker.internal` and `gateway.docker.internal` pointed at the container's own loopback,
+  and a wall-clock limit per phase (`CLITB_PHASE_LIMIT_S`, default 6 h: macOS has no `timeout`,
+  so a background watchdog runs `docker stop`, and `--stop-timeout 10` turns that into a kill).
+  Phase install has the network, because it clones each oracle and pip-installs it, which runs
+  the oracle's `setup.py` and build backend with network. Before the freeze, quit local services
+  (Command Center :4173, Forge :8765, Concierge :4310) and anything bound on localhost or the LAN:
+  nulling the aliases does not stop code reaching the host by its gateway address. The full fix
+  is an egress allowlist proxy (github.com, pypi.org, files.pythonhosted.org) on an `--internal`
+  network, left as a `kn:` in the runner. Phase run, which generates the cases and runs every
+  oracle, has `--network none` and writes only into the work volume. Phase export, which runs
+  only our own code with `--network none` and the volume read-only, is the one container that
+  mounts `<out-dir>`, and it copies only regular files named `index.json`, `cases.json`,
+  `spec.md` and `skipped.json`, each bounded, never through a link. `<out-dir>` is resolved
+  through every symlink, before and again after it is made, and must be empty, outside the
+  repository, outside `~/Library` and not under a dot folder of `$HOME` at any depth. The image
+  writes only `/repo`, `/test_data` and `/clitb-work`; an adapter that needs another writable
+  path is skipped with that reason. The converter then treats the freeze output as hostile: any
+  symlink, device, fifo or folder where a file belongs refuses its task (or the whole run, at the
+  top level), every read is bounded and does not follow links, each task's `cases.json` is read
+  once, one hostile task never aborts `--all` (tasks are moved into the pool only after every
+  task is judged), and every untrusted string printed or recorded is cut to 300 characters with
+  control characters removed (flags and dependencies with control characters are refused).
+  Grading always runs in the OS sandbox (`BOSS_GATE_SANDBOX=off` does not apply to imported
+  tasks; no working sandbox is an error).
+- The spec is untrusted text. `spec.md` becomes the `idea.md` every arm's model reads, and phase
+  run, where it is copied, runs every oracle and any transitive PyPI dependency they pulled in,
+  any of which could rewrite it. What a model can do with a hostile spec is bounded by the worker
+  tools: Read/Write/Edit inside its own folder, no shell, no network; and every result is
+  decided by the gate, not the model. Before registration the owner reads a diff or summary of each
+  spec against the upstream `agent_prompt.txt` (the triage step) and drops any that differs.
 - Replay check: a harness-owned product that plays the recorded outputs back (exit code, stdout,
   the files written) is graded through the real sandboxed gate on this machine. Every case it can
   identify (the tool runs once, with arguments the shell does not expand) must pass, or no
