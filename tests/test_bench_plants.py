@@ -13,7 +13,9 @@ from pathlib import Path
 import pytest
 
 from antstreet.bench import plants
+from antstreet.bench.plant_kinds import OracleResult
 from antstreet.bench.plants import PlantError, materialize, select_plants
+from antstreet.termsheet import structural_problems
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).parent / "fixtures" / "plants_draft_bytesize"  # a real archived draft
@@ -23,7 +25,8 @@ CHECK_IDS = tuple(f"c0{n}" for n in range(1, 9))
 
 
 class AppendTest:
-    """Test-only kind: adds one more test function. Real kinds come with their oracles (PR 2)."""
+    """Test-only kind: adds one more test function, and its oracle always holds. The real kinds
+    and their gate-run oracles are tested in test_bench_plant_kinds.py."""
 
     name = "append_test"
 
@@ -32,12 +35,25 @@ class AppendTest:
             1, 9
         )
 
+    def oracle(self, original: bytes, planted: bytes, file: str, task: object) -> OracleResult:
+        return OracleResult(True, "test kind")
 
-class Telltale:
+
+class Telltale(AppendTest):
     name = "telltale"
 
     def plant(self, original: bytes, rng: random.Random) -> bytes:
         return original + b"\n# PLANTED\n"
+
+
+@pytest.fixture(autouse=True)
+def structure_only(monkeypatch):
+    """These tests are about copying, keys and refusals, so approval's validation is cut to its
+    structural half here: the empty-workspace half runs every check through the gate (seconds).
+    test_bench_plant_kinds.py runs the real one."""
+    monkeypatch.setattr(
+        plants, "_approval_problems", lambda sheet, checks: structural_problems(sheet, checks)
+    )
 
 
 KINDS = {"append_test": AppendTest()}
@@ -137,7 +153,9 @@ def test_the_key_names_each_plant_its_kind_and_the_planted_files_hash(source, tm
     assert len(key["plants"]) == 2
     for plant in key["plants"]:
         planted = session.run_dir / "checks" / plant["file"]
-        assert plant["kind"] == "append_test" and plant["oracle"] is None
+        assert plant["kind"] == "append_test" and plant["status"] == "shown"
+        assert plant["oracle"] == {"holds": True, "detail": "test kind", "attempts": 1}
+        assert plant["caught_by"] is None
         assert plant["sha256"] == hashlib.sha256(planted.read_bytes()).hexdigest()
         assert plant["sha256"] != key["source_sha256"][f"checks/{plant['file']}"]
 

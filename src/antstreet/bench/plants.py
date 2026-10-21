@@ -6,23 +6,31 @@ A session is `<out_root>/sessions/<sid>/proj/.boss/runs/<run id>/`, holding the 
 key is `<out_root>/keys/<sid>.json`, mode 0600. Check ids and file names stay the draft's own.
 
 Archived drafts are model output. Their bytes are read (size-capped, symlinks refused), parsed as
-JSON and hashed; a check file is parsed for structure by `termsheet.structural_problems` on the
-copy, never imported or run here. The source is hashed before and after, and a change is an error.
+JSON and hashed; a check file is parsed on the copy, and run only by the sandboxed gate (oracles,
+`termsheet.validate`), never imported or run in this process. The source is hashed before and
+after, and a change is an error.
 
-Plant kinds and their oracles come later (PR 2 of ops/c4-approval-study-2026-10-16/DESIGN.md):
-`KINDS` is empty until then, so only a seed that plants nothing can be materialized with it.
+A planted check is kept only if its kind's oracle holds (`plant_kinds`: the gate shows the check
+is wrong in the way the kind claims); otherwise the kind draws again, up to MAX_ATTEMPTS, and
+then the check stays as drafted and the key says the kind was inapplicable. The session is then
+validated the way approval validates it (`termsheet.validate`, approval.py `_load_valid`), and a
+plant approval would refuse is put back to the draft's check and recorded as caught (T08 when the
+empty-workspace run refuses it), never shown.
 """
 
 from __future__ import annotations
 
+import ast
 import errno
 import hashlib
+import io
 import json
 import os
 import random
 import re
 import shutil
 import stat
+import tokenize
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,12 +38,19 @@ from types import MappingProxyType
 from typing import Protocol
 
 from antstreet.audit import MAX_PARSE_BYTES
-from antstreet.bench.tasks import TaskError, load_task
+from antstreet.bench.plant_kinds import (
+    Inapplicable,
+    OracleResult,
+    UnderSpecified,
+    Vacuous,
+    WrongValue,
+)
+from antstreet.bench.tasks import BenchTask, TaskError, load_task
 from antstreet.termsheet import (
     _CHECK_FILE_RE,  # the rule the term sheet holds a check file name to
     TermSheet,
     TermSheetError,
-    structural_problems,
+    validate,
 )
 
 TERM_SHEET = "term_sheet.json"
@@ -45,7 +60,9 @@ MAX_FILE_BYTES = MAX_PARSE_BYTES
 MAX_CHECKS = 64  # kn: far above any archived draft (4-12); raise if a real draft is refused
 PLANTS_PER_SESSION = (0, 1, 2)
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
-_TELLTALE = b"plant"  # no reviewer-visible byte may say what the session is
+# No reviewer-visible byte a kind adds may say what the session is, or what was done to a check.
+_HINTS = (b"plant", b"vacuous", b"oracle", b"mutant", b"stub", b"perturb", b"under_spec", b"wrong")
+MAX_ATTEMPTS = 12  # draws per planted check before the kind is called inapplicable for it
 
 
 class PlantError(Exception):
@@ -53,16 +70,34 @@ class PlantError(Exception):
 
 
 class PlantKind(Protocol):
-    """One way to make a check wrong. `plant` returns the new file's bytes; it must use only `rng`
-    for its choices so a seed reproduces the session."""
+    """One way to make a check wrong. `plant` returns the new file's bytes, or raises
+    `plant_kinds.Inapplicable`; it must use only `rng` for its choices so a seed reproduces the
+    session. `oracle` says, from gate runs only, whether `planted` is wrong the way the kind
+    claims, or raises `Inapplicable` when the draft's own check leaves nothing to show (no draw
+    could hold); it must give the same answer for the same inputs."""
 
     @property
     def name(self) -> str: ...
 
     def plant(self, original: bytes, rng: random.Random) -> bytes: ...
 
+    def oracle(
+        self, original: bytes, planted: bytes, file: str, task: BenchTask
+    ) -> OracleResult: ...
 
-KINDS: Mapping[str, PlantKind] = MappingProxyType({})
+
+KINDS: Mapping[str, PlantKind] = MappingProxyType(
+    {k.name: k for k in (WrongValue(), Vacuous(), UnderSpecified())}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    """One planted check's fate: `data` is the planted file, None when no draw passed the oracle."""
+
+    data: bytes | None
+    oracle: OracleResult
+    attempts: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +106,9 @@ class Session:
     project: Path  # the scratch project root a review runs in
     run_dir: Path  # <project>/.boss/runs/<run id>
     key_path: Path  # outside `project`; never shown to the reviewer
-    plants: tuple[tuple[str, str], ...]  # (check id, kind name), in the draft's check order
+    # (check id, kind name) of the plants the reviewer sees, in the draft's check order; the key
+    # also lists the inapplicable and caught ones.
+    plants: tuple[tuple[str, str], ...]
 
 
 def select_plants(
@@ -129,7 +166,15 @@ def materialize(
 
     rng = random.Random(seed)
     chosen = select_plants([c.id for c in sheet.checks], list(kinds), rng)
-    planted = {i: _planted(kinds[kind], originals[i], i, rng) for i, kind in chosen}
+    # One draw from the session rng per plant: how many draws a kind needs before its oracle holds
+    # cannot shift the choices made for the next plant.
+    subs = {i: random.Random(rng.getrandbits(64)) for i, _ in chosen}
+    outcomes = {
+        i: plant_one(kinds[kind], originals[i], files[i], task, subs[i], check_id=i)
+        for i, kind in chosen
+    }
+    planted = {i: o.data for i, o in outcomes.items() if o.data is not None}
+    caught: dict[str, str] = {}
 
     sid = hashlib.sha256(
         json.dumps({"seed": seed, "source": copied}, sort_keys=True).encode()
@@ -158,7 +203,19 @@ def materialize(
         for check_id, data in originals.items():
             dest = _under(root, run_dir / CHECKS / files[check_id])
             _write_new(dest, planted.get(check_id, data))
-        problems = structural_problems(sheet, run_dir / CHECKS)
+        problems = _approval_problems(sheet, run_dir / CHECKS)
+        # Approval would refuse these: put the draft's checks back and record the catch. Again
+        # until none is blamed, since a structural refusal hides the empty-workspace run.
+        while blamed := {
+            i: mine
+            for i in planted
+            if i not in caught and (mine := [p for p in problems if p.startswith(f"check {i} ")])
+        }:
+            for check_id, mine in blamed.items():
+                empty = any("empty workspace" in p for p in mine)
+                caught[check_id] = "T08" if empty else "validate"
+                _rewrite(_under(root, run_dir / CHECKS / files[check_id]), originals[check_id])
+            problems = _approval_problems(sheet, run_dir / CHECKS)
         if problems:
             raise PlantError(f"the session's term sheet does not validate: {'; '.join(problems)}")
         if _digests(source) != before:
@@ -177,8 +234,14 @@ def materialize(
                     "check_id": i,
                     "kind": kind,
                     "file": files[i],
-                    "sha256": _sha(planted[i]),
-                    "oracle": None,  # filled by the kind's oracle (PR 2), never by hand
+                    "status": _status(i, planted, caught),
+                    "caught_by": caught.get(i),
+                    "sha256": _sha(planted[i]) if i in planted else None,
+                    "oracle": {
+                        "holds": outcomes[i].oracle.holds,
+                        "detail": outcomes[i].oracle.detail,
+                        "attempts": outcomes[i].attempts,
+                    },
                 }
                 for i, kind in chosen
             ],
@@ -187,7 +250,57 @@ def materialize(
     except BaseException:
         shutil.rmtree(session_dir, ignore_errors=True)
         raise
-    return Session(sid, project, run_dir, key_path, chosen)
+    shown = tuple((i, kind) for i, kind in chosen if i in planted and i not in caught)
+    return Session(sid, project, run_dir, key_path, shown)
+
+
+def plant_one(
+    kind: PlantKind,
+    original: bytes,
+    file: str,
+    task: BenchTask,
+    rng: random.Random,
+    check_id: str = "",
+) -> Outcome:
+    """Draw plants of `kind` for one check until its oracle holds, at most MAX_ATTEMPTS draws (a
+    draw seen before is not judged again). Same rng state, same gate: same outcome."""
+    if not _CHECK_FILE_RE.match(file):  # oracles write it into temp folders by this name
+        raise PlantError(f"check file {file!r} must be named test_<name>.py")
+    seen: set[bytes] = set()
+    last = OracleResult(False, "no draw was judged")
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            data = kind.plant(original, rng)
+        except Inapplicable as exc:
+            return Outcome(None, OracleResult(False, f"inapplicable: {exc}"), attempt)
+        data = _planted(kind, original, data, check_id or file)
+        if data in seen:
+            continue
+        seen.add(data)
+        try:
+            last = kind.oracle(original, data, file, task)
+        except Inapplicable as exc:  # the draft's own check leaves nothing to show
+            return Outcome(None, OracleResult(False, f"inapplicable: {exc}"), attempt)
+        if last.holds:
+            return Outcome(data, last, attempt)
+    return Outcome(None, last, MAX_ATTEMPTS)
+
+
+def _status(check_id: str, planted: Mapping[str, bytes], caught: Mapping[str, str]) -> str:
+    if check_id in caught:
+        return "caught"
+    return "shown" if check_id in planted else "inapplicable"
+
+
+def _approval_problems(sheet: TermSheet, checks_dir: Path) -> list[str]:
+    """What approval says of this sheet and these files: `termsheet.validate`, the call
+    approval.py `_load_valid` makes before an investor may approve (structure, then every check on
+    an empty workspace: T08)."""
+    try:
+        validate(sheet, checks_dir)
+    except TermSheetError as exc:
+        return list(exc.problems)
+    return []
 
 
 def _source_dir(path: Path) -> Path:
@@ -244,17 +357,32 @@ def _sheet(data: bytes, source: Path) -> TermSheet:
     return sheet
 
 
-def _planted(kind: PlantKind, original: bytes, check_id: str, rng: random.Random) -> bytes:
-    data = kind.plant(original, rng)
+def _planted(kind: PlantKind, original: bytes, data: bytes, check_id: str) -> bytes:
     if not isinstance(data, bytes) or data == original:
         raise PlantError(f"plant kind {kind.name} left check {check_id} unchanged")
     if len(data) > MAX_FILE_BYTES:
         raise PlantError(
             f"plant kind {kind.name} made check {check_id} over {MAX_FILE_BYTES} bytes"
         )
-    if _TELLTALE in data.lower() and _TELLTALE not in original.lower():
-        raise PlantError(f"plant kind {kind.name} wrote 'plant' into check {check_id}")
+    for word in _HINTS:
+        if word in data.lower() and word not in original.lower():
+            raise PlantError(
+                f"plant kind {kind.name} wrote {word.decode()!r} into check {check_id}"
+            )
+    added = _comments(data, kind.name, check_id) - _comments(original, kind.name, check_id)
+    if added:
+        raise PlantError(f"plant kind {kind.name} added the comment {min(added)!r} to {check_id}")
     return data
+
+
+def _comments(data: bytes, kind: str, check_id: str) -> set[str]:
+    """The check's comments, by the tokenizer. A plant that is not Python is a kind's bug."""
+    try:
+        ast.parse(data)
+        tokens = list(tokenize.tokenize(io.BytesIO(data).readline))
+    except (SyntaxError, ValueError, tokenize.TokenError) as exc:
+        raise PlantError(f"plant kind {kind} made check {check_id} unparseable: {exc}") from exc
+    return {t.string for t in tokens if t.type == tokenize.COMMENT}
 
 
 def _open(path: Path) -> int:
@@ -299,6 +427,12 @@ def _sha(data: bytes) -> str:
 
 def _write_new(path: Path, data: bytes) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+
+
+def _rewrite(path: Path, data: bytes) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW)
     with os.fdopen(fd, "wb") as fh:
         fh.write(data)
 
