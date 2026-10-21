@@ -535,6 +535,13 @@ def test_method_documents_the_frozen_clitoolbench() -> None:
         "flaky",
         "90 s",
         "not vendored",
+        "accident guard",
+        "only boundary",
+        "T12",
+        "--network none",
+        "--cap-drop ALL",
+        "--image-digest",
+        "setup.py",
     ):
         assert term in body
 
@@ -553,7 +560,7 @@ def load_freeze() -> Any:
 def test_the_freeze_script_refuses_to_run_outside_its_container(tmp_path: Path) -> None:
     env = {k: v for k, v in os.environ.items() if k != "CLITOOLBENCH_IN_CONTAINER"}
     done = subprocess.run(
-        [sys.executable, "-I", str(FREEZE), str(tmp_path / "bench"), str(tmp_path / "out")],
+        [sys.executable, "-I", str(FREEZE), "--phase", "install", str(tmp_path / "bench")],
         env=env,
         capture_output=True,
         text=True,
@@ -609,16 +616,20 @@ from DiffTestEngine import DiffTestEngine
 
 class GreetAdapter(BaseRepoAdapter):
     test_data_dir = @TD@
+    repo_root_dir = @REPO@
 
     @property
     def base_image(self):
         return "python:latest"
 
     def install_oracle(self, container):
-        r = container.exec_run("git clone @ORIGIN@ greet")
+        # Into the shared repo root, as upstream adapters do: every task's clone lands there.
+        r = container.exec_run("git clone @ORIGIN@ @REPOPATH@/greet")
         if r.exit_code != 0:
             raise Exception("Oracle Installation Failed")
-        copy = 'cp greet/greet.sh "$VIRTUAL_ENV/bin/greet" && chmod +x "$VIRTUAL_ENV/bin/greet"'
+        @INSTALL_EXTRA@
+        copy = 'cp @REPOPATH@/greet/greet.sh "$VIRTUAL_ENV/bin/greet"'
+        copy += ' && chmod +x "$VIRTUAL_ENV/bin/greet"'
         r = container.exec_run(["sh", "-c", copy])
         if r.exit_code != 0:
             raise Exception("Oracle Installation Failed")
@@ -632,7 +643,7 @@ class GreetAdapter(BaseRepoAdapter):
                                   mount_files={"names.txt": "x\\ny\\n"}))
         cases.append(TestCase(command="greet Ann -o out.txt", category="OUTPUT"))
         @EXTRA@
-        cases.append(TestCase(command="greet x > /repo/x", category="REPO"))
+        cases.append(TestCase(command="greet x > @REPOPATH@/x", category="REPO"))
         return cases
 
 
@@ -656,7 +667,11 @@ def fake_checkout(tmp_path: Path) -> Path:
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(origin)]
     for args in (["init", "-q"], ["add", "."], ["commit", "-qm", "oracle"]):
         subprocess.run([*git, *args], check=True, capture_output=True)
-    bench, td = tmp_path / "bench", tmp_path / "td"
+    bench, td, repo = tmp_path / "bench", tmp_path / "td", tmp_path / "repo-root"
+    repo.mkdir()
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    write_locked = f'container.exec_run(["sh", "-c", "touch {locked}/x"])'
     run = bench / "run_differential_test"
     # `$$` is the shell's pid: a different greeting on every run, so that task is flaky.
     flaky = 'cases.append(TestCase(command="greet $$", category="CLOCK"))'
@@ -664,11 +679,25 @@ def fake_checkout(tmp_path: Path) -> Path:
         ("acme/greet", FAKE_START.replace("@EXTRA@", "")),
         ("acme/gone", FAKE_START.replace("@ORIGIN@", str(tmp_path / "missing"))),
         ("acme/flaky", FAKE_START.replace("@EXTRA@", flaky)),
+        (
+            "acme/locked",
+            FAKE_START.replace(
+                "@INSTALL_EXTRA@",
+                write_locked + "\n        raise Exception('Oracle Installation Failed')",
+            ),
+        ),
+        (
+            "acme/ro-data",
+            FAKE_START.replace("test_data_dir = @TD@", f"test_data_dir = {str(locked / 'td')!r}"),
+        ),
     ):
         (run / "repo" / owner_repo).mkdir(parents=True)
         source = (
             start.replace("@ORIGIN@", str(origin))
             .replace("@EXTRA@", "")
+            .replace("@INSTALL_EXTRA@", "")
+            .replace("@REPOPATH@", str(repo))
+            .replace("@REPO@", repr(str(repo)))
             .replace("@TD@", repr(str(td)), 1)
             .replace("@TD@", str(td))
         )
@@ -679,13 +708,18 @@ def fake_checkout(tmp_path: Path) -> Path:
     return bench
 
 
+DIGEST = "sha256:" + "ab" * 32
+
+
 def run_freeze(tmp_path: Path, name: str, *args: str) -> Path:
+    """Both phases, as the two containers run them: install, then run on the same work folder."""
     bench, out = tmp_path / "bench", tmp_path / name
     env = {**os.environ, "CLITOOLBENCH_IN_CONTAINER": "1"}
-    argv = [sys.executable, "-I", str(FREEZE), str(bench), str(out), *args]
-    argv += ["--work", str(tmp_path / f"work-{name}"), "--venv-without-pip"]
-    done = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
-    assert done.returncode == 0, done.stderr
+    common = [str(bench), "--work", str(tmp_path / f"work-{name}"), "--venv-without-pip", *args]
+    for phase in (["--phase", "install"], ["--phase", "run", "--out", str(out)]):
+        argv = [sys.executable, "-I", str(FREEZE), *phase, "--image-digest", DIGEST, *common]
+        done = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+        assert done.returncode == 0, done.stderr
     return out
 
 
@@ -984,3 +1018,137 @@ def test_every_reason_in_the_manifest_and_on_screen_is_short_and_clean(
     for row in manifest["dropped"]:
         assert len(row["reason"]) <= 300 and not re.search(r"[\x00-\x1f\x7f]", row["reason"])
     assert "\x1b" not in printed and "\x07" not in printed
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="the fake oracle is a local git repo")
+def test_an_adapter_that_needs_another_writable_path_is_skipped_loudly(
+    tmp_path: Path,
+) -> None:
+    fake_checkout(tmp_path)
+    out = run_freeze(tmp_path, "out", "--task", "acme/locked", "--task", "acme/ro-data")
+    locked = json.loads((out / "acme__locked" / "skipped.json").read_text())
+    assert locked["reason"].startswith("the install needs a writable path outside /repo")
+    assert "last failing command 'sh -c touch" in locked["reason"]
+    ro_data = json.loads((out / "acme__ro-data" / "skipped.json").read_text())
+    assert ro_data["reason"].startswith(f"needs a writable {tmp_path / 'locked' / 'td'}")
+    # Whatever happened, the shared repo root is empty again for the next task.
+    assert list((tmp_path / "repo-root").iterdir()) == []
+
+
+def test_phase_run_refuses_without_an_image_digest(tmp_path: Path) -> None:
+    (tmp_path / "bench" / "run_differential_test").mkdir(parents=True)
+    env = {**os.environ, "CLITOOLBENCH_IN_CONTAINER": "1"}
+    argv = [sys.executable, "-I", str(FREEZE), "--phase", "run", str(tmp_path / "bench")]
+    argv += ["--out", str(tmp_path / "out"), "--image-digest", "latest"]
+    done = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+    assert done.returncode == 2 and "--image-digest sha256:" in done.stderr
+    assert not (tmp_path / "out").exists()
+
+
+# --- the owner's runner script: checked through --dry-run, never by running Docker ------------
+
+SH = ROOT / "scripts" / "clitoolbench_freeze.sh"
+
+
+def run_sh(
+    tmp_path: Path, *args: str, home: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    """The runner with a fake `docker` first on PATH that logs and fails: a dry run must never
+    reach it, and a broken dry run cannot reach a real Docker either."""
+    fake = tmp_path / "fakebin"
+    fake.mkdir(exist_ok=True)
+    (fake / "docker").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/docker-called\nexit 99\n')
+    (fake / "docker").chmod(0o755)
+    env = {"PATH": f"{fake}:/usr/bin:/bin", "HOME": str(home or tmp_path / "home")}
+    return subprocess.run(
+        ["/bin/sh", str(SH), *args], env=env, capture_output=True, text=True, check=False
+    )
+
+
+def test_the_runner_hardens_both_containers_and_cuts_the_network_for_the_run_phase(
+    tmp_path: Path,
+) -> None:
+    bench = tmp_path / "bench"
+    bench.mkdir()
+    done = run_sh(tmp_path, "--dry-run", "--image-digest", DIGEST, str(bench), str(tmp_path / "o"))
+    assert done.returncode == 0, done.stderr
+    assert not (tmp_path / "docker-called").exists() and not (tmp_path / "o").exists()
+    lines = done.stdout.splitlines()
+    build = next(line for line in lines if line.startswith("docker build"))
+    assert f"--build-arg BASE_DIGEST={DIGEST}" in build
+    install = next(line for line in lines if "--phase install" in line).split()
+    run = next(line for line in lines if "--phase run" in line).split()
+    uid_gid = f"{os.getuid()}:{os.getgid()}"
+    for argv in (install, run):
+        flags = " ".join(argv)
+        for flag in (
+            f"--user {uid_gid}",
+            "--cap-drop ALL",
+            "--security-opt no-new-privileges",
+            "--pids-limit 512",
+            "--memory 4g",
+            "--cpus 2",
+            "--stop-timeout 10",
+            f"-v {bench.resolve()}:/bench:ro",
+            f"--image-digest {DIGEST}",
+            "--rm",
+        ):
+            assert flag in flags, flag
+        assert "--chown" not in flags
+        volume = next(a for a in argv if a.endswith(":/clitb-work"))
+        assert volume.startswith("antstreet-clitb-work-")
+    assert "--network none" in " ".join(run) and "--network" not in install
+    assert not any(a.endswith(":/out") for a in install)
+    assert f"{(tmp_path / 'o').resolve()}:/out" in " ".join(run)
+
+
+@pytest.mark.parametrize(
+    ("digest", "message"),
+    [("", "digest of the base image"), ("sha256:abc", "digest of the base image")],
+)
+def test_the_runner_requires_the_pulled_image_digest(
+    tmp_path: Path, digest: str, message: str
+) -> None:
+    (tmp_path / "bench").mkdir()
+    args = ["--dry-run", *(["--image-digest", digest] if digest else [])]
+    done = run_sh(tmp_path, *args, str(tmp_path / "bench"), str(tmp_path / "o"))
+    assert done.returncode == 2 and message in done.stderr
+    assert "docker inspect" in done.stderr
+
+
+def test_the_runner_refuses_an_unsafe_or_used_out_dir(tmp_path: Path) -> None:
+    bench = tmp_path / "bench"
+    bench.mkdir()
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    used = tmp_path / "used"
+    used.mkdir()
+    (used / "x").write_text("x")
+    for out, message in (
+        (used, "is not empty"),
+        (ROOT / "frozen-here", "inside the repository"),
+        (home / ".ssh" / "frozen", "dot folder"),
+    ):
+        done = run_sh(
+            tmp_path, "--dry-run", "--image-digest", DIGEST, str(bench), str(out), home=home
+        )
+        assert done.returncode == 2 and message in done.stderr, (out, done.stderr)
+        assert "docker" not in done.stdout
+    assert not (ROOT / "frozen-here").exists() and not (tmp_path / "docker-called").exists()
+
+
+def test_the_image_is_pinned_by_digest_and_runs_unprivileged() -> None:
+    text = (ROOT / "scripts" / "clitoolbench_freeze.Dockerfile").read_text()
+    assert "FROM python:3.12-bookworm@${BASE_DIGEST}" in text
+    assert "USER 10001:10001" in text
+    assert "chmod 1777 /test_data /clitb-work /clitb-work/repo" in text
+    assert "ln -s /clitb-work/repo /repo" in text
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="the fake oracle is a local git repo")
+def test_the_image_digest_reaches_the_index_and_the_manifest(tmp_path: Path) -> None:
+    fake_checkout(tmp_path)
+    out = run_freeze(tmp_path, "out", "--task", "acme/greet", "--cases-per-task", "3")
+    assert json.loads((out / "index.json").read_text())["image_digest"] == DIGEST
+    manifest = imported.convert_clitoolbench_all(out, tmp_path / "pool")
+    assert manifest["image_digest"] == DIGEST

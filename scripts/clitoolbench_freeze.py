@@ -1,11 +1,18 @@
 """Freeze CLI-Tool-Bench's Python tasks into deterministic offline cases. Owner-run, in Docker only.
 
-    scripts/clitoolbench_freeze.sh <bench-checkout> <out-dir> [--task owner/repo ...]
+    scripts/clitoolbench_freeze.sh --image-digest sha256:<hex> <bench-checkout> <out-dir> [...]
 
 CLI-Tool-Bench grades a product by cloning the live oracle repo, pip-installing it and fuzzing both
 with unseeded `random`. That cannot be re-run offline or reproduced, so this script runs once,
-inside the container built from scripts/clitoolbench_freeze.Dockerfile (it refuses to run unless
-CLITOOLBENCH_IN_CONTAINER=1, which only that image sets), and records what the oracle did.
+inside containers of scripts/clitoolbench_freeze.Dockerfile, and records what the oracle did.
+
+Security: start.py and every install and oracle command run in this process's container, so the
+container is the only boundary. The CLITOOLBENCH_IN_CONTAINER=1 check is an accident guard (it
+stops a run on the host by mistake), not a security boundary. The runner starts two containers,
+as the owner's uid, with every capability dropped and no new privileges:
+  --phase install (network on: the oracle's clone and pip install, so setup.py runs WITH network)
+    puts each oracle in /clitb-work/<task> (a named volume) or skips it with the reason;
+  --phase run (--network none) generates the cases and runs the installed oracles offline.
 
 Per task (`owner/repo` from PYTHON_TASKS, or each --task):
 
@@ -14,13 +21,15 @@ Per task (`owner/repo` from PYTHON_TASKS, or each --task):
    reused as written: `install_oracle` gets a stand-in container whose `exec_run` runs the command
    here, inside this container, and `generate_test_cases` makes the cases. Reusing the fuzzer, not
    re-implementing it, keeps each task's command patterns and fixtures exactly as published.
-2. Installs the oracle that way (git clone of its live repo + pip install, as start.py says)
-   into a venv of its own (stdlib `venv`, so oracles never share packages or a script name) and
-   records the clone's origin URL, HEAD commit sha, the first line of its LICENSE file, the
-   console scripts it installed and any other distributions it pulled in. A failed install, or no
-   single git clone found, skips the task (`skipped.json` with the reason).
-3. Seeds `random` with SEED (0, recorded) and generates the cases; generates them a second time
-   from the same seed and flags the task if the two lists differ.
+2. Phase install: installs the oracle that way (a clone of its live repo + pip install, as
+   start.py says) into a venv of its own (stdlib `venv`, so oracles never share packages or a
+   script name); the shared repo root (/repo) is moved into the task's folder afterwards and back
+   for its run. It records the clone's origin URL, HEAD commit sha, the first line of its
+   LICENSE file, the console scripts it installed and any other distributions it pulled in. A
+   failed install, no single clone found, or a test-data folder or install path this uid cannot
+   write skips the task (`skipped.json` with the reason and the last failing command).
+3. Phase run: seeds `random` with SEED (0, recorded) and generates the cases; generates them a
+   second time from the same seed and flags the task if the two lists differ.
 4. Takes distinct cases one category at a time (round robin) until exactly CASES_PER_TASK
    (N = 50, recorded; --cases-per-task) are frozen; fewer possible skips the task. For each: a
    fresh test-data folder (the adapter's `test_data_dir`, the working folder of the run)
@@ -36,7 +45,8 @@ Per task (`owner/repo` from PYTHON_TASKS, or each --task):
    when its stdout holds text a third-party package wrote (AUDIT_HOOK), with that evidence.
 5. Writes <out>/<owner>__<repo>/cases.json (format FORMAT, read by
    antstreet.bench.imported.convert_clitoolbench) and spec.md (the task's agent_prompt.txt), and
-   <out>/index.json: seed, N, Python version, frozen tasks, skipped ones with their reasons.
+   <out>/index.json: seed, N, Python version, base image digest, frozen tasks, skipped ones
+   with their reasons (cut to 300 characters, control characters removed).
 
 Paths are stored with placeholders: the test-data folder as {TEST_DATA}, /tmp as {TMP}, in
 commands, stdout and file contents alike, so the replay can run in any temporary folder.
@@ -198,6 +208,7 @@ class LocalContainer:
 
     def __init__(self, cwd: Path, env: dict[str, str]) -> None:
         self.cwd, self.env = cwd, env
+        self.failures: list[tuple[str, str]] = []  # (command, output tail) of each failure
 
     def exec_run(
         self,
@@ -224,7 +235,11 @@ class LocalContainer:
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
+            self.failures.append((" ".join(argv)[:200], str(exc)))
             return ExecResult(127, str(exc).encode())
+        if done.returncode != 0:
+            tail = done.stdout.decode("utf-8", "replace")[-500:]
+            self.failures.append((" ".join(argv)[:200], tail))
         return ExecResult(done.returncode, done.stdout)
 
     def put_archive(self, path: str, data: bytes) -> bool:
@@ -577,25 +592,19 @@ def _round_robin(generated: list[Any]) -> list[Any]:
     return ordered
 
 
-def freeze_task(
-    bench: Path, task: str, work: Path, cases_per_task: int, with_pip: bool, n: int
-) -> tuple[dict[str, Any], str]:
-    """The cases.json content and the spec of one task. Raises Skip."""
+def _task_files(bench: Path, task: str) -> tuple[Path, Path]:
     start = bench / "run_differential_test" / "repo" / task / "start.py"
     prompt = bench / "agent_prompt" / task / "agent_prompt.txt"
     for path in (start, prompt):
         if not path.is_file():
             raise Skip(f"{path.relative_to(bench)} is missing")
-    random.seed(SEED)
-    adapter = _load_adapter(start, n)
-    td = Path(adapter.test_data_dir)
-    repo_root = str(getattr(adapter, "repo_root_dir", "/repo")).rstrip("/")
-    install = work / "install"
-    install.mkdir(parents=True)
-    bindir = _make_venv(work / "venv", with_pip)
+    return start, prompt
+
+
+def _env(work: Path) -> dict[str, str]:
     env = dict(os.environ)
     env.update(
-        PATH=os.pathsep.join([str(bindir), env.get("PATH", "/usr/bin:/bin")]),
+        PATH=os.pathsep.join([str(work / "venv" / "bin"), env.get("PATH", "/usr/bin:/bin")]),
         VIRTUAL_ENV=str(work / "venv"),
         HOME=str(work / "home-install"),
         LANG="C.UTF-8",
@@ -604,35 +613,149 @@ def freeze_task(
         PYTHONDONTWRITEBYTECODE="1",
     )
     env.pop(CONTAINER_ENV, None)
-    scripts_before, dists_before = _listing(bindir), _venv_query(bindir / "python")
+    return env
+
+
+def _writable(path: Path) -> bool:
+    """Whether this uid can write `path`, or create it in its nearest existing parent."""
+    for candidate in (path, *path.parents):
+        if candidate.exists():
+            return candidate.is_dir() and os.access(candidate, os.W_OK | os.X_OK)
+    return False
+
+
+def _park(repo_root: Path, into: Path) -> None:
+    """Move what an install put in the shared repo root into this task's folder, so the next
+    task starts with it empty; `_unpark` puts it back (same paths, so editable installs work)."""
+    if repo_root.is_dir():
+        into.mkdir(parents=True, exist_ok=True)
+        for child in sorted(repo_root.iterdir()):
+            shutil.move(str(child), str(into / child.name))
+
+
+def _unpark(into: Path, repo_root: Path) -> None:
+    if into.is_dir():
+        for child in sorted(into.iterdir()):
+            shutil.move(str(child), str(repo_root / child.name))
+
+
+def _install_failure(exc: BaseException, container: LocalContainer) -> str:
+    reason = f"oracle install failed: {_last_line(exc)}"
+    if container.failures:
+        command, tail = container.failures[-1]
+        if re.search(r"Permission denied|Read-only file system", tail):
+            reason = (
+                "the install needs a writable path outside /repo, /test_data and /clitb-work "
+                f"({_last_line(exc)})"
+            )
+        reason += f"; last failing command {command!r}: {tail[-200:]}"
+    return clean_reason(reason)
+
+
+def install_task(bench: Path, task: str, work: Path, with_pip: bool, n: int) -> dict[str, Any]:
+    """Phase A (network on): install the oracle into this task's venv and record what it is.
+    The shared repo root is parked into the task's folder afterwards, whatever happened."""
+    start, _ = _task_files(bench, task)
+    random.seed(SEED)
+    adapter = _load_adapter(start, n)
+    td = Path(adapter.test_data_dir)
+    repo_root = Path(str(getattr(adapter, "repo_root_dir", "/repo")))
+    for needed in (td, repo_root):
+        if not _writable(needed):
+            raise Skip(
+                f"needs a writable {needed}; the image gives only /repo, /test_data and /clitb-work"
+            )
+    if repo_root.is_dir() and any(repo_root.iterdir()):
+        raise Skip(f"{repo_root} is not empty before the install")
+    install = work / "install"
+    install.mkdir(parents=True)
     try:
-        adapter.install_oracle(LocalContainer(install, env))
-    except Exception as exc:
-        raise Skip(f"oracle install failed: {_last_line(exc)}") from exc
-    programs = sorted(_listing(bindir) - scripts_before)
-    if not programs:
-        raise Skip("the oracle installed no console script; the launcher needs one")
-    new = {d: s for d, s in _venv_query(bindir / "python").items() if d not in dists_before}
-    deps = sorted(d for d, scripts in new.items() if not set(scripts) & set(programs))
-    clone = _find_clone([install, Path(repo_root)])
+        bindir = _make_venv(work / "venv", with_pip)
+        container = LocalContainer(install, _env(work))
+        scripts_before, dists_before = _listing(bindir), _venv_query(bindir / "python")
+        try:
+            adapter.install_oracle(container)
+        except Exception as exc:
+            raise Skip(_install_failure(exc, container)) from exc
+        programs = sorted(_listing(bindir) - scripts_before)
+        if not programs:
+            raise Skip("the oracle installed no console script; the launcher needs one")
+        new = {d: s for d, s in _venv_query(bindir / "python").items() if d not in dists_before}
+        deps = sorted(d for d, scripts in new.items() if not set(scripts) & set(programs))
+        clone = _find_clone([install, repo_root])
+        shutil.copytree(clone, work / "snapshot", symlinks=True)
+        oracle = {
+            "url": _git(clone, "remote", "get-url", "origin"),
+            "commit": _git(clone, "rev-parse", "HEAD"),
+            "licence": _licence(clone),
+            "python": platform.python_version(),
+            "deps": deps,
+            "programs": programs,
+        }
+    finally:
+        _park(repo_root, work / "repo-root")
+    return {"oracle": oracle, "clone": str(clone), "repo_root": str(repo_root)}
+
+
+def run_task(
+    bench: Path, task: str, work: Path, cases_per_task: int, n: int, installed: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """Phase B (no network): generate the cases and record the installed oracle on each. The
+    cases.json content and the spec of one task. Raises Skip."""
+    start, prompt = _task_files(bench, task)
+    random.seed(SEED)
+    adapter = _load_adapter(start, n)
+    td = Path(adapter.test_data_dir)
+    repo_root_path = Path(installed["repo_root"])
+    repo_root = str(repo_root_path).rstrip("/")
+    oracle_meta = installed["oracle"]
+    bindir = work / "venv" / "bin"
+    env = _env(work)
+    _unpark(work / "repo-root", repo_root_path)
+    try:
+        return _record(
+            adapter,
+            task,
+            work,
+            cases_per_task,
+            prompt,
+            td,
+            repo_root,
+            oracle_meta,
+            bindir,
+            env,
+            Path(installed["clone"]),
+        )
+    finally:
+        _park(repo_root_path, work / "repo-root")
+
+
+def _record(
+    adapter: Any,
+    task: str,
+    work: Path,
+    cases_per_task: int,
+    prompt: Path,
+    td: Path,
+    repo_root: str,
+    oracle_meta: dict[str, Any],
+    bindir: Path,
+    env: dict[str, str],
+    clone: Path,
+) -> tuple[dict[str, Any], str]:
+    deps = list(oracle_meta["deps"])
     snapshot = work / "snapshot"
-    shutil.copytree(clone, snapshot, symlinks=True)
-    oracle_meta = {
-        "url": _git(clone, "remote", "get-url", "origin"),
-        "commit": _git(clone, "rev-parse", "HEAD"),
-        "licence": _licence(clone),
-        "python": platform.python_version(),
-        "deps": deps,
-        "programs": programs,
-    }
     flags = ["custom_stdout_sanitizer"] if _custom_sanitizer(adapter) else []
     generated = _generate(adapter)
     if [_key(c) for c in generated] != [_key(c) for c in _generate(adapter)]:
         flags.append("fuzzer_not_reproducible_from_the_seed")
     ignored = frozenset(str(d) for d in getattr(adapter, "workspace_diff_ignore_dir_names", []))
-    (work / "audit").mkdir()
-    (work / "audit" / "sitecustomize.py").write_text(AUDIT_HOOK)
-    oracle = Oracle(clone, snapshot, env, td, work / "home", ignored, work / "audit" / "log")
+    audit = work / "audit"
+    if audit.exists():
+        shutil.rmtree(audit)
+    audit.mkdir()
+    (audit / "sitecustomize.py").write_text(AUDIT_HOOK)
+    oracle = Oracle(clone, snapshot, env, td, work / "home", ignored, audit / "log")
     dep_files = _venv_query(bindir / "python", *deps) if deps else {}
     cases: list[dict[str, Any]] = []
     dropped: list[dict[str, str]] = []
@@ -705,28 +828,94 @@ def freeze_task(
     return data, prompt.read_text(encoding="utf-8", errors="replace")
 
 
-def _chown(root: Path, owner: str) -> None:
-    uid, gid = (int(x) for x in owner.split(":"))
-    for dirpath, _, filenames in os.walk(root):
-        os.chown(dirpath, uid, gid)
-        for name in filenames:
-            os.chown(os.path.join(dirpath, name), uid, gid)
+def clean_reason(text: object) -> str:
+    """Short and free of control characters (terminal escapes): reasons quote third-party output.
+    Same rule as antstreet.bench.imported.clean_reason."""
+    out = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(text))
+    return out if len(out) <= 300 else out[:297] + "..."
+
+
+def _write_skip(dest: Path, task: str, reason: str, evidence: list[dict[str, str]]) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    record = {"task": task, "reason": clean_reason(reason), "evidence": evidence}
+    (dest / "skipped.json").write_text(json.dumps(record, indent=2) + "\n")
+
+
+def _phase_install(args: argparse.Namespace, bench: Path, tasks: list[str]) -> int:
+    for n, task in enumerate(tasks):
+        work = args.work / task.replace("/", "__")
+        if work.exists():
+            shutil.rmtree(work)  # this phase's own scratch from an earlier attempt
+        work.mkdir(parents=True)
+        try:
+            installed = install_task(bench, task, work, not args.venv_without_pip, n)
+        except Skip as exc:
+            _write_skip(work, task, str(exc), exc.evidence)
+            print(f"skipped {task}: {clean_reason(exc)}", file=sys.stderr)
+            continue
+        (work / "installed.json").write_text(json.dumps(installed, indent=2) + "\n")
+        print(f"installed {task}: {installed['oracle']['commit']}")
+    return 0
+
+
+def _phase_run(args: argparse.Namespace, bench: Path, tasks: list[str]) -> int:
+    out = args.out
+    clashes = [t for t in tasks if (out / t.replace("/", "__")).exists()]
+    if clashes:
+        print(f"error: already frozen in {out}: {clashes}; remove them first", file=sys.stderr)
+        return 2
+    out.mkdir(parents=True, exist_ok=True)
+    frozen: list[str] = []
+    skipped: dict[str, str] = {}
+    for n, task in enumerate(tasks):
+        name = task.replace("/", "__")
+        dest, work = out / name, args.work / name
+        try:
+            if (work / "skipped.json").is_file():
+                raise Skip(json.loads((work / "skipped.json").read_text())["reason"])
+            if not (work / "installed.json").is_file():
+                raise Skip("phase install has no record of this task")
+            installed = json.loads((work / "installed.json").read_text())
+            data, spec = run_task(bench, task, work, args.cases_per_task, n, installed)
+        except Skip as exc:
+            skipped[task] = clean_reason(exc)
+            _write_skip(dest, task, str(exc), exc.evidence)
+            print(f"skipped {task}: {clean_reason(exc)}", file=sys.stderr)
+            continue
+        dest.mkdir()
+        (dest / "cases.json").write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+        (dest / "spec.md").write_text(spec, encoding="utf-8")
+        frozen.append(task)
+        print(f"froze {task}: {len(data['cases'])} cases, {len(data['dropped'])} dropped")
+    index = {
+        "format": FORMAT,
+        "seed": SEED,
+        "cases_per_task": args.cases_per_task,
+        "python": platform.python_version(),
+        "image_digest": args.image_digest,
+        "frozen": frozen,
+        "skipped": skipped,
+    }
+    (out / "index.json").write_text(json.dumps(index, indent=2) + "\n")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--phase", choices=("install", "run"), required=True)
     parser.add_argument("bench", type=Path, help="CLI-Tool-Bench checkout (read only)")
-    parser.add_argument("out", type=Path, help="folder to write the frozen tasks into")
+    parser.add_argument("--out", type=Path, help="phase run: folder for the frozen tasks")
+    parser.add_argument("--image-digest", default="", help="sha256 of the base image (recorded)")
     parser.add_argument("--task", action="append", help="owner/repo (default: the 34 Python tasks)")
     parser.add_argument("--cases-per-task", type=int, default=CASES_PER_TASK, help="the fixed N")
-    parser.add_argument("--work", type=Path, default=Path("/clitb-work"), help="scratch folder")
+    parser.add_argument("--work", type=Path, default=Path("/clitb-work"), help="the work volume")
     parser.add_argument(
         "--venv-without-pip",
         action="store_true",
         help="tests only: task venvs without pip (a fake oracle installs no package)",
     )
-    parser.add_argument("--chown", help="UID:GID to give the output files at the end")
     args = parser.parse_args(argv)
+    # An accident guard, not a security boundary: the container is the only boundary.
     if os.environ.get(CONTAINER_ENV) != "1":
         print(
             "refusing to run: this installs and runs third-party code, so it runs only inside "
@@ -742,53 +931,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.cases_per_task < 1:
         print("error: --cases-per-task must be at least 1", file=sys.stderr)
         return 2
-    tasks = args.task or list(PYTHON_TASKS)
-    out = args.out
-    clashes = [t for t in tasks if (out / t.replace("/", "__")).exists()]
-    if clashes:
-        print(f"error: already frozen in {out}: {clashes}; remove them first", file=sys.stderr)
+    if args.phase == "run" and (
+        args.out is None or not re.fullmatch(r"sha256:[0-9a-f]{64}", args.image_digest)
+    ):
+        print("error: phase run needs --out and --image-digest sha256:<64 hex>", file=sys.stderr)
         return 2
-    out.mkdir(parents=True, exist_ok=True)
+    tasks = args.task or list(PYTHON_TASKS)
     sys.path.insert(0, str(bench / "run_differential_test"))
     _stub_engine()
-    frozen: list[str] = []
-    skipped: dict[str, str] = {}
-    for n, task in enumerate(tasks):
-        name = task.replace("/", "__")
-        dest = out / name
-        work = args.work / name
-        if work.exists():
-            shutil.rmtree(work)
-        try:
-            data, spec = freeze_task(
-                bench, task, work, args.cases_per_task, not args.venv_without_pip, n
-            )
-        except Skip as exc:
-            skipped[task] = str(exc)
-            dest.mkdir()
-            (dest / "skipped.json").write_text(
-                json.dumps({"task": task, "reason": str(exc), "evidence": exc.evidence}, indent=2)
-                + "\n"
-            )
-            print(f"skipped {task}: {exc}", file=sys.stderr)
-            continue
-        dest.mkdir()
-        (dest / "cases.json").write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
-        (dest / "spec.md").write_text(spec, encoding="utf-8")
-        frozen.append(task)
-        print(f"froze {task}: {len(data['cases'])} cases, {len(data['dropped'])} dropped")
-    index = {
-        "format": FORMAT,
-        "seed": SEED,
-        "cases_per_task": args.cases_per_task,
-        "python": platform.python_version(),
-        "frozen": frozen,
-        "skipped": skipped,
-    }
-    (out / "index.json").write_text(json.dumps(index, indent=2) + "\n")
-    if args.chown:
-        _chown(out, args.chown)
-    return 0
+    if args.phase == "install":
+        return _phase_install(args, bench, tasks)
+    return _phase_run(args, bench, tasks)
 
 
 if __name__ == "__main__":

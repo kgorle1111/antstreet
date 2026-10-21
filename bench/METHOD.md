@@ -102,9 +102,9 @@ The 34 Python tasks of CLI-Tool-Bench (arXiv 2604.06742) as imported tasks (sour
 fuzzes oracle and product with unseeded `random`: not reproducible, not offline, and one oracle
 repo is already gone. So it is frozen once and then runs offline in our sandbox.
 
-- What is frozen: `scripts/clitoolbench_freeze.py`, run by the owner only, inside the container of
-  `scripts/clitoolbench_freeze.Dockerfile` (Python 3.12, the grading host's minor version; it
-  refuses to run without `CLITOOLBENCH_IN_CONTAINER=1`, which only that image sets). Per task it
+- What is frozen: `scripts/clitoolbench_freeze.py`, run by the owner only, inside containers of
+  `scripts/clitoolbench_freeze.Dockerfile` (Python 3.12, the grading host's minor version, pinned
+  by the digest the owner pulled, which is recorded). Per task it
   imports the task's own `start.py` fuzzer with a stub for the upstream engine, installs the
   oracle as `start.py` says into a venv of its own, seeds `random` with 0 and takes distinct cases
   round robin over the command categories until exactly N = 50 are frozen (N and the seed are
@@ -123,13 +123,32 @@ repo is already gone. So it is frozen once and then runs offline in our sandbox.
   distribution the oracle pulled in counts (except `click.echo`/`secho`, which print the oracle's
   own text). A lower bound: text the oracle formats with a library and prints itself is not
   caught. A dependency alone never drops a task; it is flagged in `provenance.json`.
-- Owner command (Docker; network inside the container only):
-  `scripts/clitoolbench_freeze.sh <CLI-Tool-Bench checkout> <out-dir>`, then
+- Owner command: `docker pull python:3.12-bookworm`, read its digest with
+  `docker inspect --format '{{index .RepoDigests 0}}' python:3.12-bookworm`, then
+  `scripts/clitoolbench_freeze.sh --image-digest sha256:<hex> <CLI-Tool-Bench checkout> <out-dir>`
+  (`--dry-run` prints the docker commands instead), then
   `python -m antstreet.bench.imported clitoolbench <out-dir> <dest-root> --all`, which converts,
   validates and replay-checks every frozen task and writes `<dest-root>/clitoolbench-manifest.json`:
-  seed, N, Python version, every kept task with its oracle URL, commit and licence, every dropped
-  one with the stage (freeze, convert, validate, replay) and reason. The manifest sits in the
-  pool, so the pre-registration digest (`task_set_digest`) covers it.
+  seed, N, Python version, base image digest, every kept task with its oracle URL, commit and
+  licence, every dropped one with the stage (freeze, convert, validate, replay) and reason. The
+  manifest sits in the pool, so the pre-registration digest (`task_set_digest`) covers it.
+- Boundaries. `start.py`, every install command and every oracle run in the freeze's own process
+  inside the container, so the container is the only boundary; the `CLITOOLBENCH_IN_CONTAINER=1`
+  check is an accident guard (it stops a run on the host by mistake), not a security boundary.
+  Both containers run as the owner's uid with `--cap-drop ALL`, `--security-opt
+  no-new-privileges`, `--pids-limit 512`, `--memory 4g`, `--cpus 2`, the checkout read-only, and
+  a wall-clock limit per phase (`CLITB_PHASE_LIMIT_S`, default 6 h: macOS has no `timeout`, so a
+  background watchdog runs `docker stop`, and `--stop-timeout 10` turns that into a kill). Phase
+  install has the network, because it clones each oracle and pip-installs it, which runs the
+  oracle's `setup.py` and build backend with network; phase run, which generates the cases and
+  runs every oracle, has `--network none` (no LAN, no `host.docker.internal`), and only it mounts
+  `<out-dir>`, which must be empty, outside the repository and not under a dot folder of
+  `$HOME`. The image writes only `/repo`, `/test_data` and `/clitb-work`; an adapter that needs
+  another writable path is skipped with that reason. The converter then treats the freeze output
+  as hostile: any symlink, device or fifo refuses its task (or the whole run, at the top level),
+  every read is bounded and does not follow links, and every reason printed or recorded is cut to
+  300 characters with control characters removed. Grading always runs in the OS sandbox
+  (`BOSS_GATE_SANDBOX=off` does not apply to imported tasks; no working sandbox is an error).
 - Replay check: a harness-owned product that plays the recorded outputs back (exit code, stdout,
   the files written) is graded through the real sandboxed gate on this machine. Every case it can
   identify (the tool runs once, with arguments the shell does not expand) must pass, or no
@@ -157,6 +176,11 @@ repo is already gone. So it is frozen once and then runs offline in our sandbox.
   case passes, not a per-case average; file deltas compare full content hashes, where upstream
   compares the first 2000 characters; the product cannot pip-install a dependency the oracle
   uses; and the workers cannot run code. Not comparable with the published scores.
+- T12 applies here: the hidden tree, `tests/cases.json` with every expected exit code, stdout
+  and file hash, is inside the product's folder while it is graded, so a product could read its
+  own answers. The workers never see it (it is not in any workspace), and the sandbox stops
+  nothing a product does inside its own folder. Ceiling: a product written to look for it would
+  pass; add the expected outputs outside the product's readable folder when an arm can run code.
 - Licence: the CLI-Tool-Bench repository has no LICENSE file (the oracles are MIT/Apache, each
   recorded per task). We publish results and this converter, not the frozen task files or specs,
   until the authors answer. The freeze output stays outside the repository, like every imported
