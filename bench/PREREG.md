@@ -264,6 +264,11 @@ before any E10 cell, pilot included. Until a commit fills every `<...>` below an
 here is a pre-registration (S1), and this heading takes its `E10.` form, counted with the others,
 only in that commit.
 
+- **Decided 2026-10-21** under the owner's standing "no budget cap, full freedom" instruction, not
+  by the owner in person; the owner may overrule any of them before registration: the firm arms'
+  `--max-tasks 3` with `--parallel 1` and `--boss-cap 2.00 --boss-timeout 900`; stdlib-only
+  products; the freeze run by the owner; the spend approvals and the $1,000 ceiling; stage D at
+  10-19 kept tasks; the pilot floor stop; the two exclusions under "Not in E10"; the licence rule.
 - **Why.** Every earlier experiment ran Haiku on tasks a single Haiku mostly solves (blind35: firm
   64/105, single 62/105). A pilot of new, larger private tasks (hard-v1, 2026-10-16) did not make
   them harder: Haiku 5.5 delivered three of five on 3/3, 2/3 and 3/3 runs, the other two missed by
@@ -274,7 +279,8 @@ only in that commit.
   a natural-language spec of a command-line tool, graded by running the product on inputs and
   comparing with an oracle. The converter (branch `feat/bench-clitoolbench`, not merged when this
   was drafted) is described by what it must do, not by its code:
-  - Freeze once, outside the repository: clone each oracle repo at a pinned commit, install it,
+  - Freeze once, outside the repository, run by the owner in Docker (an agent never runs it): clone
+    each oracle repo at a pinned commit, install it,
     generate its cases with the fuzzer seeded (the upstream fuzzer is unseeded), run each case
     against the oracle and record argv, stdin, input files, exit code, stdout and file-system
     change. Network and third-party code run only here, never during a cell.
@@ -286,9 +292,10 @@ only in that commit.
     `hidden/`; `meta.json` with the `imported` block, the oracle's repo, commit and creation date,
     and the entry point both arms are told to provide.
   - Validate before the digest: every case passes on the oracle on 3 runs, none passes on an empty
-    product, every test collects. A task that fails this, or whose oracle repo is gone (one is
-    already 404), or that the owner's dependency rule excludes, is dropped before the digest with
-    its reason listed. After the digest no task is dropped and no case changed; a grading defect
+    product, every test collects. Products are standard-library only, as the gate is: a task
+    whose oracle behaviour cannot be reproduced without a third-party package is dropped. A task
+    that fails any of this, or whose oracle repo is gone (one is already 404), is dropped before
+    the digest with its reason listed. After the digest no task is dropped and no case changed; a grading defect
     found later is reported, and the result is given with and without that task (S1).
   - The pool is that folder: `N_pool` = `<N_POOL>` tasks (at most 34), ids `<POOL_IDS>`, digest
     `<POOL_DIGEST>` (64 hex, `task_set_digest`, checked with `python3 -I
@@ -303,7 +310,7 @@ only in that commit.
   arms take `--max-tasks 3`, so a boss may split the tool into up to three tasks (the integration
   KPI needs a split to exist), `--boss-cap 2.00 --boss-timeout 900` (the $0.25 and 300 s defaults
   were set on small specs; an Opus draft of a long spec would be cut off), and otherwise the `fund`
-  defaults (`--slice 0.10`, `--stall-slices 2 --max-slices 6`, one round).
+  defaults (`--parallel 1`, `--slice 0.10`, `--stall-slices 2 --max-slices 6`, one round).
   1. `single-haiku`: single, `claude-haiku-5-5`.
   2. `single-sonnet`: single, `claude-sonnet-5-5`.
   3. `single-opus`: single, `claude-opus-5-5`.
@@ -335,10 +342,10 @@ only in that commit.
   3. *Stage D (decision).* Fresh cells only (no stage-S or pilot cell is reused), `--only` the kept
      ids, 3 reps, every arm, with `--expect-set-digest <POOL_DIGEST>`. Run in two parts so the
      cheaper arms run first: **D1** = arms 1, 2, 4 and 6 (every primary comparison lives here);
-     **D2** = arms 3 and 5, after D1 and only on the owner's go. Within each part the arms are
+     **D2** = arms 3 and 5, after D1 and only on a separate owner yes given after D1's verdict. Within each part the arms are
      interleaved task by task (S3). Every D cell runs from one recorded commit.
-- **If too few tasks survive.** `K` ≥ 20: stage D runs. 10 ≤ `K` < 20: stage D runs only on the
-  owner's yes, and its verdicts are labelled as below with the larger MDE. `K` < 10: no stage D;
+- **If too few tasks survive.** `K` ≥ 20: stage D runs. 10 ≤ `K` < 20: stage D runs anyway, reported
+  as pilot-scale (below) with the minimum detectable effect computed for the actual `K`. `K` < 10: no stage D;
   stage S is published as the result ("too few hard tasks to compare"). The keep rule is never
   loosened to raise `K`.
 - **Pilot-scale, said now (S6).** The pool is below the 50-task floor: at most 34 tasks, likely
@@ -401,11 +408,12 @@ only in that commit.
   - *Budget.* Each stage stops when its known spend passes its ceiling: pilot $60, stage S $55, D1
     $750, D2 $1,250 (the high column below, rounded up). After the pilot each later stage is
     re-estimated from the pilot's per-cell medians in the same dated change that fixes `B`; a
-    stage also stops at 1.5 x its re-estimate. A budget stop is a pause for the owner, who may fund
-    the rest; otherwise "not run to completion".
-  - *Floor.* If no pilot cell delivers (0 of 18), the owner decides before any stage-S cell whether
-    E10 runs with delivery primary as written or, by a dated change, makes the case pass fraction
-    primary. That choice is made before any stage-S or stage-D result exists.
+    stage also stops at 1.5 x its re-estimate. The whole of E10 stops at $1,000 of known spend
+    without a new owner decision. A budget stop is a pause for the owner, who may fund the rest;
+    otherwise "not run to completion".
+  - *Floor.* If no pilot cell delivers (0 of 18), E10 stops before stage S and the pilot is
+    reported. The primary KPI is not switched after seeing data: delivery stays primary and the
+    case pass fraction secondary.
 - **Machine (S11).** `--jobs 1` (a slice cut off mid-run has its spend on no ledger line, so one
   cell at a time keeps such a loss visible and small). A run is
   detached (`nohup` under `caffeinate -dimsu`), on mains power, with no other test suite, build or
@@ -414,7 +422,7 @@ only in that commit.
   above 4 for an invocation is reported with it. Cells cut by sleep or a kill are moved aside and
   rerun, never deleted.
 - **Licence and publication (S10).** The CLI-Tool-Bench repository has no LICENSE (the oracle repos
-  are MIT or Apache). Until its authors answer, the converter, the commands, the digest, every
+  are MIT or Apache). The owner asks its authors. Until they answer, the converter, the commands, the digest, every
   result file, ledger and product are published, and the frozen task files are not; text from a
   spec inside a published file (term sheets, transcripts) is withheld or redacted the same way.
   Anyone can rebuild the pool with the converter and check it against `<POOL_DIGEST>`.
@@ -438,7 +446,9 @@ only in that commit.
   at `B` = $8: $6.40 a single cell (80% of `B`), at least $10 a firm cell (`B` plus a $2.00 boss
   draft), so D1 alone could reach 90 x $32.80 = $2,952; the budget stops above end any stage long
   before that.
-  Needs the owner's yes per stage before any spend.
+  Approved: the pilot (ceiling $60), stage S ($55) and D1 ($750). D2 needs a separate owner yes
+  after D1's verdict. Overall ceiling $1,000 without a new owner decision; the high column passes
+  it, so a run near the high end pauses there.
 - **Commands.** `<POOL_DIR>`, `<POOL_DIGEST>`, `<B>` and the id lists are filled by the commit that
   registers this entry (pool, digest) and by the dated changes after the pilot (`B`) and stage S
   (kept ids).
@@ -511,7 +521,7 @@ only in that commit.
   cells and checked the digest. The scripts and logs are published with the results.
 - **Not in E10.** `--fix-after-stop` with the critic (E4c's question) and a pilot recorded at a
   loose firing policy (`--stall-slices 4 --max-slices 10`, to calibrate the breakers) need their own
-  entries. hard-v1 and NL2Repo are other pools, not this one.
+  entries, each its own later one. hard-v1 and NL2Repo are other pools, not this one.
 
 ## Not tested, and why
 
