@@ -38,6 +38,7 @@ from antstreet.bench.tasks import (
     task_set_digest,
     validate_task,
 )
+from antstreet.gate import GateError
 
 ROOT = Path(__file__).resolve().parent.parent
 FREEZE = ROOT / "scripts" / "clitoolbench_freeze.py"
@@ -791,3 +792,70 @@ def test_the_stdout_audit_blames_third_party_text_and_not_the_oracle_s_own(
         }
     ]
     assert freeze.dep_evidence(records, {}) == []  # no third-party package, no evidence
+
+
+# --- the sandbox is never optional for imported tasks ----------------------------------------
+
+
+@pytest.fixture
+def no_sandbox(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """No working sandbox tool on this machine, and the user asked for none; any run of the
+    hidden tree is recorded (it must never happen)."""
+    import antstreet.gate as gate_module
+    from antstreet import sandbox
+
+    monkeypatch.setattr(sandbox, "detect", lambda *a, **k: None)
+    monkeypatch.setenv("BOSS_GATE_SANDBOX", "off")
+    ran: list[object] = []
+    monkeypatch.setattr(
+        gate_module, "_run_bounded", lambda *a, **k: ran.append(a) or (0, "", False)
+    )
+    return ran
+
+
+def test_grading_refuses_without_a_sandbox_and_runs_nothing(
+    task: BenchTask, tmp_path: Path, no_sandbox: list[object]
+) -> None:
+    with pytest.raises(GateError, match="sandbox"):
+        grade_imported(task, product(tmp_path, RIGHT))
+    with pytest.raises(GateError, match="sandbox"):
+        validate_task(task)
+    with pytest.raises(GateError, match="sandbox"):
+        replay_check(task, frozen(tmp_path / "src"))
+    assert no_sandbox == []
+
+
+def test_an_nl2repo_task_is_refused_without_a_sandbox_too(
+    tmp_path: Path, no_sandbox: list[object]
+) -> None:
+    from test_bench_imported import UPPER, make_source
+    from test_bench_imported import product as nl2repo_product
+
+    from antstreet.bench.imported import convert_nl2repo
+
+    nl2repo = load_task(convert_nl2repo(make_source(tmp_path), tmp_path / "tasks"))
+    with pytest.raises(GateError, match="sandbox"):
+        grade_imported(nl2repo, nl2repo_product(tmp_path, UPPER))
+    assert no_sandbox == []
+
+
+def test_off_in_the_environment_does_not_turn_the_sandbox_off_for_imported_tasks(
+    task: BenchTask, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BOSS_GATE_SANDBOX", "off")
+    report = replay_check(task, frozen(tmp_path / "src"))
+    assert report.sandboxed and report.problem is None
+
+
+def test_a_tree_run_that_reports_unsandboxed_is_refused(
+    task: BenchTask, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import antstreet.bench.tasks as tasks_module
+    from antstreet.gate import TreeResult
+
+    def unsandboxed(*args: object, **kwargs: object) -> TreeResult:
+        return TreeResult({}, 0, "ran", "", 0.1, False, ())
+
+    monkeypatch.setattr(tasks_module, "run_tree", unsandboxed)
+    with pytest.raises(GateError, match="not sandboxed"):
+        grade_imported(task, product(tmp_path, RIGHT))

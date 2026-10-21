@@ -41,8 +41,8 @@ from antstreet.bench.tasks import (
     SHIMS,
     BenchTask,
     TaskError,
-    grade_imported,
     load_task,
+    run_imported,
     validate_task,
 )
 from antstreet.gate import TREE_TIMEOUT_S
@@ -676,9 +676,12 @@ class ReplayReport:
     verified: tuple[str, ...]  # cases the replay product can identify; each must pass
     unverified: tuple[str, ...]  # cases it cannot (shell expansion, 0 or 2+ runs of the tool)
     failed: tuple[str, ...]  # verified cases that did not pass: no product could
+    sandboxed: bool  # the replay ran inside the OS sandbox (run_imported refuses otherwise)
 
     @property
     def problem(self) -> str | None:
+        if not self.sandboxed:
+            return "the replay did not run sandboxed"
         if self.failed:
             return f"the recorded outputs replayed fail {list(self.failed)}: no product can pass"
         if self.seconds > REPLAY_MAX_S:
@@ -762,14 +765,15 @@ def replay_check(task: BenchTask, src: Path) -> ReplayReport:
                 _PLAYBACK.replace("@PROGRAM@", repr(program))
             )
         start = time.monotonic()
-        hidden = grade_imported(task, product)
+        run = run_imported(task, product)
         seconds = time.monotonic() - start
+    hidden = {node: str(status) for node, status in run.tests.items()}
     verified = tuple(e["id"] for e in entries)
     failed = tuple(
         cid for cid in verified if hidden.get(f"tests/test_cases.py::test_case[{cid}]") != "passed"
     )
     unverified = tuple(c["id"] for c in data["cases"] if c["id"] not in verified)
-    return ReplayReport(seconds, verified, unverified, failed)
+    return ReplayReport(seconds, verified, unverified, failed, run.sandboxed)
 
 
 # The replay product's entry point. Harness-owned: it knows the replay's folder layout (the

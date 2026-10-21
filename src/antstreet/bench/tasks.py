@@ -44,9 +44,12 @@ from antstreet.gate import (
     TREE_TIMEOUT_S,
     Check,
     CheckStatus,
+    GateError,
+    TreeResult,
     run_gate,
     run_tree,
 )
+from antstreet.sandbox import SandboxMode
 from antstreet.termsheet import CheckSpec, check_file_problems
 
 MIN_HIDDEN_CHECKS = 5
@@ -488,17 +491,8 @@ def _tree_limits(meta: ImportedMeta) -> tuple[float, float]:
 def _imported_gate_problems(task: BenchTask, meta: ImportedMeta) -> list[str]:
     """An empty product must pass nothing, and the suite must have run at all: a sandbox or an
     import the gate lacks that kills every test would otherwise look like a hard task."""
-    support = task.support_dir if task.support_dir.is_dir() else None
     with tempfile.TemporaryDirectory(prefix="boss_bench_empty_") as empty:
-        suite_s, test_s = _tree_limits(meta)
-        got = run_tree(
-            Path(empty),
-            task.hidden_dir,
-            meta.test_path,
-            support=support,
-            timeout_s=suite_s,
-            test_timeout_s=test_s,
-        )
+        got = run_imported(task, Path(empty))
     if not got.tests:
         return [f"hidden tree produced no results on an empty product ({got.detail})"]
     seen = {node.split("::")[0] for node in got.tests}
@@ -517,6 +511,31 @@ def _imported_gate_problems(task: BenchTask, meta: ImportedMeta) -> list[str]:
     return problems
 
 
+def run_imported(task: BenchTask, workspace: Path) -> TreeResult:
+    """Run an imported task's hidden tree on a product, always inside the OS sandbox.
+
+    An external suite (and, for clitoolbench, the shell lines a fuzzer wrote) is third-party code:
+    it never runs on the host. REQUIRE ignores BOSS_GATE_SANDBOX, so `off` or a machine without a
+    working sandbox is a GateError before anything runs, and a run that says it was not
+    sandboxed is refused after the fact too.
+    """
+    meta = task.imported
+    assert meta is not None  # callers branch on task.imported
+    suite_s, test_s = _tree_limits(meta)
+    run = run_tree(
+        workspace,
+        task.hidden_dir,
+        meta.test_path,
+        support=task.support_dir if task.support_dir.is_dir() else None,
+        timeout_s=suite_s,
+        test_timeout_s=test_s,
+        sandbox=SandboxMode.REQUIRE,
+    )
+    if not run.sandboxed:
+        raise GateError(f"task {task.id}: the hidden tree ran not sandboxed; refusing its result")
+    return run
+
+
 def grade_imported(task: BenchTask, workspace: Path) -> dict[str, str]:
     """Node id -> status of every hidden test on this product, always `test_count` entries or more.
 
@@ -526,19 +545,10 @@ def grade_imported(task: BenchTask, workspace: Path) -> dict[str, str]:
     """
     meta = task.imported
     assert meta is not None  # callers branch on task.imported
-    support = task.support_dir if task.support_dir.is_dir() else None
     seen: dict[str, str] = {}
     missing_status = "failed"
     if workspace.is_dir():
-        suite_s, test_s = _tree_limits(meta)
-        run = run_tree(
-            workspace,
-            task.hidden_dir,
-            meta.test_path,
-            support=support,
-            timeout_s=suite_s,
-            test_timeout_s=test_s,
-        )
+        run = run_imported(task, workspace)
         seen = {node: str(status) for node, status in run.tests.items()}
         missing_status = "timeout" if run.timed_out else "failed"
     for i in range(1, meta.test_count - len(seen) + 1):
