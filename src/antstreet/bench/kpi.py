@@ -27,7 +27,7 @@ from antstreet.report import dollars
 from antstreet.rule import Decision, FiringPolicy, decide
 from antstreet.rulings import DROPPED, ruled
 from antstreet.rundir import RunPaths
-from antstreet.state import slice_history
+from antstreet.state import last_check_statuses, run_state, slice_history, worker_tasks
 from antstreet.stats import md_table, pct, rate
 
 CellKey = tuple[str, str, int]  # (task, arm, rep)
@@ -75,6 +75,8 @@ class KpiCard:
     timeout_cells: int = 0  # counted cells with a hidden check that hit a time limit
     rescue: tuple[RouteRescue, ...] = ()  # per route, from the ledgers found; () with none
     rescue_unrecorded: int = 0  # counted cells whose ledger was not found: in no rescue figure
+    split_cells: int = 0  # counted cells with a ledger whose workers were hired for >= 2 tasks
+    integration_failures: int = 0  # of those, every task's visible checks passed, a hidden failed
 
 
 def _said_done(r: CellResult, ledger: Sequence[Event] | None) -> bool | None:
@@ -140,7 +142,34 @@ def kpi_card(
         timeout_cells=sum(bool(r.hidden_timeouts) for r in cells),
         rescue=_rescue(with_ledger),
         rescue_unrecorded=len(cells) - len(with_ledger),
+        split_cells=sum(_split(events) for _, events in with_ledger),
+        integration_failures=sum(_integration_failure(r, events) for r, events in with_ledger),
     )
+
+
+def _split(events: Sequence[Event]) -> bool:
+    """The work went to workers hired on at least two distinct tasks (`hired.data.task`)."""
+    return len(set(worker_tasks(events).values())) >= 2
+
+
+def _integration_failure(r: CellResult, events: Sequence[Event]) -> bool:
+    """A split cell whose whole term sheet passed its visible checks (the last `round_closed` has
+    passed == total > 0, so a task never hired, e.g. the money ran out, cannot hide), where each
+    hired task's `best` worker (`state.run_state`: the one the product is assembled from) passed
+    every visible check the gate last graded it on (`state.last_check_statuses`: held-out and
+    dropped checks left out; no graded check is not a pass), yet at least one hidden check did not
+    pass. Each part looked right alone and the assembled product is wrong."""
+    if not _split(events) or not r.hidden or r.passed:
+        return False
+    closed = [e.data for e in events if e.event is EventType.ROUND_CLOSED]
+    if not closed or not closed[-1].get("total") or closed[-1].get("passed") != closed[-1]["total"]:
+        return False
+    tasks = run_state(events, sorted(set(worker_tasks(events).values()))).tasks
+    for state in tasks.values():
+        statuses = last_check_statuses(events, state.best) if state.best else {}
+        if not statuses or any(s != "passed" for s in statuses.values()):
+            return False
+    return True
 
 
 def _route(events: Sequence[Event]) -> str:
@@ -299,6 +328,24 @@ def _rescue_block(columns: Sequence[tuple[str, KpiCard]]) -> list[str]:
     return out
 
 
+def _integration_line(c: KpiCard) -> str:
+    if c.arm == "single":
+        return "n/a (the single arm has no split)"
+    if c.rescue_unrecorded == c.counted:
+        return f"not recorded ({_plural(c.rescue_unrecorded, 'cell')} without a ledger)"
+    missing = c.rescue_unrecorded
+    tail = f"; {_plural(missing, 'cell')} without a ledger, not in this figure" if missing else ""
+    if not c.split_cells:
+        return "no split cells (0 cells split into 2 or more tasks): rate n/a" + tail
+    out = rate(c.integration_failures, c.split_cells, counts="after")
+    return out + f"; n={_plural(c.split_cells, 'split cell')}" + tail
+
+
+def _integration_block(columns: Sequence[tuple[str, KpiCard]]) -> list[str]:
+    out = ["Integration failures (a supplement to the seven; from ledgers and hidden results):"]
+    return out + [f"  {label}: {_integration_line(c)}" for label, c in columns]
+
+
 def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
     """One table: a row per KPI, a column per labelled card, then the sample sizes."""
     if not columns:
@@ -321,6 +368,7 @@ def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
     out = [SETS_WARNING, ""] if mixed else []
     out += md_table(["KPI", *labels], [[name, *cells] for name, cells in rows])
     out += ["", *_rescue_block(columns)]
+    out += ["", *_integration_block(columns)]
     out += ["", "Sample sizes (counted cells over tasks; infrastructure failures excluded):"]
     out += [
         f"  {label}: {c.counted} cells over {c.tasks} tasks ({c.infrastructure} excluded)"
