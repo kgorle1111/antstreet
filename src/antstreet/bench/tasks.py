@@ -63,7 +63,7 @@ _MUTANT_RE = re.compile(r"^[a-z0-9][a-z0-9_]{1,60}\Z")
 _META_KEYS = {"id", "title", "difficulty"}
 _IMPORTED_KEYS = {"source", "test_path", "test_count"}
 _IMPORTED_OPTIONAL = {"suite_timeout_s", "test_timeout_s"}
-IMPORTED_SOURCES = ("nl2repo",)
+IMPORTED_SOURCES = ("nl2repo", "clitoolbench")
 
 
 class TaskError(Exception):

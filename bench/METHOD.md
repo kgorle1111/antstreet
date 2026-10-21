@@ -62,7 +62,8 @@ tests instead of hidden checks written here.
   with an `imported` block (`source`, `test_path` inside the product, `test_count`), and an optional
   `support/` (harness-owned files laid over the product root while grading, e.g. a shim that
   stands in for the PyPI backport `mock`, which the gate's interpreter lacks).
-- Convert a download with `python -m antstreet.bench.imported nl2repo <task-dir> <dest-root>`, then run
+- Convert a download with `python -m antstreet.bench.imported nl2repo <task-dir> <dest-root>` (or
+  `clitoolbench`, see "CLI-Tool-Bench (frozen)"), then run
   with `--tasks <dest-root>`. External task data is never committed here (the source may carry no
   licence); `<dest-root>` is outside the repository.
 - `validate_task` skips the reference, mutant and `def test_` rules (there is no reference solution;
@@ -89,6 +90,73 @@ tests instead of hidden checks written here.
   ("Timed out" line, "with a timed-out hidden check"). Ceiling: the progress log that
   keeps results after a suite kill is unsigned (T12), and tests after a hung one are not run
   individually; add that when a suite is found whose uninterruptible hang is common.
+
+## CLI-Tool-Bench (frozen)
+
+The 34 Python tasks of CLI-Tool-Bench (arXiv 2604.06742) as imported tasks (source
+`clitoolbench`). Upstream grading git-clones each live oracle repo, pip-installs it in Docker and
+fuzzes oracle and product with unseeded `random`: not reproducible, not offline, and one oracle
+repo is already gone. So it is frozen once and then runs offline in our sandbox.
+
+- What is frozen: `scripts/clitoolbench_freeze.py`, run by the owner only, inside the container of
+  `scripts/clitoolbench_freeze.Dockerfile` (Python 3.12, the grading host's minor version; it
+  refuses to run without `CLITOOLBENCH_IN_CONTAINER=1`, which only that image sets). Per task it
+  imports the task's own `start.py` fuzzer with a stub for the upstream engine, installs the
+  oracle as `start.py` says into a venv of its own, seeds `random` with 0 and takes distinct cases
+  round robin over the command categories until exactly N = 50 are frozen (N and the seed are
+  recorded; a task with fewer is skipped, not frozen smaller). Each case runs twice on the oracle.
+  Recorded per case: the shell command (and its argv when it has no shell syntax), stdin, env,
+  prep script, fixture files, and the expected exit code, filesystem delta under the test-data
+  folder (ADD/MOD with content and its sha256, or DEL) and stdout. Per task: oracle repo URL,
+  commit sha, first line of its LICENSE, Python version, console scripts, the other distributions
+  it installed, and the dropped cases with reasons (touches the oracle's install folder, sets a
+  harness variable, timeout, stdout over 64 KiB).
+- Whole tasks are skipped, with the reason in `skipped.json`: the oracle fails to install (not
+  guessed at); a case whose two runs differ (flaky: the oracle is not a fixed target); fewer than
+  N cases; or the oracle's stdout holds text written by a third-party package the stdlib-only
+  product cannot use. The last needs evidence, recorded with it: a `sitecustomize` hook names the
+  innermost non-stdlib function behind each stdout write, and a write from a file of a
+  distribution the oracle pulled in counts (except `click.echo`/`secho`, which print the oracle's
+  own text). A lower bound: text the oracle formats with a library and prints itself is not
+  caught. A dependency alone never drops a task; it is flagged in `provenance.json`.
+- Owner command (Docker; network inside the container only):
+  `scripts/clitoolbench_freeze.sh <CLI-Tool-Bench checkout> <out-dir>`, then
+  `python -m antstreet.bench.imported clitoolbench <out-dir> <dest-root> --all`, which converts,
+  validates and replay-checks every frozen task and writes `<dest-root>/clitoolbench-manifest.json`:
+  seed, N, Python version, every kept task with its oracle URL, commit and licence, every dropped
+  one with the stage (freeze, convert, validate, replay) and reason. The manifest sits in the
+  pool, so the pre-registration digest (`task_set_digest`) covers it.
+- Replay check: a harness-owned product that plays the recorded outputs back (exit code, stdout,
+  the files written) is graded through the real sandboxed gate on this machine. Every case it can
+  identify (the tool runs once, with arguments the shell does not expand) must pass, or no
+  product could and the task is dropped; and the whole replay must finish within half the gate's
+  suite cap (90 s of 180 s), or a correct but slower product could time out, and the task is
+  dropped. Cases it cannot identify still run for the time and are listed per task.
+- The product is run as `python -m <module>` (the console-script name with `-` and `.` turned to
+  `_`), through a launcher on `PATH` named like the original command, so each frozen shell line
+  runs unchanged with `/bin/sh -c`. The spec's addendum says so, says standard library only and no
+  pip install, and is the same text for every arm. Each case is one hidden test
+  (`hidden/test_cases.py`, stdlib and pytest only) in a fresh temporary folder with a fresh HOME:
+  exit code, then filesystem delta, then stdout (ANSI codes stripped, paths mapped back to
+  `{TEST_DATA}`/`{TMP}`). A test also fails when the product has no such module, so a case whose
+  oracle printed nothing and exited 1 cannot pass on an empty product.
+- What we dropped: the SM tier (a GPT judge decides "semantically equal"; bench/STANDARDS.md S7
+  forbids a model grading). Stdout match is pre-registered as EM (exact) for every case. FM is
+  ours, not upstream's: the upstream matching function was not in the files read (README, docs,
+  `DiffTestEngine.py`, `BaseRepoAdapter.py`, one `start.py`; `DiffTestEngine` itself only checks
+  exact equality), so it is not vendored and neither is any per-case EM/FM assignment; the docs
+  read describe EM, FM and SM as successive tiers over the same cases. Our FM is the Levenshtein
+  (indel) ratio 2·LCS/(len a + len b) of at least 0.8, inclusive, with `--stdout-match fm`, chosen
+  before any run; above 3000 characters it falls back to exact. stderr is not compared (upstream
+  merges it into stdout).
+- Why our numbers are stricter than the leaderboard: no SM credit; a cell passes only when every
+  case passes, not a per-case average; file deltas compare full content hashes, where upstream
+  compares the first 2000 characters; the product cannot pip-install a dependency the oracle
+  uses; and the workers cannot run code. Not comparable with the published scores.
+- Licence: the CLI-Tool-Bench repository has no LICENSE file (the oracles are MIT/Apache, each
+  recorded per task). We publish results and this converter, not the frozen task files or specs,
+  until the authors answer. The freeze output stays outside the repository, like every imported
+  task.
 
 ## Arms
 
