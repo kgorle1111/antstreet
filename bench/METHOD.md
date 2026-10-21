@@ -22,12 +22,16 @@ than a single agent given the idea directly?
   The hash encoding was made unambiguous on 2026-09-30: the same 17 task files were
   `7a212cdcc5f4f466` before and are `c130282a6eec5fe8` after. Results recorded under the old
   value ran against identical files.
-- On 2026-10-02, 18 tasks were added, and on 2026-10-03 24 more: the set has 59 tasks, hash `ed6fd905c106f6a6`. Every result
+- On 2026-10-02, 18 tasks were added, and on 2026-10-03 24 more: the set has 59 tasks, hash `8a5e54e341cdef2a`. Every result
   recorded before then ran on the original 17, whose files and hash were unchanged then.
 - On 2026-10-13 the `roman` strict check (one of the original 17) was rewritten to run faster, with
-  the same meaning (see `PREREG.md`). The 59-task set moved from `0a83fc97a753b08c` to the hash
-  above and the original 17 from `c130282a6eec5fe8` to `42c28f8aab61d518`. Results recorded under
-  the old values ran on the old roman file.
+  the same meaning (see `PREREG.md`). The 59-task set moved from `0a83fc97a753b08c` to
+  `ed6fd905c106f6a6` and the original 17 from `c130282a6eec5fe8` to `42c28f8aab61d518`. Results
+  recorded under the old values ran on the old roman file.
+- On 2026-10-21 the `sudokucheck` `random` check (not one of the original 17) was rewritten to run
+  faster, with the same meaning (see `PREREG.md`). The 59-task set moved from `ed6fd905c106f6a6`
+  to the hash above; the original 17's hash did not change. Results recorded under
+  `ed6fd905c106f6a6` ran on the old sudokucheck file.
 - `mutants/` is left out of that hash: no arm sees or is scored on a mutant, so adding one must not
   make old and new results look like they ran against different tasks. A test pins the hash.
 - A private task set is pre-registered by a different value, a full 64-hex SHA-256 digest over every
