@@ -2,7 +2,7 @@
 renders them, the command, and old results."""
 
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -753,3 +753,115 @@ def test_8_the_rescue_is_read_by_the_live_rule_a_dropped_check_does_not_block_do
     ledger = [*stepped_up(("c1",)), dropped]
     [firm] = rescue_card([(cell(), ledger)]).rescue
     assert firm.visible == 1
+
+
+# --- integration failures: a supplement to the seven, from ledgers and hidden results ------------
+
+
+def hired_on(worker: str, task: str) -> Event:
+    return ev("boss", EventType.HIRED, worker=worker, task=task, model="haiku")
+
+
+def graded(worker: str, task: str, status: str, check: str = "v1", **extra: object) -> Event:
+    return ev("gate", EventType.CHECK_RESULT, worker=worker, slice=1, task=task, check=check,
+              status=status, **extra)  # fmt: skip
+
+
+def split_ledger(status_a: str = "passed", status_b: str = "passed") -> list[Event]:
+    return [
+        hired_on("w1", "ta"), hired_on("w2", "tb"),
+        graded("w1", "ta", status_a), graded("w2", "tb", status_b),
+    ]  # fmt: skip
+
+
+def integration(r: CellResult, ledger: list[Event]) -> tuple[int, int]:
+    card = kpi_card([r], {(r.task, r.arm, r.rep): ledger})
+    return card.split_cells, card.integration_failures
+
+
+def test_9_a_split_cell_with_every_visible_pass_and_a_hidden_fail_is_an_integration_failure():
+    assert integration(cell(hidden=FAIL), split_ledger()) == (1, 1)
+
+
+def test_9_an_unsplit_cell_is_not_a_split_cell_whatever_its_checks_did():
+    one = [hired_on("w1", "ta"), graded("w1", "ta", "passed")]
+    assert integration(cell(hidden=FAIL), one) == (0, 0)
+
+
+def test_9_two_workers_on_one_task_are_not_a_split():
+    again = [hired_on("w1", "ta"), hired_on("w2", "ta"), graded("w2", "ta", "passed")]
+    assert integration(cell(hidden=FAIL), again) == (0, 0)
+
+
+def test_9_a_visible_failure_in_any_task_is_not_an_integration_failure():
+    assert integration(cell(hidden=FAIL), split_ledger(status_b="failed")) == (1, 0)
+
+
+def test_9_a_task_with_no_graded_check_is_not_a_pass():
+    ledger = [hired_on("w1", "ta"), hired_on("w2", "tb"), graded("w1", "ta", "passed")]
+    assert integration(cell(hidden=FAIL), ledger) == (1, 0)
+
+
+def test_9_a_split_cell_whose_hidden_checks_all_passed_is_not_counted():
+    assert integration(cell(hidden=PASS), split_ledger()) == (1, 0)
+
+
+def test_9_a_timed_out_hidden_check_counts_as_not_passed():
+    r = cell(hidden={"a": "passed", "b": "timeout"})
+    assert integration(r, split_ledger()) == (1, 1)
+
+
+def test_9_a_cell_with_no_hidden_result_is_not_counted():
+    r = replace(cell(hidden={}), failure_class="model")
+    assert integration(r, split_ledger()) == (1, 0)
+
+
+def test_9_only_the_last_hired_worker_of_a_task_stands_for_it():
+    ledger = [
+        hired_on("w1", "ta"), graded("w1", "ta", "failed"), hired_on("w3", "ta"),
+        hired_on("w2", "tb"), graded("w3", "ta", "passed"), graded("w2", "tb", "passed"),
+    ]  # fmt: skip
+    assert integration(cell(hidden=FAIL), ledger) == (1, 1)
+
+
+def test_9_held_out_results_never_decide_a_workers_visible_state():
+    ledger = [*split_ledger(), graded("w1", "ta", "failed", check="h1", scope="held_out")]
+    assert integration(cell(hidden=FAIL), ledger) == (1, 1)
+
+
+def test_9_an_infrastructure_cell_and_a_cell_without_a_ledger_are_in_no_figure():
+    infra = cell(task="t9", hidden=FAIL, failure_class="infrastructure")
+    bare = cell(task="t8", hidden=FAIL)
+    card = kpi_card(
+        [cell(hidden=FAIL), infra, bare],
+        {("t1", "firm", 1): split_ledger(), ("t9", "firm", 1): split_ledger()},
+    )
+    assert (card.split_cells, card.integration_failures) == (1, 1)
+    shown = render_cards([("c", card)])
+    assert "100% [21-100%] (1/1); n=1 split cell; 1 cell without a ledger" in shown
+
+
+def test_9_the_block_states_rate_and_n_and_says_so_with_no_split_cell():
+    card = kpi_card(
+        [cell(task="t1", hidden=FAIL), cell(task="t2", hidden=PASS), cell(task="t3", hidden=FAIL)],
+        {
+            ("t1", "firm", 1): split_ledger(),
+            ("t2", "firm", 1): split_ledger(),
+            ("t3", "firm", 1): split_ledger(status_a="failed"),
+        },
+    )
+    assert "Integration failures (a supplement to the seven" in render_cards([("c", card)])
+    assert "33% [6-79%] (1/3); n=3 split cells" in render_cards([("c", card)])
+    none = kpi_card([cell()], {("t1", "firm", 1): [hired_on("w1", "ta")]})
+    assert "no split cells (0 cells split into 2 or more tasks): rate n/a" in render_cards(
+        [("c", none)]
+    )
+    assert "not recorded (1 cell without a ledger)" in render_cards([("c", kpi_card([cell()]))])
+
+
+def test_9_the_single_arm_is_n_a_and_the_table_keeps_seven_rows():
+    single = kpi_card([cell(arm="single", visible_passed=None, visible_total=None)])
+    shown = render_cards([("c", single)])
+    assert "n/a (the single arm has no split)" in shown
+    numbered = [ln for ln in shown.splitlines() if ln[:3] in {f"| {n}" for n in range(1, 10)}]
+    assert len(numbered) == 7  # METHOD fixes seven: the supplement is no eighth row

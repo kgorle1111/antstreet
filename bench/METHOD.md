@@ -249,6 +249,22 @@ events, slice events and the cell's hidden result only; no ledger key was added 
   replacement: "n/a".
 - Every figure is tested on synthetic ledgers only; no recorded run has a step-up yet.
 
+**Integration failures** (printed under the step-up rescue block, not an eighth row: the seven
+stay fixed). It asks how often a split of the work was each part right and the whole wrong. From
+the cell's ledger and hidden result only; no ledger key was added for it.
+
+- A **split cell** is a counted cell whose ledger holds `hired` events (`data.worker`,
+  `data.task`) for at least two distinct tasks.
+- An **integration failure** is a split cell where, for each task, the last-hired worker's last
+  gate results (`check_result` events carrying that `worker` and a `slice`, read by
+  `state.last_check_statuses`: held-out and dropped checks left out) are all `passed`, and the cell
+  has at least one hidden check that did not pass (`failed` or `timeout`). A task with no graded
+  check is not a pass; a cell with no hidden result is not counted.
+- Reported per column as failures over split cells with a Wilson 95% interval and the number of
+  split cells. With no split cell the line says so, never 0/0. The single arm: "n/a". Cells whose
+  ledger was not found are counted beside it and are in no figure.
+- Fired earlier workers are not judged: only the worker that ended each task stands for it.
+
 **Counting rule for investor questions.** One question is one decision the run needed from the
 investor, and the count is the number of these ledger events:
 
@@ -290,15 +306,16 @@ the same tasks. `python -m antstreet.bench.paired DIR_A DIR_B` compares two arms
 - A task is compared when both sides have at least one counted run of it. Infrastructure failures
   are excluded and counted, as in the table.
 - Per task and arm, one value: `delivery` is the share of the task's runs that passed every hidden
-  check; `pass_all` is 1 when every one of them did and 0 otherwise (KPI 5, pass^k, per task); `time` the median duration of its runs; `cost_per_delivery` the mean cost of its runs
+  check; `pass_fraction` (the secondary KPI) is the mean over its runs of the share of hidden
+  checks (cases) that passed, a run with none recorded scoring 0; `pass_all` is 1 when every one of them did and 0 otherwise (KPI 5, pass^k, per task); `time` the median duration of its runs; `cost_per_delivery` the mean cost of its runs
   (all of them, delivered or not: a task that delivered nothing has no cost per delivery, and
   dropping it would favour the arm that fails more); `false_pass` the share of its runs that passed
   every visible check and failed a hidden one (firm arms only).
 - The difference A minus B is taken per task. The report gives the number of tasks, the mean
   difference and a 95% percentile interval from 10,000 resamples of tasks with replacement, with a
   fixed seed so the same results give the same interval.
-- The verdict is `shown` when the interval excludes 0 in A's favour (above 0 for `delivery` and
-  `pass_all`, below 0 for `false_pass`, cost and time), otherwise `not shown`. With one task it is always
+- The verdict is `shown` when the interval excludes 0 in A's favour (above 0 for `delivery`,
+  `pass_all` and `pass_fraction`, below 0 for `false_pass`, cost and time), otherwise `not shown`. With one task it is always
   `not shown`: every resample is the same task.
 - `pass_all` is refused unless every compared task has the same number of counted runs on both
   sides: pass^4 is easier to meet than pass^5, so an infrastructure cell is rerun (B71), not dropped.

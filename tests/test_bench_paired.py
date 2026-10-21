@@ -376,3 +376,79 @@ def test_cost_per_delivery_says_so_when_unknown_costs_were_counted_as_zero():
         run(*sides([True, True], [True, True]), "cost_per_delivery")
     )
     assert "unknown cost" not in render(run(a, b, "delivery"))
+
+
+# --- pass_fraction: the secondary KPI, per-task share of hidden cases passed ---
+
+
+def cases(task, arm, passed, total, rep=1):
+    """A result with `total` hidden cases of which the first `passed` passed."""
+    hidden = {f"k{i}": "passed" if i < passed else "failed" for i in range(total)}
+    return dataclasses.replace(cell(task, arm, rep, ok=passed == total), hidden=hidden)
+
+
+def fraction_sides():
+    a = [
+        cases("t0", "firm", 4, 4),  # 1.0
+        cases("t1", "firm", 2, 4),  # 0.5
+        cases("t2", "firm", 1, 2, rep=1),  # runs 0.5 and 1.0 -> task value 0.75
+        cases("t2", "firm", 2, 2, rep=2),
+        cases("t3", "firm", 1, 2),  # only on A: unpaired
+        dataclasses.replace(cases("t2", "firm", 0, 2, rep=3), failure_class="infrastructure"),
+    ]
+    b = [
+        cases("t0", "single", 2, 4),  # 0.5
+        cases("t1", "single", 2, 4),  # 0.5
+        cases("t2", "single", 0, 2),  # 0.0
+        cases("t4", "single", 2, 2),  # only on B: unpaired
+    ]
+    return a, b
+
+
+def test_pass_fraction_pairs_per_task_and_matches_the_hand_computed_example():
+    a, b = fraction_sides()
+    assert task_values(a, "firm", "pass_fraction") == {"t0": 1.0, "t1": 0.5, "t2": 0.75, "t3": 0.5}
+    p = compare(a, b, "firm", "single", "pass_fraction", resamples=10_000, seed=0)
+    # diffs t0 +0.5, t1 0, t2 +0.75; t3 and t4 unpaired; the infrastructure cell is excluded
+    assert p.tasks == 3 and p.unpaired == 2 and p.infrastructure == 1
+    assert p.mean == pytest.approx((0.5 + 0.0 + 0.75) / 3)
+    assert (p.low, p.high) == bootstrap_interval([0.5, 0.0, 0.75], 10_000, 0)
+    assert (p.resamples, p.seed) == (10_000, 0)
+
+
+def test_pass_fraction_is_deterministic_for_seed_0_and_rendered_as_a_share():
+    a, b = fraction_sides()
+    first = compare(a, b, "firm", "single", "pass_fraction", resamples=2000, seed=0)
+    assert first == compare(a, b, "firm", "single", "pass_fraction", resamples=2000, seed=0)
+    assert "pass_fraction (share)" in render(first)
+
+
+def test_pass_fraction_gives_partial_credit_where_delivery_sees_a_tie():
+    a = [cases(f"t{i}", "firm", 3, 4) for i in range(4)]
+    b = [cases(f"t{i}", "single", 1, 4) for i in range(4)]
+    assert compare(a, b, "firm", "single", "delivery", resamples=500).mean == 0.0
+    p = compare(a, b, "firm", "single", "pass_fraction", resamples=500)
+    assert p.mean == pytest.approx(0.5) and p.shown
+
+
+def test_pass_fraction_cell_with_no_hidden_result_scores_zero_not_a_crash():
+    empty = dataclasses.replace(cell("t0", "firm", ok=False), hidden={})
+    assert task_values([empty], "firm", "pass_fraction") == {"t0": 0.0}
+
+
+def test_pass_fraction_no_shared_task_is_refused_like_delivery():
+    a = [cases("t0", "firm", 1, 2)]
+    b = [cases("t1", "single", 1, 2)]
+    with pytest.raises(ValueError, match="no task has a counted run on both sides"):
+        compare(a, b, "firm", "single", "pass_fraction")
+
+
+def test_pass_fraction_reads_the_command_line_flag_and_delivery_stays_the_default(tmp_path, capsys):
+    a, b = fraction_sides()
+    for side, side_cells in (("a", a), ("b", b)):
+        for r in side_cells:
+            r.save(cell_dir(tmp_path / side, r.task, r.arm, r.rep))
+    assert main([str(tmp_path / "a"), str(tmp_path / "b"), "--kpi", "pass_fraction"]) == 0
+    assert "pass_fraction (share)" in capsys.readouterr().out
+    assert main([str(tmp_path / "a"), str(tmp_path / "b")]) == 0
+    assert "delivery (share)" in capsys.readouterr().out

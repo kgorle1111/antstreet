@@ -29,6 +29,11 @@ _KPIS: dict[str, Callable[[Sequence[CellResult]], float]] = {
     "delivery": lambda rs: sum(r.passed for r in rs) / len(rs),
     # pass^k: 1 when every counted run delivered. Comparable only at one k, which compare enforces.
     "pass_all": lambda rs: float(all(r.passed for r in rs)),
+    # Secondary KPI: partial credit. Per run the share of hidden checks (cases) that passed (a run
+    # with none recorded scores 0, as in the table), then the mean over the task's counted runs.
+    "pass_fraction": lambda rs: statistics.fmean(
+        r.hidden_passed / r.hidden_total if r.hidden_total else 0.0 for r in rs
+    ),
     "false_pass": lambda rs: sum(_visible_pass(r) and not r.passed for r in rs) / len(rs),
     # The mean cost of all the task's runs, delivered or not: a task's cost per delivery is
     # undefined when it delivered nothing, and dropping those tasks would favour the arm that fails.
@@ -36,7 +41,7 @@ _KPIS: dict[str, Callable[[Sequence[CellResult]], float]] = {
     "time": lambda rs: statistics.median(r.duration_s for r in rs),
 }
 KPIS = tuple(_KPIS)
-HIGHER_IS_BETTER = {"delivery", "pass_all"}
+HIGHER_IS_BETTER = {"delivery", "pass_all", "pass_fraction"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +64,7 @@ class Paired:
 
     @property
     def shown(self) -> bool:
-        """The interval excludes 0 in A's favour: above it for delivery and pass_all, below it
+        """The interval excludes 0 in A's favour: above it for the higher-is-better KPIs, below it
         otherwise."""
         if self.tasks < MIN_TASKS:
             return False
@@ -165,6 +170,7 @@ def render(p: Paired) -> str:
     unit = {
         "delivery": "share",
         "pass_all": "share",
+        "pass_fraction": "share",
         "false_pass": "share",
         "cost_per_delivery": "$",
         "time": "s",
