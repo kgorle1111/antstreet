@@ -318,8 +318,15 @@ the same tasks. `python -m antstreet.bench.paired DIR_A DIR_B` compares two arms
 - The difference A minus B is taken per task. The report gives the number of tasks, the mean
   difference and a 95% percentile interval from 10,000 resamples of tasks with replacement, with a
   fixed seed so the same results give the same interval.
-- The verdict is `shown` when the interval excludes 0 in A's favour (above 0 for `delivery`,
-  `pass_all` and `pass_fraction`, below 0 for `false_pass`, cost and time), otherwise `not shown`. With one task it is always
+- Beside the interval the report gives an exact one-sided **sign test** on the same per-task
+  differences: `wins` (tasks where A is better: difference above 0, below 0 for `false_pass`, cost
+  and time), `losses`, ties dropped, `n_nonzero = wins + losses`, and p = P(X >= wins) for
+  X ~ Binomial(n_nonzero, 1/2), from `math.comb`. With no non-tied task p = 1. The bootstrap alone
+  is optimistic for few tasks: 4 of 30 tasks won and none lost gives an interval of roughly
+  [0.011, 0.089] but p = 0.0625.
+- The verdict is `shown` only when the interval excludes 0 in A's favour (above 0 for `delivery`,
+  `pass_all` and `pass_fraction`, below 0 for `false_pass`, cost and time) AND the sign-test p is
+  below 0.025; the rule is printed in the output. Otherwise `not shown`. With one task it is always
   `not shown`: every resample is the same task.
 - `pass_all` is refused unless every compared task has the same number of counted runs on both
   sides: pass^4 is easier to meet than pass^5, so an infrastructure cell is rerun (B71), not dropped.

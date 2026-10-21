@@ -713,7 +713,7 @@ Arguments: `dir_a` and `dir_b`, results folders written by `run` (they may be th
 | `--arm-a` | `firm` | The arm taken from `DIR_A`: `single`, `firm` or `single-review`. |
 | `--arm-b` | `single` | The arm taken from `DIR_B`. The difference is A minus B. |
 | `--kpi` | `delivery` | `delivery`, `pass_all`, `pass_fraction` (the mean per-task share of hidden checks passed), `false_pass`, `cost_per_delivery` or `time`; `false_pass` needs both arms to be `firm`, and `pass_all` the same number of counted runs of every task on both sides. |
-| `--resamples` | `10000` | Task resamples for the interval. |
+| `--resamples` | `10000` | Task resamples for the interval. The report also prints an exact one-sided sign test (wins, losses, p); the verdict is `shown` only when the interval excludes 0 in A's favour and p is below 0.025. |
 | `--seed` | `0` | Seed of the resampling; the same seed gives the same interval. |
 
 Exit codes: `0`; `1` when a folder holds no results for its arm, the two sides ran different task
