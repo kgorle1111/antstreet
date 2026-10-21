@@ -36,7 +36,7 @@ def problems(task_dir) -> list[str]:
 
 # What the benchmark arms are scored against: the idea, hidden checks and reference of all 17
 # tasks. It must not move when mutants are added: results recorded under it stay comparable.
-SHIPPED_SET_HASH = "ed6fd905c106f6a6"  # 59 tasks; roman strict check rewritten 2026-10-13
+SHIPPED_SET_HASH = "8a5e54e341cdef2a"  # 59 tasks; roman (10-13), sudokucheck (10-21) rewritten
 # The first 17, which every earlier result ran on. Was c130282a6eec5fe8 until the roman strict check
 # was rewritten on 2026-10-13 (bench/PREREG.md): earlier results ran on the old roman file.
 ORIGINAL_SET_HASH = "42c28f8aab61d518"
