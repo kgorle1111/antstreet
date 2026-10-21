@@ -229,10 +229,11 @@ class WrongValue:
         )
 
 
+# kn: oracle gate results cached per process by content; a flaky result sticks until exit
 @functools.lru_cache(maxsize=256)
 def _wrong_on_reference(task: BenchTask, file: str, data: bytes) -> bool:
     """Whether the reference solution fails this one check (bench/score.py `count_wrong_checks`).
-    kn: cached per process by content; a flaky gate result would stick for the process."""
+    Cached: the draws of one check share the original's run."""
     with tempfile.TemporaryDirectory(prefix="boss_oracle_") as tmp:
         (Path(tmp) / file).write_bytes(data)
         return count_wrong_checks(task, Path(tmp)) == 1
@@ -420,10 +421,10 @@ class UnderSpecified:
         return OracleResult(holds, detail)
 
 
-@functools.lru_cache(maxsize=256)
+@functools.lru_cache(maxsize=256)  # the same per-process cache as _wrong_on_reference
 def _kills(task: BenchTask, file: str, data: bytes) -> tuple[str, ...] | None:
     """The mutants this one check kills, by bench/score.py `score_draft`; None when the reference
-    solution fails it (a wrong check kills nothing that counts). kn: cached per process."""
+    solution fails it (a wrong check kills nothing that counts)."""
     with tempfile.TemporaryDirectory(prefix="boss_oracle_") as tmp:
         (Path(tmp) / file).write_bytes(data)
         score = score_draft(task, Path(tmp))
