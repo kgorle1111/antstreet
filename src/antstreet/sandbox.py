@@ -21,6 +21,8 @@ from functools import cache
 from pathlib import Path
 
 _PROBE_TIMEOUT_S = 30
+_MAX_LINKS = 40  # as the kernel's own limit on a chain of symbolic links
+_REASON_CHARS = 400  # the tail of the tool's stderr kept in an error message
 TOOLS = {"Darwin": "sandbox-exec", "Linux": "bwrap"}
 
 
@@ -171,9 +173,21 @@ class Sandbox:
 
 
 def python_readable() -> tuple[Path, ...]:
-    """The interpreter's installation and virtualenv, without which `python -I -m pytest` fails."""
+    """The interpreter's installation and virtualenv, without which `python -I -m pytest` fails.
+
+    Each prefix as written and resolved, and the folder of every link from `sys.executable` to the
+    real binary: under bwrap /home is an empty tmpfs, so a link through a path that is not bound
+    again (uv's per-minor-version link folder, for one) dangles and `execvp` fails.
+    """
     prefixes = (sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix)
-    return tuple(sorted({Path(p).resolve() for p in prefixes}))
+    paths = {Path(os.path.abspath(p)) for p in prefixes} | {Path(p).resolve() for p in prefixes}
+    link = Path(os.path.abspath(sys.executable))
+    for _ in range(_MAX_LINKS):
+        paths.add(link.parent)
+        if not link.is_symlink():
+            break
+        link = Path(os.path.abspath(link.parent / os.readlink(link)))
+    return tuple(sorted(paths))
 
 
 def missing_hint(system: str | None = None) -> str:
@@ -193,11 +207,12 @@ def missing_hint(system: str | None = None) -> str:
 
 
 @cache
-def _works(name: str, executable: str) -> bool:
-    """Whether the tool can start the interpreter and import pytest under the real profile.
+def _probe(name: str, executable: str) -> str | None:
+    """Why the tool cannot start the interpreter and import pytest under the real profile, or None.
 
     A probe of the real command, not `--version`: the tool can exist and still fail (bwrap without
     user namespaces, sandbox-exec inside another sandbox, a profile an OS update made too tight).
+    The reason carries the tool's own last words, so a CI image that breaks the sandbox says how.
     """
     argv = [sys.executable, "-I", "-B", "-c", "import pytest"]
     with tempfile.TemporaryDirectory(prefix="boss_sandbox_probe_") as folder:
@@ -209,9 +224,27 @@ def _works(name: str, executable: str) -> bool:
                 cmd, env={"LANG": "C.UTF-8"}, stdin=subprocess.DEVNULL, capture_output=True,
                 timeout=_PROBE_TIMEOUT_S, start_new_session=True,
             )  # fmt: skip
-        except (OSError, subprocess.SubprocessError):
-            return False
-    return done.returncode == 0
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"{name} could not be run: {exc}"
+    if done.returncode == 0:
+        return None
+    said = done.stderr.decode("utf-8", "replace").strip().splitlines()
+    tail = " | ".join(said[-3:])[-_REASON_CHARS:] or "no output"
+    return f"{name} exited {done.returncode}: {tail}"
+
+
+def _works(name: str, executable: str) -> bool:
+    return _probe(name, executable) is None
+
+
+def probe_reason(environ: Mapping[str, str] | None = None, *, system: str | None = None) -> str:
+    """Why `detect` found no working sandbox here, for an error message."""
+    env = os.environ if environ is None else environ
+    name = TOOLS.get(system or platform.system())
+    found = shutil.which(name, path=env.get("PATH", "")) if name else None
+    if name is None or found is None:
+        return ""
+    return _probe(name, os.path.abspath(found)) or ""
 
 
 def detect(
@@ -237,7 +270,9 @@ def select(
         return None
     found = detect(environ, system=system)
     if found is None and mode is SandboxMode.REQUIRE:
+        reason = probe_reason(environ, system=system)
         raise SandboxUnavailable(
             f"a sandbox is required (BOSS_GATE_SANDBOX=require) but {missing_hint(system)}"
+            + (f" ({reason})" if reason else "")
         )
     return found
