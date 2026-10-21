@@ -859,3 +859,128 @@ def test_a_tree_run_that_reports_unsandboxed_is_refused(
     monkeypatch.setattr(tasks_module, "run_tree", unsandboxed)
     with pytest.raises(GateError, match="not sandboxed"):
         grade_imported(task, product(tmp_path, RIGHT))
+
+
+# --- the freeze output is untrusted: no symlinks, no special files, bounded, cleaned ----------
+
+SECRET = "FAKE-SECRET-TOKEN-123"
+
+
+def planted_secret(tmp_path: Path) -> Path:
+    secret = tmp_path / "home" / ".ssh" / "id_fake"
+    secret.parent.mkdir(parents=True)
+    secret.write_text(f"{SECRET}\n")
+    return secret
+
+
+def test_a_symlinked_skipped_json_is_refused_and_its_target_never_read(
+    tmp_path: Path, capsys: Any
+) -> None:
+    src = frozen(tmp_path / "freeze")
+    (src / "skipped.json").symlink_to(planted_secret(tmp_path))
+    with pytest.raises(ConvertError, match="symlink") as info:
+        convert_clitoolbench(src, tmp_path / "t")
+    assert SECRET not in str(info.value)
+    assert main(["clitoolbench", str(src), str(tmp_path / "t2")]) == 1
+    assert SECRET not in capsys.readouterr().err
+
+
+def test_special_files_in_a_frozen_task_are_refused_without_being_read(tmp_path: Path) -> None:
+    src = frozen(tmp_path / "a")
+    (src / "skipped.json").symlink_to("/dev/zero")
+    with pytest.raises(ConvertError, match="symlink"):
+        convert_clitoolbench(src, tmp_path / "t")
+    fifo_task = frozen(tmp_path / "b")
+    (fifo_task / "cases.json").unlink()
+    os.mkfifo(fifo_task / "cases.json")  # reading it would block forever
+    with pytest.raises(ConvertError, match="special file: cases.json"):
+        convert_clitoolbench(fifo_task, tmp_path / "t")
+    # The reader itself never follows a link or blocks on a fifo, even if the tree check raced.
+    with pytest.raises(ConvertError, match="not a regular file"):
+        imported._read_bounded(fifo_task / "cases.json", 100)
+    with pytest.raises(ConvertError, match="symlink"):
+        imported._read_bounded(src / "skipped.json", 100)
+    with pytest.raises(ConvertError, match="cannot read"):
+        imported._read_bounded(tmp_path / "missing.json", 100)
+    (tmp_path / "latin1.json").write_bytes(b"\xff\xfe")
+    with pytest.raises(ConvertError, match="not UTF-8"):
+        imported._read_bounded(tmp_path / "latin1.json", 100)
+    nested = frozen(tmp_path / "c")
+    (nested / "extra").mkdir()
+    (nested / "extra" / "link").symlink_to(planted_secret(tmp_path / "c"))
+    with pytest.raises(ConvertError, match="extra/link"):
+        convert_clitoolbench(nested, tmp_path / "t")
+
+
+def test_a_real_skipped_json_gives_only_a_short_clean_reason(tmp_path: Path) -> None:
+    src = frozen(tmp_path)
+    (src / "cases.json").unlink()
+    reason = "\x1b]0;owned\x07oracle 404 " + "x" * 5000
+    (src / "skipped.json").write_text(json.dumps({"reason": reason, "other": SECRET}))
+    with pytest.raises(ConvertError) as info:
+        convert_clitoolbench(src, tmp_path / "t")
+    message = str(info.value)
+    assert "oracle 404" in message and SECRET not in message
+    assert "\x1b" not in message and "\x07" not in message and len(message) < 600
+    (src / "skipped.json").write_text("x" * (64 * 1024 + 1))
+    with pytest.raises(ConvertError, match="larger than"):
+        convert_clitoolbench(src, tmp_path / "t")
+
+
+def test_convert_all_drops_a_task_holding_a_symlink_and_leaks_nothing(
+    tmp_path: Path, capsys: Any
+) -> None:
+    out = freeze_output(tmp_path)
+    leak = frozen(out, task="acme/leak")
+    (leak / "skipped.json").symlink_to(planted_secret(tmp_path))
+    dest = tmp_path / "pool"
+    assert main(["clitoolbench", str(out), str(dest), "--all"]) == 0
+    printed = capsys.readouterr().out
+    manifest_text = (dest / "clitoolbench-manifest.json").read_text()
+    assert SECRET not in printed and SECRET not in manifest_text
+    dropped = {r["task"]: r for r in json.loads(manifest_text)["dropped"]}
+    assert "symlink" in dropped["acme__leak"]["reason"]
+    assert not list(dest.glob("staging-*"))
+
+
+def test_a_top_level_symlink_refuses_the_whole_run(tmp_path: Path, capsys: Any) -> None:
+    out = freeze_output(tmp_path)
+    (out / "acme__planted").symlink_to(tmp_path / "home", target_is_directory=True)
+    assert main(["clitoolbench", str(out), str(tmp_path / "pool"), "--all"]) == 1
+    assert "symlink" in capsys.readouterr().err
+    assert not (tmp_path / "pool" / "clitoolbench-manifest.json").exists()
+
+
+def test_a_deeply_nested_json_is_a_clean_refusal_not_a_traceback(
+    tmp_path: Path, capsys: Any
+) -> None:
+    out = freeze_output(tmp_path)
+    (out / "acme__twins" / "cases.json").write_text("[" * 200_000)
+    dest = tmp_path / "pool"
+    assert main(["clitoolbench", str(out), str(dest), "--all"]) == 0
+    dropped = {
+        r["task"]: r
+        for r in json.loads((dest / "clitoolbench-manifest.json").read_text())["dropped"]
+    }
+    assert "not valid JSON" in dropped["acme__twins"]["reason"]
+    assert not list(dest.glob("staging-*"))
+    (out / "index.json").write_text("[" * 200_000)
+    assert main(["clitoolbench", str(out), str(tmp_path / "pool2"), "--all"]) == 1
+    assert "not valid JSON" in capsys.readouterr().err
+    assert not (tmp_path / "pool2").exists() or not list((tmp_path / "pool2").iterdir())
+
+
+def test_every_reason_in_the_manifest_and_on_screen_is_short_and_clean(
+    tmp_path: Path, capsys: Any
+) -> None:
+    out = freeze_output(tmp_path)
+    index = json.loads((out / "index.json").read_text())
+    index["skipped"]["acme/gone"] = "\x1b[2J\x1b]0;title\x07" + "y" * 5000
+    (out / "index.json").write_text(json.dumps(index))
+    dest = tmp_path / "pool"
+    assert main(["clitoolbench", str(out), str(dest), "--all"]) == 0
+    printed = capsys.readouterr().out
+    manifest = json.loads((dest / "clitoolbench-manifest.json").read_text())
+    for row in manifest["dropped"]:
+        assert len(row["reason"]) <= 300 and not re.search(r"[\x00-\x1f\x7f]", row["reason"])
+    assert "\x1b" not in printed and "\x07" not in printed

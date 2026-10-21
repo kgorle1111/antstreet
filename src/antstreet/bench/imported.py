@@ -25,9 +25,11 @@ import binascii
 import hashlib
 import inspect
 import json
+import os
 import re
 import shlex
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -136,6 +138,10 @@ FM_MAX_CHARS = 3000  # the LCS table is quadratic; above this FM is exact match 
 # stdout and the product's lose their colour codes the same way.
 ANSI_PATTERN = r"\x1b\[[0-?]*[ -/]*[@-~]"
 TEST_DATA, TMP = "{TEST_DATA}", "{TMP}"
+SKIPPED_MAX_BYTES = 64 * 1024
+INDEX_MAX_BYTES = 1024 * 1024
+REASON_MAX = 300
+_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # Set by the replay; a case may not override them (PYTHONPATH would swap the product, PATH the
 # launcher).
 _HARNESS_ENV = frozenset(
@@ -190,8 +196,9 @@ def convert_clitoolbench(
     """Write a frozen CLI-Tool-Bench task as an imported task: one hidden test per frozen case."""
     if stdout_match not in STDOUT_MATCHES:
         raise ConvertError(f"stdout_match must be one of {STDOUT_MATCHES}, not {stdout_match!r}")
-    if (src / "skipped.json").is_file():
-        raise ConvertError(f"{src} was skipped by the freeze: {_read(src / 'skipped.json')}")
+    _check_plain_tree(src)
+    if os.path.lexists(src / "skipped.json"):
+        raise ConvertError(f"{src.name} was skipped by the freeze: {_skip_reason(src)}")
     data = _load_frozen(src / "cases.json")
     spec = _read_bounded(src / "spec.md", SPEC_MAX_BYTES).strip()
     if not spec:
@@ -247,16 +254,72 @@ def convert_clitoolbench(
     return dest
 
 
+def clean_reason(text: object) -> str:
+    """A reason fit to print or record: control characters (terminal escapes) become spaces and
+    it is cut to REASON_MAX characters. Freeze output came from third-party code."""
+    out = _CONTROL.sub(" ", str(text))
+    return out if len(out) <= REASON_MAX else out[: REASON_MAX - 3] + "..."
+
+
 def _read_bounded(path: Path, limit: int) -> str:
-    if path.is_symlink():
-        raise ConvertError(f"{path} is a symlink; the frozen task must be plain files")
+    """The text of a regular file of at most `limit` bytes. Opened without following a symlink
+    and without blocking on a fifo, then checked on the open descriptor, so a file swapped for a
+    link or a device after a check is still refused."""
     try:
-        size = path.stat().st_size
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
-        raise ConvertError(f"cannot read {path}: {exc}") from exc
-    if size > limit:
+        if path.is_symlink():
+            raise ConvertError(f"{path} is a symlink; the frozen task must be plain files") from exc
+        raise ConvertError(f"cannot read {path}: {exc.strerror}") from exc
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ConvertError(f"{path} is not a regular file")
+        data = handle.read(limit + 1)
+    if len(data) > limit:
         raise ConvertError(f"{path} is larger than {limit} bytes")
-    return _read(path)
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ConvertError(f"{path} is not UTF-8") from exc
+
+
+def _check_plain_tree(root: Path) -> None:
+    """Refuse a folder that is a symlink or holds anything but folders and regular files, before
+    a byte of it is read."""
+    try:
+        mode = os.lstat(root).st_mode
+    except OSError as exc:
+        raise ConvertError(f"cannot read {root}: {exc.strerror}") from exc
+    if not stat.S_ISDIR(mode):
+        raise ConvertError(f"{root.name} is a symlink or not a folder")
+    odd: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in dirnames + filenames:
+            path = Path(dirpath, name)
+            mode = os.lstat(path).st_mode
+            if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                odd.append(path.relative_to(root).as_posix())
+    if odd:
+        listed = ", ".join(sorted(odd)[:5])
+        raise ConvertError(clean_reason(f"{root.name} holds a symlink or special file: {listed}"))
+
+
+def _skip_reason(src: Path) -> str:
+    """Only the `reason` of skipped.json, short and clean; nothing else in it is kept."""
+    try:
+        raw = json.loads(_read_bounded(src / "skipped.json", SKIPPED_MAX_BYTES))
+    except (ValueError, RecursionError):
+        return "(skipped.json is not valid JSON)"
+    reason = raw.get("reason") if isinstance(raw, dict) else None
+    return clean_reason(reason) if isinstance(reason, str) else "(no reason given)"
+
+
+def _load_json(path: Path, limit: int) -> Any:
+    try:
+        return json.loads(_read_bounded(path, limit))
+    except (ValueError, RecursionError) as exc:
+        raise ConvertError(f"{path} is not valid JSON") from exc
 
 
 def _load_frozen(path: Path) -> dict[str, Any]:
@@ -275,10 +338,7 @@ def _load_frozen(path: Path) -> dict[str, Any]:
 
     Paths in commands, stdout and file contents use "{TEST_DATA}" and "{TMP}" for the folders.
     """
-    try:
-        data = json.loads(_read_bounded(path, FROZEN_MAX_BYTES))
-    except ValueError as exc:
-        raise ConvertError(f"{path} is not valid JSON") from exc
+    data = _load_json(path, FROZEN_MAX_BYTES)
     if not isinstance(data, dict) or data.get("format") != FROZEN_FORMAT:
         raise ConvertError(f"{path}: format must be {FROZEN_FORMAT!r}")
     if not isinstance(data.get("task"), str) or not _TASK.match(data["task"]):
@@ -823,6 +883,26 @@ sys.exit(entry["exit_code"])
 """
 
 
+def _freeze_folders(freeze_out: Path) -> list[Path]:
+    """The task folders to convert. The top level of a freeze output may hold only index.json
+    and folders; a symlink or special file there refuses the whole run."""
+    try:
+        if not stat.S_ISDIR(os.lstat(freeze_out).st_mode):
+            raise ConvertError(f"{freeze_out} is a symlink or not a folder")
+        entries = sorted(freeze_out.iterdir())
+    except OSError as exc:
+        raise ConvertError(f"cannot read {freeze_out}: {exc.strerror}") from exc
+    tasks = []
+    for entry in entries:
+        mode = os.lstat(entry).st_mode
+        if stat.S_ISDIR(mode):
+            if os.path.lexists(entry / "cases.json"):
+                tasks.append(entry)
+        elif not stat.S_ISREG(mode):
+            raise ConvertError(clean_reason(f"{entry.name} is a symlink or special file; refusing"))
+    return tasks
+
+
 def convert_clitoolbench_all(
     freeze_out: Path, dest_root: Path, *, stdout_match: str = "em"
 ) -> dict[str, Any]:
@@ -832,18 +912,22 @@ def convert_clitoolbench_all(
     converter, validation or the replay) is listed with its reason. The manifest sits in
     `dest_root`, so the pre-registration digest (task_set_digest) covers it.
     """
-    index = json.loads(_read_bounded(freeze_out / "index.json", FROZEN_MAX_BYTES))
+    tasks = _freeze_folders(freeze_out)
+    index = _load_json(freeze_out / "index.json", INDEX_MAX_BYTES)
     if not isinstance(index, dict) or index.get("format") != FROZEN_FORMAT:
         raise ConvertError(f"{freeze_out / 'index.json'}: format must be {FROZEN_FORMAT!r}")
+    skipped = index.get("skipped")
+    if not isinstance(skipped, dict) or len(skipped) > 1000:
+        raise ConvertError(f"{freeze_out / 'index.json'}: skipped must be an object")
     if (dest_root / MANIFEST).exists():
         raise ConvertError(f"{dest_root / MANIFEST} already exists; use a fresh dest-root")
     dest_root.mkdir(parents=True, exist_ok=True)
     kept: list[dict[str, Any]] = []
     dropped: list[dict[str, str]] = [
-        {"task": str(task), "stage": "freeze", "reason": str(reason)}
-        for task, reason in sorted(dict(index.get("skipped") or {}).items())
+        {"task": clean_reason(task), "stage": "freeze", "reason": clean_reason(reason)}
+        for task, reason in sorted(skipped.items())
     ]
-    for src in sorted(p for p in freeze_out.iterdir() if (p / "cases.json").is_file()):
+    for src in tasks:
         staging = Path(tempfile.mkdtemp(prefix="staging-", dir=dest_root))
         stage, task_name = "convert", src.name
         try:
@@ -865,21 +949,26 @@ def convert_clitoolbench_all(
                     "task": task_name,
                     "id": dest.name,
                     "cases": len(data["cases"]),
-                    "oracle": {k: data["oracle"][k] for k in ("url", "commit", "licence")},
+                    "oracle": {
+                        k: clean_reason(data["oracle"][k]) for k in ("url", "commit", "licence")
+                    },
                     "python": data["oracle"]["python"],
                     "replay_s": round(report.seconds, 1),
                     "replay_unverified": list(report.unverified),
                 }
             )
         except (ConvertError, TaskError) as exc:
-            dropped.append({"task": task_name, "stage": stage, "reason": str(exc)})
+            dropped.append({"task": task_name, "stage": stage, "reason": clean_reason(exc)})
         finally:
             shutil.rmtree(staging)  # made by this call; empty after a kept task's rename
     manifest = {
         "format": MANIFEST_FORMAT,
-        "seed": index.get("seed"),
-        "cases_per_task": index.get("cases_per_task"),
-        "freeze_python": index.get("python"),
+        "seed": index.get("seed") if _is_int(index.get("seed")) else None,
+        "cases_per_task": (
+            index.get("cases_per_task") if _is_int(index.get("cases_per_task")) else None
+        ),
+        "freeze_python": clean_reason(index.get("python")),
+        "image_digest": clean_reason(index.get("image_digest") or "unrecorded"),
         "stdout_match": stdout_match,
         "replay_max_s": REPLAY_MAX_S,
         "kept": kept,
@@ -922,7 +1011,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"wrote {dest}")
         validate_task(task)
     except (ConvertError, TaskError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        # A frozen task's text came from third-party code: short and free of terminal escapes.
+        message = clean_reason(exc) if args.source == "clitoolbench" else str(exc)
+        print(f"error: {message}", file=sys.stderr)
         return 1
     print(f"task {task.id} is valid")
     return 0
@@ -935,12 +1026,12 @@ def _main_all(source: str, freeze_out: Path, dest_root: Path, stdout_match: str)
     try:
         manifest = convert_clitoolbench_all(freeze_out, dest_root, stdout_match=stdout_match)
     except ConvertError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {clean_reason(exc)}", file=sys.stderr)
         return 1
     for row in manifest["kept"]:
         print(f"kept {row['task']} as {row['id']} ({row['cases']} cases, {row['replay_s']}s)")
     for row in manifest["dropped"]:
-        print(f"dropped {row['task']} at {row['stage']}: {row['reason']}")
+        print(f"dropped {row['task']} at {row['stage']}: {clean_reason(row['reason'])}")
     print(f"wrote {dest_root / MANIFEST}")
     return 0
 
