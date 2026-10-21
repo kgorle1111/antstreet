@@ -23,12 +23,21 @@ from antstreet.bench.table import _counted, _visible_pass
 # percentile bootstrap is also optimistic for a handful of tasks; this only stops the empty case.
 MIN_TASKS = 2
 LEVEL = 0.95
+# The verdict also needs the exact one-sided sign test below this: with few non-tied tasks the
+# bootstrap alone is optimistic (4 of 30 tasks won, none lost: interval above 0, p = 0.0625).
+SIGN_ALPHA = 0.025
+TIE = 1e-12  # differences within this are ties (float noise of fractions)
 
 # Per-task value of each KPI, from that task's counted runs of one arm.
 _KPIS: dict[str, Callable[[Sequence[CellResult]], float]] = {
     "delivery": lambda rs: sum(r.passed for r in rs) / len(rs),
     # pass^k: 1 when every counted run delivered. Comparable only at one k, which compare enforces.
     "pass_all": lambda rs: float(all(r.passed for r in rs)),
+    # Secondary KPI: partial credit. Per run the share of hidden checks (cases) that passed (a run
+    # with none recorded scores 0, as in the table), then the mean over the task's counted runs.
+    "pass_fraction": lambda rs: statistics.fmean(
+        r.hidden_passed / r.hidden_total if r.hidden_total else 0.0 for r in rs
+    ),
     "false_pass": lambda rs: sum(_visible_pass(r) and not r.passed for r in rs) / len(rs),
     # The mean cost of all the task's runs, delivered or not: a task's cost per delivery is
     # undefined when it delivered nothing, and dropping those tasks would favour the arm that fails.
@@ -36,7 +45,7 @@ _KPIS: dict[str, Callable[[Sequence[CellResult]], float]] = {
     "time": lambda rs: statistics.median(r.duration_s for r in rs),
 }
 KPIS = tuple(_KPIS)
-HIGHER_IS_BETTER = {"delivery", "pass_all"}
+HIGHER_IS_BETTER = {"delivery", "pass_all", "pass_fraction"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,14 +65,22 @@ class Paired:
     unknown_cost_cells: int = (
         0  # counted cells with an event of unknown cost: cost is a lower bound
     )
+    wins: int = 0  # tasks where A is better than B (difference > 0, or < 0 for lower-is-better)
+    losses: int = 0  # tasks where B is better
+    sign_p: float = 1.0  # exact one-sided binomial P(wins >= observed | p=0.5) over non-ties
 
     @property
     def shown(self) -> bool:
-        """The interval excludes 0 in A's favour: above it for delivery and pass_all, below it
-        otherwise."""
+        """The interval excludes 0 in A's favour (above it for the higher-is-better KPIs, below it
+        otherwise) AND the one-sided sign test gives p < SIGN_ALPHA."""
         if self.tasks < MIN_TASKS:
             return False
-        return self.low > 0 if self.kpi in HIGHER_IS_BETTER else self.high < 0
+        interval = self.low > 0 if self.kpi in HIGHER_IS_BETTER else self.high < 0
+        return interval and self.sign_p < SIGN_ALPHA
+
+    @property
+    def n_nonzero(self) -> int:
+        return self.wins + self.losses
 
 
 def task_values(cells: Sequence[CellResult], arm: str, kpi: str) -> dict[str, float]:
@@ -73,6 +90,17 @@ def task_values(cells: Sequence[CellResult], arm: str, kpi: str) -> dict[str, fl
         task: _KPIS[kpi]([c for c in mine if c.task == task])
         for task in sorted({c.task for c in mine})
     }
+
+
+def sign_test(diffs: Sequence[float], higher_is_better: bool = True) -> tuple[int, int, float]:
+    """(wins, losses, p): tasks where A is better / worse, ties dropped, and the exact one-sided
+    binomial P(X >= wins) for X ~ Binomial(wins + losses, 1/2); p is 1.0 with no non-tied task."""
+    sign = 1 if higher_is_better else -1
+    wins = sum(sign * d > TIE for d in diffs)
+    losses = sum(sign * d < -TIE for d in diffs)
+    n = wins + losses
+    p = sum(math.comb(n, k) for k in range(wins, n + 1)) / 2**n
+    return wins, losses, p
 
 
 def bootstrap_interval(
@@ -120,6 +148,7 @@ def compare(
         _same_runs(_counted(mine_a), _counted(mine_b), both)
     diffs = [values_a[t] - values_b[t] for t in both]
     low, high = bootstrap_interval(diffs, resamples, seed)
+    wins, losses, sign_p = sign_test(diffs, kpi in HIGHER_IS_BETTER)
     all_tasks = {c.task for c in (*mine_a, *mine_b)}
     return Paired(
         arm_a=arm_a,
@@ -132,6 +161,9 @@ def compare(
         high=high,
         resamples=resamples,
         seed=seed,
+        wins=wins,
+        losses=losses,
+        sign_p=sign_p,
         infrastructure=len(mine_a) + len(mine_b) - len(_counted(mine_a)) - len(_counted(mine_b)),
         unpaired=len(all_tasks) - len(both),
         unknown_cost_cells=sum(
@@ -165,6 +197,7 @@ def render(p: Paired) -> str:
     unit = {
         "delivery": "share",
         "pass_all": "share",
+        "pass_fraction": "share",
         "false_pass": "share",
         "cost_per_delivery": "$",
         "time": "s",
@@ -182,6 +215,10 @@ def render(p: Paired) -> str:
             f"mean difference ({p.arm_a} - {p.arm_b}): {num(p.mean)}",
             f"95% interval: [{num(p.low)}, {num(p.high)}] "
             f"({p.resamples} task resamples, seed {p.seed})",
+            f"sign test (one-sided, ties dropped): {p.n_nonzero} non-tied tasks, {p.wins} wins "
+            f"for {p.arm_a}, {p.losses} losses, p = {p.sign_p:.4f}",
+            f"rule: shown only when the interval excludes 0 in {p.arm_a}'s favour AND "
+            f"sign-test p < {SIGN_ALPHA}",
             f"verdict: {'shown' if p.shown else 'not shown'}",
         ]
         + (

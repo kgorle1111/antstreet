@@ -8,6 +8,7 @@ from docs_support import ROOT, captured_parser
 from antstreet.bench.paired import (
     KPIS,
     MIN_TASKS,
+    Paired,
     bootstrap_interval,
     compare,
     main,
@@ -96,7 +97,8 @@ def test_cost_is_the_mean_per_task_and_lower_is_a_win():
     b = [cell("t0", "single", cost=4_000_000), cell("t1", "single", cost=4_000_000)]
     assert task_values(a, "firm", "cost_per_delivery") == {"t0": 2.0, "t1": 2.0}
     p = run(a, b, "cost_per_delivery")
-    assert (p.mean, p.low, p.high) == (-2.0, -2.0, -2.0) and p.tasks == 2 and p.shown
+    assert (p.mean, p.low, p.high) == (-2.0, -2.0, -2.0) and p.tasks == 2 and not p.shown
+    assert (p.wins, p.losses, p.sign_p) == (2, 0, 0.25)  # two tasks can never reach p < 0.025
     swapped = run(b, a, "cost_per_delivery", arm_a="single", arm_b="firm")
     assert swapped.mean == 2.0 and not swapped.shown
 
@@ -113,7 +115,8 @@ def test_time_is_the_median_of_a_tasks_runs_and_lower_is_a_win():
     b = [cell("t0", "single", secs=50.0), cell("t1", "single", secs=50.0)]
     assert task_values(a, "firm", "time") == {"t0": 20.0, "t1": 40.0}
     p = run(a, b, "time")
-    assert (p.mean, p.shown) == (-20.0, True)
+    # lower is a win: both tasks are wins for A, but 2 of 2 gives sign p = 0.25: not shown
+    assert (p.mean, p.wins, p.losses, p.shown) == (-20.0, 2, 0, False)
 
 
 def test_false_pass_counts_runs_that_pass_every_visible_check_and_fail_a_hidden_one():
@@ -341,7 +344,7 @@ def _paired(kpi):
 )
 def test_each_kpi_is_shown_with_its_unit_and_places(kpi, unit, mean, interval):
     lines = render(_paired(kpi)).split("\n")
-    assert len(lines) == 5
+    assert len(lines) == 7
     assert lines[0] == f"paired firm vs single, {kpi} ({unit}), task set h"
     assert lines[2] == f"mean difference (firm - single): {mean}"
     assert lines[3] == f"95% interval: {interval} (10 task resamples, seed 3)"
@@ -376,3 +379,155 @@ def test_cost_per_delivery_says_so_when_unknown_costs_were_counted_as_zero():
         run(*sides([True, True], [True, True]), "cost_per_delivery")
     )
     assert "unknown cost" not in render(run(a, b, "delivery"))
+
+
+# --- pass_fraction: the secondary KPI, per-task share of hidden cases passed ---
+
+
+def cases(task, arm, passed, total, rep=1):
+    """A result with `total` hidden cases of which the first `passed` passed."""
+    hidden = {f"k{i}": "passed" if i < passed else "failed" for i in range(total)}
+    return dataclasses.replace(cell(task, arm, rep, ok=passed == total), hidden=hidden)
+
+
+def fraction_sides():
+    a = [
+        cases("t0", "firm", 4, 4),  # 1.0
+        cases("t1", "firm", 2, 4),  # 0.5
+        cases("t2", "firm", 1, 2, rep=1),  # runs 0.5 and 1.0 -> task value 0.75
+        cases("t2", "firm", 2, 2, rep=2),
+        cases("t3", "firm", 1, 2),  # only on A: unpaired
+        dataclasses.replace(cases("t2", "firm", 0, 2, rep=3), failure_class="infrastructure"),
+    ]
+    b = [
+        cases("t0", "single", 2, 4),  # 0.5
+        cases("t1", "single", 2, 4),  # 0.5
+        cases("t2", "single", 0, 2),  # 0.0
+        cases("t4", "single", 2, 2),  # only on B: unpaired
+    ]
+    return a, b
+
+
+def test_pass_fraction_pairs_per_task_and_matches_the_hand_computed_example():
+    a, b = fraction_sides()
+    assert task_values(a, "firm", "pass_fraction") == {"t0": 1.0, "t1": 0.5, "t2": 0.75, "t3": 0.5}
+    p = compare(a, b, "firm", "single", "pass_fraction", resamples=10_000, seed=0)
+    # diffs t0 +0.5, t1 0, t2 +0.75; t3 and t4 unpaired; the infrastructure cell is excluded
+    assert p.tasks == 3 and p.unpaired == 2 and p.infrastructure == 1
+    assert p.mean == pytest.approx((0.5 + 0.0 + 0.75) / 3)
+    assert (p.low, p.high) == bootstrap_interval([0.5, 0.0, 0.75], 10_000, 0)
+    assert (p.resamples, p.seed) == (10_000, 0)
+
+
+def test_pass_fraction_is_deterministic_for_seed_0_and_rendered_as_a_share():
+    a, b = fraction_sides()
+    first = compare(a, b, "firm", "single", "pass_fraction", resamples=2000, seed=0)
+    assert first == compare(a, b, "firm", "single", "pass_fraction", resamples=2000, seed=0)
+    assert "pass_fraction (share)" in render(first)
+
+
+def test_pass_fraction_gives_partial_credit_where_delivery_sees_a_tie():
+    a = [cases(f"t{i}", "firm", 3, 4) for i in range(8)]
+    b = [cases(f"t{i}", "single", 1, 4) for i in range(8)]
+    assert compare(a, b, "firm", "single", "delivery", resamples=500).mean == 0.0
+    p = compare(a, b, "firm", "single", "pass_fraction", resamples=500)
+    assert p.mean == pytest.approx(0.5) and p.shown
+
+
+def test_pass_fraction_cell_with_no_hidden_result_scores_zero_not_a_crash():
+    empty = dataclasses.replace(cell("t0", "firm", ok=False), hidden={})
+    assert task_values([empty], "firm", "pass_fraction") == {"t0": 0.0}
+
+
+def test_pass_fraction_no_shared_task_is_refused_like_delivery():
+    a = [cases("t0", "firm", 1, 2)]
+    b = [cases("t1", "single", 1, 2)]
+    with pytest.raises(ValueError, match="no task has a counted run on both sides"):
+        compare(a, b, "firm", "single", "pass_fraction")
+
+
+def test_pass_fraction_reads_the_command_line_flag_and_delivery_stays_the_default(tmp_path, capsys):
+    a, b = fraction_sides()
+    for side, side_cells in (("a", a), ("b", b)):
+        for r in side_cells:
+            r.save(cell_dir(tmp_path / side, r.task, r.arm, r.rep))
+    assert main([str(tmp_path / "a"), str(tmp_path / "b"), "--kpi", "pass_fraction"]) == 0
+    assert "pass_fraction (share)" in capsys.readouterr().out
+    assert main([str(tmp_path / "a"), str(tmp_path / "b")]) == 0
+    assert "delivery (share)" in capsys.readouterr().out
+
+
+# --- the exact one-sided sign test beside the interval; the verdict needs both ------------------
+
+
+def delivery_tasks(k, wins, losses=0):
+    """k tasks x 3 runs: the first `wins` go firm 1/3 vs single 0/3, the next `losses` the other
+    way, the rest 0-0."""
+    a, b = [], []
+    for i in range(k):
+        for rep in range(1, 4):
+            a_ok = i < wins and rep == 1
+            b_ok = wins <= i < wins + losses and rep == 1
+            a.append(cell(f"t{i:02d}", "firm", rep, ok=a_ok))
+            b.append(cell(f"t{i:02d}", "single", rep, ok=b_ok))
+    return a, b
+
+
+def test_the_worked_example_has_an_interval_above_zero_but_sign_p_0_0625_so_it_is_not_shown():
+    a, b = delivery_tasks(30, wins=4)
+    p = compare(a, b, "firm", "single", "delivery", resamples=10_000, seed=0)
+    assert (round(p.low, 3), round(p.high, 3)) == (0.011, 0.089)
+    assert p.low > 0
+    assert (p.wins, p.losses, p.n_nonzero, p.sign_p) == (4, 0, 4, 0.0625)
+    assert not p.shown
+    out = render(p)
+    assert "sign test (one-sided, ties dropped): 4 non-tied tasks, 4 wins for firm, 0 losses" in out
+    assert "p = 0.0625" in out and "AND sign-test p < 0.025" in out
+    assert out.endswith("verdict: not shown")
+
+
+def test_eight_wins_no_losses_is_p_0_0039_and_shown_when_the_interval_excludes_zero():
+    a, b = delivery_tasks(8, wins=8)
+    p = compare(a, b, "firm", "single", "delivery", resamples=2000)
+    assert (p.wins, p.losses, p.sign_p) == (8, 0, 1 / 256) and p.low > 0
+    assert p.shown and "p = 0.0039" in render(p)
+
+
+def test_losses_are_counted_and_make_the_p_larger():
+    a, b = delivery_tasks(12, wins=8, losses=2)
+    p = compare(a, b, "firm", "single", "delivery", resamples=500)
+    assert (p.wins, p.losses, p.n_nonzero) == (8, 2, 10)
+    assert p.sign_p == pytest.approx(56 / 1024)  # C(10,8)+C(10,9)+C(10,10) = 56
+    assert not p.shown
+
+
+def test_all_ties_is_p_1_and_not_shown():
+    a, b = sides([True] * 6, [True] * 6)
+    p = run(a, b)
+    assert (p.wins, p.losses, p.n_nonzero, p.sign_p) == (0, 0, 0, 1.0) and not p.shown
+    assert "0 non-tied tasks" in render(p) and "p = 1.0000" in render(p)
+
+
+def test_lower_is_better_kpis_count_a_cheaper_task_as_a_win():
+    a = [cell(f"t{i}", cost=1_000_000) for i in range(8)]
+    b = [cell(f"t{i}", "single", cost=3_000_000) for i in range(8)]
+    p = run(a, b, "cost_per_delivery")
+    assert (p.wins, p.losses) == (8, 0) and p.shown
+    q = run(b, a, "cost_per_delivery", arm_a="single", arm_b="firm")
+    assert (q.wins, q.losses) == (0, 8) and not q.shown
+
+
+def test_the_verdict_is_an_and_of_interval_and_sign_test():
+    from antstreet.bench.paired import sign_test
+
+    assert sign_test([0.1] * 8)[2] < 0.025
+    assert Paired(
+        "firm", "single", "delivery", "h", 8, 1, 0.5, 1, 10, 0, 0, 0, 0, 8, 0, 0.0039
+    ).shown
+    # interval excludes 0 but p is large -> not shown; p small but interval reaches 0 -> not shown
+    assert not Paired(
+        "firm", "single", "delivery", "h", 8, 1, 0.5, 1, 10, 0, 0, 0, 0, 4, 0, 0.0625
+    ).shown
+    assert not Paired(
+        "firm", "single", "delivery", "h", 8, 1, -0.5, 1, 10, 0, 0, 0, 0, 8, 0, 0.0039
+    ).shown
