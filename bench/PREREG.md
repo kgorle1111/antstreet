@@ -257,6 +257,262 @@ it takes an SG id and the shared paired test above does not apply.
   a fresh draft, not the draft of the original false-pass cell.
 - **Cost.** About $0.30 a set by `estimate`; owner approved about $2-3 in all; stop above $4.
 
+## E10 (DRAFT). Routed teams against single agents on CLI-Tool-Bench Python
+
+DRAFT — not registered until merged with the frozen pool's digest filled in. Written 2026-10-21,
+before any E10 cell, pilot included. Until a commit fills every `<...>` below and merges, nothing
+here is a pre-registration (S1), and this heading takes its `E10.` form, counted with the others,
+only in that commit.
+
+- **Why.** Every earlier experiment ran Haiku on tasks a single Haiku mostly solves (blind35: firm
+  64/105, single 62/105). A pilot of new, larger private tasks (hard-v1, 2026-10-16) did not make
+  them harder: Haiku 5.5 delivered three of five on 3/3, 2/3 and 3/3 runs, the other two missed by
+  1-4 checks, and its misses were mostly spec ambiguities. E10 asks the fund's question on an
+  external pool where a single Haiku fails: does a routed team, a stronger boss with cheap workers, deliver
+  more than one agent at the same dollar budget per task?
+- **Pool, by contract.** CLI-Tool-Bench (arXiv 2604.06742), its Python subset (34 tasks upstream):
+  a natural-language spec of a command-line tool, graded by running the product on inputs and
+  comparing with an oracle. The converter (branch `feat/bench-clitoolbench`, not merged when this
+  was drafted) is described by what it must do, not by its code:
+  - Freeze once, outside the repository: clone each oracle repo at a pinned commit, install it,
+    generate its cases with the fuzzer seeded (the upstream fuzzer is unseeded), run each case
+    against the oracle and record argv, stdin, input files, exit code, stdout and file-system
+    change. Network and third-party code run only here, never during a cell.
+  - Keep only the deterministic tiers. Each frozen case carries its own comparison, exact (EM) or
+    the benchmark's fuzzy match (FM), fixed per case before the digest. The upstream SM tier is an
+    LLM judge (GPT-5.4) and is dropped: no model scores any result (S7).
+  - Write each task in the imported layout (`bench/METHOD.md`, "Imported tasks"): the upstream spec
+    as `idea.md`, word for word, the same for every arm; one pytest test per frozen case in
+    `hidden/`; `meta.json` with the `imported` block, the oracle's repo, commit and creation date,
+    and the entry point both arms are told to provide.
+  - Validate before the digest: every case passes on the oracle on 3 runs, none passes on an empty
+    product, every test collects. A task that fails this, or whose oracle repo is gone (one is
+    already 404), or that the owner's dependency rule excludes, is dropped before the digest with
+    its reason listed. After the digest no task is dropped and no case changed; a grading defect
+    found later is reported, and the result is given with and without that task (S1).
+  - The pool is that folder: `N_pool` = `<N_POOL>` tasks (at most 34), ids `<POOL_IDS>`, digest
+    `<POOL_DIGEST>` (64 hex, `task_set_digest`, checked with `python3 -I
+    scripts/verify_task_set.py <POOL_DIR> --expect <POOL_DIGEST>`), 16-hex set hash `<SET_HASH>`.
+    The folder lives outside the repository.
+- **Pass rule, fixed now.** A cell delivers when every frozen case of its task passes; a case that
+  did not run (collection error, timeout, no product) fails. This is stricter than the upstream
+  headline: many upstream misses are output-format fidelity (side-effect match 45.7% falls to 23.5%
+  at EM, per the E10 source brief of 2026-10-21, not public), so delivery here will be low for
+  every arm. That is the rule anyway; no case is relaxed after any cell runs. The secondary figure, the case pass fraction, gives partial credit.
+- **Arms.** All model ids pinned (S2). One per-cell budget `B` for every arm (S8, below). The firm
+  arms take `--max-tasks 3`, so a boss may split the tool into up to three tasks (the integration
+  KPI needs a split to exist), `--boss-cap 2.00 --boss-timeout 900` (the $0.25 and 300 s defaults
+  were set on small specs; an Opus draft of a long spec would be cut off), and otherwise the `fund`
+  defaults (`--slice 0.10`, `--stall-slices 2 --max-slices 6`, one round).
+  1. `single-haiku`: single, `claude-haiku-5-5`.
+  2. `single-sonnet`: single, `claude-sonnet-5-5`.
+  3. `single-opus`: single, `claude-opus-5-5`.
+  4. `firm-sonnet`: boss `claude-sonnet-5-5`, workers start on `claude-haiku-5-5`, `--dispatch rules
+     --max-tier sonnet --tier-models haiku=claude-haiku-5-5,sonnet=claude-sonnet-5-5`: a fired worker
+     is replaced once by a pinned Sonnet worker.
+  5. `firm-opus`: boss `claude-opus-5-5`, the same worker ladder (Haiku, then Sonnet).
+  6. `firm-sonnet-nostep`: arm 4 plus `--no-step-up`, the U2 control: same route and pins, a fired
+     worker replaced on the same model.
+- **Equal budget.** `B` = 2 x the median cost of the pilot's `single-opus` cells, rounded up to the
+  cent, recorded in a dated change below before any stage-S cell (owner decision, 2026-10-14).
+  Planning value about $8 (range $4-16). Every arm's `--budget` is `B`. As in every earlier
+  experiment, the single arm's one slice is capped at 80% of `B` and the firm's boss calls are
+  booked on top of `B` (worst case `B` + $2.00 a draft), so the firm may spend more: each arm's
+  mean cost per assigned cell is reported beside every verdict, and a firm win that came with a
+  higher spend is reported as a cost, not a win. Wall clock is not equalised: a single agent has
+  one slice of at most 15 minutes, a firm worker that much per slice.
+- **Stages.**
+  1. *Pilot.* 3 tasks drawn from the pool by `random.Random(0).sample(sorted(ids), 3)`, every arm, 1
+     rep, at a pilot budget of $10 a cell. It measures per-cell cost and time, checks every cell's
+     model ids, and checks grading end to end. It fixes `B` and nothing else; its cells are never
+     counted in S or D, and its tasks stay in the pool. If 2 or 3 of the `single-opus` cells end
+     `capped`, their median is censored: `B` is then $16 and the censoring is recorded.
+  2. *Stage S (selection, S5).* `single-haiku` only, every pool task, 3 reps, at `B`. A task is kept
+     when it has 3 counted runs and at most 1 delivered (delivered ≤ 1/3). Infrastructure cells are
+     moved aside and rerun until each task has 3 counted runs. A dated change then records the
+     kept ids, their count `K` and the SHA-256 of the sorted, newline-joined ids, before any
+     stage-D cell.
+  3. *Stage D (decision).* Fresh cells only (no stage-S or pilot cell is reused), `--only` the kept
+     ids, 3 reps, every arm, with `--expect-set-digest <POOL_DIGEST>`. Run in two parts so the
+     cheaper arms run first: **D1** = arms 1, 2, 4 and 6 (every primary comparison lives here);
+     **D2** = arms 3 and 5, after D1 and only on the owner's go. Within each part the arms are
+     interleaved task by task (S3). Every D cell runs from one recorded commit.
+- **If too few tasks survive.** `K` ≥ 20: stage D runs. 10 ≤ `K` < 20: stage D runs only on the
+  owner's yes, and its verdicts are labelled as below with the larger MDE. `K` < 10: no stage D;
+  stage S is published as the result ("too few hard tasks to compare"). The keep rule is never
+  loosened to raise `K`.
+- **Pilot-scale, said now (S6).** The pool is below the 50-task floor: at most 34 tasks, likely
+  20-34 after selection. E10 on this pool is a pilot-scale decision: each verdict is computed by
+  the fixed test and reported with its minimum detectable effect beside it, and a "shown" from it
+  is a lead to repeat on a larger pool, not a finding. With an assumed SD of the per-task paired
+  difference of 0.4 (hard-v1's assumption, not measured), the effect detectable with 80% power at
+  the 95% level is about 2.8 x 0.4 / √K: 0.19 at K = 34, 0.20 at 30, 0.25 at 20, 0.35 at 10 (19 to
+  35 points of delivery). After stage D the observed SD replaces the assumption and the MDE is
+  reported from it.
+- **Seen-possible (S4).** The oracle repos were created 2024-03 to 2026-03, before the 5.5 models'
+  training ended. Every task is reported as "seen-possible", never "unseen"; each task's repo
+  creation date is listed with its result. No claim is split on it.
+- **Primary KPI.** Delivery (pass rule above), paired by task, 10,000 task resamples, seed 0 (S9).
+- **Hypotheses, each a separate claim (a pass on one is never reported as a pass on another).**
+  - **H1 (primary).** `firm-sonnet` delivers more than `single-sonnet` at `B`: shown only if the
+    paired interval of `firm-sonnet` minus `single-sonnet` lies above 0. Direction: firm higher.
+    Confidence it is shown: 10%. Most likely outcome (60%): not shown, point estimate at or below 0.
+  - **H2.** `firm-sonnet` delivers more than `single-haiku` at `B`: shown only if that interval lies
+    above 0. Confidence: 35%. Stage S selected these tasks on `single-haiku`'s failures, so only
+    fresh cells are compared (S5).
+  - **H3.** `firm-opus` delivers more than `single-opus` (D2): as H1. Confidence: 10%.
+  - **H4 (U2).** `firm-sonnet` delivers more than `firm-sonnet-nostep`: as H1. Confidence: 5%; the
+    U2 design expects 4-8 step-ups per 100 firm runs, too few to move delivery.
+- **Secondary KPI, named now.** Hidden-check pass fraction: per task, the mean over its counted runs
+  of the cell's passed cases over its cases, paired the same way, for H1-H4. Reported, never
+  decided on.
+- **Headlines beside delivery, reported per arm, not decided on.** Both answer outside critiques:
+  wrong boss checks ("garbage in, garbage out") and work that fails when the workers' parts meet.
+  - **False-pass rate** (KPI 2), with its Wilson interval: the firm said done when every visible
+    check passed; the single arm when its last status was `done`. Every hidden case here is
+    external, so a false pass is not the boss's own check grading itself.
+  - **Integration failure**: counted firm cells whose approved term sheet had 2 or more tasks, where
+    every task's worker passed all its visible checks and at least one hidden case failed, over the
+    counted firm cells with 2 or more tasks where every visible check passed; beside it, the share
+    of firm cells that split at all. "n/a" for single arms. With fewer than 10 split cells in an
+    arm, the counts are given without a rate.
+- **Reported, not decided on.** Cost per assigned cell and the pooled cost per delivered task (S8);
+  `paired --kpi cost_per_delivery` for H1-H4; time; investor questions; the step-up rescue
+  supplement for arms 4-6 (step-ups, rescue rate with its Wilson interval, $/rescue, same-tier
+  replacements; METHOD "Step-up rescue"); cells with a timed-out hidden case; the infrastructure
+  exclusions per arm, by kind. Check quality is not measured (no reference in our format).
+- **Prerequisites, each merged with tests before the stage that needs it.** Before the pilot: the
+  converter, the frozen pool and its digest (owner's OK for the one-time network freeze). Before
+  stage D: `paired --kpi hidden_fraction` (the secondary above) and a command counting
+  integration failures from result files and ledgers, both tested on synthetic cells. Until they
+  exist the two figures are not reported; they are never hand-computed for a verdict.
+- **Stop rules.**
+  - *Infrastructure.* The runner stops after 3 cells in a row end in the same infrastructure kind
+    (login, usage limit, unexpected model, no model recorded). A stop is a pause: the cause is
+    fixed, the cut cells moved aside, and the run resumes until every cell is counted. The runner's
+    count restarts with each invocation, so the stage-D driver also stops when an invocation exits
+    non-zero. No verdict is computed on a partial set; cells that cannot all be counted give "not
+    run to completion".
+  - *Provider drift.* Every invocation passes `--expect-models` with exactly its arm's ids: a cell
+    that names any other id is an infrastructure failure, never counted, and three in a row stop
+    the run. A provider change under the same id cannot be seen by this guard; interleaving (S3)
+    puts it on both sides of each D1 and D2 comparison, and only D2-against-D1 comparisons, which
+    are not interleaved, are exposed to it.
+  - *Budget.* Each stage stops when its known spend passes its ceiling: pilot $60, stage S $55, D1
+    $750, D2 $1,250 (the high column below, rounded up). After the pilot each later stage is
+    re-estimated from the pilot's per-cell medians in the same dated change that fixes `B`; a
+    stage also stops at 1.5 x its re-estimate. A budget stop is a pause for the owner, who may fund
+    the rest; otherwise "not run to completion".
+  - *Floor.* If no pilot cell delivers (0 of 18), the owner decides before any stage-S cell whether
+    E10 runs with delivery primary as written or, by a dated change, makes the case pass fraction
+    primary. That choice is made before any stage-S or stage-D result exists.
+- **Machine (S11).** `--jobs 1` (a slice cut off mid-run has its spend on no ledger line, so one
+  cell at a time keeps such a loss visible and small). A run is
+  detached (`nohup` under `caffeinate -dimsu`), on mains power, with no other test suite, build or
+  benchmark running. `uptime` is written to the run log before and after every invocation, with
+  the commit SHA, `claude --version` and the OS version; a part whose 1-minute load average stayed
+  above 4 for an invocation is reported with it. Cells cut by sleep or a kill are moved aside and
+  rerun, never deleted.
+- **Licence and publication (S10).** The CLI-Tool-Bench repository has no LICENSE (the oracle repos
+  are MIT or Apache). Until its authors answer, the converter, the commands, the digest, every
+  result file, ledger and product are published, and the frozen task files are not; text from a
+  spec inside a published file (term sheets, transcripts) is withheld or redacted the same way.
+  Anyone can rebuild the pool with the converter and check it against `<POOL_DIGEST>`.
+- **Cost.** Per-cell figures are planning estimates, not measurements: single Haiku from the E10
+  brief ($0.05-0.20, up to $0.50 if tasks are 2.5x the size it assumed), the rest from the hard-v1
+  design, each 0.5x-2x. No CLI-Tool-Bench cell has run. Stage D assumes `K` = 30 (low 20, high 34),
+  3 reps.
+
+  | Arm | $/cell low-mid-high | Pilot (3 cells) | Stage S (`N_pool` x 3) | D (K x 3), mid | D low-high |
+  |---|---|---|---|---|---|
+  | single-haiku | 0.05-0.10-0.50 | $0.30 | $10 ($5-51) | $9 | $3-51 |
+  | single-sonnet | 1.00-2.00-4.00 | $6 | | $180 | $60-408 |
+  | firm-sonnet | 0.35-0.70-1.40 | $2.10 | | $63 | $21-143 |
+  | firm-sonnet-nostep | 0.35-0.70-1.40 | $2.10 | | $63 | $21-143 |
+  | single-opus | 2.00-4.00-8.00 | $12 | | $360 | $120-816 |
+  | firm-opus | 1.00-2.00-4.00 | $6 | | $180 | $60-408 |
+
+  Pilot $28.50 ($14-58). Stage S $10 ($5-51). D1 (arms 1, 2, 4, 6): 90 task-reps x $3.50 = $315
+  ($105-745). D2 (arms 3, 5): 90 x $6.00 = $540 ($180-1,224). Total about $894 (range $304-2,078),
+  of which $354 is spent before D2 (pilot, S, D1). Worst case if every cell spent its whole budget
+  at `B` = $8: $6.40 a single cell (80% of `B`), at least $10 a firm cell (`B` plus a $2.00 boss
+  draft), so D1 alone could reach 90 x $32.80 = $2,952; the budget stops above end any stage long
+  before that.
+  Needs the owner's yes per stage before any spend.
+- **Commands.** `<POOL_DIR>`, `<POOL_DIGEST>`, `<B>` and the id lists are filled by the commit that
+  registers this entry (pool, digest) and by the dated changes after the pilot (`B`) and stage S
+  (kept ids).
+
+  ```bash
+  H=claude-haiku-5-5 S=claude-sonnet-5-5 O=claude-opus-5-5
+  POOL=<POOL_DIR> DIGEST=<POOL_DIGEST>
+  python3 -I scripts/verify_task_set.py "$POOL" --expect "$DIGEST"
+  FIRM="--max-tasks 3 --boss-cap 2.00 --boss-timeout 900 --dispatch rules --max-tier sonnet --tier-models haiku=$H,sonnet=$S"
+  arm() {  # arm NAME OUT_PREFIX BUDGET REPS [runner args...]
+    local name=$1 out=$2 budget=$3 reps=$4; shift 4
+    local common=(--tasks "$POOL" --expect-set-digest "$DIGEST" --budget "$budget" --reps "$reps" --jobs 1)
+    case $name in
+      single-haiku)  set -- --arms single --model $H --expect-models $H "$@" ;;
+      single-sonnet) set -- --arms single --model $S --expect-models $S "$@" ;;
+      single-opus)   set -- --arms single --model $O --expect-models $O "$@" ;;
+      firm-sonnet)   set -- --arms firm --model $H --boss-model $S --firm-args "$FIRM" --expect-models $H,$S "$@" ;;
+      firm-sonnet-nostep) set -- --arms firm --model $H --boss-model $S --firm-args "$FIRM --no-step-up" --expect-models $H,$S "$@" ;;
+      firm-opus)     set -- --arms firm --model $H --boss-model $O --firm-args "$FIRM" --expect-models $H,$S,$O "$@" ;;
+    esac
+    uptime; uv run python -m antstreet.bench.run --out "bench/results/raw/$out-$name" "${common[@]}" "$@"; local rc=$?; uptime; return $rc
+  }
+
+  # Pilot: 3 tasks, every arm, 1 rep, $10 a cell.
+  PILOT=$(uv run python -c "import random,sys; from pathlib import Path; from antstreet.bench.tasks import load_tasks; print(' '.join(random.Random(0).sample(sorted(t.id for t in load_tasks(Path(sys.argv[1]))), 3)))" "$POOL")
+  for t in $PILOT; do for a in single-haiku single-sonnet firm-sonnet firm-sonnet-nostep single-opus firm-opus; do
+    arm $a e10-pilot 10.00 1 --only $t || exit 1; done; done
+  uv run python -m antstreet.bench.kpi bench/results/raw/e10-pilot-*
+
+  # Stage S: single Haiku, every task, 3 reps, at B; then the keep rule.
+  arm single-haiku e10-s <B> 3
+  uv run python - bench/results/raw/e10-s-single-haiku <<'EOF'
+  import hashlib, sys
+  from collections import defaultdict
+  from pathlib import Path
+  from antstreet.bench.results import load_results
+  runs = defaultdict(list)
+  for r in load_results(Path(sys.argv[1])):
+      if r.arm == "single" and r.counted:
+          runs[r.task].append(r.passed)
+  short = sorted(t for t, v in runs.items() if len(v) != 3)
+  if short:
+      sys.exit(f"not 3 counted runs: {short}; rerun their infrastructure cells first")
+  kept = sorted(t for t, v in runs.items() if sum(v) <= 1)
+  print(len(kept), "of", len(runs), "kept:", " ".join(kept))
+  print("kept-ids sha256:", hashlib.sha256("\n".join(kept).encode()).hexdigest())
+  EOF
+
+  # Stage D: fresh cells, kept ids, 3 reps, at B, interleaved task by task.
+  KEPT="<KEPT_IDS>"
+  for t in $KEPT; do for a in single-haiku single-sonnet firm-sonnet firm-sonnet-nostep; do   # D1
+    arm $a e10-d <B> 3 --only $t || exit 1; done; done
+  for t in $KEPT; do for a in single-opus firm-opus; do                                        # D2
+    arm $a e10-d <B> 3 --only $t || exit 1; done; done
+
+  # Decisions (S9), each pasted whole into the write-up.
+  D=bench/results/raw/e10-d
+  uv run python -m antstreet.bench.paired $D-firm-sonnet $D-single-sonnet --kpi delivery          # H1
+  uv run python -m antstreet.bench.paired $D-firm-sonnet $D-single-haiku --kpi delivery           # H2
+  uv run python -m antstreet.bench.paired $D-firm-opus $D-single-opus --kpi delivery              # H3
+  uv run python -m antstreet.bench.paired $D-firm-sonnet $D-firm-sonnet-nostep --arm-b firm --kpi delivery  # H4
+  uv run python -m antstreet.bench.kpi $D-*
+  ```
+
+  `paired` warns when the two sides' worker models differ (H1-H3): expected here, since the model
+  is part of what each arm is.
+
+  Each stage is run detached as a script holding these lines (`nohup caffeinate -dimsu bash
+  e10-<stage>.sh > e10-<stage>.log 2>&1 &`), after the same lines with `--dry-run` have listed its
+  cells and checked the digest. The scripts and logs are published with the results.
+- **Not in E10.** `--fix-after-stop` with the critic (E4c's question) and a pilot recorded at a
+  loose firing policy (`--stall-slices 4 --max-slices 10`, to calibrate the breakers) need their own
+  entries. hard-v1 and NL2Repo are other pools, not this one.
+
 ## Not tested, and why
 
 Debate, personas and extra roles (product manager, consultant, demo writer, judge) show no gain at
@@ -313,3 +569,5 @@ equal compute in the literature. They stay off by default and are not claimed to
 - 2026-10-13, after the E9 run (a record, not a change to its rule): E9's runner passed the `haiku` alias, and the alias moved from `claude-haiku-4-5-20251001` to `claude-haiku-5-5` while the arms ran one after another, so 80 of the coverage arm's cells ran on Haiku 4.5 and every firm and single cell on Haiku 5.5. E9's verdict stands as computed; its write-up reports it as not a fair test of `--coverage`. Later experiments pin dated model ids.
 - 2026-10-13, E4c stopped by owner decision before completion: experiments now use the latest models only (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`), and E4c's baseline ran on `claude-haiku-4-5-20251001`. It had 2 complete cells and 2 partial ones; no result was read and no verdict is computed ("not run to completion", as its infrastructure rule says). The cells are kept, not deleted. Its question, a fix round after a locked round (`--fix-after-stop`), moves to the next experiment on a harder benchmark.
 - 2026-10-13, a fix to a task, not to the plan: the `roman` strict check (`test_from_roman_strict.py`) looked up each of 19,607 strings in a 3,999-entry dict, and the gate's comparison guard walked that dict on every lookup, so it took 13.8 s through the gate instead of 0.04 s. It now uses `dict.get`, which the guard does not wrap, and asserts the keys are exact `str` so the lookup still runs no product code; what it accepts and rejects is unchanged. The 59-task set hash moves from `0a83fc97a753b08c` to `ed6fd905c106f6a6`, and the original 17's from `c130282a6eec5fe8` to `42c28f8aab61d518` (`roman` is one of them). Earlier mutant-kill data for `roman` counted two false kills: with a 10 s limit the mutants `from_roman_strips_whitespace` and `to_roman_accepts_bool` were "killed" by this check timing out, though it passes them; `from_roman_rejects` and `to_roman_types` kill them. Published numbers are kept as recorded, and the `roman` mutant-kill figures in them are not directly comparable with a run on the new file. The validation limit returns from 120 s to 30 s.
+- 2026-10-21: E10 drafted, before any E10 cell (pilot included). It is a draft, not a
+  registration, until the commit that fills in the frozen pool's digest merges.
