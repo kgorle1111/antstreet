@@ -122,6 +122,24 @@ def test_python_readable_is_the_resolved_installation_and_environment():
     assert list(paths) == sorted(set(paths))
 
 
+def test_python_readable_keeps_every_folder_on_the_interpreters_link_chain(tmp_path, monkeypatch):
+    # uv links a venv's python through a per-minor-version folder link; under bwrap /home is an
+    # empty tmpfs, so a link folder that is not bound again leaves `execvp` with no file.
+    real = tmp_path / "cpython-3.12.13" / "bin"
+    real.mkdir(parents=True)
+    (real / "python3.12").write_text("")
+    minor = tmp_path / "cpython-3.12"
+    minor.symlink_to(tmp_path / "cpython-3.12.13", target_is_directory=True)
+    venv_bin = tmp_path / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(minor / "bin" / "python3.12")
+    monkeypatch.setattr(sys, "executable", str(venv_bin / "python"))
+    monkeypatch.setattr(sys, "base_prefix", str(minor))
+    paths = python_readable()
+    assert venv_bin in paths and minor / "bin" in paths  # the link chain, as written
+    assert minor in paths and minor.resolve() in paths  # the prefix as written and resolved
+
+
 # --- detection ------------------------------------------------------------------------------
 
 

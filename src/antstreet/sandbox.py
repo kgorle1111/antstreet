@@ -21,6 +21,7 @@ from functools import cache
 from pathlib import Path
 
 _PROBE_TIMEOUT_S = 30
+_MAX_LINKS = 40  # as the kernel's own limit on a chain of symbolic links
 _REASON_CHARS = 400  # the tail of the tool's stderr kept in an error message
 TOOLS = {"Darwin": "sandbox-exec", "Linux": "bwrap"}
 
@@ -172,9 +173,21 @@ class Sandbox:
 
 
 def python_readable() -> tuple[Path, ...]:
-    """The interpreter's installation and virtualenv, without which `python -I -m pytest` fails."""
+    """The interpreter's installation and virtualenv, without which `python -I -m pytest` fails.
+
+    Each prefix as written and resolved, and the folder of every link from `sys.executable` to the
+    real binary: under bwrap /home is an empty tmpfs, so a link through a path that is not bound
+    again (uv's per-minor-version link folder, for one) dangles and `execvp` fails.
+    """
     prefixes = (sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix)
-    return tuple(sorted({Path(p).resolve() for p in prefixes}))
+    paths = {Path(os.path.abspath(p)) for p in prefixes} | {Path(p).resolve() for p in prefixes}
+    link = Path(os.path.abspath(sys.executable))
+    for _ in range(_MAX_LINKS):
+        paths.add(link.parent)
+        if not link.is_symlink():
+            break
+        link = Path(os.path.abspath(link.parent / os.readlink(link)))
+    return tuple(sorted(paths))
 
 
 def missing_hint(system: str | None = None) -> str:
