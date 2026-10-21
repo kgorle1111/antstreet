@@ -577,3 +577,179 @@ def test_delivery_names_the_cells_with_a_timed_out_hidden_check():
     card = kpi_card(cells)
     assert card.timeout_cells == 1 and card.delivered == 1
     assert "(1/2); 1 with a timed-out hidden check" in render_cards([("c", card)])
+
+
+# --- step-up rescue: a supplement to the seven, from ledgers and cells only ----------------------
+
+
+def approved_on(route: str | None) -> Event:
+    return ev("investor", EventType.APPROVED, hashes={}, **({"route": route} if route else {}))
+
+
+def hire(worker: str, tier: str, from_tier: str | None = None, effort: str = "default") -> Event:
+    dispatch = {"tier": tier, "effort": effort, "why": "term sheet"}
+    if from_tier is not None:
+        dispatch |= {"from_tier": from_tier, "why": "predecessor fired: no progress"}
+    return ev("boss", EventType.HIRED, worker=worker, task="t1", model=tier, dispatch=dispatch)
+
+
+def a_slice(worker: str, cost: int | None, passing: tuple[str, ...], n: int = 1) -> list[Event]:
+    end = Event(
+        run="r1",
+        round=1,
+        actor=f"worker:{worker}",
+        event=EventType.SLICE_END,
+        cost_micros=cost,
+        data={"slice": n, "outcome": "completed", "status": {"status": "continuing"}},
+    )
+    checks = [
+        ev("boss", EventType.CHECK_RESULT, worker=worker, slice=n, check=c,
+           status="passed" if c in passing else "failed")
+        for c in ("c1", "c2")
+    ]  # fmt: skip
+    return [end, *checks]
+
+
+def stepped_up(
+    after: tuple[str, ...],
+    *,
+    route: str | None = "firm",
+    cost: int | None = 40_000,
+    tiers: tuple[str, str] = ("haiku", "sonnet"),
+    effort: str = "default",
+) -> list[Event]:
+    """w1 on tiers[0] fails; w2, hired from it, ends with `after` checks passing."""
+    return [
+        approved_on(route),
+        hire("w1", tiers[0]),
+        *a_slice("w1", 10_000, ()),
+        ev("boss", EventType.FIRED, worker="w1", reason="no progress"),
+        hire("w2", tiers[1], from_tier=tiers[0], effort=effort),
+        *a_slice("w2", cost, after),
+    ]
+
+
+BOTH = ("c1", "c2")
+
+
+def rescue_card(rows: list[tuple[CellResult, list[Event]]]) -> KpiCard:
+    return kpi_card([r for r, _ in rows], {(r.task, r.arm, r.rep): ev_ for r, ev_ in rows})
+
+
+def rescue_line(card: KpiCard, route: str = "firm") -> str:
+    shown = render_cards([("c", card)])
+    return next(line for line in shown.splitlines() if line.strip().startswith(f"{route}:"))
+
+
+def test_8_a_step_up_that_reaches_done_in_a_cell_that_delivered_is_a_delivered_rescue():
+    card = rescue_card([(cell(), stepped_up(BOTH))])
+    [firm] = card.rescue
+    assert (firm.route, firm.step_ups, firm.visible, firm.delivered) == ("firm", 1, 1, 1)
+    assert "100% [21-100%] (1/1)" in rescue_line(card)
+    assert "n=1 step-up" in rescue_line(card)
+
+
+def test_8_a_step_up_that_fails_is_a_step_up_and_no_rescue():
+    card = rescue_card([(cell(hidden=FAIL), stepped_up(("c1",)))])
+    [firm] = card.rescue
+    assert (firm.step_ups, firm.visible, firm.delivered) == (1, 0, 0)
+    assert "0% [0-79%] (0/1)" in rescue_line(card)
+
+
+def test_8_an_effort_only_step_is_counted_apart_and_never_as_a_step_up():
+    ledger = stepped_up(BOTH, tiers=("sonnet", "sonnet"), effort="high")
+    card = rescue_card([(cell(), ledger)])
+    [firm] = card.rescue
+    assert (firm.step_ups, firm.same_tier) == (0, 1)
+    line = rescue_line(card)
+    assert "no step-ups" in line and "1 same-tier replacement" in line
+    assert "NaN" not in line and "0/0" not in line
+
+
+def test_8_a_false_rescue_is_visible_but_a_hidden_check_failed():
+    card = rescue_card([(cell(hidden=FAIL), stepped_up(BOTH))])
+    [firm] = card.rescue
+    assert (firm.step_ups, firm.visible, firm.delivered) == (1, 1, 0)
+    line = rescue_line(card)
+    assert "0% [0-79%] (0/1)" in line and "1 false rescue" in line
+
+
+def test_8_an_unknown_cost_slice_makes_the_cost_per_rescue_a_lower_bound():
+    known = rescue_card([(cell(), stepped_up(BOTH, cost=40_000))])
+    assert "$0.0400 per rescue" in rescue_line(known)
+    assert "lower bound" not in rescue_line(known)
+    unknown = rescue_card([(cell(), stepped_up(BOTH, cost=None))])
+    [firm] = unknown.rescue
+    assert (firm.cost_micros, firm.unknown_slices) == (0, 1)
+    assert "$0.0000 per rescue (lower bound)" in rescue_line(unknown)
+
+
+def test_8_an_interrupted_slice_of_the_step_up_worker_is_unknown_cost_too():
+    lost = Event(
+        run="r1", round=1, actor="worker:w2", event=EventType.ERROR, cost_micros=None,
+        data={"interrupted_slice": 1},
+    )  # fmt: skip
+    ledger = [*stepped_up(BOTH), lost]
+    [firm] = rescue_card([(cell(), ledger)]).rescue
+    assert firm.unknown_slices == 1 and firm.cost_micros == 40_000
+
+
+def test_8_cost_counts_every_step_up_worker_but_divides_by_delivered_rescues_only():
+    rows = [
+        (cell(task="t1"), stepped_up(BOTH, cost=40_000)),
+        (cell(task="t2", hidden=FAIL), stepped_up(("c1",), cost=60_000)),
+    ]
+    line = rescue_line(rescue_card(rows))
+    assert "50% [9-91%] (1/2)" in line and "n=2 step-ups" in line
+    assert "$0.1000 per rescue" in line  # (40k + 60k) / 1 delivered rescue
+
+
+def test_8_no_delivered_rescue_gives_no_cost_per_rescue():
+    line = rescue_line(rescue_card([(cell(hidden=FAIL), stepped_up(("c1",), cost=60_000))]))
+    assert "$/rescue n/a (0 delivered rescues; step-up workers cost $0.0600)" in line
+
+
+def test_8_the_route_split_keeps_one_agent_and_firm_apart():
+    rows = [
+        (cell(task="t1"), stepped_up(BOTH, route="firm")),
+        (cell(task="t2", hidden=FAIL), stepped_up(("c1",), route="one_agent")),
+        (cell(task="t3"), [approved_on("one_agent"), hire("w1", "haiku"), *a_slice("w1", 1, BOTH)]),
+    ]
+    card = rescue_card(rows)
+    assert [(r.route, r.step_ups, r.delivered) for r in card.rescue] == [
+        ("firm", 1, 1),
+        ("one_agent", 1, 0),
+    ]
+    shown = render_cards([("c", card)])
+    assert "firm: 100%" in shown and "one_agent: 0%" in shown
+
+
+def test_8_a_route_with_no_step_up_says_so_in_its_own_line():
+    rows = [(cell(), [approved_on("one_agent"), hire("w1", "haiku"), *a_slice("w1", 1, BOTH)])]
+    line = rescue_line(rescue_card(rows), "one_agent")
+    assert line.strip() == "one_agent: no step-ups"
+
+
+def test_8_zero_step_ups_everywhere_is_a_clear_line_not_nan():
+    shown = render_cards([("c", kpi_card([cell()], {("t1", "firm", 1): asked(1)}))])
+    assert "no step-ups" in shown
+    assert "NaN" not in shown and "0/0" not in shown
+
+
+def test_8_cells_without_a_ledger_are_counted_beside_not_dropped_silently():
+    card = kpi_card([cell()], {})
+    assert card.rescue == () and card.rescue_unrecorded == 1
+    assert "1 cell without a ledger" in render_cards([("c", card)])
+
+
+def test_8_an_infrastructure_cell_is_left_out_of_the_rescue_counts():
+    infra = cell(hidden=FAIL, failure_class="infrastructure")
+    card = rescue_card([(infra, stepped_up(BOTH)), (cell(task="t2"), stepped_up(BOTH))])
+    assert [r.step_ups for r in card.rescue] == [1]
+
+
+def test_8_the_rescue_is_read_by_the_live_rule_a_dropped_check_does_not_block_done():
+    dropped = ev("investor", EventType.RULED, ruling="dropped", check="c2")
+    ledger = [*stepped_up(("c1",)), dropped]
+    [firm] = rescue_card([(cell(), ledger)]).rescue
+    assert firm.visible == 1

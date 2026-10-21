@@ -19,15 +19,34 @@ from typing import NamedTuple
 
 from antstreet.bench.results import CellResult, cell_dir, load_results, models_text
 from antstreet.bench.table import _counted, _duration, _visible_pass
+from antstreet.dispatch import TIERS
+from antstreet.held_out import SCOPE as HELD_OUT_SCOPE
 from antstreet.kpi import investor_questions, single_said_done
-from antstreet.ledger import Event, LedgerError
+from antstreet.ledger import Event, EventType, LedgerError
 from antstreet.report import dollars
+from antstreet.rule import Decision, FiringPolicy, decide
+from antstreet.rulings import DROPPED, ruled
 from antstreet.rundir import RunPaths
+from antstreet.state import slice_history
 from antstreet.stats import md_table, pct, rate
 
 CellKey = tuple[str, str, int]  # (task, arm, rep)
+NO_ROUTE = "no route recorded"  # the run was not dispatched (`approved` carries no `route`)
 NOTE = "Intervals are Wilson 95%. Overlapping intervals mean no demonstrated difference."
 SETS_WARNING = "WARNING: columns ran different task sets; a difference may be the tasks."
+
+
+@dataclass(frozen=True, slots=True)
+class RouteRescue:
+    """Step-up rescue counts of one route's cells (see bench/METHOD.md, "Step-up rescue")."""
+
+    route: str  # the approved `route`, or NO_ROUTE
+    step_ups: int  # hired workers whose tier ranks above their fired predecessor's
+    visible: int  # step-ups whose own slice history reaches DONE under rule.decide
+    delivered: int  # of those, in a cell where every hidden check passed
+    same_tier: int  # replacements on the predecessor's tier (an effort step), never step-ups
+    cost_micros: int  # known cost of every step-up worker's slices
+    unknown_slices: int  # slices of those workers of unknown cost, never folded into cost_micros
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +73,8 @@ class KpiCard:
     boss_checks: int | None  # boss checks in the cells where that was measured
     models: str = "none recorded"  # the model ids the column's cells ran (results.models_text)
     timeout_cells: int = 0  # counted cells with a hidden check that hit a time limit
+    rescue: tuple[RouteRescue, ...] = ()  # per route, from the ledgers found; () with none
+    rescue_unrecorded: int = 0  # counted cells whose ledger was not found: in no rescue figure
 
 
 def _said_done(r: CellResult, ledger: Sequence[Event] | None) -> bool | None:
@@ -94,6 +115,7 @@ def kpi_card(
         investor_questions(ledgers[k]) for r in cells if (k := (r.task, r.arm, r.rep)) in ledgers
     ]
     measured = [r for r in cells if r.wrong_checks is not None]
+    with_ledger = [(r, ledgers[k]) for r in cells if (k := (r.task, r.arm, r.rep)) in ledgers]
     return KpiCard(
         arm=arm,
         counted=len(cells),
@@ -116,6 +138,76 @@ def kpi_card(
         boss_checks=sum(r.visible_total or 0 for r in measured) if measured else None,
         models=models_text(results),
         timeout_cells=sum(bool(r.hidden_timeouts) for r in cells),
+        rescue=_rescue(with_ledger),
+        rescue_unrecorded=len(cells) - len(with_ledger),
+    )
+
+
+def _route(events: Sequence[Event]) -> str:
+    """The route the investor approved, from the first `approved` that carries one."""
+    return next(
+        (
+            str(e.data["route"])
+            for e in events
+            if e.event is EventType.APPROVED and e.actor == "investor" and "route" in e.data
+        ),
+        NO_ROUTE,
+    )
+
+
+def _rescue(cells: Sequence[tuple[CellResult, Sequence[Event]]]) -> tuple[RouteRescue, ...]:
+    """Per route, how many hired workers stepped up in tier, and how many of those were rescues.
+
+    Only from `hired` (`data.dispatch.from_tier` and `tier`), each worker's slice history read by
+    `rule.decide` as the live firm reads it, and the cell's hidden result. A replacement on the
+    predecessor's own tier is counted apart: it is an effort step or a same-model replacement."""
+    rank = {tier: i for i, tier in enumerate(TIERS)}
+    tally: dict[str, list[int]] = {}
+    for r, events in cells:
+        counts = tally.setdefault(_route(events), [0, 0, 0, 0, 0, 0])
+        history = slice_history(events)
+        dropped = ruled(events, DROPPED)
+        for hired in (e for e in events if e.event is EventType.HIRED):
+            d = hired.data.get("dispatch")
+            tier, was = (d.get("tier"), d.get("from_tier")) if isinstance(d, dict) else (None, None)
+            if tier not in rank or was not in rank:
+                continue
+            if rank[tier] == rank[was]:
+                counts[3] += 1
+                continue
+            if rank[tier] < rank[was]:
+                continue
+            worker = str(hired.data.get("worker"))
+            checks = (
+                frozenset(
+                    str(e.data["check"])
+                    for e in events
+                    if e.event is EventType.CHECK_RESULT
+                    and e.data.get("worker") == worker
+                    and e.data.get("scope") != HELD_OUT_SCOPE
+                    and "check" in e.data
+                )
+                - dropped
+            )
+            records = history.get(worker, [])
+            reached = bool(checks) and any(
+                decide(checks, records[:n], FiringPolicy()).decision is Decision.DONE
+                for n in range(1, len(records) + 1)
+            )
+            counts[0] += 1
+            counts[1] += reached
+            counts[2] += reached and r.passed
+            counts[4] += sum(x.cost_micros or 0 for x in records)
+            counts[5] += sum(x.cost_micros is None for x in records)
+            # a slice lost to a crash of the run is booked as an `error` of unknown cost
+            counts[5] += sum(
+                e.actor == f"worker:{worker}"
+                and e.event is EventType.ERROR
+                and "interrupted_slice" in e.data
+                for e in events
+            )
+    return tuple(
+        RouteRescue(route, c[0], c[1], c[2], c[3], c[4], c[5]) for route, c in sorted(tally.items())
     )
 
 
@@ -170,6 +262,43 @@ def _check_quality(c: KpiCard) -> str:
     return f"{c.wrong_checks}/{c.boss_checks} wrong ({pct(c.wrong_checks / c.boss_checks)})"
 
 
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}{'s' * (n != 1)}"
+
+
+def _route_rescue(x: RouteRescue) -> str:
+    same = f"{_plural(x.same_tier, 'same-tier replacement')} (not step-ups)"
+    if not x.step_ups:
+        return "no step-ups" + (f"; {same}" if x.same_tier else "")
+    out = rate(x.delivered, x.step_ups, counts="after")
+    out += f" delivered rescues, n={_plural(x.step_ups, 'step-up')}"
+    if x.visible > x.delivered:
+        out += f"; {_plural(x.visible - x.delivered, 'false rescue')} (visible, not delivered)"
+    if x.same_tier:
+        out += f"; {same}"
+    bound = " (lower bound)" if x.unknown_slices else ""
+    if not x.delivered:
+        spent = f"step-up workers cost {dollars(x.cost_micros)}{bound}"
+        return out + f"; $/rescue n/a (0 delivered rescues; {spent})"
+    return out + f"; {dollars(round(x.cost_micros / x.delivered))} per rescue{bound}"
+
+
+def _rescue_block(columns: Sequence[tuple[str, KpiCard]]) -> list[str]:
+    out = ["Step-up rescue (a supplement to the seven; split by route, from ledgers):"]
+    for label, c in columns:
+        out.append(f"  {label}:")
+        if c.arm == "single":
+            out.append("    n/a (the single arm hires no replacement)")
+            continue
+        out += [f"    {x.route}: {_route_rescue(x)}" for x in c.rescue]
+        missing = _plural(c.rescue_unrecorded, "cell") + " without a ledger"
+        if not c.rescue:
+            out.append(f"    not recorded ({missing})")
+        elif c.rescue_unrecorded:
+            out.append(f"    {missing}, not in these figures")
+    return out
+
+
 def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
     """One table: a row per KPI, a column per labelled card, then the sample sizes."""
     if not columns:
@@ -191,6 +320,7 @@ def render_cards(columns: Sequence[tuple[str, KpiCard]]) -> str:
     mixed = len({c.task_sets for _, c in columns}) > 1
     out = [SETS_WARNING, ""] if mixed else []
     out += md_table(["KPI", *labels], [[name, *cells] for name, cells in rows])
+    out += ["", *_rescue_block(columns)]
     out += ["", "Sample sizes (counted cells over tasks; infrastructure failures excluded):"]
     out += [
         f"  {label}: {c.counted} cells over {c.tasks} tasks ({c.infrastructure} excluded)"
