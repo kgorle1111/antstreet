@@ -1152,3 +1152,184 @@ def test_the_image_digest_reaches_the_index_and_the_manifest(tmp_path: Path) -> 
     assert json.loads((out / "index.json").read_text())["image_digest"] == DIGEST
     manifest = imported.convert_clitoolbench_all(out, tmp_path / "pool")
     assert manifest["image_digest"] == DIGEST
+
+
+# --- every refusal path of the converter, named by what it refuses ---------------------------
+
+
+def header(**change: Any) -> dict[str, Any]:
+    oracle = {
+        "url": "https://github.com/acme/greet.git",
+        "commit": COMMIT,
+        "licence": "MIT",
+        "python": "3.12.7",
+        "deps": [],
+        "programs": ["greet"],
+    }
+    oracle.update(change.pop("oracle", {}))
+    return {"oracle": oracle, **change}
+
+
+@pytest.mark.parametrize(
+    ("top", "message"),
+    [
+        (header(test_data_dir="relative/dir"), "test_data_dir must be an absolute path"),
+        (header(ignore_dirs=["../up"]), "ignore_dirs must be a list of folder names"),
+        (header(flags="not-a-list"), "flags must be a list"),
+        (header(oracle={"url": ""}), "oracle.url must be a short string"),
+        (header(oracle={"commit": "xyz"}), "oracle.commit must be a 40-hex git sha"),
+        (header(oracle={"deps": "click"}), "oracle.deps must be a list of strings"),
+        (header(oracle={"programs": ["a-b", "a.b"]}), "map to the same module 'a_b'"),
+    ],
+)
+def test_each_bad_header_field_is_refused_by_name(
+    tmp_path: Path, top: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(ConvertError, match=re.escape(message)):
+        convert_clitoolbench(frozen(tmp_path, **top), tmp_path / "tasks")
+    assert not (tmp_path / "tasks").exists()
+
+
+def without(key: str) -> list[dict[str, Any]]:
+    c = json.loads(json.dumps(CASES[0]))
+    if key == "expected.stdout":
+        del c["expected"]["stdout"]
+    else:
+        del c[key]
+    return [c]
+
+
+@pytest.mark.parametrize(
+    ("cases", "message"),
+    [
+        (without("argv"), "keys must be"),
+        (without("expected.stdout"), "expected must have exit_code, stdout and fs_delta"),
+        (bad(argv="greet World"), "argv must be null or a list of strings"),
+        (bad(env=["GREETING=Hi"]), "env must be an object"),
+        (bad(fixtures=["names.txt"]), "fixtures must be an object"),
+        (bad(fixtures={"a": {"base64": "%%%"}}), "is not valid base64"),
+        (bad(fixtures={"a": 5}), "must be text or"),
+        (bad(fs_delta=["out.txt"]), "fs_delta must be an object"),
+        (
+            bad(fs_delta={"o": {"type": "ADD", "sha256": sha("x"), "content": 5}}),
+            "not base64 up to 1 MiB",
+        ),
+    ],
+)
+def test_each_bad_case_field_is_refused_by_name(
+    tmp_path: Path, cases: list[dict[str, Any]], message: str
+) -> None:
+    with pytest.raises(ConvertError, match=re.escape(message)):
+        convert_clitoolbench(frozen(tmp_path, cases), tmp_path / "tasks")
+
+
+def test_fixtures_over_the_per_case_total_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(imported, "MAX_CASE_FIXTURE_BYTES", 10)
+    cases = bad(fixtures={"a": "x" * 6, "b": "y" * 6})
+    with pytest.raises(ConvertError, match="fixtures total more than 10 bytes"):
+        convert_clitoolbench(frozen(tmp_path, cases), tmp_path / "tasks")
+
+
+def test_a_program_name_is_made_a_module_name_python_can_run() -> None:
+    assert imported._modules(["files-to-prompt", "1tool", "a.b"]) == {
+        "files-to-prompt": "files_to_prompt",
+        "1tool": "_1tool",
+        "a.b": "a_b",
+    }
+
+
+def test_an_empty_spec_a_second_conversion_and_a_missing_or_linked_folder_are_refused(
+    tmp_path: Path,
+) -> None:
+    src = frozen(tmp_path / "a")
+    convert_clitoolbench(src, tmp_path / "t")
+    with pytest.raises(ConvertError, match="already exists"):
+        convert_clitoolbench(src, tmp_path / "t")
+    (src / "spec.md").write_text("  \n")
+    with pytest.raises(ConvertError, match="spec.md is empty"):
+        convert_clitoolbench(src, tmp_path / "t2")
+    with pytest.raises(ConvertError, match="cannot read"):
+        convert_clitoolbench(tmp_path / "nowhere", tmp_path / "t3")
+    (tmp_path / "linked").symlink_to(src, target_is_directory=True)
+    with pytest.raises(ConvertError, match="is a symlink or not a folder"):
+        convert_clitoolbench(tmp_path / "linked", tmp_path / "t3")
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [("{not json", "(skipped.json is not valid JSON)"), ('["no", "reason"]', "(no reason given)")],
+)
+def test_a_skipped_json_without_a_usable_reason_still_refuses(
+    tmp_path: Path, text: str, reason: str
+) -> None:
+    src = frozen(tmp_path)
+    (src / "skipped.json").write_text(text)
+    with pytest.raises(ConvertError, match=re.escape(reason)):
+        convert_clitoolbench(src, tmp_path / "t")
+
+
+# --- the playback reads a tool's arguments only where the shell line makes them plain --------
+
+
+@pytest.mark.parametrize(
+    ("command", "argv"),
+    [
+        ("greet World --shout", ["World", "--shout"]),
+        ("printf 'Bo\\n' | greet --stdin", ["--stdin"]),
+        ("greet a && echo done", ["a"]),
+        ("greet a > {TEST_DATA}/out.txt", ["a"]),
+        ("greet 'unbalanced", None),  # the shell itself would refuse it
+        ("greet a; greet b", None),  # runs twice: which run printed what is unknown
+        ("echo hi", None),  # never runs the tool
+        ('greet "$(cat {TMP}/n.txt)"', None),  # the shell computes the argument
+        ("X=$HOME greet a", None),  # an expansion before the tool
+    ],
+)
+def test_the_playback_identifies_only_plainly_readable_runs(
+    command: str, argv: list[str] | None
+) -> None:
+    assert imported._replay_argv(command, "greet") == argv
+
+
+def test_a_replay_that_did_not_run_sandboxed_is_a_problem_before_anything_else() -> None:
+    report = imported.ReplayReport(1.0, ("c0001",), (), ("c0001",), sandboxed=False)
+    assert report.problem == "the replay did not run sandboxed"
+
+
+# --- --all refuses a bad freeze output as a whole ---------------------------------------------
+
+
+def test_convert_all_refuses_a_freeze_output_it_cannot_trust(tmp_path: Path, capsys: Any) -> None:
+    (tmp_path / "file").write_text("x")
+    for target, message in (
+        (tmp_path / "file", "is a symlink or not a folder"),
+        (tmp_path / "missing", "cannot read"),
+    ):
+        with pytest.raises(ConvertError, match=message):
+            imported.convert_clitoolbench_all(target, tmp_path / "pool")
+    out = freeze_output(tmp_path)
+    index = json.loads((out / "index.json").read_text())
+    for broken, message in (
+        ({**index, "format": "other/1"}, "format must be"),
+        ({**index, "skipped": ["acme/gone"]}, "skipped must be an object"),
+    ):
+        (out / "index.json").write_text(json.dumps(broken))
+        with pytest.raises(ConvertError, match=message):
+            imported.convert_clitoolbench_all(out, tmp_path / "pool")
+    assert main(["nl2repo", str(out), str(tmp_path / "pool"), "--all"]) == 2
+    assert "--all is for clitoolbench" in capsys.readouterr().err
+    assert not (tmp_path / "pool").exists()
+
+
+def test_convert_all_never_overwrites_a_task_already_in_the_pool(tmp_path: Path) -> None:
+    out = freeze_output(tmp_path)
+    pool = tmp_path / "pool"
+    imported.convert_clitoolbench_all(out, pool)
+    (pool / "clitoolbench-manifest.json").unlink()  # a second run into the same pool
+    manifest = imported.convert_clitoolbench_all(out, pool)
+    assert manifest["kept"] == []
+    reasons = {r["task"]: r["reason"] for r in manifest["dropped"]}
+    assert "clitb-greet already exists" in reasons["acme/greet"]
+    assert not list(pool.glob("staging-*"))

@@ -454,3 +454,13 @@ def test_a_bad_limit_is_refused_at_load(task, bad):
     (task.root / "meta.json").write_text(json.dumps(meta))
     with pytest.raises(TaskError, match="test_timeout_s"):
         load_task(task.root)
+
+
+def test_a_missing_spec_or_an_unparseable_command_list_is_named(tmp_path):
+    src = make_source(tmp_path)
+    (src / "test_commands.json").write_text("{not json")
+    with pytest.raises(ConvertError, match="test_commands.json is not valid JSON"):
+        convert_nl2repo(src, tmp_path / "t")
+    (src / "start.md").unlink()
+    with pytest.raises(ConvertError, match="cannot read .*start.md"):
+        convert_nl2repo(src, tmp_path / "t")
